@@ -11,12 +11,18 @@ public struct MobileGit: Sendable {
     public let roots: any MobileFileRootsProvider
     public let reader: any MobileGitReader
 
-    public init(files: MobileFilesConfiguration = .standard, configuration: MobileGitConfiguration = MobileGitConfiguration(),
+    public init(files: MobileFilesConfiguration, configuration: MobileGitConfiguration = MobileGitConfiguration(),
                 roots: any MobileFileRootsProvider, reader: any MobileGitReader) {
         self.files = files
         self.configuration = configuration
         self.roots = roots
         self.reader = reader
+    }
+
+    /// Over the same configuration and roots as the host's files family.
+    public init(sharing files: MobileFiles, configuration: MobileGitConfiguration = MobileGitConfiguration(),
+                reader: any MobileGitReader) {
+        self.init(files: files.configuration, configuration: configuration, roots: files.roots, reader: reader)
     }
 
     /// `handlers` plus the `git.status` and `git.diff` reads.

@@ -12,9 +12,12 @@ final class MobileHostContext: Sendable {
     let daemon: any MobileDaemon
     let handlers: MobileChannelHandlers
     let clock: LinkClock
+    let tasks: MobileTaskService?
 
     init(configuration: MobileHostConfiguration, authorizer: any MobileDeviceAuthorizer, owner: WorkspaceStreamOwner,
-         executor: MobileOpExecutor, daemon: any MobileDaemon, handlers: MobileChannelHandlers, clock: LinkClock) {
+         executor: MobileOpExecutor, daemon: any MobileDaemon, handlers: MobileChannelHandlers, clock: LinkClock,
+         tasks: MobileTaskService? = nil) {
+        self.tasks = tasks
         self.configuration = configuration
         self.authorizer = authorizer
         self.owner = owner
@@ -29,8 +32,11 @@ final class MobileHostContext: Sendable {
                gate: MobileSessionGate) async {
         switch open.kind {
         case .rpc:
+            var reads = handlers.reads
+            if let tasks { reads["task.list"] = TaskListReadHandler(service: tasks) }
             await MobileRpcService(channel: channel, principal: principal, owner: owner, executor: executor,
-                                   readHandlers: handlers.reads, gate: gate).run()
+                                   readHandlers: reads, gate: gate,
+                                   extraStreams: tasks.map { [$0.owner] } ?? []).run()
         case .terminal:
             await TerminalChannelBridge(channel: channel, open: open, principal: principal, owner: owner,
                                         daemon: daemon, gate: gate).run()

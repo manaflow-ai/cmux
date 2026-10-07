@@ -45,7 +45,12 @@ import Testing
         let key = IntentKey()
         let started = try await sink.dispatch(
             TaskDraft(hostID: MockFixtures.studio, workspaceID: "ws_studio1", agentID: "codex", prompt: "go"), key: key)
-        #expect(started == .started(key: key, workspaceID: "ws_studio1"))
+        let prefix = String(key.rawValue.prefix(8))
+        #expect(started == .started(key: key, workspaceID: "ws_studio1", taskID: "task_" + prefix, tabID: "tab_" + prefix))
+        let unavailable = try await sink.dispatch(TaskDraft(hostID: MockFixtures.studio, agentID: "opencode", prompt: "go"),
+                                                  key: IntentKey())
+        guard case .refused = unavailable else { Issue.record("expected refusal for an unavailable agent"); return }
+        #expect(await sink.taskHub.current.value.first?.state == .running)
     }
 
     @Test func pairedMacsAreReadOnlyInHostsStore() async throws {

@@ -1,6 +1,7 @@
 public import CmuxiOSFeatureKit
 public import CmuxiOSWorkspacesCore
 import CmuxiOSTerminal
+public import CmuxTerminalRenderCore
 public import UIKit
 
 /// Lane C5's entry point: the Workspaces tab over a `WorkspaceSource`, the
@@ -11,6 +12,10 @@ public import UIKit
 public final class WorkspacesFeature {
     public let source: any WorkspaceSource
     let terminalSources: any WorkspaceTerminalSourceFactory
+    /// Screens for non-terminal surfaces (C2: a Mac browser tab).
+    let surfaces: SurfaceScreenFactories
+    /// The device's terminal look (C11) for every host terminal it opens.
+    let appearance: (any TerminalAppearanceProviding)?
     let isMock: Bool
     private let store: WorkspaceViewPreferencesStore
     /// Client view state: filter, sort, grouping, hidden and ordered Macs.
@@ -22,9 +27,13 @@ public final class WorkspacesFeature {
     private weak var navigation: UINavigationController?
 
     public init(source: any WorkspaceSource, terminalSources: any WorkspaceTerminalSourceFactory,
+                surfaces: SurfaceScreenFactories = SurfaceScreenFactories(),
+                appearance: (any TerminalAppearanceProviding)? = nil,
                 preferences: WorkspaceViewPreferencesStore = WorkspaceViewPreferencesStore(), isMock: Bool = false) {
         self.source = source
         self.terminalSources = terminalSources
+        self.surfaces = surfaces
+        self.appearance = appearance
         self.isMock = isMock
         store = preferences
         self.preferences = preferences.load()
@@ -86,8 +95,17 @@ public final class WorkspacesFeature {
 
     func openTerminal(_ target: WorkspaceTerminalTarget, from presenter: UIViewController) {
         let source = terminalSources.makeSource(for: target)
-        let screen = TerminalViewController(source: source, title: target.title)
+        let screen = TerminalViewController(source: source, title: target.title, appearance: appearance)
         screen.hidesBottomBarWhenPushed = true
+        screen.navigationItem.largeTitleDisplayMode = .never
+        // The title bar holds the terminal's title, badge and menu: a bare back chevron.
+        presenter.navigationItem.backButtonDisplayMode = .minimal
+        presenter.navigationController?.pushViewController(screen, animated: true)
+    }
+
+    /// Opens a Mac browser tab through the injected factory (lane C2).
+    func openBrowser(_ tab: BrowserTabInfo, hostID: HostID, from presenter: UIViewController) {
+        guard let screen = surfaces.browser?(tab, hostID) else { return }
         screen.navigationItem.largeTitleDisplayMode = .never
         presenter.navigationController?.pushViewController(screen, animated: true)
     }

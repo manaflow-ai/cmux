@@ -29,7 +29,7 @@ public struct MobileFileClient: Sendable {
     /// gets (bytes the Mac holds or the link accepted, total), starting with
     /// the resume offset.
     public func upload(_ file: URL, name: String, mime: String, sha256: String, dest: FilesUploadDestination,
-                       progress: @Sendable (UInt64, UInt64) -> Void = { _, _ in }) async throws -> FilesUploadDone {
+                       progress: @Sendable (UInt64, UInt64) async -> Void = { _, _ in }) async throws -> FilesUploadDone {
         let source = try FileReader(url: file)
         let size = source.size
         let params = FilesUploadParams(name: name, size: size, mime: mime, sha256: sha256, dest: dest)
@@ -43,7 +43,7 @@ public struct MobileFileClient: Sendable {
         }
         return try await withTaskCancellationHandler {
             var offset = resume.offset
-            progress(offset, size)
+            await progress(offset, size)
             while offset < size {
                 try Task.checkCancellation()
                 let data = try source.read(at: offset, count: Int(min(UInt64(chunk), size - offset)))
@@ -53,7 +53,7 @@ public struct MobileFileClient: Sendable {
                     throw await Self.closure(of: channel) ?? MobileClientError.disconnected
                 }
                 offset += UInt64(data.count)
-                progress(offset, size)
+                await progress(offset, size)
             }
             try await channel.send(message: FilesUploadEnd(sha256: sha256).message)
             switch await channel.receive() {
@@ -80,7 +80,7 @@ public struct MobileFileClient: Sendable {
     /// the Mac's file changed, the part is discarded and the download restarts.
     public func download(_ path: String, into part: URL, expectedSHA256: String? = nil,
                          opened: @Sendable (FilesDownloadOpenedParams) async -> Void = { _ in },
-                         progress: @Sendable (UInt64, UInt64) -> Void = { _, _ in }) async throws -> FilesDownloadOpenedParams {
+                         progress: @Sendable (UInt64, UInt64) async -> Void = { _, _ in }) async throws -> FilesDownloadOpenedParams {
         let writer = try FileWriter(url: part)
         var offset = writer.length
         var (channel, info) = try await openDownload(path, offset: offset)
@@ -95,7 +95,7 @@ public struct MobileFileClient: Sendable {
         let size = info.size
         let live = channel
         return try await withTaskCancellationHandler {
-            progress(offset, size)
+            await progress(offset, size)
             receive: while true {
                 try Task.checkCancellation()
                 switch await live.receive() {
@@ -107,7 +107,7 @@ public struct MobileFileClient: Sendable {
                     }
                     try writer.write(chunk.data, at: offset)
                     offset += UInt64(chunk.data.count)
-                    progress(offset, size)
+                    await progress(offset, size)
                     if flags.contains(.fin) { break receive }
                 case .json(let value):
                     await live.abort()

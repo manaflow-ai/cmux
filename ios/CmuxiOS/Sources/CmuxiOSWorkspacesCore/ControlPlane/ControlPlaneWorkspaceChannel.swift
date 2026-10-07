@@ -10,8 +10,12 @@ import Foundation
 /// only while the socket is negotiated and the Mac is `online`; sleeping,
 /// paused or disconnected Macs refuse ops (nothing queues). When the Mac
 /// comes back online, undecided ops are resent with their keys.
+///
+/// `streamKind` picks the Mac-owned stream: `workspace` (C5) or `task` (C8's
+/// composer, `task:<host>`); both have the same mirror and op semantics.
 public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
     private let hostID: HostID
+    private let streamKind: String
     private let reasons: ControlPlaneChannelReasons
     private let makeClient: @Sendable () async throws -> ControlPlaneClient
     private var client: ControlPlaneClient?
@@ -26,14 +30,15 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
     private var updateSink: AsyncStream<WorkspaceStreamUpdate>.Continuation?
     private var closed = false
 
-    public init(hostID: HostID, reasons: ControlPlaneChannelReasons,
+    public init(hostID: HostID, reasons: ControlPlaneChannelReasons, streamKind: String = "workspace",
                 makeClient: @escaping @Sendable () async throws -> ControlPlaneClient) {
         self.hostID = hostID
+        self.streamKind = streamKind
         self.reasons = reasons
         self.makeClient = makeClient
     }
 
-    var workspaceStream: String { "workspace:" + hostID.rawValue }
+    var workspaceStream: String { streamKind + ":" + hostID.rawValue }
     var hostStream: String { "host:" + hostID.rawValue }
 
     // MARK: WorkspaceControlChannel
