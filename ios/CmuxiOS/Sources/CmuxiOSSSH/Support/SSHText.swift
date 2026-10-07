@@ -154,6 +154,8 @@ enum SSHText {
             String(localized: "ssh.failure.shell", defaultValue: "The server refused to start a shell.", bundle: .module)
         case .network:
             String(localized: "ssh.failure.network", defaultValue: "Can’t reach the server.", bundle: .module)
+        case .sessionGone:
+            String(localized: "ssh.failure.session-gone", defaultValue: "This session is no longer on the server.", bundle: .module)
         }
     }
 

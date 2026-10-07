@@ -18,6 +18,8 @@ public enum SSHSessionFailure: Error, Hashable, Sendable {
     case shellRejected
     /// Network trouble: unreachable, timed out, or the connection dropped.
     case network
+    /// The discovered session to attach to is no longer listed (E3).
+    case sessionGone
 
     /// Whether a later attempt can succeed without the user changing anything.
     public var isRetryable: Bool { self == .network }
