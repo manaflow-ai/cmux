@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextLayout
 
 /// What the chat dock refuses (lawrence-call-1006 D): it is a docked
