@@ -48,6 +48,19 @@ mod tests {
         assert!(!applies(&args(&["workspace", "list"]), Surface::Cmux));
         assert!(!applies(&[], Surface::Cmux));
         assert_eq!(run(&args(&["--help"])), 0);
+        // The store link named `cmux` keeps the surface; the resolved
+        // executable (`cmux-tui`) would lose the `host` verb.
+        let exe = Some(std::path::PathBuf::from("/opt/cmux/store/abc/bin/cmux-tui"));
+        let link = std::ffi::OsStr::new("/opt/cmux/current/bin/cmux");
+        assert_eq!(
+            self_argv_for(Some(link), exe.clone()),
+            args(&["/opt/cmux/current/bin/cmux", "host"])
+        );
+        assert_eq!(
+            self_argv_for(Some(std::ffi::OsStr::new("cmux")), exe.clone()),
+            args(&["/opt/cmux/store/abc/bin/cmux-tui", "host"])
+        );
+        assert_eq!(self_argv_for(None, None), Vec::<String>::new());
         assert_eq!(run(&args(&["bogus"])), 2);
     }
 }
