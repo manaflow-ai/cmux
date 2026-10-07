@@ -3068,7 +3068,7 @@
       }
       const scope = this._cookieScope(title);
       // A lazy page's tab opens now, so every call below names that tab.
-      if (scope.targetId.startsWith("lazy:")) scope.targetId = await this._session._materialize(this);
+      if (String(scope.targetId).startsWith("lazy:")) scope.targetId = await this._session._materialize(this);
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.

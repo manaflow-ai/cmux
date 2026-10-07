@@ -46,10 +46,10 @@ struct BrowserReplKeyResendTests {
         #expect(delivered.isBrowserAutomationKeyEvent)
     }
 
-    @Test func keysCmuxBrowserPressSendsAreMarkedAsAutomation() throws {
+    @Test func keysCmuxBrowserPressSendsAreMarkedAsAutomation() async throws {
         let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         let event = try #require(BrowserKeyboardEvent(rawKey: "q"))
-        #expect(webView.replayBrowserKeyboardEvent(event, action: .press) == .delivered)
+        #expect(await webView.replayBrowserKeyboardEvent(event, action: .press) == .delivered)
         let delivered = try #require(webView.keyDowns.first)
         #expect(delivered.isBrowserAutomationKeyEvent)
     }
