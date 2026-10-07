@@ -455,3 +455,5 @@ mod rb_client_tests;
 mod session_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod upstream_tests;
