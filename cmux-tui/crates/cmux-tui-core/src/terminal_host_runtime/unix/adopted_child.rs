@@ -38,7 +38,21 @@ fn is_zombie(pid: libc::pid_t) -> bool {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn is_zombie(pid: libc::pid_t) -> bool {
+    // `SZOMB` in <sys/proc.h>: the process exited and was not reaped yet.
+    const SZOMB: u32 = 5;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).unwrap_or(0);
+    // SAFETY: proc_pidinfo writes at most `size` bytes into `info`.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    // SAFETY: a full-size answer initialized the whole struct.
+    written == size && size > 0 && unsafe { info.assume_init() }.pbi_status == SZOMB
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn is_zombie(_pid: libc::pid_t) -> bool {
     false
 }
