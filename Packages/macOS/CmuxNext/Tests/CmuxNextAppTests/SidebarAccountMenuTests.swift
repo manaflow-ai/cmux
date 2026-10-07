@@ -10,11 +10,11 @@ import Testing
     private let leo = SidebarFooterAccount(name: "Leo Li", email: "leo@example.com")
 
     @Test func theAccountItemCarriesTheSignedInUsersAvatarAndName() {
-        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, account: leo)
+        let infos = SidebarItemPresentation.infos(for: .defaults, registered: { _ in true }, account: leo)
         let info = infos[LayoutItemID("itm_account")]
         #expect(info?.avatar?.initials == "LL")
         #expect(info?.title == "Leo Li", "Show Label on the avatar shows the name")
-        let signedOut = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true })[LayoutItemID("itm_account")]
+        let signedOut = SidebarItemPresentation.infos(for: .defaults, registered: { _ in true })[LayoutItemID("itm_account")]
         #expect(signedOut?.avatar == nil && signedOut?.title == SectionStrings.account)
         #expect(SidebarFooterAccount(name: nil, email: "ada@example.com")?.name == "ada@example.com")
         #expect(SidebarFooterAccount(name: " ", email: nil) == nil)

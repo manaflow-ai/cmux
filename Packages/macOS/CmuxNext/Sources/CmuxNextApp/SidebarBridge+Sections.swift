@@ -96,9 +96,9 @@ extension SidebarBridge {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 AccountAvatarImages.shared.load(auth?.isSignedIn == true ? auth?.user?.profileImageURL : nil)
-                let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
-                                          unread: unread, account: account,
-                                          app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
+                let infos = SidebarItemPresentation.infos(for: layout, registered: { registry.action(for: $0) != nil },
+                                                          unread: unread, account: account,
+                                                          app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -113,37 +113,6 @@ extension SidebarBridge {
             if let shortcut = registry.shortcutDisplay(for: action) { shortcuts[action] = shortcut }
         }
         return shortcuts
-    }
-
-    /// Presentation of every built-in item in `layout`; `registered` says
-    /// whether an action exists. Notifications carries `unread`, and each
-    /// built-in carries its action's `shortcut` for its tooltip. The update
-    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
-    /// The account item draws the signed-in `account`'s avatar and name.
-    static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
-                         unread: Int = 0, account: SidebarFooterAccount? = nil,
-                         app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
-                         shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
-        var infos: [LayoutItemID: SidebarItemInfo] = [:]
-        for section in layout.sections {
-            for item in section.items {
-                if item.ref.kind == LayoutItemRef.appKind {
-                    infos[item.id] = app(item.ref.value)
-                    continue
-                }
-                guard let builtIn = item.ref.builtIn else { continue }
-                var info = builtIn.defaultInfo
-                info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
-                info.shortcut = builtInActions[builtIn].flatMap(shortcut)
-                if builtIn == .notifications { info.badge = unread > 0 ? unread : nil }
-                if builtIn == .account, let account {
-                    info.title = account.name
-                    info.avatar = account.avatar
-                }
-                infos[item.id] = info
-            }
-        }
-        return infos
     }
 
     /// How an app item draws: its name and symbol; hidden while the app is
@@ -179,5 +148,40 @@ extension SidebarBridge {
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
         do { try services.sidebarLayout.send(op) } catch { services.registry.refuse(String(describing: error)) }
+    }
+}
+
+/// How each layout item draws, from the layout and the app state (pure, so
+/// tests build it directly).
+enum SidebarItemPresentation {
+    /// Presentation of every built-in item in `layout`; `registered` says
+    /// whether an action exists. Notifications carries `unread`, and each
+    /// built-in carries its action's `shortcut` for its tooltip. The update
+    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
+    /// The account item draws the signed-in `account`'s avatar and name.
+    static func infos(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
+                      unread: Int = 0, account: SidebarFooterAccount? = nil,
+                      app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
+                      shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
+        var infos: [LayoutItemID: SidebarItemInfo] = [:]
+        for section in layout.sections {
+            for item in section.items {
+                if item.ref.kind == LayoutItemRef.appKind {
+                    infos[item.id] = app(item.ref.value)
+                    continue
+                }
+                guard let builtIn = item.ref.builtIn else { continue }
+                var info = builtIn.defaultInfo
+                info.isMissing = !(SidebarBridge.builtInActions[builtIn].map(registered) ?? false)
+                info.shortcut = SidebarBridge.builtInActions[builtIn].flatMap(shortcut)
+                if builtIn == .notifications { info.badge = unread > 0 ? unread : nil }
+                if builtIn == .account, let account {
+                    info.title = account.name
+                    info.avatar = account.avatar
+                }
+                infos[item.id] = info
+            }
+        }
+        return infos
     }
 }

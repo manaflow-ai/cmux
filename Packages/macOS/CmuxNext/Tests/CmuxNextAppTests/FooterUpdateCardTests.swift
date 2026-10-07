@@ -135,7 +135,7 @@ import CmuxNextSettings
 
     /// The gear's tooltip names Settings and its shortcut.
     @Test func theGearTooltipNamesSettingsAndItsShortcut() {
-        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true },
+        let infos = SidebarItemPresentation.infos(for: .defaults, registered: { _ in true },
                                            shortcut: { $0 == "openSettings" ? "⌘," : nil })
         let settings = infos[LayoutItemID("itm_settings")]
         #expect(settings?.shortcut == "⌘,")
