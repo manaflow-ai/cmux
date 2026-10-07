@@ -1,3 +1,4 @@
+public import CmuxAgentQuestion
 public import Foundation
 
 /// One content part of a message. Mirrors the conversation owner's `Part`.
@@ -8,6 +9,9 @@ public enum MessagePart: Hashable, Sendable, Codable {
     case work(WorkRef)
     /// A question an agent asks a human; answered with `approval.decide`.
     case approval(ApprovalRef)
+    /// An agent's question with options (plans/cmux-next/agent-questions.md);
+    /// a person answers it with `HomeOp.answerQuestion`.
+    case question(AgentQuestion)
     /// A file or image, stored by content hash (bytes go to blob storage first).
     case attachment(AttachmentRef)
     /// A link with its preview (fetched by the owner, never by the client).
@@ -20,6 +24,7 @@ public enum MessagePart: Hashable, Sendable, Codable {
         case .text(let text, _): text
         case .work(let work): work.preview ?? work.title
         case .approval(let approval): approval.prompt
+        case .question(let question): question.transcriptText
         case .attachment(let file): file.name
         case .linkPreview(let link): link.title ?? link.url
         case .location(let place): place.label ?? "\(place.latitude), \(place.longitude)"
