@@ -94,7 +94,7 @@ enum SidebarFooterPresentationPolicy {
         isProActive: Bool,
         isProStatusKnown: Bool = true
     ) -> Bool {
-        featureFlagEnabled
+        featureFlagEnabled && isProStatusKnown && !isProActive
     }
 }
 
