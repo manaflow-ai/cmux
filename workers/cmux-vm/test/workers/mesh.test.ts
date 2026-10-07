@@ -69,7 +69,15 @@ describe("the experiment flag", () => {
         .replace("{deviceId}", "dev_00000000000000000000000000")
         .replace("{tunnelId}", "tun_00000000000000000000000000")
         .replace("{vmId}", "vm_00000000000000000000000000");
-      const response = await call(path, key, endpoint.method, endpoint.method === "GET" || endpoint.method === "DELETE" ? undefined : {});
+      const body =
+        endpoint.name === "enrollDevice"
+          ? { name: "laptop", wgPublicKey: KEY_1 }
+          : endpoint.name === "putMeshAcl"
+            ? { expectedVersion: 0, rules: [] }
+            : endpoint.method === "POST"
+              ? {}
+              : undefined;
+      const response = await call(path, key, endpoint.method, body);
       expect(response.status, endpoint.name).toBe(404);
       expect(await json(response)).toEqual({ _tag: "NotFound", message: "Not found" });
     }
@@ -147,7 +155,16 @@ describe("device enrollment", () => {
     expect(body["clientPublicKey"]).toBe(KEY_1);
     const mesh = await json(await call(`/v1/meshes/${meshId}`, key));
     expect(body["routes"]).toEqual([mesh["ipv4Cidr"]]);
-    expect(tunnel).toMatchObject({ id: tunnelId, meshId, deviceId, mtu: 1280, persistentKeepaliveSeconds: 25, allowedIps: [mesh["ipv4Cidr"]] });
+    expect(tunnel).toMatchObject({
+      id: tunnelId,
+      meshId,
+      deviceId,
+      endpointHost: "203.0.113.30",
+      endpointPort: 51820,
+      mtu: 1280,
+      persistentKeepaliveSeconds: 25,
+      allowedIps: [mesh["ipv4Cidr"]],
+    });
     const text = JSON.stringify(tunnel);
     expect(text).not.toMatch(/private/iu);
     expect(text).not.toContain("tun-");

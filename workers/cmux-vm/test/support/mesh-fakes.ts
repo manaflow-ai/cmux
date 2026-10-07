@@ -68,6 +68,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   /** Answers the networking routes; null for anything else (the next fake answers it). */
   const upstream = async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
+    if (url.hostname === "cloudflare-dns.com") {
+      // DNS over HTTPS for the per-tunnel endpoint names: they all resolve to one gateway.
+      const host = url.searchParams.get("name") ?? "";
+      return host.endsWith(".beta-vpn.example") ? json({ Status: 0, Answer: [{ name: host, type: 1, TTL: 60, data: "203.0.113.30" }] }) : json({ Status: 3 });
+    }
     const path = url.pathname;
     const method = request.method;
     const isMesh =
