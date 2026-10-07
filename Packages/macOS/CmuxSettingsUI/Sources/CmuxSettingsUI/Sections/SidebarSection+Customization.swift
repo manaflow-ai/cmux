@@ -6,9 +6,96 @@ extension SidebarSection {
     @ViewBuilder
     var customizationRows: some View {
         SettingsCardRow(
+            configurationReview: .json("sidebarAppearance.compositorGlass"),
+            String(localized: "settings.sidebar.liquidGlass", defaultValue: "Liquid Glass"),
+            subtitle: String(localized: "settings.sidebar.liquidGlass.subtitle", defaultValue: "Blur what is behind the window through the sidebar.")
+        ) {
+            Toggle("", isOn: Binding(get: { liquidGlass.current }, set: { liquidGlass.set($0) }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        SettingsCardDivider()
+
+        SettingsCardRow(
+            configurationReview: .json("sidebarAppearance.glassBlurRadius"),
+            String(localized: "settings.sidebar.blurOpacity", defaultValue: "Blur Opacity"),
+            subtitle: String(localized: "settings.sidebar.blurOpacity.subtitle", defaultValue: "How much the glass blurs what is behind the window. 0% is the lightest blur; higher is frostier."),
+            controlWidth: 250
+        ) {
+            HStack(spacing: 8) {
+                // Shown as a percentage of the blur range: 0% is the lightest
+                // blur (the floor), 100% the frostiest.
+                let blurRadius = glassBlurDraft ?? glassBlur.current
+                let floor = Self.glassBlurRange.lowerBound
+                Slider(
+                    value: Binding(
+                        get: { blurRadius / floor },
+                        set: { multiplier in
+                            let radius = (multiplier * floor).rounded()
+                            glassBlurDraft = radius
+                            debounceGlassWrite("glassBlur") { glassBlur.set(radius) }
+                        }
+                    ),
+                    in: 1.0...(Self.glassBlurRange.upperBound / floor),
+                    onEditingChanged: { editing in
+                        guard !editing, let draft = glassBlurDraft else { return }
+                        glassBlurDraft = nil
+                        flushGlassWrite("glassBlur") { glassBlur.set(draft) }
+                    }
+                )
+                .frame(width: 130)
+                .accessibilityIdentifier("SettingsSidebarGlassBlurSlider")
+
+                Text("\(Int(((blurRadius - floor) / (Self.glassBlurRange.upperBound - floor) * 100).rounded()))%")
+                    .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+
+                Button(String(localized: "settings.sidebar.glassBlur.reset", defaultValue: "Reset")) {
+                    glassBlurDraft = nil
+                    glassBlur.set(floor)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(abs(blurRadius - floor) < 0.5)
+            }
+        }
+        .disabled(!liquidGlass.current)
+        SettingsCardDivider()
+
+        SettingsCardRow(
+            configurationReview: .json("sidebarAppearance.tintColor"),
+            String(localized: "settings.sidebar.tintColor", defaultValue: "Tint Color"),
+            subtitle: String(localized: "settings.sidebar.tintColor.subtitle", defaultValue: "The color laid over the glass.")
+        ) {
+            HStack(spacing: 8) {
+                if glassTintHex.current != Self.defaultGlassTintHex {
+                    Button(String(localized: "settings.sidebar.tintColor.reset", defaultValue: "Reset")) {
+                        glassTintHex.reset()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                HexColorPicker(
+                    storedHex: glassTintHex.current,
+                    fallback: Color.gray,
+                    reconcileRevision: glassTintHex.revision
+                ) { hex in
+                    glassTintHex.set(hex)
+                }
+                Text(glassTintHex.current)
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+            }
+        }
+        SettingsCardDivider()
+
+        SettingsCardRow(
             configurationReview: .json("sidebarAppearance.tintOpacity"),
-            String(localized: "settings.sidebar.glassTint", defaultValue: "Sidebar Tint"),
-            subtitle: String(localized: "settings.sidebar.glassTint.subtitle", defaultValue: "How strongly the sidebar's glass is coloured, docked or floating. 0% is clear glass; 100% is a solid panel."),
+            String(localized: "settings.sidebar.tintOpacity", defaultValue: "Tint Opacity"),
+            subtitle: String(localized: "settings.sidebar.tintOpacity.subtitle", defaultValue: "How strongly the tint color covers the glass. 0% is clear glass; 100% is a solid panel."),
             controlWidth: 250
         ) {
             HStack(spacing: 8) {
@@ -51,68 +138,14 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
-            configurationReview: .json("sidebarAppearance.glassBlurRadius"),
-            String(localized: "settings.sidebar.glassBlur", defaultValue: "Sidebar Blur"),
-            subtitle: String(localized: "settings.sidebar.glassBlur.subtitle", defaultValue: "How much the glass blurs what is behind the window. 1× is the lightest glass; higher is frostier."),
-            controlWidth: 250
+            configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
+            String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
+            subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
         ) {
-            HStack(spacing: 8) {
-                // Shown as a multiplier of the lightest blur (1× is the floor,
-                // 5× the ceiling), which reads more naturally than a
-                // percentage that cannot start at zero.
-                let blurRadius = glassBlurDraft ?? glassBlur.current
-                let floor = Self.glassBlurRange.lowerBound
-                Slider(
-                    value: Binding(
-                        get: { blurRadius / floor },
-                        set: { multiplier in
-                            let radius = (multiplier * floor).rounded()
-                            glassBlurDraft = radius
-                            debounceGlassWrite("glassBlur") { glassBlur.set(radius) }
-                        }
-                    ),
-                    in: 1.0...(Self.glassBlurRange.upperBound / floor),
-                    onEditingChanged: { editing in
-                        guard !editing, let draft = glassBlurDraft else { return }
-                        glassBlurDraft = nil
-                        flushGlassWrite("glassBlur") { glassBlur.set(draft) }
-                    }
-                )
-                .frame(width: 130)
-                .accessibilityIdentifier("SettingsSidebarGlassBlurSlider")
-
-                Text(String(format: "%.1f×", blurRadius / floor))
-                    .cmuxFont(size: 12, weight: .medium, design: .rounded)
-                    .monospacedDigit()
-                    .frame(width: 44, alignment: .trailing)
-
-                Button(String(localized: "settings.sidebar.glassBlur.reset", defaultValue: "Reset")) {
-                    glassBlurDraft = nil
-                    glassBlur.set(floor)
-                }
-                .buttonStyle(.bordered)
+            Toggle("", isOn: Binding(get: { matchTerminal.current }, set: { matchTerminal.set($0) }))
+                .labelsHidden()
+                .toggleStyle(.switch)
                 .controlSize(.small)
-                .disabled(abs(blurRadius - floor) < 0.5)
-            }
-        }
-        SettingsCardDivider()
-
-        SettingsCardRow(
-            configurationReview: .json("sidebar.selectionAccent"),
-            String(localized: "settings.sidebar.selectionAccent", defaultValue: "Sidebar Accent"),
-            subtitle: String(localized: "settings.sidebar.selectionAccent.subtitle", defaultValue: "How the selected workspace is highlighted: the accent colour, or a lighter patch of the glass.")
-        ) {
-            Picker("", selection: Binding(
-                get: { selectionAccent.current },
-                set: { selectionAccent.set($0) }
-            )) {
-                ForEach(SidebarSelectionAccent.allCases, id: \.self) { accent in
-                    Text(accentLabel(accent)).tag(accent)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .fixedSize()
         }
         SettingsCardDivider()
 
@@ -188,6 +221,9 @@ extension SidebarSection {
     /// Default tint strength, mirrored from the catalog key.
     static let defaultGlassTint = SidebarAppearanceCatalogSection().tintOpacity.defaultValue
 
+    /// Default tint colour, mirrored from the catalog key.
+    static let defaultGlassTintHex = SidebarAppearanceCatalogSection().tintColorHex.defaultValue
+
     /// Coalesces slider writes: each thumb movement replaces the pending
     /// write, so the stored value (and the window re-render it triggers)
     /// lands once the thumb pauses instead of on every pixel.
@@ -201,15 +237,6 @@ extension SidebarSection {
     /// Writes immediately, superseding any pending debounced write.
     private func flushGlassWrite(_ key: String, _ write: @escaping @MainActor @Sendable () -> Void) {
         tasks.replaceOnMainActor(key) { write() }
-    }
-
-    private func accentLabel(_ accent: SidebarSelectionAccent) -> String {
-        switch accent {
-        case .blue:
-            String(localized: "settings.sidebar.selectionAccent.blue", defaultValue: "Blue")
-        case .glass:
-            String(localized: "settings.sidebar.selectionAccent.glass", defaultValue: "Glass")
-        }
     }
 
     private func peekRevealLabel(_ preset: SidebarPeekRevealPreset) -> String {
