@@ -58,6 +58,7 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
+        let entries = workspace.status?.entries ?? []
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -67,8 +68,9 @@ public struct SidebarMapping {
             process: process(front),
             // The hooks' status line, else the daemon's workspace status
             // (state resources) without the entries other elements show.
-            // RED: every entry is the status line.
-            status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
+            status: (status ?? Self.statusLine(entries)).flatMap { $0.isEmpty ? nil : $0 },
+            ports: Self.entry(Self.portsKey, in: entries),
+            pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
             agentWorking: tabs.contains { $0.agent?.state == .working },
