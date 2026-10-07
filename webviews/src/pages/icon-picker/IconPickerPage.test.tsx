@@ -136,6 +136,27 @@ test("the detail bar shows the name and shortcode; Cmd-C copies the selected emo
   expect(host.finishes()).toEqual([]);
 });
 
+test("a refused pick is shown and logged, and the next session clears it", async () => {
+  host.refuseFinish = true;
+  const logged: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    await type("cat");
+    await press("Enter");
+    await act(async () => undefined);
+  } finally {
+    console.error = original;
+  }
+  expect(doc().querySelector(".icon-picker-error[role=alert]")?.textContent).toBe(
+    "The icon could not be applied. Try again.",
+  );
+  expect(logged.filter((args) => String(args[0]).startsWith("icon picker:")).length).toBe(1);
+  host.refuseFinish = false;
+  await act(async () => host.open({ id: "s2" }));
+  expect(doc().querySelector(".icon-picker-error")).toBeNull();
+});
+
 test("no results shows the empty state", async () => {
   await type("zzzzqq");
   expect(doc().querySelector(".icon-grid-empty")?.textContent).toBe("No emoji found");

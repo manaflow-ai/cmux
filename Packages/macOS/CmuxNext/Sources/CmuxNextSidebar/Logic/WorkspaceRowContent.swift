@@ -6,10 +6,11 @@ public import Foundation
 /// into row content. The layout sizes the row from it and the row view draws
 /// only what it says, so no other code adds a line, a count or a badge.
 ///
-/// The working-indicator slot: `showsWorking` is true while an agent turn
-/// runs (`SidebarWorkspace.agentWorking`) and the `working` element is on.
-/// Until the dedicated indicator draws it, the row shows that as the busy
-/// status glyph.
+/// The working-indicator slot: `showsWorking` is true while some tab has
+/// agent work (an acpmux turn, a hook or OSC 7501 `working`:
+/// `SidebarWorkspace.agentWorking`) and the `working` element is on. The
+/// status glyph then draws the working dots (`StatusIndicatorState.working`);
+/// a stronger state of the workspace (waiting, error) takes the one slot.
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
     public var icon: WorkspaceIcon?
@@ -63,6 +64,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         switch state {
         case .idle, .waiting, .error, .success: state
         case .busy, .paused: working || progress ? state : .idle
+        // Agent work (WORKING-AND-LOADING-INDICATORS) shows only with `working` on.
+        case .working: working ? state : .idle
         }
     }
 

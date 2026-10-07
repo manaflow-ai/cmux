@@ -228,6 +228,12 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
   CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
   CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
+  CMUX_BIND(password_list, "cmux_password_list");
+  CMUX_BIND(password_remove, "cmux_password_remove");
+  CMUX_BIND(password_exception_remove, "cmux_password_exception_remove");
+  CMUX_BIND(password_set_username, "cmux_password_set_username");
+  CMUX_BIND(password_reveal, "cmux_password_reveal");
+  CMUX_BIND(password_export, "cmux_password_export");
 #undef CMUX_BIND
 }
 

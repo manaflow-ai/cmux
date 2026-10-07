@@ -3,12 +3,14 @@ public import CmuxNextDesign
 
 /// The onboarding window: a transparent window whose step variants draw
 /// their own Liquid Glass or opaque surface, with only a close button. Return continues, Escape skips the rest,
-/// Command-[ goes back. Closing it by any means ends the flow as skipped
-/// unless the last step finished it.
+/// Command-[ goes back. Only Skip (Escape) or Done ends the flow; closing
+/// the window otherwise leaves the first run unfinished, to resume later.
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
+    /// Set while the App closes the window itself (`closeForRebuild`).
+    private var closingForRebuild = false
 
     /// `variant` forces one screen design (the gallery's full-size preview).
     public init(model: OnboardingModel, variant: (any OnboardingScreenVariant.Type)? = nil) {
@@ -56,8 +58,15 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         model.stepDidAppear()
     }
 
+    /// Closes the window for the App (a rebuild for another step), which is
+    /// not the person's "not now".
+    public func closeForRebuild() {
+        closingForRebuild = true
+        close()
+    }
+
     public func windowWillClose(_ notification: Notification) {
-        model.finish(completed: false)
+        model.leave(notNow: !closingForRebuild)
         onClose?()
     }
 }

@@ -21,6 +21,8 @@ dependencies = [
  "pulldown-cmark",
  "ratatui",
  "regex",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -923,7 +925,9 @@ dependencies = [
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "objc2-app-kit",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

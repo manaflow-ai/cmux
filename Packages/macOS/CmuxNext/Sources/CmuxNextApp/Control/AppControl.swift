@@ -71,6 +71,9 @@ final class AppControl {
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            .mainActor("debug.page_host_pool") { [weak services] call in
+                .value(DebugPageHostPool.handle(call.params, services: services))
+            },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
             .mainActor("debug.focus") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -238,6 +241,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            .mainActor("debug.omnibar_type") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.type(call.params, services: services))
+            },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
@@ -338,6 +345,7 @@ final class AppControl {
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
+            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
             .mainActor("debug.low_power_mode") { call in

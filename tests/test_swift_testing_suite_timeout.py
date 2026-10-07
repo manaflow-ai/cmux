@@ -192,5 +192,49 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertIn("retrying ^ExampleTests\\.HangingSuite/ once", completed.stdout)
 
 
+    def test_a_failing_suite_does_not_stop_the_suites_after_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then\n"
+                "  echo 'ExampleTests.AFailingSuite/testOne()'\n"
+                "  echo 'ExampleTests.BHangingSuite/testTwo()'\n"
+                "  echo 'ExampleTests.CPassingSuite/testThree()'\n"
+                "  exit 0\n"
+                "fi\n"
+                "if [[ \"$*\" == *AFailingSuite* ]]; then\n"
+                "  echo 'Test run with 1 test failed after 0.001 seconds.'\n"
+                "  exit 17\n"
+                "fi\n"
+                "if [[ \"$*\" == *BHangingSuite* ]]; then\n"
+                "  sleep 30\n"
+                "fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] = "1"
+
+            completed = run_runner(package, env)
+
+            # The first failure's status, after every suite ran.
+            self.assertEqual(completed.returncode, 17, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertTrue(any("CPassingSuite" in call for call in invocations), invocations)
+            self.assertIn("Swift test suites: 1 passed, 2 failed", completed.stdout)
+            self.assertIn("FAIL (exit 17) ^ExampleTests\\.AFailingSuite/", completed.stdout)
+            self.assertIn("FAIL (timed out) ^ExampleTests\\.BHangingSuite/", completed.stdout)
+            self.assertIn("PASS ^ExampleTests\\.CPassingSuite/", completed.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

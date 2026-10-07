@@ -30,19 +30,23 @@ public struct FixtureSafeStorage: SafeStorageKeyProviding {
 public struct SafeStorageKeys {
     private let environment: [String: String]
     private let fileManager: FileManager
+    private let allowsFixtures: Bool
 
     /// Creates the key provider factory for a process environment.
     ///
     /// - Parameters:
     ///   - environment: Environment used to choose fixture or login Keychain keys.
     ///   - fileManager: Filesystem access for fixture keys.
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment, fileManager: FileManager = FileManager()) {
+    ///   - allowsFixtures: Whether the fixture seam is honored (DEBUG builds only by default).
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment, fileManager: FileManager = FileManager(),
+                allowsFixtures: Bool = ImportEnvironment.fixturesAllowed) {
         self.environment = environment
         self.fileManager = fileManager
+        self.allowsFixtures = allowsFixtures
     }
 
     public func live() -> any SafeStorageKeyProviding {
-        if environment[ImportEnvironment.fixtureHomeKey].map({ !$0.isEmpty }) == true {
+        if allowsFixtures, environment[ImportEnvironment.fixtureHomeKey].map({ !$0.isEmpty }) == true {
             // A fixture home never falls back to the real Keychain.
             return FixtureSafeStorage(environment: environment, fileManager: fileManager) ?? FixtureSafeStorage(passwords: [:])
         }
