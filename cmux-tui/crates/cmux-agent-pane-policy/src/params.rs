@@ -154,15 +154,19 @@ pub fn session_refusal(
     object: &Map<String, Value>,
     holds: impl Fn(&str) -> bool,
 ) -> Option<Refused> {
+    let p = policy();
     let method = object.get("method").and_then(Value::as_str)?;
-    if !contains(&policy().session_scoped, method) {
+    let named = object.get("params").and_then(Value::as_object).and_then(|p| p.get("sessionId"));
+    let optional = contains(&p.optionally_session_scoped, method);
+    // A frame that may name a session and names none is not session-scoped
+    // (a JSON null names one that is not a string: refused).
+    if optional && named.is_none() {
         return None;
     }
-    let session = object
-        .get("params")
-        .and_then(Value::as_object)
-        .and_then(|p| p.get("sessionId"))
-        .and_then(Value::as_str);
+    if !optional && !contains(&p.session_scoped, method) {
+        return None;
+    }
+    let session = named.and_then(Value::as_str);
     match session {
         Some(s) if holds(s) => None,
         _ => Some(Refused {

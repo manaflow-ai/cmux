@@ -20,6 +20,7 @@
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
   ],
+  "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "source_scoped": [
     "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard"
@@ -60,8 +61,8 @@
     "_acpmux/permission_group_respond": {"params": ["sessionId", "groupId", "revision", "decisionKey", "decision"], "acpmux": []},
     "_acpmux/permission_chat_revoke": {"params": ["sessionId"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
-    "acp.trust.get": {"params": ["cwd"], "acpmux": []},
-    "acp.trust.set": {"params": ["cwd", "level"], "acpmux": []},
+    "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
+    "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
     "session/set_mode": {"params": ["sessionId", "modeId", "_meta"], "acpmux": []},
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
   },

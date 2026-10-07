@@ -64,6 +64,7 @@ struct Raw {
     servers_key: String,
     gesture_ticket_key: String,
     session_scoped: BTreeSet<String>,
+    optionally_session_scoped: BTreeSet<String>,
     source_scoped: BTreeSet<String>,
     gesture_rules: BTreeMap<String, GestureRule>,
     non_trusting_levels: BTreeSet<String>,
@@ -93,6 +94,10 @@ pub struct Policy {
     pub gesture_ticket_key: String,
     /// Methods allowed only for a session the pane started or shows.
     pub session_scoped: BTreeSet<String>,
+    /// Methods that may name a session (`sessionId`, the trust question's
+    /// chat): a named one must be the pane's, none is fine
+    /// (`optionallySessionScoped`).
+    pub optionally_session_scoped: BTreeSet<String>,
     /// Methods that copy a session into a new one the pane controls.
     pub source_scoped: BTreeSet<String>,
     pub gesture_rules: BTreeMap<String, GestureRule>,
@@ -127,6 +132,7 @@ pub fn policy() -> &'static Policy {
             servers_key: raw.servers_key,
             gesture_ticket_key: raw.gesture_ticket_key,
             session_scoped: raw.session_scoped,
+            optionally_session_scoped: raw.optionally_session_scoped,
             source_scoped: raw.source_scoped,
             gesture_rules: raw.gesture_rules,
             non_trusting_levels: raw.non_trusting_levels,

@@ -339,7 +339,7 @@
    "breaks": true
   },
   {
-   "name": "trust gate GAP: acp.trust.set with the page's sessionId (direct.ts `trustSet`) is refused by both hosts",
+   "name": "trust gate: acp.trust.set with the page's sessionId (direct.ts `trustSet`) passes the params rule (its scope: sessions.json)",
    "frame": {
     "jsonrpc": "2.0",
     "method": "acp.trust.set",
@@ -350,10 +350,10 @@
      "sessionId": "s"
     }
    },
-   "breaks": true
+   "breaks": false
   },
   {
-   "name": "trust gate GAP: acp.trust.get with the page's sessionId (direct.ts `trustGet`) is refused by both hosts",
+   "name": "trust gate: acp.trust.get with the page's sessionId (direct.ts `trustGet`) passes the params rule (its scope: sessions.json)",
    "frame": {
     "jsonrpc": "2.0",
     "method": "acp.trust.get",
@@ -363,7 +363,7 @@
      "sessionId": "s"
     }
    },
-   "breaks": true
+   "breaks": false
   }
  ],
  "gestures": [

@@ -128,16 +128,13 @@ fn trust_refusal_reasons_are_the_daemons() {
     }
 }
 
-/// AGENT-TRUST-GATE gap, kept visible: the page sends `sessionId` on
-/// `acp.trust.get` and `acp.trust.set` when a chat is selected (direct.ts
-/// `trustGet`, `trustSet`; acpmux routes a remote session's answer to its
-/// peer, peer_forward.rs), but neither host's known params allow it
-/// (AcpmuxPaneMethods.swift `knownParams` "acp.trust.get"/"acp.trust.set"),
-/// so P1 refuses those frames. When either side changes, this test fails:
-/// update policy.json with the Swift host and drop the GAP cases in
-/// trust_gate.json.
+/// AGENT-TRUST-GATE: the page sends `sessionId` on `acp.trust.get` and
+/// `acp.trust.set` when a chat is selected (direct.ts `trustGet`,
+/// `trustSet`; acpmux routes a remote session's answer to its peer), and the
+/// hosts allow it (`knownParams`) when the session is the pane's
+/// (`optionallySessionScoped`, sessions.json).
 #[test]
-fn trust_session_id_gap_is_still_open() {
+fn trust_session_id_is_sent_and_scoped() {
     let dir = pane();
     let direct = read(&dir, "direct.ts");
     for (function, method) in [("trustGet(", "acp.trust.get"), ("trustSet(", "acp.trust.set")] {
@@ -146,11 +143,15 @@ fn trust_session_id_gap_is_still_open() {
         let body = &body[..body.find("\n  }").unwrap()];
         assert!(
             body.contains("sessionId: this.selectedSessionId"),
-            "{method}: the page no longer sends sessionId"
+            "{method}: the page sends sessionId"
         );
         assert!(
-            !policy().known_params[method].params.contains("sessionId"),
-            "{method}: the host now allows sessionId"
+            policy().known_params[method].params.contains("sessionId"),
+            "{method}: the hosts allow sessionId"
+        );
+        assert!(
+            policy().optionally_session_scoped.contains(method),
+            "{method}: a named session must be the pane's"
         );
     }
 }

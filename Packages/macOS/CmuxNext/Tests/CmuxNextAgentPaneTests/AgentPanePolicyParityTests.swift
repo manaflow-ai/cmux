@@ -57,6 +57,7 @@ import Testing
         #expect(policy["servers_key"] as? String == AcpmuxPaneMethods.serversKey)
         #expect(policy["gesture_ticket_key"] as? String == AcpmuxPaneMethods.gestureTicketKey)
         #expect(Self.set(policy["session_scoped"]) == AcpmuxPaneMethods.sessionScoped)
+        #expect(Self.set(policy["optionally_session_scoped"]) == AcpmuxPaneMethods.optionallySessionScoped)
         #expect(Self.set(policy["source_scoped"]) == AcpmuxPaneMethods.sourceScoped)
         #expect(Self.set(policy["setting_methods"]) == AcpmuxPaneMethods.settingMethods)
         #expect(Self.set(policy["history_replies"]) == AcpmuxPermissionOptions.historyReplies)
