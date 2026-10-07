@@ -82,6 +82,20 @@ export type AcpmuxPermission = {
   options: { id: string; name: string; allow: boolean }[];
 };
 
+/** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry
+ *  catalog metadata, which ranks between the cmux catalog and the user's overrides. */
+export type AcpmuxCatalogModel = {
+  id: string;
+  name?: string;
+  unavailable?: string;
+  shortName?: string;
+  family?: string;
+  efforts?: string[];
+  defaultEffort?: string;
+  fast?: boolean;
+  contextWindow?: number;
+};
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
@@ -144,8 +158,13 @@ export type AcpmuxSnapshot = {
   catalog: {
     id: string;
     name: string;
-    models: { id: string; name?: string; unavailable?: string }[];
+    models: AcpmuxCatalogModel[];
     unavailable?: string;
+    pickable?: boolean;
+    /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
+    family?: string;
+    /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
+    icon?: string;
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
      * (`diagnostic`: its first problem). Global harnesses have none. */

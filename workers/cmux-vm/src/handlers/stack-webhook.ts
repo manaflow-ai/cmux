@@ -10,7 +10,9 @@
  * A message is judged by the time it FIRST reached the Worker
  * (stack_webhook_events, migration 0008), the same on every retry, so a retry
  * that arrives after the user was added back and enrolled a new device never
- * revokes that device.
+ * revokes that device, while every device from before the event is revoked
+ * even when the user was added back. An event with nothing to revoke is a
+ * recorded 200.
  * Answers: 503 while the secret is not configured or a store or the provider
  * fails (Stack retries), 401 for a bad, stale or missing signature, 400 for a
  * signed body of the wrong shape, 200 otherwise. A message processed to the
@@ -122,7 +124,7 @@ export const handleStackWebhook = (request: Request, secret: Redacted.Redacted<s
     return yield* finish(200, "processed", { ok: true, ...done }, {
       messageId,
       eventType,
-      outcome: done.skipped === undefined ? "revoked" : `skipped_${done.skipped}`,
+      outcome: "revoked",
       devicesRevoked: done.devicesRevoked,
       meshesReapplied: done.meshesReapplied,
       ...(event.tenantId === null ? {} : { tenantId: event.tenantId }),

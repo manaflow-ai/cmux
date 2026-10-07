@@ -264,44 +264,43 @@ test("the picker groups the folder's profiles by state; a needs-enable pick send
   const { sent, Socket } = folderDaemon();
   const unmount = await renderPane(Socket);
   const chip = () => doc.querySelector<HTMLButtonElement>('[aria-label="Model"].acpmux-picker-button');
-  const rows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-mp .acpmux-mp-row")];
-  const row = (label: string) =>
-    rows().find((candidate) => candidate.querySelector(".acpmux-menu-label")?.textContent === label);
-  const press = (target: Element) =>
-    act(async () => {
-      target.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
+  const menu = () => doc.querySelector<HTMLElement>(".acpmux-mp");
+  const harnessRow = (name: string) =>
+    [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (row) => row.querySelector("span")?.textContent === name,
+    );
+  const models = () => doc.querySelector<HTMLElement>(".acpmux-mp-models");
+  const open = async () => {
+    if (!menu()) await act(async () => chip()!.click());
+    await waitFor(() => harnessRow("Acme Agent") !== undefined);
+  };
   try {
     // The chat's folder goes with the catalog request, so its profiles come back with it.
     await waitFor(() =>
       sent.some((request) => request.method === "_acpmux/harnesses" && request.params?.cwd === FOLDER),
     );
     await waitFor(() => chip() !== null);
-    const open = async () => {
-      await act(async () => chip()!.click());
-      // jsdom has no layout, so the picker drills in place; the harnesses sit behind More models.
-      if (row("More models")) await press(row("More models")!);
-      await waitFor(() => row("Acme Agent") !== undefined);
-    };
     await open();
-    expect(row("Codex")?.textContent).toContain("New chat");
-    expect(doc.querySelector(".acpmux-mp")?.textContent).toContain("This folder");
-    expect(row("Acme Agent")?.textContent).toContain("Enable…");
-    expect(row("Lint Bot")?.textContent).toContain("Needs trust");
-    expect(row("Broken Agent")?.textContent).toContain("Unavailable");
+    // The folder's profiles stand after the harnesses, under their own heading, each with its state.
+    const names = [...doc.querySelectorAll(".acpmux-mp-harness")].map((row) => row.querySelector("span")?.textContent);
+    expect(names.slice(-3)).toEqual(["Acme Agent", "Lint Bot", "Broken Agent"]);
+    expect(names).toContain("Codex");
+    expect(menu()?.querySelector(".acpmux-mp-section")?.textContent).toBe("This folder");
+    expect(harnessRow("Acme Agent")?.textContent).toContain("Enable…");
+    expect(harnessRow("Lint Bot")?.textContent).toContain("Needs trust");
+    expect(harnessRow("Broken Agent")?.textContent).toContain("Unavailable");
 
-    // Needs trust and broken rows start nothing; they open their reason.
-    await press(row("Lint Bot")!);
-    expect(row("Answer the folder's Trust question first")).toBeDefined();
+    // Needs trust and broken rows start nothing; they say why in place of models.
+    await act(async () => harnessRow("Lint Bot")!.click());
+    expect(models()?.textContent).toBe("Answer the folder's Trust question first");
+    await act(async () => harnessRow("Broken Agent")!.click());
+    expect(models()?.textContent).toBe("command not found: broken-agent");
     expect(sent.some((request) => request.method === "session/new")).toBe(false);
     expect(enables(sent)).toEqual([]);
 
-    await act(async () => {
-      await chip()!.click();
-    });
-    await open();
-    await press(row("Acme Agent")!);
+    await act(async () => harnessRow("Acme Agent")!.click());
     expect(enables(sent)).toEqual([{ folder: FOLDER, id: "acme" }]);
+    expect(menu()).toBeNull();
     // Once enabled, the chat starts on it.
     await waitFor(() =>
       sent.some((request) => request.method === "session/new" && request.params?._meta?.acpmux?.harness === "acme"),
