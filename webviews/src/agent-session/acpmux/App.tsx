@@ -91,6 +91,9 @@ import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { SUBAGENTS } from "./subagents/subagentFold";
+import { SUBAGENT_ROW, withSubagentRows } from "./subagents/subagentRows";
+import { SubagentGroupHeader, SubagentListRow } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -324,6 +327,23 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
+const SubagentGroupRow = memo(
+  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+const SubagentRow = memo(
+  function SubagentRow({ row }: RowProps) {
+    return <SubagentListRow row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const EDITED_FILES_SHOWN = 3;
 
 /// "Edited N files", ported from EditedFilesCard in the reference prototype's
@@ -446,6 +466,8 @@ const defaultRegistry: NativeRegistry = {
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
   [MOVE_ROW]: MoveRow,
+  [SUBAGENTS]: SubagentGroupRow,
+  [SUBAGENT_ROW]: SubagentRow,
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
@@ -1001,7 +1023,10 @@ function AcpmuxPane() {
         )
       : snapshot.rows;
     return withMoveRows(
-      withShellRows(turnView(rows, expanded, { working: snapshot.isWorking }), chatShellRuns),
+      withShellRows(
+        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        chatShellRuns,
+      ),
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
