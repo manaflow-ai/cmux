@@ -31,6 +31,8 @@ import Testing
     /// another group also has (classic sessions are in Import and Sync too).
     @Test func aRelaunchResumesTheFirstRunAtItsStep() {
         let services = MockOnboardingServices()
+        // The mock leaves out each step the App does not supply; the App always has Accounts.
+        services.accountsView = NSView()
         services.canImportClassicSessions = true
         let model = OnboardingModel(services: services, resumingFirstRunAt: .classicSessions)
         #expect(model.isFirstRun)
