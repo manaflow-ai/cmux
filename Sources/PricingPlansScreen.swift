@@ -68,6 +68,7 @@ enum ProUpgradePresenter {
     ) {
         var properties = CheckoutAttribution.intentProperties(source: source, plan: plan)
         properties["interval"] = interval.rawValue
+        properties["discount_percent"] = plan == .pro && interval == .year ? 20 : 0
         PostHogAnalytics.shared.capture(intentEvent, properties: properties)
         NSWorkspace.shared.open(checkoutURL(source: source, plan: plan, interval: interval))
     }
@@ -712,6 +713,7 @@ private struct NativePricingIntervalToggle: View {
                 "surface": "native_pricing",
                 "plan": CheckoutPlan.pro.rawValue,
                 "interval": interval.rawValue,
+                "discount_percent": interval == .year ? 20 : 0,
             ])
         }
         .buttonStyle(.plain)

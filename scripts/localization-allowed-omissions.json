@@ -2130,6 +2130,10 @@
     "class": "price",
     "source": "$50"
   },
+  "pricing.native.pro.priceYearly": {
+    "class": "price",
+    "source": "$40"
+  },
   "pricing.native.size.large.rate": {
     "class": "price",
     "source": "$0.80"
