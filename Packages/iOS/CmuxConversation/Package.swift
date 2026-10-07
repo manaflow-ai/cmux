@@ -51,7 +51,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxConversationMacUITests",
-            dependencies: ["CmuxConversationMacUI"],
+            dependencies: ["CmuxConversationMacUI", "CmuxConversationCore"],
             swiftSettings: swiftSettings
         ),
     ]

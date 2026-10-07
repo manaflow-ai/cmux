@@ -159,7 +159,7 @@ enum MacTapbackGlyph {
 /// tapback badge, avatar and footers, placed from a `MacMessageLayout`.
 final class MacMessageRowView: MacFlippedView {
     let bubble = MacBubbleLayer()
-    let textLabel = MacMeasuredTextView()
+    let textLabel = MacBubbleTextView()
     let emojiLabel = makeMacLabel()
     let senderLabel = makeMacLabel()
     let quoteBubble = MacBubbleLayer()
@@ -248,6 +248,7 @@ final class MacMessageRowView: MacFlippedView {
             bubble.fillColor = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: self)
             bubble.opacity = model.footer == .notDelivered ? 0.85 : 1
             textLabel.isHidden = false
+            textLabel.isOutgoing = model.isOutgoing
             textLabel.attributedText = text
             textLabel.frame = textFrame
         } else {

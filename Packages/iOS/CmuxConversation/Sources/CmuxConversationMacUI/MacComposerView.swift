@@ -89,8 +89,23 @@ final class MacComposerTextView: NSTextView {
             }
             return
         }
-        super.doCommand(by: selector)
+        switch selector {
+        case #selector(cancelOperation(_:)):
+            // Esc cancels a reply, edit or tapback; NSTextView would open
+            // word completion instead, which Messages never shows.
+            onCancel?()
+        case #selector(insertTab(_:)):
+            // Tab moves focus (sidebar, transcript, composer); Option-Tab
+            // still inserts a tab character.
+            window?.selectNextKeyView(self)
+        case #selector(insertBacktab(_:)):
+            window?.selectPreviousKeyView(self)
+        default:
+            super.doCommand(by: selector)
+        }
     }
+
+    var onCancel: (() -> Void)?
 
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
