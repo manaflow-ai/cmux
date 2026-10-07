@@ -180,6 +180,7 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        installMentions()
         initialSpinner.translatesAutoresizingMaskIntoConstraints = false
         initialSpinner.startAnimating()
         initialSpinner.accessibilityIdentifier = "conversation.initialLoading"

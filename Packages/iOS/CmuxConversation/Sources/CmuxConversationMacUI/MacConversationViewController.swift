@@ -167,6 +167,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
         composer.delegate = self
         installKeyboardSupport()
+        installMentions()
         replyBanner.translatesAutoresizingMaskIntoConstraints = false
         replyBanner.isHidden = true
         replyBanner.onClose = { [weak self] in self?.exitReplyOrEdit() }
@@ -858,6 +859,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         let replyTo = replyTarget?.id
         let text = composer.text
+        let mentions = composer.mentions
         // The bubble flies from where the draft sits, captured before the
         // composer collapses; the collapse and insert land in one scroll.
         flightSource = (
@@ -868,7 +870,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         isSubmitting = true
         composer.clearAfterSend()
         trace("submit.cleared")
-        let rowID = store.send(text: text, images: images, replyToID: replyTo)
+        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions)
         isSubmitting = false
         if let rowID { registerUndoSend(rowID: rowID) }
         // The flight's scroll animates to the new bottom.
@@ -1092,6 +1094,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             return true
         }
         if let text = rowView.rowLayout?.textFrame, text.contains(local),
+           let participantID: String = textAttribute(.macConversationMention, in: model, at: CGPoint(x: local.x - text.minX, y: local.y - text.minY), width: text.width) {
+            showMentionCard(participantID: participantID, at: local, in: rowView)
+            return true
+        }
+        if let text = rowView.rowLayout?.textFrame, text.contains(local),
            let url = link(in: model, at: CGPoint(x: local.x - text.minX, y: local.y - text.minY), width: text.width) {
             NSWorkspace.shared.open(url)
             return true
@@ -1150,6 +1157,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     private func link(in model: MacMessageRowModel, at point: CGPoint, width: CGFloat) -> URL? {
+        textAttribute(.macConversationLink, in: model, at: point, width: width)
+    }
+
+    private func textAttribute<Value>(_ key: NSAttributedString.Key, in model: MacMessageRowModel, at point: CGPoint, width: CGFloat) -> Value? {
         let text = layoutCache.text(model)
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()
@@ -1159,7 +1170,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         storage.addLayoutManager(manager)
         let index = manager.characterIndex(for: point, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         guard index < text.length else { return nil }
-        return text.attribute(.macConversationLink, at: index, effectiveRange: nil) as? URL
+        return text.attribute(key, at: index, effectiveRange: nil) as? Value
     }
 
     private weak var tapbackPopover: NSPopover?
@@ -1400,6 +1411,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             traceLog = []
             return "trace\n" + dump
         #endif
+        case "mention":
+            return mentionLabCommand(argument)
         default:
             return "error unknown verb"
         }

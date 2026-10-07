@@ -21,7 +21,7 @@ process and keep growing.
 | --- | --- | --- |
 | `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
-| `send` | `{clientMessageId, text, replyToId?, attachmentIds?}` | `{message: Message}` |
+| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention]}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
@@ -61,7 +61,16 @@ Message {
   reactions: [{participantId, reaction}],
   attachments: [{id, kind: "image", width, height, url}],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
+  mentions?: [Mention]                           // omitted when none
 }
+Mention { participantId, location, length }      // UTF-16 range of text, sorted, non-overlapping
+```
+
+A mention is the participant's first name in `text` (no "@"). `send` rejects
+unknown participants and out-of-range or overlapping mentions with `-32602`.
+`edit` keeps only the mentions whose text is unchanged at the same range.
+
+```
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 ```
 
@@ -74,6 +83,8 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
+- `POST /admin/mention?conversation=<id>&target=<participantId>&from=<botId>`:
+  a bot sends a message mentioning `target` (default: me) at once.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale}`.
@@ -94,4 +105,5 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   message length (sometimes stops without sending), then sends. Occasional
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
-  message ~5% of the time.
+  message ~5% of the time. In `group`, ~12% of bot messages mention someone
+  (half of those mention me); ~4% of group history mentions someone.

@@ -38,7 +38,7 @@ final class MessageLayoutCache {
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
-    private var attributed: [String: (String, NSAttributedString)] = [:]
+    private var attributed: [String: (String, [ConversationMention], NSAttributedString)] = [:]
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
         let key = Key(model: model, width: width, margin: margin)
@@ -52,11 +52,11 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        if let (text, value) = attributed[cacheKey], text == model.message.text {
+        if let (text, mentions, value) = attributed[cacheKey], text == model.message.text, mentions == model.message.mentions {
             return value
         }
-        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        attributed[cacheKey] = (model.message.text, value)
+        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID)
+        attributed[cacheKey] = (model.message.text, model.message.mentions, value)
         return value
     }
 
@@ -74,7 +74,7 @@ extension NSAttributedString.Key {
 extension MessageCellLayout {
     nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
+    static func attributedBody(_ text: String, outgoing: Bool, mentions: [ConversationMention] = [], meID: String? = nil) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
             .foregroundColor: outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText,
@@ -86,6 +86,7 @@ extension MessageCellLayout {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
             if let url = match.url { result.addAttribute(.conversationLink, value: url, range: match.range) }
         }
+        ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bodyFont)
         return result
     }
 

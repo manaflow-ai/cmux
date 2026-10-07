@@ -187,6 +187,44 @@ async function main() {
     check(late.error?.code === -32003, "unsend after two minutes is refused (-32003)");
   }
 
+  console.log("mentions");
+  const mtext = "hey Leo and Austin";
+  const ms = await c.call("send", {
+    clientMessageId: crypto.randomUUID(),
+    text: mtext,
+    mentions: [
+      { participantId: "austin", location: 12, length: 6 },
+      { participantId: "leo", location: 4, length: 3 },
+    ],
+  });
+  check(
+    JSON.stringify(ms.message.mentions) === JSON.stringify([
+      { participantId: "leo", location: 4, length: 3 },
+      { participantId: "austin", location: 12, length: 6 },
+    ]),
+    "send stores mentions sorted by location",
+  );
+  const badMention = await c.raw("send", { clientMessageId: crypto.randomUUID(), text: "hi", mentions: [{ participantId: "leo", location: 1, length: 5 }] });
+  check(badMention.error?.code === -32602, "out-of-range mention is rejected");
+  const keptEdit = await c.call("edit", { messageId: ms.message.id, text: "hey Leo and Lawrence" });
+  check(JSON.stringify(keptEdit.message.mentions) === JSON.stringify([{ participantId: "leo", location: 4, length: 3 }]), "edit keeps only mentions whose text is unchanged");
+  const am = await post("/admin/mention?conversation=group&target=aziz");
+  check(am.ok && am.message.mentions[0].participantId === "aziz" && am.message.text.substr(am.message.mentions[0].location, am.message.mentions[0].length) === "Aziz", "admin mention: a bot mentions me by first name");
+  const amEvent = await c.waitFor(() => c.events().find((e) => e.kind === "message.created" && e.message.id === am.message.id), 3000, "mention event");
+  check(amEvent.message.mentions?.[0]?.participantId === "aziz", "mention arrives on the live event");
+  let historyMentions = 0;
+  for (let before: number | null = null, pages = 0; pages < 8; pages++) {
+    const page = await c.call("history", { beforeSeq: before, limit: 200 });
+    for (const m of page.messages)
+      for (const x of m.mentions ?? []) {
+        if (m.text.slice(x.location, x.location + x.length) !== h.conversation.participants.find((p: any) => p.id === x.participantId).name.split(" ")[0])
+          throw new Error(`FAIL: history mention range mismatch in ${m.id}`);
+        historyMentions++;
+      }
+    before = page.messages[0].seq;
+  }
+  check(historyMentions > 0, `group history carries mentions whose ranges name the participant (${historyMentions} in 1600 msgs)`);
+
   console.log("resume");
   await c.waitFor(() => c.events().some((e) => e.kind === "message.updated" && e.message.text === "edited text"), 3000, "edit event");
   await sleep(300);

@@ -1680,6 +1680,22 @@
           }
         }
       }
+    },
+    "conversation.sidebar.mentioned": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentioned you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたがメンションされました"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

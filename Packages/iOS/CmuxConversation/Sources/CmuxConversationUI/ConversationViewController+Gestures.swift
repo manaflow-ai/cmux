@@ -199,12 +199,21 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             openThread(rootID: parent)
             return
         }
+        if let textFrame = cell.cellLayout?.textFrame, textFrame.contains(local),
+           let participantID: String = textAttribute(.conversationMention, in: model, at: cell.textLabel.convert(local, from: cell)) {
+            presentMentionCard(participantID: participantID, at: point)
+            return
+        }
         if let textFrame = cell.cellLayout?.textFrame, textFrame.contains(local), let url = link(in: model, at: cell.textLabel.convert(local, from: cell)) {
             UIApplication.shared.open(url)
         }
     }
 
     private func link(in model: MessageRowModel, at point: CGPoint) -> URL? {
+        textAttribute(.conversationLink, in: model, at: point)
+    }
+
+    private func textAttribute<Value>(_ key: NSAttributedString.Key, in model: MessageRowModel, at point: CGPoint) -> Value? {
         let text = layoutCache.attributedText(for: model)
         guard text.length > 0 else { return nil }
         let storage = NSTextStorage(attributedString: text)
@@ -215,7 +224,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         storage.addLayoutManager(manager)
         let index = manager.characterIndex(for: point, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         guard index < text.length else { return nil }
-        return text.attribute(.conversationLink, at: index, effectiveRange: nil) as? URL
+        return text.attribute(key, at: index, effectiveRange: nil) as? Value
     }
 
     private func presentRetry(for model: MessageRowModel) {

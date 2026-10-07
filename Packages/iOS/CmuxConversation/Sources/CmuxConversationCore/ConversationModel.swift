@@ -124,6 +124,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
+    /// Participants mentioned in `text` (UTF-16 ranges).
+    public var mentions: [ConversationMention]
 
     public init(
         id: String,
@@ -139,7 +141,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         unsentAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
-        delivery: ConversationDelivery? = nil
+        delivery: ConversationDelivery? = nil,
+        mentions: [ConversationMention] = []
     ) {
         self.id = id
         self.seq = seq
@@ -155,6 +158,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
+        self.mentions = mentions
     }
 
     /// Identity that survives the pending to acknowledged transition, so the
@@ -179,11 +183,13 @@ public struct ConversationOutgoingDraft: Sendable {
     public var text: String
     public var replyToID: String?
     public var attachmentIDs: [String]
+    public var mentions: [ConversationMention]
 
-    public init(clientMessageID: String, text: String, replyToID: String?, attachmentIDs: [String]) {
+    public init(clientMessageID: String, text: String, replyToID: String?, attachmentIDs: [String], mentions: [ConversationMention] = []) {
         self.clientMessageID = clientMessageID
         self.text = text
         self.replyToID = replyToID
         self.attachmentIDs = attachmentIDs
+        self.mentions = mentions
     }
 }

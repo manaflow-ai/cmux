@@ -515,6 +515,14 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         return newestIncomingSeq(entry) > seen
     }
 
+    /// An unread incoming message mentions me.
+    private func unreadMentionsMe(_ entry: MacConversationEntry) -> Bool {
+        guard entry.id != selectedID, let seen = seenSeq[entry.id], let meID = entry.store.meID else { return false }
+        return entry.store.messages.reversed().prefix { ($0.seq ?? .max) > seen }.contains {
+            $0.seq != nil && $0.senderID != meID && $0.mentions(participantID: meID)
+        }
+    }
+
     private func refresh(changed entry: MacConversationEntry? = nil) {
         let next = ordered()
         if next.map(\.id) == visible.map(\.id), let entry, let index = visible.firstIndex(where: { $0 === entry }) {
@@ -574,6 +582,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         view.identifier = .init("r")
         view.configure(store: visible[row].store)
         view.isUnread = isUnread(visible[row])
+        view.isMentioned = view.isUnread && unreadMentionsMe(visible[row])
         view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1
         return view
     }
@@ -598,7 +607,15 @@ final class MacConversationListRow: MacFlippedView {
     private let separator = NSBox()
     private let clusterDisc = MacFlippedView()
     private let unreadDot = MacFlippedView()
-    var isUnread = false { didSet { unreadDot.isHidden = !isUnread } }
+    var isUnread = false { didSet { updateUnreadIndicator() } }
+    /// Messages swaps the unread dot for a blue "@" when an unread message mentions me.
+    var isMentioned = false { didSet { updateUnreadIndicator() } }
+    private let mentionGlyph = makeMacLabel()
+
+    private func updateUnreadIndicator() {
+        unreadDot.isHidden = !isUnread || isMentioned
+        mentionGlyph.isHidden = !(isUnread && isMentioned)
+    }
     /// White text on the accent-filled selection.
     var isEmphasized = false {
         didSet {
@@ -622,6 +639,13 @@ final class MacConversationListRow: MacFlippedView {
         unreadDot.isHidden = true
         unreadDot.setAccessibilityLabel(String(localized: "conversation.sidebar.unread", defaultValue: "Unread", bundle: .module))
         addSubview(unreadDot)
+        mentionGlyph.stringValue = "@"
+        mentionGlyph.font = .systemFont(ofSize: 13, weight: .bold)
+        mentionGlyph.textColor = .systemBlue
+        mentionGlyph.alignment = .center
+        mentionGlyph.isHidden = true
+        mentionGlyph.setAccessibilityLabel(String(localized: "conversation.sidebar.mentioned", defaultValue: "Mentioned you", bundle: .module))
+        addSubview(mentionGlyph)
         title.font = .systemFont(ofSize: 13, weight: .bold)
         title.maximumNumberOfLines = 1
         time.font = .systemFont(ofSize: 12)
@@ -685,6 +709,7 @@ final class MacConversationListRow: MacFlippedView {
         avatar.frame = disc
         // Measured: a 10 pt dot centered 30 pt left of the avatar's center.
         unreadDot.frame = CGRect(x: disc.midX - 30 - 5, y: disc.midY - 5, width: 10, height: 10)
+        mentionGlyph.frame = CGRect(x: disc.midX - 30 - 11, y: disc.midY - 9, width: 22, height: 17)
         clusterDisc.frame = disc
         let frames = [
             CGRect(x: disc.midX - 6 - 9, y: disc.midY - 6 - 9, width: 18, height: 18),

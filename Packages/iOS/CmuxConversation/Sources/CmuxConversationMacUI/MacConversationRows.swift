@@ -62,6 +62,8 @@ struct MacMessageRowModel: Hashable {
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
     var myReactions: Set<ConversationReaction> = []
+    /// Mentions of this participant are highlighted in incoming bubbles.
+    var meID: String? = nil
 }
 
 /// Builds rows from store state with the shared Messages grouping rules.
@@ -154,7 +156,8 @@ enum MacConversationRowBuilder {
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
-                myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction))
+                myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction)),
+                meID: meID
             )))
         }
         return rows
@@ -223,7 +226,7 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
-    private var texts: [String: (String, Bool, NSAttributedString)] = [:]
+    private var texts: [String: (String, Bool, [ConversationMention], NSAttributedString)] = [:]
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -235,11 +238,12 @@ final class MacMessageLayoutCache {
     }
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
-        if let (text, outgoing, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing {
+        if let (text, outgoing, mentions, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing,
+           mentions == model.message.mentions {
             return value
         }
-        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        texts[model.rowID] = (model.message.text, model.isOutgoing, value)
+        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID)
+        texts[model.rowID] = (model.message.text, model.isOutgoing, model.message.mentions, value)
         return value
     }
 
@@ -256,7 +260,7 @@ extension NSAttributedString.Key {
 extension MacMessageLayout {
     nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
+    static func attributedBody(_ text: String, outgoing: Bool, mentions: [ConversationMention] = [], meID: String? = nil) -> NSAttributedString {
         let t = MacConversationTheme.self
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: t.bodyFont,
@@ -268,6 +272,7 @@ extension MacMessageLayout {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
             if let url = match.url { result.addAttribute(.macConversationLink, value: url, range: match.range) }
         }
+        MacMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: t.bodyFont)
         return result
     }
 

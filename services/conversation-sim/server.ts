@@ -2,7 +2,7 @@
 // Run: bun run services/conversation-sim/server.ts  (PORT, HOST, SEED, LOG=verbose)
 import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
-import { editedText, imageSize, messageText, pick, randInt, replyText, type Rng } from "./corpus";
+import { editedText, imageSize, mentionText, messageText, pick, randInt, replyText, type Rng } from "./corpus";
 
 // ---------------------------------------------------------------- types
 
@@ -28,6 +28,11 @@ interface AttachmentRef {
   width: number;
   height: number;
 }
+interface Mention {
+  participantId: string;
+  location: number; // UTF-16 offset into text
+  length: number;
+}
 interface Message {
   id: string;
   seq: number;
@@ -44,6 +49,7 @@ interface Message {
   attachments: AttachmentRef[];
   status?: "sent" | "delivered" | "read";
   readAt?: number;
+  mentions?: Mention[];
 }
 interface LoggedEvent {
   eventSeq: number;
@@ -111,6 +117,40 @@ const LAWRENCE: Participant = { id: "lawrence", name: "Lawrence Chen", initials:
 const AUSTIN: Participant = { id: "austin", name: "Austin Wang", initials: "AW", colorHex: "#30D158", isMe: false };
 const LEO: Participant = { id: "leo", name: "Leo Li", initials: "LL", colorHex: "#BF5AF2", isMe: false };
 const JOHN: Participant = { id: "john", name: "John Appleseed", initials: "JA", colorHex: "#FF375F", isMe: false };
+
+/** First name: what a mention inserts. */
+const mentionName = (p: Participant) => p.name.split(/\s+/)[0];
+
+/** Valid mentions for `text`: known participants, in range, sorted, non-overlapping. */
+function validMentions(raw: unknown, text: string, conv: Conversation): Mention[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw invalid("mentions");
+  const out: Mention[] = [];
+  for (const m of [...raw].sort((a, b) => a?.location - b?.location)) {
+    const { participantId, location, length } = m ?? {};
+    if (!conv.participants.some((p) => p.id === participantId)) throw invalid(`unknown mention participant ${participantId}`);
+    if (!Number.isInteger(location) || !Number.isInteger(length) || location < 0 || length < 1 || location + length > text.length)
+      throw invalid("mention range");
+    const last = out.at(-1);
+    if (last && location < last.location + last.length) throw invalid("overlapping mentions");
+    out.push({ participantId, location, length });
+  }
+  return out;
+}
+
+/** A bot message mentioning `target` (anyone but the bot). */
+function mentionMessage(rng: Rng, target: Participant): { text: string; mentions: Mention[] } {
+  const name = mentionName(target);
+  const { text, location } = mentionText(rng, name);
+  return { text, mentions: [{ participantId: target.id, location, length: name.length }] };
+}
+
+/** Who a bot mentions: me half the time, otherwise another bot. */
+function mentionTarget(rng: Rng, conv: Conversation, bot: Participant): Participant | undefined {
+  if (conv.kind !== "group") return undefined;
+  const others = conv.participants.filter((p) => p.id !== bot.id && !p.isMe);
+  return rng() < 0.5 || !others.length ? ME : pick(rng, others);
+}
 
 // ---------------------------------------------------------------- store
 
@@ -265,6 +305,11 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
     const m = drafts[i];
     if (i === 0 || drafts[i - 1].day !== m.day) dayFirstIndex = i;
     m.text = messageText(rng);
+    const target = m.senderId === ME.id ? undefined : rng() < 0.04 ? mentionTarget(rng, conv, conv.participants.find((p) => p.id === m.senderId)!) : undefined;
+    if (target) Object.assign(m, mentionMessage(rng, target));
+    else if (conv.kind === "group" && m.senderId === ME.id && rng() < 0.03) {
+      Object.assign(m, mentionMessage(rng, pick(rng, others)));
+    }
     if (rng() < 0.05) {
       const n = rng() < 0.85 ? 1 : randInt(rng, 2, 4);
       for (let k = 0; k < n; k++) {
@@ -273,7 +318,10 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
         media.set(id, { width: w, height: h, ext: "png", mime: "image/png" });
         m.attachments.push({ id, kind: "image", width: w, height: h });
       }
-      if (rng() < 0.5) m.text = "";
+      if (rng() < 0.5) {
+        m.text = "";
+        delete m.mentions;
+      }
     }
     if (i > dayFirstIndex && rng() < 0.04) m.replyToIndex = randInt(rng, dayFirstIndex, i - 1);
     if (rng() < 0.02 && m.text) m.editedAt = m.sentAt + randInt(rng, 10_000, 300_000);
@@ -401,6 +449,7 @@ function wireMessage(m: Message, base: string) {
   if (m.unsentAt) out.unsentAt = m.unsentAt;
   if (m.status) out.status = m.status;
   if (m.readAt) out.readAt = m.readAt;
+  if (m.mentions?.length) out.mentions = m.mentions;
   return out;
 }
 
@@ -481,6 +530,7 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (typeof p?.text !== "string" || !p.text.length) throw invalid("text");
       if ((m.editCount ?? 0) >= 5) throw new RpcError(-32004, "edit limit reached");
       await sleep(lat(120, 600));
+      keepUnchangedMentions(m, p.text);
       m.text = p.text;
       m.editedAt = Date.now();
       m.editCount = (m.editCount ?? 0) + 1;
@@ -526,6 +576,7 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   for (const a of attachmentIds) if (!media.has(a)) throw invalid(`unknown attachment ${a}`);
   if (!text && !attachmentIds.length) throw invalid("empty message");
   if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
+  const mentions = validMentions(p?.mentions, text, store.conv);
 
   await sleep(lat(120, 900));
   const existing = store.byClientId.get(cmid);
@@ -541,7 +592,12 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
     const e = media.get(id)!;
     return { id, kind: "image", width: e.width, height: e.height };
   });
-  const m = store.create(ME.id, text, { clientMessageId: cmid, replyToId: p?.replyToId || undefined, attachments });
+  const m = store.create(ME.id, text, {
+    clientMessageId: cmid,
+    replyToId: p?.replyToId || undefined,
+    attachments,
+    ...(mentions.length ? { mentions } : {}),
+  });
   afterMySend(store, m);
   if (fail) throw new RpcError(-32002, "not delivered");
   return m;
@@ -572,6 +628,14 @@ function afterMySend(store: Store, m: Message) {
   }
 }
 
+/** A mention survives an edit only when its text is unchanged at the same range. */
+function keepUnchangedMentions(m: Message, next: string) {
+  if (!m.mentions) return;
+  const kept = m.mentions.filter((x) => x.location + x.length <= next.length && next.slice(x.location, x.location + x.length) === m.text.slice(x.location, x.location + x.length));
+  if (kept.length) m.mentions = kept;
+  else delete m.mentions;
+}
+
 // ---------------------------------------------------------------- bots
 
 function typingMs(text: string) {
@@ -586,7 +650,9 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
   if (R() < 0.05) {
     void (async () => {
       await botSleep(uniform(4000, 20_000));
-      m.text = editedText(R, m.text || "photo");
+      const next = editedText(R, m.text || "photo");
+      keepUnchangedMentions(m, next);
+      m.text = next;
       m.editedAt = Date.now();
       store.emit("message.updated", m);
     })();
@@ -602,9 +668,15 @@ async function botReply(store: Store, mine: Message) {
   await botSay(store, bot, replyText(R), R() < 0.35 ? { replyToId: mine.id } : {}, typing);
 }
 
-function randomBotMessage(store: Store): { text: string; opts: Partial<Message> } {
+function randomBotMessage(store: Store, bot: Participant): { text: string; opts: Partial<Message> } {
   const opts: Partial<Message> = {};
   let text = messageText(R);
+  // Bots occasionally mention someone (half the time me).
+  const target = R() < 0.12 ? mentionTarget(R, store.conv, bot) : undefined;
+  if (target) {
+    const mention = mentionMessage(R, target);
+    return { text: mention.text, opts: { mentions: mention.mentions } };
+  }
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
     const id = `img_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`;
@@ -628,7 +700,7 @@ async function botLoop(store: Store) {
       if (roll < 0.08) {
         const n = randInt(R, 3, 6);
         for (let i = 0; i < n; i++) {
-          const { text, opts } = randomBotMessage(store);
+          const { text, opts } = randomBotMessage(store, bot);
           await botSay(store, bot, text, opts, uniform(500, 1800));
         }
       } else if (roll < 0.23) {
@@ -637,7 +709,7 @@ async function botLoop(store: Store) {
         await botSleep(uniform(1500, 6000));
         store.broadcastTyping(bot.id, false);
       } else {
-        const { text, opts } = randomBotMessage(store);
+        const { text, opts } = randomBotMessage(store, bot);
         await botSay(store, bot, text, opts);
       }
       if (R() < 0.1 && store.headSeq) {
@@ -656,7 +728,7 @@ async function botLoop(store: Store) {
 async function burst(store: Store, count: number, intervalMs?: number) {
   for (let i = 0; i < count; i++) {
     const bot = pick(R, store.bots());
-    const { text, opts } = randomBotMessage(store);
+    const { text, opts } = randomBotMessage(store, bot);
     store.create(bot.id, text, opts);
     if (intervalMs === undefined) await sleep(uniform(150, 600));
     else if (intervalMs > 0) await sleep(intervalMs);
@@ -763,6 +835,21 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     if (intervalMs === 0) await burst(store, count, 0);
     else void burst(store, count, intervalMs);
     return json({ ok: true, conversation: conv, count, headSeq: store.headSeq, headEventSeq: store.headEventSeq });
+  }
+  if (path === "/admin/mention" && req.method === "POST") {
+    // A bot sends a message mentioning `target` (me by default) right away.
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const targetId = url.searchParams.get("target") ?? ME.id;
+    const target = store.conv.participants.find((p) => p.id === targetId);
+    if (!target) return json({ error: `unknown participant ${targetId}` }, 404);
+    const senders = store.bots().filter((b) => b.id !== target.id);
+    const bot = store.conv.participants.find((p) => p.id === url.searchParams.get("from")) ?? pick(R, senders);
+    const { text, mentions } = mentionMessage(R, target);
+    const m = store.create(bot.id, text, { mentions });
+    log(`admin mention conv=${conv} from=${bot.id} target=${target.id} seq=${m.seq}`);
+    return json({ ok: true, message: wireMessage(m, base) });
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });
