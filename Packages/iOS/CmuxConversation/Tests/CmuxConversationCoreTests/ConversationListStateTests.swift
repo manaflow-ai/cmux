@@ -194,6 +194,9 @@ final class ListStateBackend: ConversationBackend, @unchecked Sendable {
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
         throw ConversationBackendError(code: -1, message: "unsupported")
     }
+    func unsend(messageID: String) async throws -> ConversationMessage {
+        throw ConversationBackendError(code: -1, message: "unsupported")
+    }
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
