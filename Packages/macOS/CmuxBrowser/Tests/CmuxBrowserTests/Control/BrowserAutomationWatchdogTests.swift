@@ -9,11 +9,7 @@ struct BrowserAutomationWatchdogTests {
     @Test("A completed liveness probe preserves the current browser process")
     func responsiveProbeDoesNotRecover() async {
         var recoveryCount = 0
-        let watchdog = BrowserAutomationWatchdog(
-            sleep: { duration in
-                try await ContinuousClock().sleep(for: duration)
-            }
-        )
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
 
         let outcome = await watchdog.recoverIfUnresponsive(
             observedInstanceID: UUID(),
@@ -88,7 +84,7 @@ struct BrowserAutomationWatchdogTests {
     @Test("All browser callback channels must respond before the pipeline is healthy")
     func allResponsiveChannelsPreserveBrowserProcess() async {
         var recoveryCount = 0
-        let watchdog = BrowserAutomationWatchdog()
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
 
         let outcome = await watchdog.recoverIfUnresponsive(
             observedInstanceID: UUID(),
@@ -118,7 +114,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog(sleep: Self.cancellationOnlySleep)
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
             probeCount += 1
@@ -179,7 +175,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog()
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { _ in
             probeCount += 1
@@ -225,7 +221,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog(sleep: Self.cancellationOnlySleep)
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
             probeCompletion = finish
@@ -261,13 +257,6 @@ struct BrowserAutomationWatchdogTests {
         followerJoinsContinuation.finish()
     }
 
-    /// Holds the watchdog deadline open until the liveness probe completes.
-    /// These tests assert joining and cancellation ordering, so a real one-second
-    /// deadline makes them depend on package-wide MainActor scheduling.
-    private static let cancellationOnlySleep: BrowserAutomationWatchdog.Sleep = { _ in
-        try await ContinuousClock().sleep(for: .seconds(3_600))
-    }
-
     @Test("Owner invalidation cancels joined checks without recovering the stale instance")
     func ownerInvalidationSupersedesSharedRecovery() async {
         var probeCompletion: (@MainActor @Sendable () -> Void)?
@@ -276,7 +265,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog()
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
             probeCompletion = finish
@@ -333,7 +322,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog()
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.waitForCancellation)
         let firstInstanceID = UUID()
         let secondInstanceID = UUID()
         let firstProbe: BrowserAutomationWatchdog.Probe = { finish in
@@ -397,5 +386,14 @@ struct BrowserAutomationWatchdogTests {
         #expect(secondRecoveryCount == 0)
         probeStartsContinuation.finish()
         followerJoinsContinuation.finish()
+    }
+
+    /// Coordination tests control completion explicitly; runner load must not
+    /// race them against the production liveness timeout.
+    private nonisolated static func waitForCancellation(_ duration: Duration) async throws {
+        let (events, continuation) = AsyncStream<Void>.makeStream()
+        defer { continuation.finish() }
+        for await _ in events {}
+        try Task.checkCancellation()
     }
 }

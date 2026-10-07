@@ -350,20 +350,21 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
-    public var allowsFirstResponderAcquisition: Bool = true
-    private var pointerFocusAllowanceDepth: Int = 0
+    // These flags are owned by the AppKit main thread. They are marked unsafe
+    // so the synchronous responder entry point can read them without asking
+    // Swift to hop through an executor that WebKit did not install.
+    public nonisolated(unsafe) var allowsFirstResponderAcquisition: Bool = true
+    private nonisolated(unsafe) var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
     private lazy var diffViewerNavigationKeyRouter: (any CmuxWebViewNavigationKeyRouting)? =
         host?.makeDiffViewerNavigationKeyRouter()
-    private var automationRenderFocusDepth = 0
+    private nonisolated(unsafe) var automationRenderFocusDepth = 0
 
-    public var allowsFirstResponderAcquisitionEffective: Bool {
+    public nonisolated var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 || automationRenderFocusDepth > 0
     }
-    public var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
-
     /// Uses the host's keyboard-layout-aware Cmd+Z / Cmd+Shift+Z check.
     public override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
         host?.isUndoRedoCommandEquivalent(event) == true
@@ -578,7 +579,8 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// render window, so WebKit treats the driven page as focused. The focus
     /// policy guards the user's windows and is bypassed only here; no
     /// first-responder notification is posted, because the user's focus does
-    /// not move.
+    /// not move. AppKit/WebKit can enter the override while making a responder
+    /// change without Swift's MainActor executor token.
     @discardableResult
     public func acquireAutomationRenderFocus(in window: NSWindow) -> Bool {
         automationRenderFocusDepth += 1
@@ -586,7 +588,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         return window.makeFirstResponder(self)
     }
 
-    public override func becomeFirstResponder() -> Bool {
+    public nonisolated override func becomeFirstResponder() -> Bool {
         if automationRenderFocusDepth > 0 {
             return super.becomeFirstResponder()
         }
@@ -1113,7 +1115,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// right-click (`url` is nil when the click was not on a link). The type
     /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
     /// only the stored property has to live in the class body.
-    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    // WebKit script delivery and AppKit menu tracking both run on the main
+    // thread; synchronous publication must not require an executor-token check.
+    nonisolated(unsafe) var contextMenuCapturedLink: ContextMenuCapturedLink?
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
     var lastContextMenuOpenUptime: TimeInterval?
