@@ -10,7 +10,16 @@ public struct BrowserReplTimeLimit {
     }
 
     /// Runs `body`, throwing `timeout` when it has not finished after
-    /// `milliseconds`.
+    /// `milliseconds`, and `cancelled` when the calling task is cancelled
+    /// first (the cell that made the call timed out, its session ended).
+    ///
+    /// `body` runs in a task of its own, which is cancelled whenever the
+    /// call ends without its result: a call that ended keeps no work
+    /// going, and each later step of that work that checks for
+    /// cancellation (``BrowserReplFrameGate/checkTab(in:)``) stops before
+    /// it reaches the tab. What `body` already handed WebKit (a script it
+    /// sent) is not taken back; a caller that started a navigation stops
+    /// it itself.
     ///
     /// - Parameter what: what the call was doing, for the error
     ///   (`Timeout 100ms exceeded while <what>`).
@@ -36,12 +45,20 @@ public struct BrowserReplTimeLimit {
             }
             race.finish(.failure(BrowserReplDriverError(code: "timeout", message: "Timeout \(milliseconds)ms exceeded\(what.isEmpty ? "" : " while \(what)")")))
         }
+        // Both end with the call, whichever way it ends (the timeout throws
+        // out of the wait below); cancelling finished work does nothing.
         defer {
             deadline.cancel()
+            work.cancel()
         }
-        let result = try await race.value()
-        if race.timedOut { work.cancel() }
-        return result
+        return try await withTaskCancellationHandler {
+            try await race.value()
+        } onCancel: {
+            work.cancel()
+            Task { @MainActor in
+                race.finish(.failure(BrowserReplDriverError(code: "cancelled", message: "cancelled because the cell that made the call timed out or its session ended; nothing more was sent to the tab")))
+            }
+        }
     }
 }
 

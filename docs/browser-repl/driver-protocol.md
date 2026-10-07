@@ -18,6 +18,11 @@ JavaScriptCore context and Swift; results are JSON. Errors are
 `unsupported`, `invalid`, `closed`, `blocked`, `denied`, `limit`, `hibernated` and `crashed`
 (see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs),
 [Tabs](#tabs) for `denied`, and [Agent world](#agent-world) for `limit`).
+A call that ends with `timeout` (its `timeoutMs`), or because the cell that
+made it ended, keeps no work going: the driver cancels what the call was
+still doing, so none of its later steps reaches the tab, and stops a
+navigation it started (`tab.navigate`, `tab.reload`, `tab.history`) before
+it commits. A script the call already handed WebKit is not taken back.
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.

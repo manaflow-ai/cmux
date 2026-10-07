@@ -1656,12 +1656,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         milliseconds: Int,
         what: String
     ) async throws -> BrowserAutomationNavigationOutcome {
-        try await attachment(panel).whileNavigating(sessionID: sessionID, stop: { [weak panel] in
+        let stop: @MainActor () -> Void = { [weak panel] in
             guard let panel else { return }
             panel.automationNavigationCoordinator.stop(ticket, loading: panel.webView)
-        }) {
-            try await withTimeoutThrowing(milliseconds: milliseconds, what: what) {
-                await panel.finishAutomationNavigation(ticket)
+        }
+        return try await attachment(panel).whileNavigating(sessionID: sessionID, stop: stop) {
+            do {
+                return try await withTimeoutThrowing(milliseconds: milliseconds, what: what) {
+                    await panel.finishAutomationNavigation(ticket)
+                }
+            } catch {
+                // The call ended (its timeout, or its cell's) before the
+                // navigation did: a call that ended keeps no navigation
+                // going, so it is stopped before it can commit.
+                stop()
+                throw error
             }
         }
     }
@@ -3277,7 +3286,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     // MARK: - Timeouts
 
     /// Runs `body`, returning `nil` if it has not finished after `milliseconds`.
-    /// The body keeps running in the background when the deadline wins.
+    /// The body is cancelled when the deadline wins (``BrowserReplTimeLimit``).
     @MainActor
     private func withTimeout<T: Sendable>(
         milliseconds: Int,
