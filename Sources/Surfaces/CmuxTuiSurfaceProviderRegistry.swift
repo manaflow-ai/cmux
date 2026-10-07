@@ -10,8 +10,8 @@ import Foundation
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
 /// Authenticated fleet discovery also prepares the shared terminal carrier, even for
-/// an empty fleet. Both follow the Cloud rollout and activation marker; disabling
-/// Cloud or signing out stops the carrier without deleting persisted identities.
+/// an empty fleet. Both follow the managed Cloud policy and local activation marker;
+/// disabling Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()

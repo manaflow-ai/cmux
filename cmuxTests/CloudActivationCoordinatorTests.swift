@@ -38,7 +38,7 @@ struct CloudActivationCoordinatorTests {
         #expect(coordinator.state == .enabled)
     }
 
-    @Test("A rollout change during setup cannot commit activation")
+    @Test("An availability change during setup cannot commit activation")
     func availabilityFlipDuringActivation() async throws {
         let suite = "cmux.cloud.activation.availabilityFence.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
