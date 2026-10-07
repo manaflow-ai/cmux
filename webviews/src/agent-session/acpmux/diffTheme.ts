@@ -201,6 +201,8 @@ export const treeUnsafeCSS = /* css */ `
   --trees-border-radius-override: 6px;
   --trees-focus-ring-width-override: 0px;
   --trees-indent-guide-bg-override: ${c.line};
+  --trees-status-added-override: ${c.addition};
+  --trees-status-deleted-override: ${c.deletion};
 }
 [data-type="item"][data-item-focused="true"]::before { display: none; }
 [data-item-section="decoration"] { font-size: 12px; }

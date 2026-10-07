@@ -23,6 +23,7 @@ pub mod cli;
 pub mod client;
 pub mod clock;
 pub mod config;
+pub mod cua_socket;
 pub mod daemon;
 #[cfg(test)]
 mod git_short_sha;
@@ -40,6 +41,9 @@ pub mod sha256;
 #[cfg(test)]
 mod source_date_epoch;
 pub mod store;
+pub mod subagents;
+#[cfg(test)]
+mod subagents_tests;
 pub mod transcript;
 pub mod trust;
 pub mod tui;
