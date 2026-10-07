@@ -25,6 +25,11 @@ path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_remote_tmux_et_conformance.py"
+lane = "macos-shell"
+serial = true
+
+[[test]]
 path = "tests/test_cli_vm_transfer_progress.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
