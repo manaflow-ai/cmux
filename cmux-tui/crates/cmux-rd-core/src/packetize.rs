@@ -59,6 +59,9 @@ impl Packetizer {
         self.stream = stream;
     }
 
+    /// Upstream mode (rd change C4; red-commit stub, no effect yet).
+    pub fn set_upstream(&mut self, _upstream: bool) {}
+
     /// Splits `body` into data shards plus `parity` parity shards.
     pub fn packetize(
         &mut self,
