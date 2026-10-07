@@ -158,7 +158,7 @@ struct DetectedSSHSession: Equatable, Sendable {
 
                 let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
                 uploadedRemotePaths.append(remotePath)
-                let result = try Self.runProcess(
+                let result = try runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
                     timeout: 45,
@@ -203,7 +203,7 @@ struct DetectedSSHSession: Equatable, Sendable {
     }
 
     private func prepareRemotePasteDirectory() throws {
-        let result = try Self.runProcess(
+        let result = try runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.maintenanceScript()))"),
             timeout: 12
@@ -229,7 +229,7 @@ struct DetectedSSHSession: Equatable, Sendable {
     }
 
     private func finalizeRemotePasteFile(_ remotePath: String) throws {
-        let result = try Self.runProcess(
+        let result = try runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.finalizeScript(for: remotePath)))"),
             timeout: 8
@@ -361,7 +361,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = remotePastePolicy.cleanupScript(for: remotePaths)
         let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
-        _ = try? Self.runProcess(
+        _ = try? runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: cleanupCommand),
             timeout: 8
@@ -383,14 +383,14 @@ struct DetectedSSHSession: Equatable, Sendable {
     }
 
     /// Runs an SSH transfer subprocess with a deadline and optional cancellation, capturing its output.
-    private static func runProcess(
+    private func runProcess(
         executable: String,
         arguments: [String],
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
 #if DEBUG
-        if let runProcessOverrideForTesting {
+        if let runProcessOverrideForTesting = Self.runProcessOverrideForTesting {
             let result = try runProcessOverrideForTesting(executable, arguments, timeout, operation)
             return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
         }
@@ -405,18 +405,8 @@ struct DetectedSSHSession: Equatable, Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        // cmux-tui carries the authenticated SSH agent as an explicit
-        // IdentityAgent option. App-launched subprocesses do not necessarily
-        // inherit the carrier's SSH_AUTH_SOCK, so mirror that route here.
-        var environment = ProcessInfo.processInfo.environment
-        if let identityAgent = Self.sshOptionValue(named: "IdentityAgent", in: arguments) {
-            if identityAgent.caseInsensitiveCompare("none") == .orderedSame {
-                environment.removeValue(forKey: "SSH_AUTH_SOCK")
-            } else if !identityAgent.isEmpty {
-                environment["SSH_AUTH_SOCK"] = identityAgent
-            }
-        }
-        process.environment = environment
+        process.environment = SSHAgentSocketResolver()
+            .environmentForIdentityAgent(in: sshOptions)
 
 #if DEBUG
         cmuxDebugLog(
@@ -497,24 +487,6 @@ struct DetectedSSHSession: Equatable, Sendable {
             .first
             .map(String.init)?
             .lowercased()
-    }
-
-    /// Returns the first matching separate `-o` option value, preserving OpenSSH's first-value precedence.
-    private static func sshOptionValue(named key: String, in arguments: [String]) -> String? {
-        let loweredKey = key.lowercased()
-        guard arguments.count > 1 else { return nil }
-        for index in 0..<(arguments.count - 1) where arguments[index] == "-o" {
-            let option = arguments[index + 1]
-            guard optionKey(option) == loweredKey else { continue }
-            guard let separator = option.firstIndex(where: { $0 == "=" || $0.isWhitespace }) else {
-                return nil
-            }
-            let valueStart = option.index(after: separator)
-            guard valueStart < option.endIndex else { return "" }
-            return String(option[valueStart...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return nil
     }
 
     /// Escapes line breaks and limits captured output to 240 characters for process diagnostics.
