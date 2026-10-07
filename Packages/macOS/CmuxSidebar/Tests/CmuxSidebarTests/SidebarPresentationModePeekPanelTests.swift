@@ -24,10 +24,21 @@ struct SidebarPresentationModePeekPanelTests {
         ))
     }
 
-    @Test(arguments: [SidebarPresentationMode.docked, .floating])
-    func hiddenSidebarMountsAheadOfAPeekOnlyWhenPeekIsOn(mode: SidebarPresentationMode) {
-        #expect(mode.needsPeekPanel(sidebarVisible: false, peekEnabled: true, peekPresenting: false))
-        #expect(!mode.needsPeekPanel(sidebarVisible: false, peekEnabled: false, peekPresenting: false))
+    @Test func hiddenDockedSidebarMountsAheadOfAPeekOnlyWhenPeekIsOn() {
+        #expect(SidebarPresentationMode.docked.needsPeekPanel(sidebarVisible: false, peekEnabled: true, peekPresenting: false))
+        #expect(!SidebarPresentationMode.docked.needsPeekPanel(sidebarVisible: false, peekEnabled: false, peekPresenting: false))
+    }
+
+    @Test func hiddenFloatingSidebarKeepsTheCardSoHidingSlidesItOut() {
+        // Unmounting in the same update as the hide would drop the exit
+        // slide, peek or no peek.
+        for peekEnabled in [false, true] {
+            #expect(SidebarPresentationMode.floating.needsPeekPanel(
+                sidebarVisible: false,
+                peekEnabled: peekEnabled,
+                peekPresenting: false
+            ))
+        }
     }
 
     @Test func aPeekStillShowingKeepsTheCardWhilePeekTurnsOff() {

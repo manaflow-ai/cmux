@@ -22,7 +22,12 @@ final class SidebarPeekPanelWindow: NSPanel {
     var allowsKeyboardEditors = false {
         didSet {
             guard !allowsKeyboardEditors, hostsKeyboardEditor else { return }
-            endKeyboardEditing()
+            // Set from a SwiftUI update; the edit's commit publishes, so it
+            // ends on the next turn.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.allowsKeyboardEditors else { return }
+                self.endKeyboardEditing()
+            }
         }
     }
 
@@ -89,9 +94,20 @@ final class SidebarPeekPanelWindow: NSPanel {
     override func resignKey() {
         super.resignKey()
         guard hostsKeyboardEditor else { return }
-        // The user clicked elsewhere (usually the terminal). End the edit
-        // the way a docked row does when focus leaves it: the editor's end
-        // editing commits, and the rename field tears itself down.
+        // Decided a turn later, once the new key window is known.
+        DispatchQueue.main.async { [weak self] in
+            self?.endEditIfKeyMovedElsewhereInApp()
+        }
+    }
+
+    /// The user clicked elsewhere in cmux (usually the terminal): end the
+    /// edit the way a docked row does when focus leaves it, so the editor's
+    /// end editing commits and the rename field tears itself down. Switching
+    /// to another app keeps the edit, like a docked row, and AppKit gives
+    /// the panel key back on return.
+    private func endEditIfKeyMovedElsewhereInApp() {
+        guard hostsKeyboardEditor, !isKeyWindow, NSApp.isActive else { return }
+        if let keyWindow = NSApp.keyWindow, keyWindow.parent === self { return }
         hostsKeyboardEditor = false
         _ = super.makeFirstResponder(nil)
     }

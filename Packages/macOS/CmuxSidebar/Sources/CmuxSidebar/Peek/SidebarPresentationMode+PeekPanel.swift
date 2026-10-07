@@ -3,7 +3,8 @@ extension SidebarPresentationMode {
     ///
     /// The card is a second full sidebar list in its own child window. A
     /// docked, visible sidebar can never show it, so it is not mounted there.
-    /// It is mounted whenever a card can appear: floating mode, or a hidden
+    /// It is mounted whenever a card can appear: floating mode (shown or
+    /// hidden, so hiding still slides the card out), or a hidden docked
     /// sidebar with peek on (mounted ahead of the reveal, so the edge dwell
     /// and the titlebar hover find it ready).
     ///
@@ -19,6 +20,6 @@ extension SidebarPresentationMode {
     ) -> Bool {
         let occupiesLayout = sidebarVisible && self == .docked
         guard !occupiesLayout else { return false }
-        return sidebarVisible || peekEnabled || peekPresenting
+        return self == .floating || peekEnabled || peekPresenting
     }
 }

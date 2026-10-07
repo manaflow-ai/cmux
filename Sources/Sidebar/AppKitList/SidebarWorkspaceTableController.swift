@@ -852,8 +852,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             reorderDropCommitFallbackTask = nil
         }
         // Under a live drag the lift is carried through the update and
-        // rebuilt against the new rows below, so nothing bounces.
-        let reorderLiftCarry = hasStructuralChanges
+        // rebuilt against the new rows below, so nothing bounces. Not on a
+        // forced reload: `previousRows` no longer maps the table's rows.
+        let reorderLiftCarry = hasStructuralChanges && !forceTableReload
             ? detachReorderLiftForRebuild(previousRows: previousRows, isDropHandOff: handsOffReorderTransforms)
             : nil
         if hasStructuralChanges {

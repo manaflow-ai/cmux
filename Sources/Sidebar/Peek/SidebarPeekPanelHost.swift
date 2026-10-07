@@ -294,19 +294,27 @@ final class SidebarPeekPanelWindowController {
             // An edit in flight hands key back to the parent before the card
             // goes away. The hold release hops a turn: detach can run inside
             // a SwiftUI update (dismantle), where publishing is not allowed.
+            // The key handoff and the hold release hop a turn too: they
+            // fire key-window observers and publish.
             let releasesKeyboardHold = panel.hostsKeyboardEditor
+            let parentToRefocus = panel.isKeyWindow ? panel.parent : nil
             panel.onKeyboardFocusChange = nil
-            panel.relinquishKeyboardFocus()
-            if releasesKeyboardHold, let onKeyboardFocusChange {
-                Task { @MainActor in onKeyboardFocusChange(false) }
+            panel.allowsKeyboardEditors = false
+            let onKeyboardFocusChange = onKeyboardFocusChange
+            DispatchQueue.main.async {
+                if let parentToRefocus, parentToRefocus.isVisible { parentToRefocus.makeKey() }
+                if releasesKeyboardHold { onKeyboardFocusChange?(false) }
             }
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
         }
-        // Empty the hosting view first so SwiftUI dismantles the card's
-        // list (its table controller commits drafts and drops observers)
-        // instead of leaving that to the hosting view's deallocation.
-        hostingView?.rootView = AnyView(EmptyView())
+        // Empty the hosting view so SwiftUI dismantles the card's list (its
+        // table controller commits drafts and drops observers) instead of
+        // leaving that to deallocation. Next turn: a draft commit publishes,
+        // and detach can run inside a SwiftUI update (dismantle).
+        if let hostingView {
+            DispatchQueue.main.async { hostingView.rootView = AnyView(EmptyView()) }
+        }
         panel = nil
         hostingView = nil
         parentWindow = nil

@@ -52,7 +52,9 @@ extension SidebarWorkspaceTableTests {
         _ = window
         let closed = makeLiftRow(height: 40)
         let dragged = makeLiftRow(height: 40)
-        let others = (0..<3).map { _ in makeLiftRow(height: 40) }
+        // A tall last row keeps the block clear of the list's bottom clamp
+        // both before and after the close.
+        let others = (0..<3).map { _ in makeLiftRow(height: 40) } + [makeLiftRow(height: 160)]
         let rows = [closed, dragged] + others
         let table = await applyLiftRows(rows, controller: controller, container: container)
         for row in rows.indices {
@@ -70,7 +72,7 @@ extension SidebarWorkspaceTableTests {
         table.enumerateAvailableRowViews { rowView, _ in rowView.layer?.removeAllAnimations() }
         await flushStagedTableMutations()
         let visualTopsBefore = liftVisualTops(rows: rows, table: table)
-        let snapshotBefore = controller.reorderLiftSnapshots.first?.layer
+        let snapshotBefore = try #require(controller.reorderLiftSnapshots.first?.layer)
 
         // A workspace above the drag closes mid-drag.
         let remaining = Array(rows.dropFirst())
@@ -80,9 +82,7 @@ extension SidebarWorkspaceTableTests {
         let session = try #require(controller.reorderLiftSession)
         #expect(session.workspaceId == dragged.workspaceId)
         #expect(session.sourceRange == 0..<1)
-        if let snapshotBefore {
-            #expect(controller.reorderLiftSnapshots.first?.layer === snapshotBefore)
-        }
+        #expect(controller.reorderLiftSnapshots.first?.layer === snapshotBefore)
         // Every surviving row starts its motion exactly where it stood
         // before the update: no drop to its real frame, no bounce.
         for (index, row) in remaining.enumerated() {

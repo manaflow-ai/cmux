@@ -31,11 +31,19 @@ struct SidebarPeekPanelWindowTests {
         return (parent, panel)
     }
 
+    /// Orders the panel out too, so a panel that took key in a test cannot
+    /// stay the app's key window for the next one.
+    @MainActor
+    private func tearDown(parent: NSWindow, panel: SidebarPeekPanelWindow) {
+        parent.removeChildWindow(panel)
+        panel.orderOut(nil)
+    }
+
     @Test
     @MainActor
     func plainClicksAndHoverNeverMakeThePanelKey() {
         let (parent, panel) = makePanel()
-        defer { parent.removeChildWindow(panel) }
+        defer { tearDown(parent: parent, panel: panel) }
         #expect(!panel.canBecomeKey)
         // A row click makes the table (or a row view) first responder; that
         // must not pull the keyboard away from the terminal.
@@ -50,7 +58,7 @@ struct SidebarPeekPanelWindowTests {
     @MainActor
     func anEditorTakesTheKeyboardAndGivesItBackWhenItEnds() {
         let (parent, panel) = makePanel()
-        defer { parent.removeChildWindow(panel) }
+        defer { tearDown(parent: parent, panel: panel) }
         var focusChanges: [Bool] = []
         panel.onKeyboardFocusChange = { focusChanges.append($0) }
         // Same entry as the inline rename: the field asks its window for
@@ -75,7 +83,7 @@ struct SidebarPeekPanelWindowTests {
     @MainActor
     func theEventLoopPassReleasesFocusWhenTheEditorVanishedQuietly() {
         let (parent, panel) = makePanel()
-        defer { parent.removeChildWindow(panel) }
+        defer { tearDown(parent: parent, panel: panel) }
         let field = SidebarInlineRenameTextField(string: "workspace")
         field.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
         panel.contentView?.addSubview(field)
@@ -92,7 +100,7 @@ struct SidebarPeekPanelWindowTests {
     @MainActor
     func hiddenCardNeverTakesTheKeyboard() {
         let (parent, panel) = makePanel()
-        defer { parent.removeChildWindow(panel) }
+        defer { tearDown(parent: parent, panel: panel) }
         // A hidden card's live list can arm a field by itself (a checklist
         // add request); typing must stay with the terminal.
         panel.allowsKeyboardEditors = false
@@ -105,9 +113,9 @@ struct SidebarPeekPanelWindowTests {
 
     @Test
     @MainActor
-    func hidingTheCardEndsTheEdit() {
+    func hidingTheCardEndsTheEdit() async {
         let (parent, panel) = makePanel()
-        defer { parent.removeChildWindow(panel) }
+        defer { tearDown(parent: parent, panel: panel) }
         var focusChanges: [Bool] = []
         panel.onKeyboardFocusChange = { focusChanges.append($0) }
         let field = SidebarInlineRenameTextField(string: "workspace")
@@ -115,6 +123,11 @@ struct SidebarPeekPanelWindowTests {
         panel.contentView?.addSubview(field)
         #expect(panel.hostsKeyboardEditor)
         panel.allowsKeyboardEditors = false
+        // The edit ends on the next turn (the flag is set from a SwiftUI
+        // update); a main-queue hop queued after it runs once it has.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
         #expect(!panel.hostsKeyboardEditor)
         #expect(!SidebarPeekPanelWindow.takesKeyboardInput(panel.firstResponder))
         #expect(focusChanges == [true, false])

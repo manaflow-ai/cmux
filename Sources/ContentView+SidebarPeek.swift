@@ -99,8 +99,8 @@ extension ContentView {
     /// A docked, visible sidebar never needs it, and that is the common
     /// typing setup: the card is a second full sidebar list, so keeping it
     /// mounted there was pure cost. It mounts as soon as a card can show
-    /// (floating, or hidden with peek on), which is before the edge dwell
-    /// or the titlebar hover can ask for a reveal, and unmounts on dock.
+    /// (floating, or hidden docked with peek on), which is before the edge
+    /// dwell or the titlebar hover can ask for a reveal, and unmounts on dock.
     var sidebarNeedsPeekPanel: Bool {
         sidebarState.presentationMode.needsPeekPanel(
             sidebarVisible: sidebarState.isVisible,
