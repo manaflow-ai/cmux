@@ -129,3 +129,66 @@ fn a_large_screenshot_comes_as_the_apps_file_and_bad_image_data_fails() {
     assert_eq!(run(&global_for(&socket), parse(&args(&words)).unwrap().unwrap()), 3);
     app.join().unwrap();
 }
+
+fn tab_page(words: &[&str]) -> Result<(&'static str, Value), UsageError> {
+    let mut all = vec!["browser", "tab_01ab"];
+    all.extend_from_slice(words);
+    parse(&args(&all)).map(|command| call(command.unwrap()))
+}
+
+#[test]
+fn cookies_and_storage_take_the_old_cli_forms() {
+    let (method, params) = tab_page(&["cookies"]).unwrap();
+    assert_eq!(method, "browser.page.cookies.get");
+    assert_eq!(params, json!({ "tab": "tab_01ab" }));
+    let (method, params) =
+        tab_page(&["cookies", "get", "--name", "sid", "--domain=example"]).unwrap();
+    assert_eq!(method, "browser.page.cookies.get");
+    assert_eq!(params, json!({ "tab": "tab_01ab", "name": "sid", "domain": "example" }));
+    let (method, params) = tab_page(&[
+        "cookies",
+        "set",
+        "sid",
+        "1",
+        "--url",
+        "https://cmux.com/",
+        "--expires",
+        "1900000000",
+        "--secure",
+        "--http-only",
+    ])
+    .unwrap();
+    assert_eq!(method, "browser.page.cookies.set");
+    assert_eq!(
+        params,
+        json!({ "tab": "tab_01ab", "name": "sid", "value": "1", "url": "https://cmux.com/",
+                "expires": 1_900_000_000, "secure": true, "http_only": true })
+    );
+    let (_, params) = tab_page(&["cookies", "set", "--name", "a", "--value", "b"]).unwrap();
+    assert_eq!(params, json!({ "tab": "tab_01ab", "name": "a", "value": "b" }));
+    let (method, params) = tab_page(&["cookies", "clear", "--all"]).unwrap();
+    assert_eq!(method, "browser.page.cookies.clear");
+    assert_eq!(params, json!({ "tab": "tab_01ab", "all": true }));
+    for bad in [
+        &["cookies", "set", "sid"][..],
+        &["cookies", "set", "a", "b", "--expires", "soon"],
+        &["cookies", "get", "--all"],
+        &["cookies", "get", "extra"],
+        &["cookies", "eat"],
+    ] {
+        assert!(tab_page(bad).is_err(), "{bad:?}");
+    }
+
+    let (method, params) = tab_page(&["storage", "session", "get", "theme"]).unwrap();
+    assert_eq!(method, "browser.page.storage.get");
+    assert_eq!(params, json!({ "tab": "tab_01ab", "type": "session", "key": "theme" }));
+    let (method, params) = tab_page(&["storage", "set", "theme", "dark"]).unwrap();
+    assert_eq!(method, "browser.page.storage.set");
+    assert_eq!(params, json!({ "tab": "tab_01ab", "key": "theme", "value": "dark" }));
+    let (method, params) = tab_page(&["storage", "local", "clear"]).unwrap();
+    assert_eq!(method, "browser.page.storage.clear");
+    assert_eq!(params, json!({ "tab": "tab_01ab", "type": "local" }));
+    assert_eq!(tab_page(&["storage"]).unwrap().0, "browser.page.storage.get");
+    assert!(tab_page(&["storage", "local", "set", "k"]).is_err());
+    assert!(tab_page(&["storage", "cookies"]).is_err());
+}
