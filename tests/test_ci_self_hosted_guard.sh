@@ -1172,31 +1172,97 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
-check_no_bare_github_hosted_runners() {
-  # Every product CI job must route its runner through a repo variable (LINUX_RUNNER,
-  # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
-  # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
-  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden. A
-  # GitHub-hosted macOS label may appear only as the MACOS_RUNNER_BACKGROUND
-  # fallback; check_background_macos_lane enforces that.
-  # The CLA policy guard is a separate immutable control-plane job and is
-  # intentionally exempted below: it may pin ubuntu-24.04 or use the
-  # CI_TRUSTED_RUNNER selector, never another runner variable or a
-  # self-hosted label (validate-cla-policy.rb and check_cla_guard_runner).
-  # Backend migrations and web complexity hold trusted tokens and use the
-  # CI_TRUSTED_RUNNER selector, which can only pick ephemeral GitHub-hosted or
-  # Blacksmith labels; test_ci_fork_runner_routing.py pins its exact form.
-  # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
-  # deliberate single-runner pins such as the testmanagerd-wedged
-  # `app-host-unit-tests` job.
-  local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" || true)"
-  if [[ -n "$hits" ]]; then
-    echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
-    echo "$hits"
+check_no_github_hosted_runners() {
+  # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
+  # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
+  # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
+  # (Blacksmith by default), or owned pools reached through the pickers.
+  # A `# github-hosted-required:` comment is no longer an exemption.
+  # Allowed GitHub-hosted forms:
+  #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
+  #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
+  #   - fork-only `hosted_runner` matrix values;
+  #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
+  #     GitHub-hosted is an operator choice and Blacksmith is the default;
+  #   - the exact lines in `exceptions` below, each with the reason it cannot move.
+  # Runner-selection positions: runs-on, labels/group, matrix os/runner keys,
+  # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
+  # and inputs feed runs-on too).
+  local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
+  local -a exceptions=(
+    # npm trusted publishing and --provenance accept only GitHub-hosted runners.
+    "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
+    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification"
+    "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+    # Detects a Blacksmith outage, so it must run where Blacksmith is not.
+    "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
+    # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
+    "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
+    "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
+    # Dispatch-only OS-compatibility legs; no Blacksmith image is macOS 14 or Intel.
+    "ci-macos-compat.yml:          - os: macos-14"
+    "ci-macos-compat.yml:          - os: macos-15-intel"
+  )
+  local probe
+  for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
+               "runs-on: \${{ vars.X || 'ubuntu-24.04' }}" '- os: macos-15' '          - windows-latest' \
+               "runs-on: \${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "LINUX_ARM64_RUNNER: \${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}" \
+               "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025'; do
+    if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
+      echo "FAIL: GitHub-hosted runner guard self-test missed a GitHub-hosted label: $probe"
+      exit 1
+    fi
+  done
+  for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
+    if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
+      echo "FAIL: GitHub-hosted runner guard self-test flagged an allowed runner: $probe"
+      exit 1
+    fi
+  done
+
+  local line file content stripped exception allowed failed=0
+  while IFS= read -r line; do
+    file="${line%%:*}"
+    content="${line#*:*:}"
+    [[ "$content" =~ ^[[:space:]]*# ]] && continue
+    # Fork-only matrix rows: read only through the fork branch above.
+    [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
+    stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
+    printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
+    allowed=0
+    for exception in "${exceptions[@]}"; do
+      if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
+    done
+    [[ "$allowed" -eq 1 ]] && continue
+    echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
+    failed=1
+  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runner|runs_on|runs-on|macos_runner|linux_runner|windows_runner)\"?:[[:space:]]|[A-Za-z_]*RUNNER[A-Za-z_]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$ROOT_DIR/.github/workflows")
+  # The capability map's manaflow-ai fleet feeds runs-on through resolve-runners.yml.
+  local owner_fleet fleet_hits
+  owner_fleet="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["owners"]["manaflow-ai"])' "$ROOT_DIR/.github/runners.json")"
+  fleet_hits="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [print(k+" "+v) for k,v in d["fleets"][sys.argv[2]].items()]' "$ROOT_DIR/.github/runners.json" "$owner_fleet" | grep -E "$hosted" || true)"
+  if [[ -n "$fleet_hits" ]]; then
+    echo "FAIL: .github/runners.json fleet '$owner_fleet' (manaflow-ai) maps a capability to a GitHub-hosted label:"
+    echo "$fleet_hits"
+    failed=1
+  fi
+  if [[ "$failed" -ne 0 ]]; then
+    echo "      A GitHub billing block must not stop CI. Use a Blacksmith label (behind the"
+    echo "      fork branch), a runner variable with a Blacksmith fallback, or the CI_TRUSTED_RUNNER"
+    echo "      selector. Add an exception above only for a job that cannot run off GitHub-hosted."
     exit 1
   fi
-  echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
+  echo "PASS: no workflow selects a GitHub-hosted runner outside the fork branch and the listed exceptions"
 }
 
 check_no_self_hosted_fleet_runners() {
@@ -1495,7 +1561,7 @@ PYTHON
 check_cla_guard_runner
 
 # ci-macos.yml jobs
-check_no_bare_github_hosted_runners
+check_no_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_owned_pools_route_through_picker
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
