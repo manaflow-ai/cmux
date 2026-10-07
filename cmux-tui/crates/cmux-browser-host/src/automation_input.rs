@@ -211,6 +211,20 @@ impl InputEmitter {
         }
     }
 
+    /// The lease session the events name.
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// Sends another gate event of this session (no `seq`) the same way as
+    /// an input: through `via`, or the session sink when `via` returns
+    /// false.
+    pub fn send(&self, event: DriverEvent, via: &dyn Fn(DriverEvent) -> bool) {
+        if !via(event.clone()) {
+            (self.sink)(event);
+        }
+    }
+
     /// Publishes a planned input with the next `seq`: through `via` (the
     /// driver's own session event path), or the session sink when `via`
     /// returns false. Exactly one of them gets the event.

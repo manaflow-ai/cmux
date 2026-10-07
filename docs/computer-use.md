@@ -171,10 +171,15 @@ tag-scoped cmux helper are present.
 
 Every cmux app build runs `scripts/build-cmux-cua.sh`, which compiles the
 pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
-engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
-Monitor and permission UI show the product name instead of an implementation
-name. This requires a Rust
+MCP proxy as `Contents/Resources/bin/cmux-cua`. With `--helper-app` (release
+packaging only) the same engine is also packaged as the nested `cmux Computer
+Use.app` (`com.cmuxterm.cua`), which release signing gives the Developer ID
+signature. Dev builds never carry or launch an ad-hoc copy: the Accessibility
+and Screen Recording rows hold the Developer ID requirement, an ad-hoc copy
+cannot satisfy them, and a grant to one replaces the row. A dev build uses
+the helper of an installed cmux, NIGHTLY or RC (checked by
+`CuaHelperIdentity` and `scripts/cmux-cua-helper-trust.sh`), or reports
+computer use unavailable. This requires a Rust
 toolchain on the build machine:
 
 - local dev: install via [rustup](https://rustup.rs) (or

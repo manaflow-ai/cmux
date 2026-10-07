@@ -108,7 +108,8 @@ async function runHost(): Promise<void> {
     paths,
     harness: process.env.MUX_HARNESS ?? "claude-sr",
     policy: process.env.MUX_POLICY ?? "approve-all",
-    displayName: fullName(),
+    // One name source: the app hands its user name (the name in its own create request).
+    displayName: process.env.MUX_USER_NAME?.trim() || fullName(),
     self,
     sessionEnv,
     mcpServers: cmuxMcpServers(),
