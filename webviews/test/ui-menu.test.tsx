@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { act } from "react";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../src/ui/Menu";
+import { Menu, MenuButton, MenuItem, MenuPopup, Submenu } from "../src/ui/Menu";
 import { Select } from "../src/ui/Select";
 import { UiProvider } from "../src/ui/UiProvider";
 import { installDom, render, settle, unmount, press, restoreDom } from "./viewer-empty-dom";
@@ -38,8 +38,11 @@ describe("shared menu pointer contract", () => {
     await settle();
     const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
     expect(rows).toHaveLength(2);
-    await act(async () => rows[1]!.dispatchEvent(pointer("pointermove", 7, 30, 30)));
-    await act(async () => rows[1]!.dispatchEvent(pointer("pointerup", 7, 30, 30)));
+    const previous = document.elementFromPoint;
+    document.elementFromPoint = () => rows[1]!;
+    await act(async () => trigger.dispatchEvent(pointer("pointermove", 7, 30, 30)));
+    await act(async () => trigger.dispatchEvent(pointer("pointerup", 7, 30, 30)));
+    document.elementFromPoint = previous;
     await settle();
     expect(chosen).toEqual(["two"]);
     expect(document.querySelector('[role="menu"]')).toBeNull();
@@ -97,29 +100,25 @@ test("Select exposes one shared menu and reports the chosen value", async () => 
   expect(chosen).toEqual(["light"]);
 });
 
-// Real pointer capture retargets move/up to the trigger, not to the row under the cursor.
-// Hit testing is supplied by jsdom here; the same path runs in the remote browser harness.
-test("captured pointer release hit-tests the row and activates exactly once", async () => {
-  const chosen: string[] = [];
-  const root = await render(menu((value) => chosen.push(value)));
-  const trigger = root.querySelector<HTMLButtonElement>("button")!;
-  const captured: number[] = [];
-  trigger.setPointerCapture = (id) => { captured.push(id); };
-  trigger.releasePointerCapture = () => {};
-  trigger.hasPointerCapture = () => true;
-  const previous = document.elementFromPoint;
-  try {
-    await act(async () => trigger.dispatchEvent(pointer("pointerdown", 27, 10, 10)));
-    await settle();
-    const row = document.querySelectorAll<HTMLElement>('[role="menuitem"]')[1]!;
-    document.elementFromPoint = () => row;
-    await act(async () => trigger.dispatchEvent(pointer("pointermove", 27, 35, 60)));
-    await act(async () => trigger.dispatchEvent(pointer("pointerup", 27, 35, 60)));
-    await settle();
-    expect(captured).toEqual([27]);
-    expect(chosen).toEqual(["two"]);
-    expect(document.querySelector('[role="menu"]') === null).toBe(true);
-  } finally {
-    document.elementFromPoint = previous;
-  }
+test("submenu opens from the keyboard and closes back through Escape", async () => {
+  const root = await render(
+    <UiProvider container={document.body}>
+      <Menu>
+        <MenuButton label="Actions">Actions</MenuButton>
+        <MenuPopup>
+          <Submenu label="Share">
+            <MenuItem onSelect={() => {}}>Copy link</MenuItem>
+          </Submenu>
+        </MenuPopup>
+      </Menu>
+    </UiProvider>,
+  );
+  await act(async () => root.querySelector("button")!.click());
+  await settle();
+  const share = document.querySelector<HTMLElement>('[role="menuitem"]')!;
+  await press(share, "ArrowRight");
+  await settle();
+  expect([...document.querySelectorAll('[role="menu"]')].length).toBe(2);
+  await press(document.querySelectorAll('[role="menu"]')[1]!, "Escape");
+  expect([...document.querySelectorAll('[role="menu"]')].length).toBe(1);
 });

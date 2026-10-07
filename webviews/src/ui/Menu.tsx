@@ -26,6 +26,7 @@ const MenuContext = createContext<MenuContextValue | null>(null);
 export function Menu({ open, onOpenChange, children }: MenuProps) {
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
+  const pointerCleanup = useRef<(() => void) | null>(null);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
     if (open === undefined) setInternalOpen(next);
@@ -42,6 +43,43 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
         handled: false,
       };
       setMenuOpen(true);
+      pointerCleanup.current?.();
+      const doc = event.currentTarget.ownerDocument;
+      const move = (next: globalThis.PointerEvent) => {
+        if (next.pointerId !== event.pointerId) return;
+        const current = session.current;
+        if (!current) return;
+        current.moved ||= Math.hypot(next.clientX - current.x, next.clientY - current.y) >= POINTER_SLOP;
+        if (!current.moved) return;
+        const item = doc.elementFromPoint?.(next.clientX, next.clientY)?.closest<HTMLElement>('[role^="menuitem"]');
+        item?.focus({ preventScroll: true });
+      };
+      const up = (next: globalThis.PointerEvent) => {
+        if (next.pointerId !== event.pointerId) return;
+        const current = session.current;
+        const target = doc.elementFromPoint?.(next.clientX, next.clientY);
+        pointerCleanup.current?.();
+        pointerCleanup.current = null;
+        if (current?.moved && target instanceof HTMLElement && target.closest('[role^="menuitem"]')) {
+          const item = target.closest<HTMLElement>('[role^="menuitem"]');
+          if (item && !item.matches('[aria-disabled="true"]')) item.click();
+          setMenuOpen(false);
+        }
+        session.current = null;
+      };
+      const cancel = () => {
+        pointerCleanup.current?.();
+        pointerCleanup.current = null;
+        session.current = null;
+      };
+      doc.addEventListener("pointermove", move, true);
+      doc.addEventListener("pointerup", up, true);
+      doc.addEventListener("pointercancel", cancel, true);
+      pointerCleanup.current = () => {
+        doc.removeEventListener("pointermove", move, true);
+        doc.removeEventListener("pointerup", up, true);
+        doc.removeEventListener("pointercancel", cancel, true);
+      };
     },
     movePointer(event) {
       const current = session.current;
@@ -58,7 +96,8 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
       return true;
     },
     endPointer() {
-      session.current = null;
+      // Pointerup is handled by the document capture listener so the row remains selectable
+      // while the original trigger still owns pointer capture.
     },
   };
   return (
@@ -99,9 +138,6 @@ export function MenuButton({
       onPointerDown={(event) => {
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
-      }}
-      onPointerUp={(event) => {
-        if (event.pointerType === "mouse") context?.endPointer();
       }}
       onClick={(event) => {
         // A mouse click has already opened on press; keep it open after release. Keyboard clicks
