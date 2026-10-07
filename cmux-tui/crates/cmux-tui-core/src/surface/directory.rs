@@ -10,6 +10,47 @@ pub(super) enum PublishedDirectory {
 }
 
 impl Surface {
+    /// The folder the shell last reported with OSC 7, as a local path. A
+    /// hosted terminal's report counts only when it names this host (the
+    /// same rule its published directory follows); a local PTY may also
+    /// report a hostless URL or a plain path.
+    pub fn reported_local_cwd(&self) -> Option<String> {
+        let hosted = match self {
+            Surface::Pty(pty) => {
+                #[cfg(unix)]
+                {
+                    matches!(
+                        &*pty.runtime.lock().unwrap(),
+                        PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
+                    )
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = pty;
+                    false
+                }
+            }
+            Surface::Browser(_) => false,
+        };
+        let terminal_pwd_to_local_path = if hosted {
+            platform::terminal_pwd_to_local_path
+        } else {
+            platform::local_terminal_pwd_to_local_path
+        };
+        self.pwd()
+            .as_deref()
+            .and_then(terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned())
+    }
+
+    /// The authenticated directory the terminal was launched in.
+    pub fn launch_local_cwd(&self) -> Option<String> {
+        self.spawn_cwd()
+            .as_deref()
+            .and_then(platform::spawn_cwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned())
+    }
+
     /// The terminal's OSC 9;4 progress while one is shown.
     pub(crate) fn terminal_progress(&self) -> Option<crate::terminal_metadata::TerminalProgress> {
         self.as_pty()?.terminal_metadata.lock().unwrap().progress()

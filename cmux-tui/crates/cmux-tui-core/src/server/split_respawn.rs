@@ -100,7 +100,7 @@ pub(super) fn placement_spawn_options(
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
     let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
     let argv = shell_argv(&env, shell_args, frontend_shell);
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv, inherit_cwd: None })
 }
 
 /// `terminal-shell-args-v1`: the shell the terminal would run with no

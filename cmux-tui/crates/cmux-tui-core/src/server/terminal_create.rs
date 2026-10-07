@@ -60,6 +60,7 @@ struct PrelaunchRequest {
     pane: Option<PaneId>,
     terminal_id: Option<crate::terminal_host::TerminalId>,
     cwd: Option<String>,
+    inherit_cwd: bool,
     /// The argv `shell_args` resolves to; the create adopts this host, so
     /// it must run the same program.
     argv: Option<Vec<String>>,
@@ -69,7 +70,17 @@ struct PrelaunchRequest {
 
 impl PrelaunchRequest {
     fn of(command: &Command, frontend_shell: bool) -> Option<Self> {
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
+        let Command::NewTab {
+            pane,
+            cwd,
+            env,
+            cols,
+            rows,
+            terminal_id,
+            shell_args,
+            inherit_cwd,
+            ..
+        } = command
         else {
             return None;
         };
@@ -89,6 +100,7 @@ impl PrelaunchRequest {
             pane: *pane,
             terminal_id,
             cwd: cwd.clone(),
+            inherit_cwd: inherit_cwd.unwrap_or(true),
             argv: shell_argv(&env, shell_args.clone(), frontend_shell),
             env,
             size: optional_surface_size(*cols, *rows),
@@ -102,6 +114,7 @@ impl PrelaunchRequest {
             self.pane,
             self.terminal_id,
             self.cwd,
+            self.inherit_cwd,
             self.argv,
             self.env,
             self.size,

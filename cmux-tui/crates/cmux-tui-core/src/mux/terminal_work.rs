@@ -173,11 +173,13 @@ impl Mux {
     ///
     /// The caller must finish with [`Mux::discard_prelaunched_terminal`],
     /// which ends the host when the create did not adopt it.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn prelaunch_tab_terminal(
         self: &Arc<Self>,
         pane: Option<PaneId>,
         terminal_id: Option<TerminalId>,
         cwd: Option<String>,
+        inherit_cwd: bool,
         command: Option<Vec<String>>,
         env: Vec<(String, String)>,
         size: Option<(u16, u16)>,
@@ -196,7 +198,8 @@ impl Mux {
             };
             let Some(target) = target else { return Ok(None) };
             crate::debug_spans::mark("prelaunch.target");
-            let cwd = cwd.or_else(|| self.pane_cwd(target));
+            let source = new_terminal_cwd::NewTerminalSource::Pane(target);
+            let cwd = self.resolve_new_terminal_cwd(cwd, source, inherit_cwd);
             let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);

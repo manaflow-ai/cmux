@@ -1361,6 +1361,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// NEW-TERMINAL-INHERITS-CWD: `false` (Ghostty
+        /// `*-inherit-working-directory = false`) starts the terminal in the
+        /// workspace folder or the default folder, never another terminal's.
+        #[serde(default)]
+        inherit_cwd: Option<bool>,
     },
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
@@ -1634,6 +1639,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// NEW-TERMINAL-INHERITS-CWD: `false` (Ghostty
+        /// `*-inherit-working-directory = false`) starts the terminal in the
+        /// workspace folder or the default folder, never another terminal's.
+        #[serde(default)]
+        inherit_cwd: Option<bool>,
     },
     NewPaneRight(split_kind::NewPaneRightParams),
     Split(split_kind::SplitParams),
@@ -13408,14 +13418,25 @@ fn handle_command_with_cancellation(
             mux.set_terminal_keep(&terminal_id, keep)?;
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(
+        Command::NewTab {
+            pane,
+            cwd,
+            env,
+            cols,
+            rows,
+            keep,
+            terminal_id,
+            shell_args,
+            inherit_cwd,
+        } => {
+            let mut spawn = placement_spawn_options(
                 cwd,
                 env.as_ref(),
                 terminal_id,
                 shell_args,
                 frontend_shell(mux, client),
             )?;
+            spawn.inherit_cwd = inherit_cwd;
             let surface =
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -13791,14 +13812,25 @@ fn handle_command_with_cancellation(
             };
             Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(
+        Command::NewPane {
+            pane,
+            cols,
+            rows,
+            cwd,
+            env,
+            keep,
+            terminal_id,
+            shell_args,
+            inherit_cwd,
+        } => {
+            let mut spawn = placement_spawn_options(
                 cwd,
                 env.as_ref(),
                 terminal_id,
                 shell_args,
                 frontend_shell(mux, client),
             )?;
+            spawn.inherit_cwd = inherit_cwd;
             let surface =
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)

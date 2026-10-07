@@ -42,6 +42,7 @@ mod tab_workspace_name;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+mod new_terminal_cwd;
 mod pending_terminals;
 mod terminal_directory;
 mod terminal_exit;
@@ -1700,11 +1701,14 @@ pub struct TerminalSpawnOptions {
     /// The program and arguments to run instead of the bare default shell
     /// (`terminal-shell-args-v1` resolves `shell_args` into it).
     pub argv: Option<Vec<String>>,
+    /// `Some(false)`: start in the workspace folder or the default folder,
+    /// never another terminal's (Ghostty `*-inherit-working-directory`).
+    pub inherit_cwd: Option<bool>,
 }
 
 impl TerminalSpawnOptions {
     pub fn new(cwd: Option<String>, env: Vec<(String, String)>) -> Self {
-        Self { cwd, env, terminal_id: None, argv: None }
+        Self { cwd, env, terminal_id: None, argv: None, inherit_cwd: None }
     }
 }
 
@@ -4755,6 +4759,9 @@ impl Mux {
         Self::insert_optional_string(fields, "cwd", spawn.cwd);
         Self::insert_terminal_env(fields, spawn.env);
         Self::insert_optional_string(fields, RESERVED_TERMINAL_ID_FIELD, spawn.terminal_id);
+        if let Some(inherit) = spawn.inherit_cwd {
+            fields.insert(new_terminal_cwd::INHERIT_CWD_FIELD.into(), Value::Bool(inherit));
+        }
         if let Some(argv) = spawn.argv {
             fields
                 .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
@@ -14667,25 +14674,26 @@ impl Mux {
         {
             hook();
         }
-        let (workspace_key, inherited_pane) = {
+        let workspace_key = {
             let state = self.state.lock().unwrap();
             let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
-            (workspace.key.clone(), workspace.active_screen_ref().map(|screen| screen.active_pane))
+            workspace.key.clone()
         };
-        let inherited_cwd = inherited_pane.and_then(|pane| self.pane_cwd(pane));
+        // Resolved under the workspace lifecycle lock, so a concurrent create
+        // into an empty workspace sees the first terminal.
+        let source = new_terminal_cwd::NewTerminalSource::Workspace(workspace);
+        let cwd = self.resolve_new_terminal_cwd(cwd, source, true);
         let surface = match reservation {
             Some(reservation) => self.spawn_surface_in_workspace_reserved(
                 &workspace_key,
-                cwd.or(inherited_cwd),
+                cwd,
                 size,
                 argv,
                 reservation,
             )?,
-            None => {
-                self.spawn_surface_in_workspace(&workspace_key, cwd.or(inherited_cwd), size, argv)?
-            }
+            None => self.spawn_surface_in_workspace(&workspace_key, cwd, size, argv)?,
         };
         self.pending_workspace_surfaces.lock().unwrap().insert(surface.id, workspace);
         let pending_surface = self.pending_workspace_surface(surface.id);
@@ -15175,16 +15183,6 @@ impl Mux {
             surface.kill();
         }
         attached
-    }
-
-    /// Working directory of a pane's active surface, if reported.
-    fn pane_cwd(&self, pane: PaneId) -> Option<String> {
-        let surface = {
-            let state = self.state.lock().unwrap();
-            let active = state.panes.get(&pane)?.active_surface()?;
-            state.surfaces.get(&active).cloned()
-        };
-        surface.and_then(|surface| surface.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {

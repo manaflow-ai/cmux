@@ -5353,42 +5353,7 @@ impl Surface {
     }
 
     pub fn local_cwd(&self) -> Option<String> {
-        let hosted = match self {
-            Surface::Pty(pty) => {
-                #[cfg(unix)]
-                {
-                    matches!(
-                        &*pty.runtime.lock().unwrap(),
-                        PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
-                    )
-                }
-                #[cfg(not(unix))]
-                {
-                    false
-                }
-            }
-            Surface::Browser(_) => false,
-        };
-        // A hosted terminal's OSC 7 report counts only when it names this host
-        // (the same rule its published directory follows); a local PTY may also
-        // report a hostless URL or a plain path. Anything else falls back to the
-        // authenticated launch directory below.
-        let terminal_pwd_to_local_path = if hosted {
-            platform::terminal_pwd_to_local_path
-        } else {
-            platform::local_terminal_pwd_to_local_path
-        };
-        let terminal_cwd = self
-            .pwd()
-            .as_deref()
-            .and_then(terminal_pwd_to_local_path)
-            .map(|path| path.to_string_lossy().into_owned());
-        terminal_cwd.or_else(|| {
-            self.spawn_cwd()
-                .as_deref()
-                .and_then(platform::spawn_cwd_to_local_path)
-                .map(|path| path.to_string_lossy().into_owned())
-        })
+        self.reported_local_cwd().or_else(|| self.launch_local_cwd())
     }
 
     #[cfg(test)]

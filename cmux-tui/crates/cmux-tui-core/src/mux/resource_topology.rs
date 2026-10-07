@@ -4741,7 +4741,7 @@ impl Mux {
         let result = self.create_terminal_in_workspace_with_mutation_env(
             workspace,
             argv,
-            cwd,
+            self.effect_workspace_cwd(cwd, workspace, intent),
             name,
             size,
             Some(&terminal_hex),
@@ -4778,7 +4778,7 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
+        let cwd = self.effect_pane_cwd(cwd, target, intent);
         let reservation = self.effect_terminal_reservation(
             intent,
             &workspace_key,

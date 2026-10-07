@@ -152,7 +152,7 @@ impl Mux {
             let pending = self.pending_workspace_surface(surface.id);
             return Ok(SpawnedPaneSurface::Browser { surface, _pending: pending });
         }
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
+        let cwd = self.effect_pane_cwd(cwd, target, intent);
         let reservation = self.effect_terminal_reservation(
             intent,
             workspace_key,

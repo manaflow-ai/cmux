@@ -53,6 +53,11 @@ struct PaneContentParams {
     /// `SHELL` in `env`, else the daemon's default shell).
     #[serde(default)]
     shell_args: Option<Vec<String>>,
+    /// NEW-TERMINAL-INHERITS-CWD: `false` (Ghostty
+    /// `*-inherit-working-directory = false`) starts the terminal in the
+    /// workspace folder or the default folder, never another terminal's.
+    #[serde(default)]
+    inherit_cwd: Option<bool>,
     /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
     #[serde(default)]
     kind: Option<String>,
@@ -75,13 +80,15 @@ impl PaneContentParams {
     }
 
     fn spawn(self, mux: &Mux, client: u64) -> anyhow::Result<crate::TerminalSpawnOptions> {
-        placement_spawn_options(
+        let mut spawn = placement_spawn_options(
             self.cwd,
             self.env.as_ref(),
             self.terminal_id,
             self.shell_args,
             frontend_shell(mux, client),
-        )
+        )?;
+        spawn.inherit_cwd = self.inherit_cwd;
+        Ok(spawn)
     }
 }
 
