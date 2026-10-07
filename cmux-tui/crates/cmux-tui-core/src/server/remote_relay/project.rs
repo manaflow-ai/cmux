@@ -111,7 +111,8 @@ fn part(part: &Part) -> Option<RemotePart> {
             runs: runs.as_ref().map(|runs| runs.iter().map(text_run).collect()),
         }),
         // Paired installs cannot fetch attachment bytes yet (no relay read).
-        Part::Work { .. } | Part::Attachment { .. } => None,
+        // Questions are not projected to paired installs yet.
+        Part::Work { .. } | Part::Attachment { .. } | Part::Question(_) => None,
     }
 }
 

@@ -60,10 +60,17 @@ pub enum Reject {
     /// An attachment part's type, size, poster or preview differs from the
     /// conversation's record of its hash. The host checks it.
     AttachmentMismatch,
+    /// Only a human answers a question; an agent never does.
+    HumanOnly,
+    /// The question was already answered or cancelled.
+    QuestionClosed,
+    /// The answer misses an item, names an unknown option, chooses too many,
+    /// or types Other where the item does not allow it.
+    InvalidAnswer,
 }
 
 impl Reject {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 25] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -86,6 +93,9 @@ impl Reject {
         Self::ActorMismatch,
         Self::UnknownAttachment,
         Self::AttachmentMismatch,
+        Self::HumanOnly,
+        Self::QuestionClosed,
+        Self::InvalidAnswer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -112,6 +122,9 @@ impl Reject {
             Self::ActorMismatch => "actor_mismatch",
             Self::UnknownAttachment => "unknown_attachment",
             Self::AttachmentMismatch => "attachment_mismatch",
+            Self::HumanOnly => "human_only",
+            Self::QuestionClosed => "question_closed",
+            Self::InvalidAnswer => "invalid_answer",
         }
     }
 }
@@ -224,6 +237,17 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 return Err(Reject::InvalidClientMsgId);
             }
             validate_parts(parts)?;
+            let is_agent =
+                head.participant(request.actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
+            let bad_question = |part: &Part| match part {
+                Part::Question(question) => {
+                    !is_agent || question.state != crate::question::QuestionState::Pending
+                }
+                _ => false,
+            };
+            if parts.iter().any(bad_question) {
+                return Err(Reject::InvalidParts);
+            }
             if let Some(reply_to) = reply_to {
                 let replied = request
                     .reply_target
@@ -276,6 +300,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 return Err(Reject::Retracted);
             }
             validate_parts(parts)?;
+            crate::question::check_edit(&message.parts, parts)?;
             message.parts = parts.clone();
             message.edited_at = Some(now.to_string());
             let part_count = message.parts.len();
@@ -361,6 +386,18 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             next.updated_at = now.to_string();
             let conversation = Box::new(summary(&next, request.last_message));
             (None, Change::Conversation { conversation })
+        }
+        Op::QuestionAnswer { message_id, part_index, answer } => {
+            let mut message = target(head, request, message_id)?;
+            if message.retracted_at.is_some() {
+                return Err(Reject::Retracted);
+            }
+            let actor = head.participant(request.actor).ok_or(Reject::NotParticipant)?;
+            let Some(Part::Question(question)) = message.parts.get_mut(*part_index as usize) else {
+                return Err(Reject::InvalidPartIndex);
+            };
+            crate::question::answer(question, answer, actor, now)?;
+            updated(message)
         }
         Op::TitleSet { title } => {
             validate_title(title)?;
@@ -522,6 +559,7 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     return Err(Reject::InvalidParts);
                 }
             }
+            Part::Question(question) => crate::question::validate(question)?,
         }
     }
     Ok(())

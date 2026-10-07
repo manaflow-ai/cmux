@@ -10,6 +10,7 @@
 mod attachments;
 mod budget;
 mod id;
+mod question;
 mod reducer;
 mod search;
 mod types;
@@ -25,6 +26,11 @@ pub use budget::{
     parse_rfc3339_millis,
 };
 pub use id::{encode_id, format_rfc3339_millis};
+pub use question::{
+    MAX_QUESTION_ITEMS, MAX_QUESTION_LABEL_BYTES, MAX_QUESTION_OPTIONS, MAX_QUESTION_PREVIEW_BYTES,
+    MAX_QUESTION_TEXT_BYTES, PreviewFormat, Question, QuestionAnswer, QuestionHarness,
+    QuestionItem, QuestionOption, QuestionPreview, QuestionSelection, QuestionState, Respondent,
+};
 pub use reducer::{
     Commit, CreateRequest, OpRequest, Reject, apply, check_typing, create, summary,
     valid_participant_id, valid_token,
@@ -58,5 +64,7 @@ pub const MAX_PREVIEW_BYTES: usize = 4096;
 /// Longest emoji reaction, in UTF-8 bytes.
 pub const MAX_EMOJI_BYTES: usize = 64;
 
+#[cfg(test)]
+mod question_tests;
 #[cfg(test)]
 mod tests;
