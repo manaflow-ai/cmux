@@ -156,24 +156,13 @@ enum TabLifecycle {
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
     /// never silently becomes WebKit.
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
-        var invocation = invocation
-        // A Chromium internal page opens in a Chromium tab (never searched in WebKit).
-        if invocation["engine"] == nil, let text = invocation["url"]?.stringValue,
-           ChromiumInternalURL(typed: text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil {
-            invocation.arguments["engine"] = .string(BrowserEngineTag.cef.rawValue)
+        let plan: BrowserOpenPlan
+        switch BrowserOpenPlan.make(url: invocation["url"]?.stringValue, engine: invocation["engine"]?.stringValue,
+                                    origin: invocation.origin) {
+        case .refuse(let message): return ctx.refuse(message)
+        case .open(let opened): plan = opened
         }
-        var url: URL?
-        if let text = invocation["url"]?.stringValue {
-            let chromium = invocation["engine"]?.stringValue == BrowserEngineTag.cef.rawValue
-            guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: text) else {
-                return ctx.refuse(MiscHandlerStrings.invalidURL(text))
-            }
-            // Agents never open Chromium's own pages (plans/cmux-next/passwords.md, section 2).
-            if invocation.origin != .user, AgentURLPolicy.refuses(resolved) {
-                return ctx.refuse(MiscHandlerStrings.agentChromiumPage)
-            }
-            url = resolved
-        }
+        let url = plan.url
         let rawProfile = invocation["profile"]?.stringValue
         guard let profileRequest = AgentBrowserProfile.request(rawProfile) else {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(rawProfile ?? ""))
@@ -182,10 +171,10 @@ enum TabLifecycle {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(id))
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
-        let engine = invocation["engine"]?.stringValue
+        let engine = plan.engine
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
         if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
-            noteUserChoice(.browser(engine: engine), ctx, invocation, pane: pane)
+            noteUserChoice(.browser(engine: plan.recordedEngine), ctx, invocation, pane: pane)
         }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache

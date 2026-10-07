@@ -125,6 +125,12 @@ extension PaneController {
         })
     }
 
+    /// Whether a session-local (WebKit) tab may stand in when the daemon
+    /// cannot make browser tabs.
+    nonisolated static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
+        true
+    }
+
     /// New browser tab: daemon-owned when supported, on the engine
     /// `BrowserTabService.resolve` picks (an explicit engine, else
     /// `browser.defaultEngine`, Chromium, with the WebKit fallback), else
