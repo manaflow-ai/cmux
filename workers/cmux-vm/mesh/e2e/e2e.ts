@@ -10,7 +10,7 @@
 // by exact id and expects 404.
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { makeWebHandler } from "../../src/app.ts";
 import { generateApiKey, hashApiKey, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
@@ -151,9 +151,13 @@ const must = async (method: string, path: string, body?: unknown) => {
 };
 
 const agentEnv = { ...process.env, CMUX_VM_API_URL: API, CMUX_VM_API_KEY: apiKey };
-const agent = (args: string[], timeoutMs = 60_000) => {
-  const result = spawnSync(AGENT, args, { env: agentEnv, encoding: "utf8", timeout: timeoutMs });
-  return { code: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+// Async: the API server runs in this process, so a blocking spawn would starve it.
+const agent = async (args: string[], timeoutMs = 60_000) => {
+  const child = Bun.spawn([AGENT, ...args], { env: agentEnv, stdout: "pipe", stderr: "pipe" });
+  const timer = setTimeout(() => child.kill(), timeoutMs);
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  clearTimeout(timer);
+  return { code, stdout, stderr };
 };
 
 // ---- the proof ----
@@ -182,9 +186,9 @@ try {
 
   const keyFile = join(OUT, "device.key");
   const config = join(OUT, "mesh.json");
-  const keygen = agent(["keygen", "--key-file", keyFile]);
+  const keygen = await agent(["keygen", "--key-file", keyFile]);
   log("keygen", { code: keygen.code, publicKey: keygen.stdout.trim() });
-  const enroll = agent(["enroll", "--key-file", keyFile, "--mesh", cmux.meshId, "--name", "cmux-lawrence-2", "--out", config]);
+  const enroll = await agent(["enroll", "--key-file", keyFile, "--mesh", cmux.meshId, "--name", "cmux-lawrence-2", "--out", config]);
   log("enroll", { code: enroll.code, stderr: enroll.stderr.slice(0, 400) });
   if (enroll.code !== 0) throw new Error("enroll failed");
   const devices = await must("GET", `/v1/meshes/${cmux.meshId}/devices`);
@@ -197,9 +201,9 @@ try {
   log("acl", { version: 1, status: first.status, body: first.json, ms: first.ms });
   log("peers", (await must("GET", `/v1/devices/${cmux.deviceId}/peers`)).json);
 
-  const ping = agent(["ping", "--config", config, "--key-file", keyFile, cmux.vmId, "-c", "5"], 90_000);
+  const ping = await agent(["ping", "--config", config, "--key-file", keyFile, cmux.vmId, "-c", "5"], 90_000);
   log("ping", { code: ping.code, stdout: ping.stdout.trim().split("\n"), stderr: ping.stderr.trim().split("\n").slice(-3) });
-  const tcp = agent(["tcp", "--config", config, "--key-file", keyFile, cmux.vmId, "8080", "--send", "hello"], 90_000);
+  const tcp = await agent(["tcp", "--config", config, "--key-file", keyFile, cmux.vmId, "8080", "--send", "hello"], 90_000);
   log("tcp", { code: tcp.code, stdout: tcp.stdout.trim(), stderr: tcp.stderr.trim().split("\n").slice(-3) });
   if (ping.code !== 0 || tcp.code !== 0) failed = true;
 
