@@ -391,7 +391,8 @@ async function main() {
   let aud: any;
   for (let before: number | null = null; !aud; ) {
     const page = await l.call("history", { beforeSeq: before, limit: 200 });
-    aud = page.messages.flatMap((m: any) => m.attachments).find((a: any) => a.kind === "audio");
+    // At least 2 s: the upload check below reuses its first 2 s of PCM.
+    aud = page.messages.flatMap((m: any) => m.attachments).find((a: any) => a.kind === "audio" && a.durationMs >= 2000);
     before = page.messages[0].seq;
   }
   check(aud.durationMs > 1000 && aud.waveform.length >= 12 && aud.waveform.every((v: number) => v >= 0 && v <= 100), `history audio ${aud.durationMs}ms with ${aud.waveform.length}-level waveform`);
