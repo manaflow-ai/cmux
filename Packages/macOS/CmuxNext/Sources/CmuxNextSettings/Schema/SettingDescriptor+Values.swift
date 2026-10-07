@@ -1,9 +1,11 @@
 import Foundation
 
 extension SettingDescriptor {
-    /// The value stored in `root`, or nil when the key is absent.
+    /// The value stored in `root`, or nil when the key is absent. A renamed
+    /// key that is absent reads its old key, as the parser does, so Settings
+    /// shows the value the app applies.
     public func storedValue(in root: JSONValue) -> JSONValue? {
-        root.value(at: path)
+        root.value(at: path) ?? WorkspaceRowSetting.legacyValue(for: path, in: root)
     }
 
     /// The stored value when it is valid, else the default (what the app
