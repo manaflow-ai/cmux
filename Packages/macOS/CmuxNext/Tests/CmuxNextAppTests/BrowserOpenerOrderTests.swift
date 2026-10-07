@@ -82,4 +82,19 @@ struct BrowserOpenerOrderTests {
         #expect(daemon.order.last == 27)
         h.teardown()
     }
+
+    /// The slot rule alone: the opener's child furthest right of the opener;
+    /// children the pane no longer shows, or shows left of the opener, do not count.
+    @Test func slotIsTheRightmostShownChild() async throws {
+        let openers = BrowserTabOpeners()
+        let opener = SurfaceID(rawValue: 1)
+        let ids = (2...5).map { SurfaceID(rawValue: $0) }
+        #expect(openers.slot(after: opener, in: [opener]) == opener, "no children yet")
+        for child in ids {
+            _ = try await openers.place(opener: opener, foreground: false, order: { [opener] + ids }, create: { _ in child })
+        }
+        let order = [ids[2], opener, ids[0], ids[1], SurfaceID(rawValue: 9)]
+        #expect(openers.slot(after: opener, in: order) == ids[1], "child 5 closed, child 4 sits left of the opener")
+        #expect(openers.slot(after: opener, in: [opener, ids[1], ids[0]]) == ids[0], "position, not creation order")
+    }
 }
