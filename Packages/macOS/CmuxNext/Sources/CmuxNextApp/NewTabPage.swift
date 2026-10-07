@@ -41,6 +41,7 @@ struct NewTabPageHandler {
 }
 
 enum NewTabPage {
+    private static var openingPanes: Set<ObjectIdentifier> = []
     static let action: ActionID = "newTab.page"
     /// Focus Location Bar (⌘L): the one place to type a URL, a command (`!`) or a question (`?`).
     static let focusLocation: ActionID = "focusLocation"
@@ -267,11 +268,14 @@ extension NewTabPage {
     static func open(in pane: PaneController, seed: AgentPaneSeedSource?) {
         let start = ContinuousClock.now
         let services = pane.services
+        let openingKey = ObjectIdentifier(pane)
         if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) {
+            openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             services.agentTabs.view(for: key)?.focusLocation()
             return
         }
+        guard openingPanes.insert(openingKey).inserted else { return }
         let inputToken = services.keyRouter.beginNewTabInput(for: pane)
         let cwd = pane.selectedTab?.cwd
         var page = Self.page(services, selected: pane.selectedTab)
@@ -288,6 +292,7 @@ extension NewTabPage {
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else {
+            openingPanes.remove(openingKey)
             services.keyRouter.cancelNewTabInput(in: pane.view.window)
             return
         }

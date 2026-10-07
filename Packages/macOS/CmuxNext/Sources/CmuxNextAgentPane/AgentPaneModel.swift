@@ -276,7 +276,7 @@ public final class AgentPaneModel {
         case .runAction(let id):
             // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
             // and the command palette's chats page ("Show all", decision K1).
-            guard id == "newTab.page" || id == "agentPane.searchChats" || newTab?.tools.contains(where: { $0.id == id }) == true || (id == "palette.welcomeChecklist" && newTab != nil),
+            guard id == "newTab.page" || id == "agentPane.searchChats" || newTab?.tools.contains(where: { $0.id == id || $0.menu.contains(id) }) == true || (id == "palette.welcomeChecklist" && newTab != nil),
                   let onRunAction else {
                 return Self.unsupported("action.run")
             }

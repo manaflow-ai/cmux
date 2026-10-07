@@ -218,7 +218,13 @@ export function NewTabScreen(props: Props) {
                 activate(row);
               }}
             >
-              {row.type === "agent" ? <AgentMark harness={row.harness} /> : <span className="nt-row-glyph" />}
+              {row.type === "agent" ? (
+                <AgentMark harness={row.harness} />
+              ) : (
+                <span className="nt-row-glyph" data-kind={row.type}>
+                  {rowIcon(row)}
+                </span>
+              )}
               <span className="nt-row-title">{rowTitle(nt, row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
@@ -265,7 +271,7 @@ function ToolsSection({
                 <div className="nt-tool-menu-popover">
                   {tool.menu.map((id) => (
                     <button type="button" key={id} onClick={() => onRunAction?.(id)}>
-                      {id}
+                      {toolMenuTitle(t, id)}
                     </button>
                   ))}
                 </div>
@@ -280,6 +286,12 @@ function ToolsSection({
 
 function toolIcon(symbol: string): string {
   return { plusminus: "±", terminal: "›_", folder: "▱", "bubble.left.and.text.bubble.right": "◌" }[symbol] ?? "•";
+}
+
+function toolMenuTitle(t: Translate, id: string): string {
+  if (id === "splitRight") return t("newTabPage.tool.splitRight");
+  if (id === "splitDown") return t("newTabPage.tool.splitDown");
+  return id;
 }
 
 function toolTitle(t: ReturnType<typeof useT>, tool: NonNullable<NewTabHost["tools"]>[number]): string {
@@ -315,6 +327,32 @@ function rowKey(row: ScreenRow): string {
       return `${row.type}:${row.text}`;
     default:
       return row.type;
+  }
+}
+
+function rowIcon(row: ScreenRow): string {
+  switch (row.type) {
+    case "tab":
+      return "▣";
+    case "workspace":
+      return "▦";
+    case "session":
+      return "◌";
+    case "folder":
+      return "▱";
+    case "command":
+    case "run":
+      return "›_";
+    case "history":
+      return "◷";
+    case "open":
+      return "↗";
+    case "search":
+      return "⌕";
+    case "ask":
+      return "✦";
+    default:
+      return "•";
   }
 }
 

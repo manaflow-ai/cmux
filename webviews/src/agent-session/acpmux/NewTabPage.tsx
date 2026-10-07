@@ -201,6 +201,7 @@ type Props = {
   host?: string;
   tools?: NewTabHost["tools"];
   inputToken?: string;
+  onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
   chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Open tabs, workspaces, folders, commands and history the bar suggests.
@@ -249,6 +250,8 @@ export function NewTabPage({
   onEditShortcut,
   onImport,
   onBrowseProject,
+  inputToken,
+  onInputReady,
 }: Props) {
   const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
@@ -298,10 +301,11 @@ export function NewTabPage({
       field.current?.select();
     };
     focus();
+    if (inputToken) onInputReady?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, []);
+  }, [inputToken, onInputReady]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);

@@ -28,10 +28,7 @@ extension KeyRouter {
         guard let window, !Self.isChord(event.modifierFlags),
               (Self.isPrintable(event) || event.keyCode == Self.deleteKeyCode) else { return false }
         let (controller, kind) = focus(for: window)
-        guard kind == .content, let controller,
-              let pane = controller.focus.state.resolved.pane,
-              let key = controller.content?.paneController(key: pane)?.currentTabKey,
-              services?.agentTabs.isNewTabPage(key) == true else { return false }
+        guard kind == .content, controller != nil else { return false }
         return newTabInput[window.windowNumber]?.capture(event) ?? false
     }
 

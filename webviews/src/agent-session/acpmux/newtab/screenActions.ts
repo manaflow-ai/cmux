@@ -35,7 +35,7 @@ export function newTabScreenActions(deps: {
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
       deps.leave();
-      deps.runShell(command, cwd);
+      ignore(callNative("tab.open", { kind: "terminal", text: command, run: true, ...(cwd ? { cwd } : {}) }));
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {

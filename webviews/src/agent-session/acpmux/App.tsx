@@ -2077,6 +2077,8 @@ function AcpmuxPane() {
               onShowAll={() => searchEvent("toggle")}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
+              inputToken={newTab.inputToken}
+              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : (
             <>

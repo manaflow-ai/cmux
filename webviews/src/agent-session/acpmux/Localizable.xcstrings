@@ -78926,7 +78926,271 @@
           }
         }
       }
+    },
+  "newTabPage.tool.splitRight": {
+    "comment": "Agent pane New Tab Tools menu",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تقسيم إلى اليمين"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podijeli desno"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opdel til højre"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nach rechts teilen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Split right"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir a la derecha"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diviser à droite"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividi a destra"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "右に分割"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បំបែកទៅស្តាំ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "오른쪽으로 분할"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Del til høyre"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podziel w prawo"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir à direita"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Разделить вправо"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แยกทางขวา"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sağa böl"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Розділити праворуч"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chia sang phải"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向右拆分"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向右分割"
+        }
+      }
     }
+  },
+  "newTabPage.tool.splitDown": {
+    "comment": "Agent pane New Tab Tools menu",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تقسيم إلى الأسفل"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podijeli dolje"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opdel nedad"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nach unten teilen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Split down"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir hacia abajo"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diviser vers le bas"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividi verso il basso"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "下に分割"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បំបែកចុះក្រោម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "아래로 분할"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Del ned"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podziel w dół"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir para baixo"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Разделить вниз"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แยกด้านล่าง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aşağı böl"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Розділити вниз"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chia xuống"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向下拆分"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向下分割"
+        }
+      }
+    }
+  }
   },
   "version": "1.0"
 }
