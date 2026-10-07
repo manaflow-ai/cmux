@@ -31,6 +31,7 @@ extension LinkConformanceSuite {
         let progress = RawSendProgress()
         let sender = Task {
             var index: UInt64 = 0
+            // wakeup-allow: test-only flood; each iteration awaits a send that back-pressures.
             while !Task.isCancelled, index < progress.stopIndex {
                 index += 1
                 var bytes = Data(count: frameBytes)
@@ -48,7 +49,9 @@ extension LinkConformanceSuite {
         // window) or past the limit. Test-only real-time sampling.
         let stalled = try await deadline.run("sender stalls without a consumer") { () -> Int in
             var last = -1
+            // wakeup-allow: test-only real-time sampling, bounded by the step deadline.
             while true {
+                // wakeup-allow: test-only quiet window that detects a suspended sender.
                 try await Task.sleep(for: .milliseconds(400))
                 let now = progress.bytes
                 if now >= sendLimit || now == last { return now }
