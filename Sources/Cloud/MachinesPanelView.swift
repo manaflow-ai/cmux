@@ -546,6 +546,11 @@ struct MachinesPanelView: View {
             coderouter.accounts = snapshot.accounts
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
+            // A superseded refresh must not clear the destination its
+            // replacement may already have stored.
+            guard !Task.isCancelled,
+                  accountFlow?.confirmedTeamID == teamID,
+                  accountFlow?.currentIdentity?.id == identityID else { return }
             // Keep account rows visible during a transient failure, but never
             // let an old organization remain eligible for a new account.
             coderouterDestination = nil
