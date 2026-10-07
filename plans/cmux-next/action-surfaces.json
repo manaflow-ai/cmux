@@ -6030,6 +6030,7 @@
       "default_shortcut" : {
         "key" : "k",
         "modifiers" : [
+          "shift",
           "cmd"
         ]
       },
@@ -16003,7 +16004,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -16013,14 +16014,9 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "k",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPane.searchChats",
-      "mcp" : "liveInput",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.agents",
@@ -20806,7 +20802,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.clear",
       "mcp" : "offered",
       "palette" : "offered",
@@ -22990,6 +22991,7 @@
       "default_shortcut" : {
         "key" : "k",
         "modifiers" : [
+          "shift",
           "cmd"
         ]
       },
@@ -23526,17 +23528,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "k",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : "paletteOpen"
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -29738,7 +29730,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-
+                  "terminalFocused"
                 ]
               }
             }
