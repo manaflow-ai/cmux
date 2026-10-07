@@ -85,6 +85,8 @@ Adapters: `inbox` (the messages the brain wakes on and logs equal the corpus's p
 | prompts: a refused prompt that acpmux then accepts and runs: its pending retry timer sends nothing | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
 | prompts: a refusal of a prompt acpmux accepted and queued is ignored | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
 | prompts: a prompt accepted only in the attach replay and refused after the resend retries on the clock | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
+| wake remote: the owner's paired device wakes the Chief when the owner stamped it relayed; an unstamped, mismatched or foreign device message does not | inbox |  |
+| wake remote group: a relayed device message in a group needs a mention, like the person's own; another person's device never wakes it | inbox |  |
 
 ## Deviations
 
