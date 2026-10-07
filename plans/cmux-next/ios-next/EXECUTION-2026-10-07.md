@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at HEAD `7930870186` reports 83 of 98 parity rows done, with one
+The refreshed D3 matrix at HEAD `9efd49e1b6` reports 83 of 98 parity rows done, with one
 implementation gap (tmux control-mode workspaces), six seam-only rows (including generic
 SOCKS routing), four mocked platform rows, and four intentional drops. The C14 browser,
 simulator and local-forward implementations, D1b host wiring, and E3/E4/E5 parity slices are
@@ -54,6 +54,9 @@ The active wave is intentionally independent:
 - `e3983cd23f` and `b83b98b583` preserve the exact validated cmux-tui socket discovered over
   SSH and attach with `attach --socket`, with malformed-path, runtime-directory, replacement,
   and stale-session regressions. Syntax and scoped convention checks pass.
+- `9efd49e1b6` bounds `CmuxLink` channels, pending sessions, incoming channels and media tracks;
+  overflow refuses or closes the resource, and focused tests cover the local channel cap and stalled
+  incoming resource queues. Full package execution remains a fleet/build-host gate.
 
 The dedicated build host was unavailable during this wave (`cmux-lawrence-2` did not resolve),
 so native package tests, tagged pair installs, visual evidence, and live SSH/browser paths remain

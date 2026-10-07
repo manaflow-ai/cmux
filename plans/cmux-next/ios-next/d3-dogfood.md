@@ -1,6 +1,6 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `7930870186` (B2, C3, C12, C14,
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `9efd49e1b6` (B2, C3, C12, C14,
 D1b, E3, E4, E5 and F1 are in this ancestry). Plan: [PLAN.md](PLAN.md) D3. No tagged build,
 simulator or device run is recorded: the dedicated build host and fleet slot were unavailable, so
 the matrix below separates implementation evidence from the still-pending live-pair gate.
@@ -333,7 +333,7 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
-not a test result for current HEAD `7930870186`.
+not a test result for current HEAD `9efd49e1b6`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
