@@ -66,9 +66,9 @@ final class AgentQuestionOtherField: NSTextField, NSTextFieldDelegate {
             card?.handle(.confirm)
         case #selector(NSResponder.cancelOperation(_:)):
             card?.handle(.escape)
-            card.map { window?.makeFirstResponder($0) }
+            if let card { window?.makeFirstResponder(card) }
         case #selector(NSResponder.moveUp(_:)):
-            card.map { window?.makeFirstResponder($0) }
+            if let card { window?.makeFirstResponder(card) }
             card?.handle(.up)
         default:
             return false
