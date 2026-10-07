@@ -85,4 +85,40 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
       expect(existsSync(stranded)).toBe(false);
     });
   });
+  // A user snapshot of a machine whose supervisor unit was stopped resumes
+  // with no supervisor at all: a memory image never re-runs boot, so nothing
+  // binds the clone or starts its daemon. Readiness starts the enabled unit,
+  // which is what a boot of that machine would have done.
+  test("starts a stopped supervisor unit so the clone binds and listens", async () => {
+    await withFakeGuest("vm-source", async (env, root, boundFile) => {
+      const bin = env.PATH.split(":")[0];
+      const started = path.join(root, "started");
+      writeFileSync(path.join(bin, "systemctl"), [
+        "#!/bin/sh",
+        `case "$*" in`,
+        `  *is-active*) [ -e '${started}' ] && exit 0; echo inactive; exit 3;;`,
+        `  *start*cmux-tui-daemon.service*) : > '${started}'; echo vm-clone > '${boundFile}'; exit 0;;`,
+        "esac",
+        "exit 1",
+      ].join("\n") + "\n", { mode: 0o755 });
+      const command = devboxForkDaemonReadyCommand(2, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(existsSync(started)).toBe(true);
+    });
+  });
+
+  test("names the stalled stage when the daemon never listens", async () => {
+    await withFakeGuest("vm-source", async (env, root, boundFile) => {
+      const bin = env.PATH.split(":")[0];
+      writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\ncase \"$*\" in *is-active*) echo failed; exit 3;; esac\nexit 1\n", { mode: 0o755 });
+      const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("did not listen on port 1337");
+      expect(result.stderr).toContain("supervisor failed");
+      expect(result.stderr).toContain("not bound to this machine");
+    });
+  });
 });

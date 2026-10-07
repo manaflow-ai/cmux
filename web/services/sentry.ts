@@ -24,17 +24,18 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
   return event;
 }
 
-export function shouldSendCoderouterSentryEvent(event: Event): boolean {
-  if (event.tags?.subsystem === "coderouter") return true;
-  const cmux = event.contexts?.cmux as Record<string, unknown> | undefined;
-  if (cmux?.service === "coderouter") return true;
-  // Cloud VM operator-fault errors and their Slack-alert failures report
-  // through the same shared project (services/vms/observability.ts,
-  // services/observability/alerts.ts). Before this branch, beforeSend
-  // silently dropped them, which is how a two-day provisioning outage
-  // produced zero Sentry events.
-  if (typeof cmux?.subsystem === "string" && cmux.subsystem.startsWith("cloud_vm")) return true;
-  if (cmux?.subsystem === "rate_limit") return true;
+/**
+ * beforeSend gate for the shared cmux Sentry project. The Next.js app serves
+ * far more than coderouter, and Sentry bills per event, so raw unhandled
+ * request errors (`onRequestError`) stay out unless they are coderouter's.
+ * Every error a cmux helper reports on purpose (`reportError`, the
+ * `capture*Error` helpers in services/errors.ts) carries an explicit
+ * `subsystem` tag or the `cmux` context, and passes. Until 2026-10-07 this
+ * gate allowlisted a few subsystems and silently dropped the rest, including
+ * App Store Connect, cron, teams and auth reports.
+ */
+export function shouldSendSentryEvent(event: Event): boolean {
+  if (isDeliberateReport(event)) return true;
   const message =
     event.message ??
     event.exception?.values?.map((value) => value.value ?? "").join(" ") ??
@@ -47,6 +48,15 @@ export function shouldSendCoderouterSentryEvent(event: Event): boolean {
   } catch {
     return false;
   }
+}
+
+function isDeliberateReport(event: Event): boolean {
+  const subsystem = event.tags?.subsystem;
+  if (typeof subsystem === "string" && subsystem.trim() !== "") return true;
+  // reportError (services/observability/report.ts) always sets this context
+  // inside its own scope; nothing else in the app writes it.
+  const cmux = event.contexts?.cmux;
+  return typeof cmux === "object" && cmux !== null;
 }
 
 function scrubValue(value: unknown): void {

@@ -174,7 +174,13 @@ pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
 MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
 engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
 Monitor and permission UI show the product name instead of an implementation
-name. This requires a Rust
+name. cmux installs that helper into its tag-scoped directory only when the
+helper is Developer ID signed (`com.cmuxterm.cua`, team `7WLXT3NR37`). A
+tagged dev build bundles an ad-hoc helper, which can never satisfy the
+Accessibility and Screen Recording rows, and a grant to it replaces the
+release helper's row. A dev build therefore copies the helper of an installed
+cmux NIGHTLY, RC or release app, or reports Computer Use unavailable and
+installs, launches and prompts for nothing. This requires a Rust
 toolchain on the build machine:
 
 - local dev: install via [rustup](https://rustup.rs) (or
