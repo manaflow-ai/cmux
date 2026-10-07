@@ -20610,7 +20610,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterWillRelaunchApplication() {
         isRelaunchingForUpdate = true
         persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()
