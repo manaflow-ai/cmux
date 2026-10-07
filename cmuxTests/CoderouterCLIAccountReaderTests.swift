@@ -766,6 +766,19 @@ struct CoderouterAccountStateTests {
         #expect(state.accounts.map(\.id) == ["a1"])
     }
 
+    @Test("A removal targets the shown team, and only while it is still selected")
+    func removalTargetsShownTeam() {
+        var state = loaded(Self.teamA, ["a1"])
+        #expect(state.removalScope(selected: Self.teamA) == Self.teamA)
+        // The selection moved to team B but the team A rows are still shown:
+        // removing one must not run against team B (or team A).
+        #expect(state.removalScope(selected: Self.teamB) == nil)
+        #expect(state.removalScope(selected: nil) == nil)
+        state.select(Self.teamB)
+        #expect(state.removalScope(selected: Self.teamB) == Self.teamB)
+        #expect(CoderouterAccountState().removalScope(selected: Self.teamA) == nil)
+    }
+
     @Test("A failed removal restores its row only on the same team")
     func removalRestoreIsScoped() {
         var state = loaded(Self.teamA, ["a1", "a2", "a3"])
