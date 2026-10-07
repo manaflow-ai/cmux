@@ -212,7 +212,6 @@ final class MacMessageRowView: MacFlippedView {
         repliesLabel.font = MacConversationTheme.editedFont
         repliesLabel.textColor = .systemBlue
         footerLabel.font = .systemFont(ofSize: 10, weight: .semibold)
-        emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize)
         addSubview(avatar)
         addSubview(quoteAvatar)
         saveButton.target = self
@@ -258,6 +257,7 @@ final class MacMessageRowView: MacFlippedView {
 
         emojiLabel.isHidden = layout.emojiFrame == nil
         if let frame = layout.emojiFrame {
+            emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize(count: model.message.text.filter { !$0.isWhitespace }.count))
             emojiLabel.stringValue = model.message.text
             emojiLabel.frame = frame
         }

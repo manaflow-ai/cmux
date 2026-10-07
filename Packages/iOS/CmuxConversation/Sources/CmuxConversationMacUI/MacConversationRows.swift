@@ -326,7 +326,7 @@ extension MacMessageLayout {
         var textFrame: CGRect?
         var emojiFrame: CGRect?
         if model.isEmojiOnly {
-            let emoji = NSAttributedString(string: model.message.text, attributes: [.font: NSFont.systemFont(ofSize: t.emojiOnlyFontSize)])
+            let emoji = NSAttributedString(string: model.message.text, attributes: [.font: NSFont.systemFont(ofSize: t.emojiOnlyFontSize(count: model.message.text.filter { !$0.isWhitespace }.count))])
             var size = measure(emoji, maxWidth: maxBubble)
             size.width += 6
             size.height += 4

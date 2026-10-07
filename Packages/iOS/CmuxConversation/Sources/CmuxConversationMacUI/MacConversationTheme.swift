@@ -32,7 +32,8 @@ enum MacConversationTheme {
     static let avatarSize: CGFloat = 25
     static let avatarGap: CGFloat = 10
     static let senderNameInset: CGFloat = 12
-    static let emojiOnlyFontSize: CGFloat = 36
+    /// CKUIBehaviorMac: a lone emoji at 72 pt, two or three at 48 pt.
+    static func emojiOnlyFontSize(count: Int) -> CGFloat { count == 1 ? 72 : 48 }
     static let maxImageWidth: CGFloat = 260
     static let maxImageHeight: CGFloat = 330
     static let reactionBadgeSize: CGFloat = 24
