@@ -1,7 +1,6 @@
 import React, {
   memo,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -17,7 +16,6 @@ import {
   layoutConversation,
   paneHeader,
   placeRows,
-  plainEditLabels,
   transcriptRowWidth,
   visibleLayoutRange,
   type AcpmuxPermission,
@@ -74,10 +72,10 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
-import { Counts } from "./changes/Counts";
-import { ChevronDown, DiffFile } from "./changeIcons";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { EditedFilesCard } from "./conversation/EditedFilesCard";
+import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
@@ -97,7 +95,7 @@ import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
-import { FolderChoice } from "./FolderChoice";
+import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -326,107 +324,10 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
-const EDITED_FILES_SHOWN = 3;
-
-/// "Edited N files", ported from EditedFilesCard in the reference prototype's
-/// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
-/// each file opens the changes at that file. One edited file is named in the title instead.
-/// No Undo: asking the agent to revert let it run any command (git checkout) and lose edits made
-/// after the turn. Undo returns as a host revert that checks each file still holds the turn's bytes.
+/// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    const t = useT();
-    const [showAll, setShowAll] = useState(false);
-    const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-    const toolFiles = useMemo(() => turnFiles([row]), [row]);
-    // Once the turn's checkpoint has loaded, its files and counts replace the tool calls'.
-    const countsFor = useContext(TurnCountsContext);
-    const counts = useMemo(
-      () => (countsFor ? countsFor(row.id, toolFiles) : turnCounts(toolFiles, undefined)),
-      [countsFor, row.id, toolFiles],
-    );
-    const files = counts.files;
-    // An edit whose tool call carried no diff still lists, without counts.
-    const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
-    const entries: { key: string; file?: TurnFile; text?: string }[] = [
-      ...files.map((file) => ({ key: file.path, file })),
-      ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
-    ];
-    const total = entries.length;
-    const { additions, deletions } = counts;
-    const single = total === 1 && files.length === 1 ? files[0] : undefined;
-    const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
-    const more = single ? 0 : total - shown.length;
-    const reviewable = onOpenDiff && files.length > 0;
-    return (
-      <div className="acpmux-edited">
-        <div className="acpmux-edited-head">
-          <span className="acpmux-edited-icon">
-            <DiffFile />
-          </span>
-          <div className="acpmux-edited-title">
-            <div>
-              {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
-            </div>
-            {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
-            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
-          </div>
-          {reviewable && (
-            <button
-              type="button"
-              className="acpmux-review-changes"
-              onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-            >
-              {t("edited.view")}
-            </button>
-          )}
-        </div>
-        {shown.map((entry) => {
-          if (!entry.file)
-            return (
-              <div className="acpmux-edited-file" key={entry.key}>
-                <span className="acpmux-edited-path">{entry.text}</span>
-              </div>
-            );
-          const file = entry.file;
-          const slash = file.displayPath.lastIndexOf("/");
-          const label = (
-            <>
-              <span className="acpmux-edited-path" title={file.path}>
-                <span className="acpmux-edited-dir">{file.displayPath.slice(0, slash + 1)}</span>
-                <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
-              </span>
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </>
-          );
-          return onOpenDiff ? (
-            <button
-              type="button"
-              className="acpmux-edited-file"
-              key={entry.key}
-              onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
-            >
-              {label}
-            </button>
-          ) : (
-            <div className="acpmux-edited-file" key={entry.key}>
-              {label}
-            </div>
-          );
-        })}
-        {(more > 0 || showAll) && !single && total > EDITED_FILES_SHOWN && (
-          <button
-            type="button"
-            className="acpmux-edited-more"
-            aria-expanded={showAll}
-            onClick={() => setShowAll(!showAll)}
-          >
-            {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
-            <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
-          </button>
-        )}
-      </div>
-    );
+    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
@@ -981,12 +882,16 @@ function AcpmuxPane() {
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
-  const trustAsk = useFolderTrustAsk(trustSource, {
-    sessionId: snapshot.sessionId,
-    cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
-    family: snapshot.summary?.family || snapshot.summary?.harness,
-    prompts: snapshot.rows.filter((row) => row.kind === "user").length,
-  });
+  const trustAsk = useFolderTrustAsk(
+    trustSource,
+    {
+      sessionId: snapshot.sessionId,
+      cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
+      family: snapshot.summary?.family || snapshot.summary?.harness,
+      prompts: snapshot.rows.filter((row) => row.kind === "user").length,
+    },
+    snapshot.origin !== "remote",
+  );
   trustRecheck.current = trustAsk.recheck;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
@@ -1512,6 +1417,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
+        if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
         setHandshaken(true);
         if (
@@ -1737,12 +1643,8 @@ function AcpmuxPane() {
         acpmuxPerf.markAgent("composerReady");
         client.snapshot();
         void client.warmRecentProjects();
-        // A new chat owns a live process before the first keypress. Sending a
-        // prompt still joins this in-flight creation through ensureSession().
-        // A new-tab page stays empty until the user chooses a kind or sends a prompt.
-        // Other new chats still prewarm their process before the first keypress.
-        if (host.newSession && !host.adopt && !host.newTab && !pendingHarness)
-          void client.ensureSession().catch(() => undefined);
+        // New chats stay sessionless until the folder-trust question is answered.
+        // `chat.send` creates the session after Trust; no harness hooks can run first.
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
@@ -1978,22 +1880,24 @@ function AcpmuxPane() {
     <ShellActionsContext.Provider value={shellActions}>
       <TurnActionsContext.Provider value={turnActions}>
         <TurnCountsContext.Provider value={turnCountsFor}>
-          <VirtualTranscript
-            rows={transcriptRows}
-            canLoadOlder={snapshot.canLoadOlder}
-            expanded={expanded}
-            registry={registry}
-            // The Quick Composer has no room for the changes view; its file rows stay plain.
-            onOpenDiff={quick ? undefined : openDiff}
-            onToggleActivity={(id) =>
-              setExpanded((current) => {
-                const next = new Set(current);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-          />
+          <SessionRowsContext.Provider value={snapshot.rows}>
+            <VirtualTranscript
+              rows={transcriptRows}
+              canLoadOlder={snapshot.canLoadOlder}
+              expanded={expanded}
+              registry={registry}
+              // The Quick Composer has no room for the changes view; its file rows stay plain.
+              onOpenDiff={quick ? undefined : openDiff}
+              onToggleActivity={(id) =>
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+            />
+          </SessionRowsContext.Provider>
         </TurnCountsContext.Provider>
       </TurnActionsContext.Provider>
     </ShellActionsContext.Provider>
@@ -2037,7 +1941,7 @@ function AcpmuxPane() {
     <>
       <DictationNotice dictation={dictation} />
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
-      {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
+      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {
