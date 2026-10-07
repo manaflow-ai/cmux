@@ -138,6 +138,8 @@ extension ConversationViewController {
         let composerBottom = top - 20 - (view.bounds.height - view.safeAreaInsets.bottom)
         UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             drawer.frame.origin.y = top
+            self.composer.sideInset = 16
+            self.composer.layoutIfNeeded()
             self.composerBottomConstraintConstant(composerBottom)
             self.view.layoutIfNeeded()
         }
@@ -149,6 +151,8 @@ extension ConversationViewController {
         pickedAssets = [:]
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             drawer.frame.origin.y = self.view.bounds.height
+            self.composer.sideInset = ConversationTheme.composerSideInset
+            self.composer.layoutIfNeeded()
             self.composerBottomConstraintConstant(-4)
             self.view.layoutIfNeeded()
         } completion: { _ in
