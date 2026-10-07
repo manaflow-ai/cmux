@@ -236,5 +236,56 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertIn("PASS ^ExampleTests\\.CPassingSuite/", completed.stdout)
 
 
+    def test_cmux_next_builds_the_web_bundles_before_the_swift_build(self) -> None:
+        """The bundles are build output (cx-vn5). Without them AgentPaneView.init returns nil
+        and the pane suites crash on the fleet (_setIgnoreFocusEngine, aws-m4pro-2 and -3)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            ensure = temp / "ensure"
+            ensure.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'ensure %s\\n' \"$PWD\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "exit \"${FAKE_ENSURE_STATUS:-0}\"\n",
+                encoding="utf-8",
+            )
+            ensure.chmod(0o755)
+            next_package = temp / "Packages" / "macOS" / "CmuxNext"
+            next_package.mkdir(parents=True)
+            other_package = temp / "Packages" / "macOS" / "CmuxCore"
+            other_package.mkdir(parents=True)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
+
+            completed = run_runner(next_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(invocations[0], f"ensure {ROOT}", invocations)
+            self.assertIn("test list", invocations[1])
+
+            calls.write_text("", encoding="utf-8")
+            completed = run_runner(other_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertFalse(
+                [line for line in calls.read_text(encoding="utf-8").splitlines() if line.startswith("ensure")]
+            )
+
+            calls.write_text("", encoding="utf-8")
+            env["FAKE_ENSURE_STATUS"] = "3"
+            completed = run_runner(next_package, env)
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), [f"ensure {ROOT}"])
+
 if __name__ == "__main__":
     unittest.main()
