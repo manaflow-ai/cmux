@@ -228,13 +228,19 @@ class RePin(unittest.TestCase):
         self.assertIn("refs/heads/feat-cmux-next", job["if"])
         mint = next(step for step in job["steps"] if step.get("id") == "app-token")
         self.assertEqual(mint["with"]["permission-contents"], "write")
-        self.assertEqual(mint["with"]["permission-pull-requests"], "write")
+        # A mint asking for a permission the App lacks fails whole, so the
+        # pull-request token is separate and optional; the push never depends on it.
+        self.assertNotIn("permission-pull-requests", mint["with"])
+        pr_mint = next(step for step in job["steps"] if step.get("id") == "pr-token")
+        self.assertEqual(pr_mint["with"]["permission-pull-requests"], "write")
+        self.assertTrue(pr_mint.get("continue-on-error"))
         script = "\n".join(str(step.get("run", "")) for step in job["steps"])
         self.assertIn("scripts/cmux-next/repin-app-ffi.sh", script)
         # An App token's push runs CI on the re-pin, unlike GITHUB_TOKEN's.
         self.assertIn("app-ffi-repin", script)
         self.assertIn("gh pr create", script)
         self.assertIn("--base feat-cmux-next", script)
+        self.assertIn("compare/feat-cmux-next...$branch", script)
 
 
 if __name__ == "__main__":
