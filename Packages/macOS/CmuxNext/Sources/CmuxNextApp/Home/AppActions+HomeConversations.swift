@@ -69,8 +69,13 @@ extension AppActions {
     }
 
     /// The Home page of the active window, shown (nil, refused, when no
-    /// window may show it).
+    /// window may show it). A run that may not change the view (a socket
+    /// run without focus) is told so, not that Home is not ready.
     static func homePage(_ services: AppServices) -> TopHomePageView? {
+        guard ActionRunScope.viewChangeAllowed() else {
+            services.registry.refuse(RefusalStrings.homeNeedsFocus)
+            return nil
+        }
         guard TopPages.show(.home, services: services) != nil,
               let page = services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             services.registry.refuse(RefusalStrings.homeNotReady)

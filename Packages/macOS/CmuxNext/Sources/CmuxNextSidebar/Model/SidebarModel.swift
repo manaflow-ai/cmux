@@ -37,6 +37,17 @@ public final class SidebarModel {
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
+    /// Client-only items above the top band's sections (the What's New item
+    /// after an update). Never in `layout`: they cannot be moved, edited or
+    /// hidden, and activate like any item (`SidebarIntent.activateItem`).
+    public var transientTopItems: [SidebarTransientItem] = []
+
+    /// The section that draws `transientTopItems` first in the top band, or
+    /// nil without any (built-in look, no title, one row per item).
+    var transientTopSection: LayoutSection? {
+        transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
+                                                        region: .top, look: .builtIn, items: transientTopItems.map(\.item))
+    }
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
@@ -45,7 +56,7 @@ public final class SidebarModel {
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    /// The card stack above the bottom band (R114): update, what's new, announcements.
+    /// The card stack above the bottom band (R114): update, announcements.
     public var cards: [SidebarCard] = []
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
@@ -288,5 +299,17 @@ public final class SidebarModel {
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+}
+
+/// A client-only top item and its look (`SidebarModel.transientTopItems`).
+public nonisolated struct SidebarTransientItem: Hashable, Sendable {
+    public var item: LayoutItem
+    public var info: SidebarItemInfo
+
+    /// `id` must carry the `client.` prefix (`LayoutItemID.isTransient`).
+    public init(id: LayoutItemID, info: SidebarItemInfo) {
+        item = LayoutItem(id: id, ref: LayoutItemRef(kind: "client", value: id.rawValue))
+        self.info = info
     }
 }
