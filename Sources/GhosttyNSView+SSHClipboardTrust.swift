@@ -33,16 +33,37 @@ extension GhosttyNSView {
         let trusted = !store.isTrusted(machine)
         store.setTrusted(trusted, for: machine)
         let allowed = store.allowsRemoteClipboardWrites(for: machine)
+        applySSHClipboardWritePermission(allowed, for: machine)
+    }
 
-        // Existing projections must observe revocation immediately. Newly
-        // materialized panes read the same store in their construction path.
-        for projection in SurfaceCatalog.shared.projections
-        where projection.resource.machine == machine {
-            guard let workspace = Workspace.liveWorkspace(id: projection.workspaceID),
-                  let panel = workspace.panels[projection.panelID] as? TerminalPanel else {
-                continue
+    /// Applies a trust change to every live host of an SSH terminal. A surface
+    /// can be in a workspace panel, a Dock panel, or a restored panel whose
+    /// remote projection is still pending; enumerating owners instead of only
+    /// catalog projections keeps the current callback policy synchronized in
+    /// each case. Newly materialized panes still read the same store at init.
+    private func applySSHClipboardWritePermission(
+        _ allowed: Bool,
+        for machine: SurfaceMachineID
+    ) {
+        // The menu is opened by this view, so update its surface even when the
+        // panel has not entered the catalog yet (the restore/pending case).
+        terminalSurface?.setAllowsRemoteClipboardWrites(allowed)
+
+        guard let app = AppDelegate.shared else { return }
+        let catalog = SurfaceCatalog.shared
+
+        for workspace in app.mainWindowContexts.values.flatMap({ $0.tabManager.tabs }) {
+            for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel })
+            where workspace.machineOwningSurface(panel.id, catalog: catalog) == machine {
+                panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }
-            panel.surface.setAllowsRemoteClipboardWrites(allowed)
+        }
+
+        for dock in DockSplitStore.liveStores {
+            for panel in dock.panels.values.compactMap({ $0 as? TerminalPanel })
+            where dock.machineOwningSurface(panel.id) == machine {
+                panel.surface.setAllowsRemoteClipboardWrites(allowed)
+            }
         }
     }
 
