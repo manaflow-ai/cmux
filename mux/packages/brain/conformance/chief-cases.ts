@@ -7,7 +7,7 @@
 import type { AcpmuxEvent, SessionSummary } from "../src/core/acp.ts";
 import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/core/conversation.ts";
 import { Core, type Effect, type Input } from "../src/core/core.ts";
-import { CORPUS_FORMAT, type Corpus, corpusRules, type SelectionCase, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
+import { CORPUS_FORMAT, type Corpus, corpusRules, type PolicyCase, type PolicyFunction, policyResult, type SelectionCase, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
 import { PARENT_TAG } from "../src/core/rules.ts";
 import { type ChildRecord, type HostStateData, loadState } from "../src/core/state.ts";
 
@@ -1861,6 +1861,66 @@ function selectionCases(): SelectionCase[] {
   ];
 }
 
+/**
+ * Approval policy and harness routing (policy.ts, cmux_chief::policy): each
+ * case states its expected result; the generator records it after checking it.
+ */
+function policyCases(): PolicyCase[] {
+  const cases: PolicyCase[] = [];
+  const add = (name: string, fn: PolicyFunction, args: Record<string, unknown>, want: unknown) => {
+    const result = plain(policyResult(fn, args));
+    if (JSON.stringify(result) !== JSON.stringify(want)) throw new Error(`${name}: want ${JSON.stringify(want)} got ${JSON.stringify(result)}`);
+    cases.push({ name, fn, args, result });
+  };
+  add("remote.autoApprove defaults to true with no settings", "remote_auto_approve", { settings: null }, true);
+  add("remote.autoApprove defaults to true when the key is missing", "remote_auto_approve", { settings: { remote: {} } }, true);
+  add("remote.autoApprove false is kept", "remote_auto_approve", { settings: { remote: { autoApprove: false } } }, false);
+  add("remote.autoApprove that is not a bool is the default", "remote_auto_approve", { settings: { remote: { autoApprove: "no" } } }, true);
+  add("a local turn runs with the configured policy", "turn_policy", { remote: false, auto_approve: false, configured: "approve-all" }, "approve-all");
+  add("a remote turn with remote.autoApprove on runs with the configured policy", "turn_policy", { remote: true, auto_approve: true, configured: "approve-all" }, "approve-all");
+  add("a remote turn with remote.autoApprove off asks", "turn_policy", { remote: true, auto_approve: false, configured: "approve-all" }, "ask");
+  const floor = { auto_approve: false, turn_ask: false, ask_child_live: false, ask_subagent_live: false };
+  add("no spawn floor outside an ask turn", "spawn_floor", floor, null);
+  add("an ask turn's children ask", "spawn_floor", { ...floor, turn_ask: true }, "ask");
+  add("a live ask child keeps the floor", "spawn_floor", { ...floor, ask_child_live: true }, "ask");
+  add("a live ask subagent keeps the floor", "spawn_floor", { ...floor, ask_subagent_live: true }, "ask");
+  add("remote.autoApprove on lifts the floor", "spawn_floor", { auto_approve: true, turn_ask: true, ask_child_live: true, ask_subagent_live: true }, null);
+
+  const sr = { kind: "claude-stdio", argv: ["/Users/me/bin/sr", "claude", "proxy"], family: "claude" };
+  const acp = { kind: "acp", argv: ["/opt/homebrew/bin/claude-code-acp"], family: "claude", description: "imported from ~/.acpx" };
+  const direct = { kind: "claude-stdio", argv: ["/Users/me/.local/bin/claude"], family: "claude" };
+  const viaUrl = { kind: "claude-stdio", argv: ["claude"], family: "claude", env: { ANTHROPIC_BASE_URL: "http://100.89.225.106:31415/" } };
+  const codex = { kind: "acp", argv: ["/usr/local/bin/codex-acp"] };
+  add("claude-sr routes to the claude-stdio profile that runs sr claude proxy", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "claude-sr": sr } } }, {
+    admitted: { profile: "claude-sr", kind: "claude-stdio", argv0: "/Users/me/bin/sr", family: "claude" },
+  });
+  add("claude-sr refuses an external ACP adapter under its name", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "claude-sr": acp } } }, {
+    refused:
+      "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude-sr asks for one running `sr claude proxy`; acpmux has none: acpmux's claude-sr is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\"",
+  });
+  add("claude-sr prefers a real sr claude proxy over a claude profile pointed at the team subrouter", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "z-url": viaUrl, mine: sr } } }, {
+    admitted: { profile: "mine", kind: "claude-stdio", argv0: "/Users/me/bin/sr", family: "claude" },
+  });
+  add("claude-sr takes a claude profile pointed at the team subrouter when no sr runs", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "z-url": viaUrl } } }, {
+    admitted: { profile: "z-url", kind: "claude-stdio", argv0: "claude", family: "claude" },
+  });
+  add("claude routes to the direct claude login", "harness_admit", { requested: "claude", answer: { harnesses: { claude: direct, "claude-sr": sr } } }, {
+    admitted: { profile: "claude", kind: "claude-stdio", argv0: "/Users/me/.local/bin/claude", family: "claude" },
+  });
+  add("an unavailable profile is not routed to", "harness_admit", { requested: "claude", answer: { harnesses: { claude: { ...direct, unavailable: "not signed in" } } } }, {
+    refused:
+      "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux's claude is kind claude-stdio (/Users/me/.local/bin/claude)",
+  });
+  add("a codex profile is admitted as acpmux reports it, its family from the command", "harness_admit", { requested: "codex", answer: { harnesses: { codex } } }, {
+    admitted: { profile: "codex", kind: "acp", argv0: "/usr/local/bin/codex-acp", family: "codex" },
+  });
+  add("a Claude-family profile that is not claude-stdio is refused", "harness_admit", { requested: "my-claude", answer: { harnesses: { "my-claude": acp } } }, {
+    refused: "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux's my-claude is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\"",
+  });
+  add("an unknown profile is refused", "harness_admit", { requested: "gemini", answer: { harnesses: {} } }, { refused: "acpmux has no harness named gemini" });
+  return cases;
+}
+
 export async function buildCorpus(): Promise<Corpus> {
   const cases = [...wakeCases(), ...remoteWakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
   const names = new Set<string>();
@@ -1870,5 +1930,5 @@ export async function buildCorpus(): Promise<Corpus> {
   }
   const memory = await memoryCases();
   checkMemory(memory);
-  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), selection: selectionCases(), cases, memory };
+  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), selection: selectionCases(), policy: policyCases(), cases, memory };
 }
