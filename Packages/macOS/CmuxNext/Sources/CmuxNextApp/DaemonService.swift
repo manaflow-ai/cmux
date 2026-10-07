@@ -248,7 +248,7 @@ final class DaemonService {
                 await store.run(connection: connection, scheduler: scheduler)
                 await connection.close()
                 if Task.isCancelled { return }
-                _ = onEnd // RED: the end is not reported
+                onEnd?()
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
         }

@@ -162,7 +162,7 @@ final class ServerReachService {
             // A read that a sign-out or an account switch overtook applies nothing.
             guard !Task.isCancelled, signedInUser() == user else { return }
             let link = await linkPeers()
-            watchLink(link?.watchedFiles ?? []) // RED: no setup watch
+            watchLink(link?.watchedFiles ?? [linkSetupFile].compactMap { $0 })
             guard !Task.isCancelled, signedInUser() == user else { return }
             let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan
@@ -247,7 +247,7 @@ final class ServerReachService {
         session.daemon.workTracker = machines.local.workTracker
         // The overlay ended: re-read the link (`link show` checks its pid
         // and socket), so a crashed link with a stale link.json falls back.
-        session.onOverlayEnded = nil // RED: no re-resolve
+        session.onOverlayEnded = { [weak self] in self?.refresh() }
         machines.add(session)
         logger.info("server \(reach.name, privacy: .public) (\(reach.hostID, privacy: .public)) added")
         session.autoConnect = connect
