@@ -1,11 +1,12 @@
 # B2 `webrtc`: the WebRTC carrier (V1)
 
-Status: design, 2026-10-06, branch `feat-cmux-next-ios-b2-webrtc`. Plan: [PLAN.md](PLAN.md) section 2, B2.
+Status: landed (local) on `feat-cmux-next-ios-b2-webrtc`, 2026-10-06. Plan: [PLAN.md](PLAN.md) section 2, B2.
 Binding: [a3-link.md](a3-link.md) (carrier contract, conformance), [a0-rpc.md](a0-rpc.md) section 3.1
 (message carriers send one record per message, no length prefix) and 5.12 (`signal`),
 [b1-control-do.md](b1-control-do.md) sections 5, 6, 10 (relay, TURN minting, `ControlPlaneClient`),
 [b4-direct.md](b4-direct.md) (sibling carrier, key pinning), `transport.md`, `OWNERSHIP-PRINCIPLES.md`.
-Code: `Packages/Shared/CmuxLinkWebRTC` (Swift 6, iOS 17, macOS 14).
+Code: `Packages/Shared/CmuxLinkWebRTC` (Swift 6, iOS 17, macOS 14; targets `CmuxLinkWebRTC` and
+`CmuxLinkWebRTCUnderlay`), the shared signaling seam `CmuxLinkSignaling` in `Packages/Shared/CmuxLink`.
 
 ## 1. What it is
 
@@ -52,11 +53,16 @@ host moves to Rust, it uses `webrtc-rs` or libdatachannel against the same wire 
 
 ## 4. Signaling over the control plane
 
-`SignalingChannel` is the seam: `send(SignalMessage)` and one inbound `AsyncStream<SignalMessage>`.
-`ControlPlaneSignaling` adapts `ControlPlaneClient` (`sendSignal`, `signals`, and
-`read signal.turn_credentials`); `InMemorySignalingHub` is the test double that rewrites `from` like
-`HostDO` and can intercept messages (MITM tests). `SignalRouter` consumes the inbound stream once and
-demultiplexes by `session`; unknown sessions with an `offer` go to the acceptor.
+`SignalingChannel` (CmuxLink's `CmuxLinkSignaling` target, shared with B3 so there is one signaling
+protocol) is the seam: `send(SignalMessage)` and one inbound `AsyncStream<SignalMessage>`.
+`SignalPayload` is typed per kind, so it matches B1's frames (offer `ice_restart`, `carrier`, `auth`;
+integer `sdp_mline_index`). Adapters in `CmuxLinkWebRTC`: `ControlPlaneSignaling` over
+`ControlPlaneClient` on the phone (`sendSignal`, `signals`, `read signal.turn_credentials`) and
+`SignalFrameChannel` for the Mac, whose host socket B5 owns (`receive(_:)` matches B5's
+`SignalingSink`; `send` writes `signal` frames). `InMemorySignalingHub` is the test double that
+rewrites `from` like `HostDO` and can intercept messages (MITM tests). `SignalRouter` consumes the
+inbound stream once and demultiplexes by `session`; an `offer` for an unknown session goes to the
+acceptor registered for its `carrier` (`newSessions(for:)`), so V1 and V2 share one host socket.
 
 Flow (the dialer is the only offerer for the data session; perfect negotiation for media below):
 
@@ -162,44 +168,86 @@ A relay that swaps SDPs cannot sign for the pinned keys; a replayed old offer na
 private key died with its peer connection, so DTLS fails. The relay still sees ICE candidates (IP
 addresses), which transport.md accepts for the control plane.
 
-## 9. API
+## 9. Peer identity and V2 underlay
+
+`LinkTransport.peerIdentity` (CmuxLink, default nil) carries what a carrier authenticated. A
+`WebRTCTransport` reports `LinkPeerIdentity(carrier: .webrtc, keyKind: .p256, publicKey: <the key
+bound to the peer's DTLS fingerprint>, install: <relay-rewritten from, host side>)`. `LinkSession`
+exposes it (`peerIdentity`); on the host it is fixed by the session's first transport, and
+`LinkHost` refuses to resume or replace a session from a transport that proved another key of the
+same kind. B5 maps it to its `CarrierAttestation` (`install`, `carrier`) when it builds a
+`MobileSessionServer`. B4's `DirectTransport` should return
+`LinkPeerIdentity(carrier: .direct, keyKind: .x25519, publicKey: remoteKey.rawRepresentation)`
+(no install; B5 resolves the key through its trust store).
+
+V2 (B3) rides the same peer connection code in datagram mode: `WebRTCDatagramDialer` and
+`WebRTCDatagramListener` open one `wg` channel (`ordered: false, maxRetransmits: 0`), offers tagged
+`carrier: webrtc-wg`, no fingerprint binding (WireGuard is the boundary), `close()` sends `bye`.
+`CmuxLinkWebRTCUnderlay` adapts them to B3's `DatagramUnderlay`: `bye` maps to `.reset`, a dead path
+to `.pathLost`, selected-pair moves to `.pathChanged`.
+
+Threading rule learned the hard way: libwebrtc's ObjC objects proxy calls to its signaling and
+network threads and block, and those threads call our delegates. The peer's lock is never held
+while calling into libwebrtc (re-check after registering a waiter instead), and the final close and
+release of every libwebrtc object run on a private serial queue, never on the cooperative pool.
+
+## 10. API
 
 ```swift
+// CmuxLinkSignaling
 public protocol SignalingChannel: Sendable {
     func send(_ message: SignalMessage) async throws
     var incoming: AsyncStream<SignalMessage> { get }
 }
+public actor SignalRouter { init(channel:); func register(_ session:) -> AsyncStream<SignalMessage>; func newSessions(for: CarrierKind) -> AsyncStream<Incoming> }
+public final class InMemorySignalingHub { func endpoint(id:) -> SignalingChannel; func setInterceptor(_:) }
+// CmuxLinkWebRTC
 public protocol ICEServerProvider: Sendable { func iceConfiguration(for hostID: String) async throws -> ICEConfiguration }
 public final class ControlPlaneSignaling: SignalingChannel, ICEServerProvider { init(client: ControlPlaneClient) }
-public final class InMemorySignalingHub { func endpoint(id:) -> SignalingChannel; func setInterceptor(_:) }
+public final class SignalFrameChannel: SignalingChannel { init(send: (SignalFrame) async throws -> Void); func receive(_: SignalFrame) async }
 public protocol WebRTCIdentity: Sendable { var publicKey: WebRTCPublicKey { get }; func sign(_:) throws -> Data }
 public struct SoftwareWebRTCIdentity: WebRTCIdentity; public struct SecureEnclaveWebRTCIdentity: WebRTCIdentity
 public protocol WebRTCAuthorizer: Sendable { func authorize(device: WebRTCPublicKey, install: String?) async -> Bool }
 public protocol WebRTCHostKeyResolver: Sendable { func hostKey(for peer: LinkPeer) async -> WebRTCPublicKey? }
-public final class WebRTCCarrier: LinkCarrier {
-    init(signaling:, iceServers:, identity:, hostKeys: = WebRTCHintsResolver(), configuration: = .init())
+public final class WebRTCCarrier: LinkCarrier {        // kind .webrtc, candidatePaths [.p2p, .turn]
+    init(signaling: | router:, iceServers:, identity:, hostKeys: = WebRTCHintsResolver(), configuration: = .init())
     func networkDidChange() async
 }
 public final class WebRTCAcceptor: LinkAcceptor {
-    init(signaling:, iceServers:, identity:, hostID:, authorizer:, configuration: = .init())
+    init(signaling: | router:, iceServers:, identity:, hostID:, authorizer:, configuration: = .init())
     func start() async; func stop() async
 }
-public final class WebRTCTransport: LinkTransport { let remoteKey: WebRTCPublicKey; func restartICE() async }
+public final class WebRTCTransport: LinkTransport { let remoteKey: WebRTCPublicKey; let peerIdentity; func restartICE() async }
+public final class WebRTCDatagramDialer { func open(to: LinkPeer) async throws -> WebRTCDatagramChannel }
+public final class WebRTCDatagramListener { var incoming: AsyncStream<WebRTCDatagramChannel>; func start() async; func stop() }
+public struct WebRTCPixelBufferBox / WebRTCVideoFrameBox   // MediaFrame.Payload.native for push / sinks
+// CmuxLinkWebRTCUnderlay: WebRTCUnderlay, WebRTCUnderlayDialer, WebRTCUnderlayListener (B3 protocols)
 ```
 
-## 10. Tests (Swift Testing, `swift test` in the package, no network)
+## 11. Tests (Swift Testing, `swift test` in the package, no network)
 
-- `LinkConformanceSuite`, all seven cases, two in-process peers over loopback host candidates with
-  `InMemorySignalingHub`; drop, path change, roam and throttle via `@_spi(Testing)
-  WebRTCFaultInjector` (drop closes the real peer connections; path change and roam inject the
-  classification event the selected-pair callback would produce, since tests have no TURN server).
-- Signaling: codec to and from `SignalFrame` per the A0 fixtures, router demux and early-candidate
-  buffering, TURN credential decoding and the `turn_unavailable` fallback.
-- Fingerprint binding: SDP parsing, statement bytes, tampered SDP, wrong host key, unpaired device,
-  swapped auth through an intercepting relay.
-- Path classification: candidate lines for host, srflx, prflx, relay pairs.
+33 tests (7 conformance cases counted once per parameterized test), about 2.5 s, stable over 7 runs:
+- `LinkConformanceSuite`, all seven cases passed (none skipped), two in-process libwebrtc peers over
+  loopback host candidates with `InMemorySignalingHub`; drop closes the real peer connections,
+  path change and roam inject the selected-pair classification (no TURN server in tests), throttle
+  paces sends through `WebRTCFaultInjector`.
+- B3's `WireGuardConformanceHarness`, all seven cases passed over the real loopback `wg` underlay,
+  plus underlay datagrams and `bye` as `.reset`, and one host router feeding V1 and V2 acceptors.
+- Signaling: the A0 `signal` fixtures round trip through `SignalFrameCodec`, auth encoding,
+  carriers, session id pattern, relay `from` rewrite, router demux, `SignalFrameChannel`.
+- ICE: TURN fixture decoding, defensive decoding, cache expiry margin.
+- Fingerprint binding: SDP parsing, statement bytes, sign/verify and tamper cases, mutual identity,
+  unpaired device (no transport, `bye revoked`), wrong pinned host key, no host key, a relay that
+  re-signs the answer, a relay that rewrites the offer's fingerprint.
+- Path: candidate types, classifier table, lane labels; transport: loopback is p2p, per-lane order
+  with 256 KiB frames, graceful close delivers 300 frames then one `closed(remote)`, drop, ICE
+  restart keeps the transport, a host video track renders frames at the dialer, audio refused.
 
-## 11. Live verification (credentials are absent on this machine)
+CmuxLink gained `PeerIdentityTests` (identity exposed, other key refused on resume; red without the
+`LinkHost` check); its 37 tests and B3's 39 tests pass. The backend `auth` validation test was added
+to `host-signal.test.ts` but not run (no `node_modules` on this Mac).
+
+## 12. Live verification (credentials are absent on this machine)
 
 1. Backend: `wrangler secret put CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` on a dev
    env; `curl -X POST /v1/realtime/turn` with a bearer returns `ice_servers` with `turn:` URLs.
@@ -210,7 +258,18 @@ public final class WebRTCTransport: LinkTransport { let remoteKey: WebRTCPublicK
 4. MITM check: a dev relay build that rewrites SDP fingerprints must fail every connect with
    `auth` errors on both ends.
 
-## 12. Not in this lane
+Wiring for B5 (Mac): `let channel = SignalFrameChannel { try await socket.send(<signal frame JSON>) }`,
+`extension SignalFrameChannel: SignalingSink {}` so `HostControlUplink(signaling: channel)` feeds it,
+one `SignalRouter(channel:)` shared by `WebRTCAcceptor(router:...)` (passed to `MobileHost`) and,
+for V2, `WebRTCDatagramListener(router:...)`; map `LinkSession.peerIdentity` to `CarrierAttestation`.
+
+Open items: a `send` suspended on a full data channel resumes only when the buffer drains or the
+transport closes (not on task cancellation); RTT is sampled at connect and on ICE `connected`, not
+continuously; audio tracks are refused (voice is a later lane); the binary URL should move to
+`files.cmux.com` before release; the host socket's per-socket signal budget (120 per 10 s) bounds
+how many simultaneous connects one phone can start.
+
+## 13. Not in this lane
 
 Mac app wiring and the host socket owner (B5), key provisioning and the trust store (B6), browser and
 VNC encoders and renderers (C2, C3; this lane gives them track handles), the badge UI (C11, D1),
