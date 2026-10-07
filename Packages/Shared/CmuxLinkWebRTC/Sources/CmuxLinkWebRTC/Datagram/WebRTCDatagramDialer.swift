@@ -27,12 +27,11 @@ public final class WebRTCDatagramDialer: Sendable {
         try Task.checkCancellation()
         let session = SignalSessionID().rawValue
         let inbox = await router.register(session)
-        let (events, sink) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .unbounded)
         let webrtcPeer: WebRTCPeer
         do {
             webrtcPeer = try WebRTCPeer(
                 factory: WebRTCFactory.shared(for: configuration.network), mode: .datagram, ice: ice,
-                limits: PeerSendLimits(configuration), frameSink: sink
+                limits: PeerSendLimits(configuration)
             )
         } catch {
             await router.unregister(session)
@@ -49,6 +48,6 @@ public final class WebRTCDatagramDialer: Sendable {
         )
         await connection.attach(inbox: inbox)
         try await connection.dial()
-        return WebRTCDatagramChannel(raw: events, connection: connection)
+        return WebRTCDatagramChannel(inbox: webrtcPeer.inbox, connection: connection)
     }
 }

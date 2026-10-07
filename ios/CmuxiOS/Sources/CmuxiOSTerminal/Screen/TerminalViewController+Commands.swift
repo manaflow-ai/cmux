@@ -68,6 +68,7 @@ extension TerminalViewController {
             }
             actions.append(history)
         }
+        if let composer = composerMenuElement { actions.append(composer) }
         let size = UIMenu(title: TerminalCommandText.textSize, options: .displayInline, children: [
             UIAction(title: TerminalCommandText.larger, image: UIImage(systemName: "textformat.size.larger")) { [weak self] _ in
                 self?.zoomIn()

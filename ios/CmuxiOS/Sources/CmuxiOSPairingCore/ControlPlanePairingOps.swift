@@ -15,11 +15,14 @@ public struct ControlPlanePairingOps: PairingOps {
     private let account: PairingAccount
     private let issuer: LinkCertificateIssuer
     private let keys: any DirectKeyStore
+    private let wireGuardKeys: (any DirectKeyStore)?
     private let now: @Sendable () -> Date
     private let fanout: ConnectionFanout
 
     public init(client: ControlPlaneClient, mirror: TrustStoreMirror, account: PairingAccount, signer: any LinkKeySigning,
-                keys: any DirectKeyStore, now: @escaping @Sendable () -> Date = { Date() }) {
+                keys: any DirectKeyStore, wireGuardKeys: (any DirectKeyStore)? = nil,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.wireGuardKeys = wireGuardKeys
         self.client = client
         pairing = PairingClient(client: client)
         self.mirror = mirror
@@ -40,6 +43,18 @@ public struct ControlPlanePairingOps: PairingOps {
         if let cert = await mirror.state?.devices[account.install]?.certs.direct, cert.keyBytes == key,
            cert.expiresAt - nowMillis > Self.refreshWindowMilliseconds { return }
         let cert = try await issuer.issue(purpose: .direct, key: key, now: now())
+        try await offline { try await pairing.publish(cert) }
+    }
+
+    /// The B3 (`wg`) key the same way: Macs authorize a WireGuard peer only
+    /// through this install's published `wg` cert.
+    public func ensureWireGuardKeyPublished() async throws {
+        guard let wireGuardKeys else { return }
+        let key = try wireGuardKeys.publicKey()
+        let nowMillis = Int64(now().timeIntervalSince1970 * 1000)
+        if let cert = await mirror.state?.devices[account.install]?.certs.wg, cert.keyBytes == key,
+           cert.expiresAt - nowMillis > Self.refreshWindowMilliseconds { return }
+        let cert = try await issuer.issue(purpose: .wg, key: key, now: now())
         try await offline { try await pairing.publish(cert) }
     }
 

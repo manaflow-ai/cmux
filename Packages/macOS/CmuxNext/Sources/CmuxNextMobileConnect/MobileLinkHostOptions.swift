@@ -8,8 +8,12 @@ public struct MobileLinkHostOptions: Sendable {
     /// B3 DEV switch: also accept WireGuard over WebRTC.
     public var wireGuardOverWebRTC: Bool
     public var keyDirectory: URL
+    /// Files, git, browser, remote desktop, tunnels, simulators and tasks.
+    public var services: MobileLinkServices
 
-    public init(macName: String, appVersion: String, wireGuardOverWebRTC: Bool, keyDirectory: URL) {
+    public init(macName: String, appVersion: String, wireGuardOverWebRTC: Bool, keyDirectory: URL,
+                services: MobileLinkServices = MobileLinkServices()) {
+        self.services = services
         self.macName = macName
         self.appVersion = appVersion
         self.wireGuardOverWebRTC = wireGuardOverWebRTC

@@ -45,6 +45,14 @@ struct SSHWorkspacesComposition: Sendable {
         }
     }
 
+    /// The signed-out shell's workspace source: SSH hosts only (no account,
+    /// so no Macs or Cloud machines).
+    func guestSource() -> any WorkspaceSource {
+        ControlPlaneWorkspaceSource(
+            directory: directory,
+            channels: channels(fallback: UnavailableWorkspaceChannelFactory(reason: reasons.refused)))
+    }
+
     /// The host's chain from the current records, with this device's logins.
     func dialer(for host: HostID) async throws -> SSHChainDialer {
         var records: [HostRecord] = []

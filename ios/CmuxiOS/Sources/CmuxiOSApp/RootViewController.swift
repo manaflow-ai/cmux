@@ -6,6 +6,7 @@ import CmuxiOSPlatform
 import CmuxiOSPlatformUI
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
+import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSTerminal
 import UIKit
@@ -28,6 +29,11 @@ final class RootViewController: UIViewController {
     private var whatsNewChecked = false
     private var onboarding: OnboardingViewController?
     private var onboardingDecided = false
+    /// Set while Erase All Data runs and after: auth changes no longer
+    /// rebuild the UI, and the erased screen stays until the app closes.
+    private var erased = false
+    /// The signed-out guest shell is on screen (deferred sign-in).
+    private var isGuestShell = false
 
     init(container: AppContainer) {
         self.container = container
@@ -52,6 +58,12 @@ final class RootViewController: UIViewController {
             container?.router.open(.feed(item: item))
         }
         container.router.install { [weak self] route in self?.handle(route) }
+        container.onContinueWithoutAccount = { [weak self] in self?.chooseGuest() }
+        container.router.onNeedsAccount = { [weak container] _ in
+            container?.toasts.show(Toast(.info, String(
+                localized: "guest.route.needsAccount",
+                defaultValue: "Sign in to open this. SSH hosts work without an account.", bundle: .module)))
+        }
         container.router.onUnrecognized = { [weak container] _ in
             container?.toasts.show(Toast(.warning, String(
                 localized: "platform.link.unrecognized",
@@ -89,6 +101,7 @@ final class RootViewController: UIViewController {
     }
 
     private func show(_ state: AuthState) {
+        guard !erased else { return }
         // A new display name or email for the same account keeps the screen.
         guard Self.screenKey(state) != shownState.map(Self.screenKey) else { return }
         shownState = state
@@ -101,12 +114,18 @@ final class RootViewController: UIViewController {
             shellAccount = nil
             shellFeatures = nil
             container.signedOut()
-            if presentsOnboarding(signedIn: false) {
+            if container.isGuest {
+                showGuestShell()
+            } else if presentsOnboarding(signedIn: false) {
                 showOnboarding(signedIn: false)
             } else {
-                install(SignInScreen.make(coordinator: container.auth.coordinator))
+                showSignIn()
             }
         case .signedIn(let account):
+            // Signing in ends guest use; what was made signed out is offered for sync.
+            let wasGuest = container.guestMode.isChosen || isGuestShell
+            container.guestMode.clear()
+            isGuestShell = false
             let onboards = presentsOnboarding(signedIn: true)
             // Onboarding primes the notifications prompt; a user who chose
             // Not Now there is not asked again at the next launch.
@@ -118,6 +137,74 @@ final class RootViewController: UIViewController {
             } else {
                 showHome(account: account)
             }
+            if wasGuest { offerGuestHostsSync() }
+        }
+    }
+
+    // MARK: - Deferred sign-in (e5-extras.md section 5)
+
+    private func showSignIn() {
+        install(SignInScreen.make(coordinator: container.auth.coordinator,
+                                  onContinueWithoutAccount: { [weak self] in self?.chooseGuest() }))
+    }
+
+    /// "Use SSH Without an Account": stored, then the guest shell. A running
+    /// onboarding keeps its place and resumes after sign-in.
+    private func chooseGuest() {
+        guard !erased, case .signedOut = container.auth.state else { return }
+        container.guestMode.choose()
+        showGuestShell()
+    }
+
+    private func showGuestShell() {
+        let shell = ShellComposition.makeGuestShell(
+            container: container,
+            signIn: { [weak self] in self?.leaveGuest() },
+            eraseAllData: { [weak self] in await self?.eraseAllData() ?? EraseReport() })
+        self.shell = shell
+        shellFeatures = nil
+        isGuestShell = true
+        install(shell)
+        container.router.setAccess(.guest)
+        presentWhatsNewIfNeeded()
+    }
+
+    /// Settings > Sign In from the guest shell: back to the sign-in screen,
+    /// which offers the guest entry again.
+    private func leaveGuest() {
+        container.guestMode.clear()
+        isGuestShell = false
+        shell = nil
+        container.router.setAccess(.none)
+        showSignIn()
+    }
+
+    /// After a guest signs in: hosts added signed out can join the account.
+    private func offerGuestHostsSync() {
+        Task { [weak self] in
+            guard let self else { return }
+            let pending = await container.pendingGuestHosts()
+            guard !pending.isEmpty else {
+                await container.adoptGuestHosts([])
+                return
+            }
+            let alert = UIAlertController(
+                title: String(localized: "guest.sync.title", defaultValue: "Sync SSH Hosts?", bundle: .module),
+                message: String(format: String(
+                    localized: "guest.sync.message",
+                    defaultValue: "%lld hosts were added on this iPhone without an account. Add them to your account so your other devices get them? Keys and passwords stay on this iPhone.",
+                    bundle: .module), pending.count),
+                preferredStyle: .alert)
+            let ids = pending.map(\.id)
+            alert.addAction(UIAlertAction(title: String(localized: "guest.sync.keep", defaultValue: "Keep on This iPhone", bundle: .module),
+                                          style: .cancel) { [weak self] _ in
+                Task { await self?.container.guestHostsLedger.clear() }
+            })
+            alert.addAction(UIAlertAction(title: String(localized: "guest.sync.confirm", defaultValue: "Sync to Account", bundle: .module),
+                                          style: .default) { [weak self] _ in
+                Task { await self?.container.adoptGuestHosts(ids) }
+            })
+            presentOnTop(alert)
         }
     }
 
@@ -149,9 +236,23 @@ final class RootViewController: UIViewController {
         onboarding = nil
         if case .signedIn(let account) = container.auth.state {
             showHome(account: account)
+        } else if container.isGuest {
+            showGuestShell()
         } else {
-            install(SignInScreen.make(coordinator: container.auth.coordinator))
+            showSignIn()
         }
+    }
+
+    /// Settings > Erase All Data: wipes, then shows the final screen.
+    func eraseAllData() async -> EraseReport {
+        erased = true
+        container.router.setAccountReady(false)
+        let report = await container.eraseAllData()
+        if presentedViewController != nil { dismiss(animated: true) }
+        shell = nil
+        shellFeatures = nil
+        install(ErasedViewController(report: report))
+        return report
     }
 
     /// Settings > Replay Welcome Tour: the tour in memory, full screen.
@@ -183,7 +284,8 @@ final class RootViewController: UIViewController {
         searchOpener.root = self
         let (shell, features) = ShellComposition.makeShell(
             container: container, account: account, home: navigation, searchOpener: searchOpener,
-            replayTour: { [weak self] in self?.presentReplay() }
+            replayTour: { [weak self] in self?.presentReplay() },
+            eraseAllData: { [weak self] in await self?.eraseAllData() ?? EraseReport() }
         )
         shell.onSearchCommand = { [weak self] in self?.openSearch(query: nil) }
         self.shell = shell
@@ -231,7 +333,8 @@ final class RootViewController: UIViewController {
     }
 
     private func applyFlags() {
-        shell?.setTabs(container.flags.visibleTabs, sidebar: container.flags.isEnabled(.iPadSidebar))
+        let tabs = isGuestShell ? ShellComposition.guestTabs : container.flags.visibleTabs
+        shell?.setTabs(tabs, sidebar: container.flags.isEnabled(.iPadSidebar))
     }
 
     /// A seam mode changed: rebuild the seams and the shell. Home's store is

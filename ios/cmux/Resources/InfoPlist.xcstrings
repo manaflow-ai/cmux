@@ -4,6 +4,12 @@
     "NSCameraUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "امسح رموز QR لاقتران cmux من طرفية الـ Mac."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -93,6 +99,12 @@
     "NSFaceIDUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يستخدم cmux بصمة الوجه للتأكد من أنك تريد خفض الحماية للرسائل النصية إلى Chief."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "needs_review",
@@ -182,6 +194,12 @@
     "NSLocalNetworkUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتصل بالـ Mac على الشبكة المحلية لاقتران cmux للجوال ومزامنة الطرفية."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -271,6 +289,12 @@
     "NSMicrophoneUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الصوت لتحويل كلامك إلى نص في مربع الرسالة."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -360,6 +384,12 @@
     "NSPhotoLibraryUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أرفق صورًا لإرسالها إلى وكيل الطرفية."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -449,6 +479,12 @@
     "NSSpeechRecognitionUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حوّل كلامك إلى نص في مربع الرسالة."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",

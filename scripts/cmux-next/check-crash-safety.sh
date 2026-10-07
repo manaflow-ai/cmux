@@ -20,15 +20,37 @@
 #                      (Swift), or an unwrap/expect/panic!/exit (cmux-tui
 #                      Rust), beyond crash-safety-baseline.json.
 #
+#   --mobile:          the cmux-next iOS tree (every root in
+#                      mobile-scan-roots.txt; the argument is the repo root):
+#                      no `try!` and the SIGPIPE rule. Force unwraps and the
+#                      other crash classes are held by the ratchet, which
+#                      counts these roots too.
+#
 # Usage: scripts/cmux-next/check-crash-safety.sh [package-root]
+#        scripts/cmux-next/check-crash-safety.sh --mobile [repo-root]
 set -euo pipefail
-root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-python3 - "$root" <<'PY'
+mode=macos
+if [[ "${1:-}" == --mobile ]]; then
+  mode=mobile
+  shift
+  repo="${1:-$(git rev-parse --show-toplevel)}"
+  root="$repo"
+else
+  root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
+  repo="$(cd "$root/../../.." && pwd)"
+fi
+python3 - "$root" "$mode" <<'PY'
 import os, re, sys
 
 root = sys.argv[1]
-sources = os.path.join(root, "Sources")
+MOBILE = sys.argv[2] == "mobile"
+if MOBILE:
+    with open(os.path.join(root, "scripts/cmux-next/mobile-scan-roots.txt"), encoding="utf-8") as handle:
+        entries = [line.strip() for line in handle]
+    source_roots = [os.path.join(root, e, "Sources") for e in entries if e and not e.startswith("#")]
+else:
+    source_roots = [os.path.join(root, "Sources")]
 EXTERNAL = {"CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile"}
 ALLOW = re.compile(r"//\s*crash-allow:\s*\S")
 TRY_BANG = re.compile(r"\btry!")
@@ -44,7 +66,8 @@ def allowed(lines, index):
     return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
 
 failures = []
-for dirpath, _, files in os.walk(sources):
+for sources in source_roots:
+  for dirpath, _, files in os.walk(sources):
     for name in sorted(files):
         if not name.endswith(".swift"):
             continue
@@ -59,13 +82,13 @@ for dirpath, _, files in os.walk(sources):
             code = code_of(line)
             if TRY_BANG.search(code) and not allowed(lines, index):
                 failures.append(f"{rel}:{index + 1}: try! (throw a typed error instead)")
-            if module in EXTERNAL and FORCE.search(code) and not allowed(lines, index):
+            if not MOBILE and module in EXTERNAL and FORCE.search(code) and not allowed(lines, index):
                 failures.append(f"{rel}:{index + 1}: force unwrap or as! in a module that decodes external data")
         if SOCKET.search(text) and not NOSIGPIPE.search(text):
             failures.append(f"{rel}: makes or accepts a socket without SO_NOSIGPIPE or MSG_NOSIGNAL")
 
-entry = os.path.join(sources, "CmuxNextApp", "CmuxNextApp.swift")
-if "ChildSignalDefaults.installAppSignalPolicy()" not in open(entry, encoding="utf-8").read():
+entry = os.path.join(root, "Sources", "CmuxNextApp", "CmuxNextApp.swift")
+if not MOBILE and "ChildSignalDefaults.installAppSignalPolicy()" not in open(entry, encoding="utf-8").read():
     failures.append("Sources/CmuxNextApp/CmuxNextApp.swift: the entry point must call ChildSignalDefaults.installAppSignalPolicy()")
 
 for failure in failures:
@@ -75,4 +98,4 @@ if failures:
     sys.exit(1)
 print("check-crash-safety: ok")
 PY
-python3 "$here/crash_ratchet.py" --repo "$(cd "$root/../../.." && pwd)"
+python3 "$here/crash_ratchet.py" --repo "$repo"

@@ -17,10 +17,11 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<String, String>!
     private var surfaces: [String: WorkspaceSurface] = [:]
-    /// C13: the Changes and Files rows, first, when a viewer is wired.
+    /// C13: the Changes and Files rows (E4: and Todo), first, when a viewer is wired.
     private static let viewerSection = "viewers"
-    private static let changesItem = "viewer.changes"
-    private static let filesItem = "viewer.files"
+    private static let viewerItems: [String: WorkspaceViewerKind] = [
+        "viewer.changes": .changes, "viewer.files": .files, "viewer.todo": .todo,
+    ]
     private var subscription: Task<Void, Never>?
     private lazy var coalescer = FrameCoalescer<SourceSnapshot<[HostWorkspaces]>> { [weak self] in self?.receive($0) }
 
@@ -88,7 +89,7 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
         var snapshot = NSDiffableDataSourceSnapshot<String, String>()
         if feature.viewers != nil, workspace != nil {
             snapshot.appendSections([Self.viewerSection])
-            snapshot.appendItems([Self.changesItem, Self.filesItem], toSection: Self.viewerSection)
+            snapshot.appendItems(["viewer.changes", "viewer.files", "viewer.todo"], toSection: Self.viewerSection)
         }
         for pane in panes {
             snapshot.appendSections([pane.id])
@@ -124,8 +125,8 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
     private func makeDataSource() -> UICollectionViewDiffableDataSource<String, String> {
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, id in
             guard let self else { return }
-            if id == Self.changesItem || id == Self.filesItem {
-                self.configureViewer(cell, changes: id == Self.changesItem)
+            if let kind = Self.viewerItems[id] {
+                self.configureViewer(cell, kind: kind)
                 return
             }
             guard let surface = self.surfaces[id] else { return }
@@ -189,16 +190,27 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
         cell.accessibilityTraits = opens(surface) ? .button : .staticText
     }
 
-    private func configureViewer(_ cell: UICollectionViewListCell, changes: Bool) {
+    private func configureViewer(_ cell: UICollectionViewListCell, kind: WorkspaceViewerKind) {
         var content = UIListContentConfiguration.cell()
-        content.text = changes ? WorkspacesText.changes : WorkspacesText.files
+        switch kind {
+        case .changes:
+            content.text = WorkspacesText.changes
+            content.image = UIImage(systemName: "plus.forwardslash.minus")
+            cell.accessibilityIdentifier = "workspaces.changes"
+        case .files:
+            content.text = WorkspacesText.files
+            content.image = UIImage(systemName: "folder")
+            cell.accessibilityIdentifier = "workspaces.files"
+        case .todo:
+            content.text = WorkspacesText.todo
+            content.image = UIImage(systemName: "checklist")
+            cell.accessibilityIdentifier = "workspaces.todo"
+        }
         content.textProperties.font = ShellTypography.rowTitle
         content.textProperties.adjustsFontForContentSizeCategory = true
-        content.image = UIImage(systemName: changes ? "plus.forwardslash.minus" : "folder")
         content.imageProperties.tintColor = ShellPalette.secondaryText
         cell.contentConfiguration = content
         cell.accessories = [.disclosureIndicator()]
-        cell.accessibilityIdentifier = changes ? "workspaces.changes" : "workspaces.files"
         cell.isAccessibilityElement = true
         cell.accessibilityLabel = content.text
         cell.accessibilityTraits = .button
@@ -217,16 +229,16 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         let id = dataSource.itemIdentifier(for: indexPath)
-        if id == Self.changesItem || id == Self.filesItem { return true }
+        if let id, Self.viewerItems[id] != nil { return true }
         return id.flatMap { surfaces[$0] }.map(opens) ?? false
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
-        if let id = dataSource.itemIdentifier(for: indexPath), id == Self.changesItem || id == Self.filesItem, let workspace {
+        if let id = dataSource.itemIdentifier(for: indexPath), let kind = Self.viewerItems[id], let workspace {
             let target = WorkspaceViewerTarget(hostID: hostID, hostName: host?.hostName ?? hostID.rawValue,
                                                workspaceID: workspace.id, title: workspace.title)
-            feature.openViewer(target, changes: id == Self.changesItem, from: self)
+            feature.openViewer(target, kind: kind, from: self)
             return
         }
         if let id = dataSource.itemIdentifier(for: indexPath), let surface = surfaces[id], surface.kind == .browser,

@@ -51,7 +51,7 @@ final class HomeTapbackPresenter {
         self.picker = picker
         place(picker, at: hit)
 
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Haptics().play(.lightImpact)
         picker.alpha = 0
         if !HomeMotion.reduceMotion { picker.transform = CGAffineTransform(scaleX: 0.7, y: 0.7) }
         HomeMotion.animate {

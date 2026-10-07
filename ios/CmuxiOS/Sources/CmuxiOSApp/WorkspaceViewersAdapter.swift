@@ -21,6 +21,10 @@ final class WorkspaceViewersAdapter: WorkspaceViewerOpening {
         feature.makeFiles(for: viewerTarget(target))
     }
 
+    func todoScreen(for target: WorkspaceViewerTarget) -> UIViewController {
+        feature.makeTodo(for: viewerTarget(target))
+    }
+
     private func viewerTarget(_ target: WorkspaceViewerTarget) -> ViewerTarget {
         ViewerTarget(hostID: target.hostID, hostName: target.hostName, workspaceID: target.workspaceID, title: target.title)
     }

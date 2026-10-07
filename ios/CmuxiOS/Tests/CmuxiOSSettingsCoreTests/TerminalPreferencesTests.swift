@@ -14,6 +14,17 @@ import Testing
         #expect(appearance.cursorStyle == .block)
         #expect(!appearance.cursorBlink)
         #expect(appearance.keyBarKeyIDs == KeyBarKeyID.defaultOrder.map(\.rawValue))
+        #expect(!appearance.showsComposer)
+    }
+
+    @Test func composerSettingRoundTripsAndOlderValuesReadOff() throws {
+        let on = TerminalPreferences(composerEnabled: true)
+        #expect(on.appearance.showsComposer)
+        let data = try JSONEncoder().encode(on)
+        #expect(try JSONDecoder().decode(TerminalPreferences.self, from: data).composerEnabled)
+        // A value stored before the composer existed has no key.
+        let older = try JSONDecoder().decode(TerminalPreferences.self, from: Data(#"{"theme":"paper"}"#.utf8))
+        #expect(!older.composerEnabled)
     }
 
     @Test func codableRoundTrip() throws {

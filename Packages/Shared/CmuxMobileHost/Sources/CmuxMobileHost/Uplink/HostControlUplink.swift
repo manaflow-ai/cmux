@@ -18,6 +18,12 @@ public actor HostControlUplink {
     /// different devices concurrently, and none blocks this frame loop.
     private var opChains: [String: Task<Void, Never>] = [:]
     private var nextKey: UInt64 = 0
+    /// This Mac's own reads on the host socket (`signal.turn_credentials`),
+    /// answered by `read.result` or `error` with the same id.
+    private var pendingReads: [Int: CheckedContinuation<ReadResultFrame, any Error>] = [:]
+    private var nextReadID = 1
+    private var negotiated = false
+    private var finished = false
 
     public init(socket: any HostControlSocket, host: MobileHost, install: String, appVersion: String,
                 signaling: (any SignalingSink)? = nil) {
@@ -34,14 +40,21 @@ public actor HostControlUplink {
         var iterator = frames.makeAsyncIterator()
         let hello = HelloFrame(caps: Self.caps, client: HelloClient(install: install, platform: "macos", appVersion: appVersion))
         try await socket.send(MobileFrame.hello(hello).jsonValue)
-        guard let first = await iterator.next() else {
-            throw HostControlUplinkError(code: "owner.unreachable", message: "HostDO closed before hello.ok")
-        }
-        guard case .helloOK? = try? MobileFrame(value: first) else {
+        // HostDO greets every socket with `welcome` at accept, before it reads
+        // the hello; only `hello.ok` or an `error` answers the hello.
+        while true {
+            guard let first = await iterator.next() else {
+                finish()
+                throw HostControlUplinkError(code: "owner.unreachable", message: "HostDO closed before hello.ok")
+            }
+            if case .helloOK? = try? MobileFrame(value: first) { break }
+            if first["t"]?.stringValue == "welcome" { continue }
+            finish()
             await socket.close()
             throw HostControlUplinkError(code: first["code"]?.stringValue ?? "proto.hello_required",
                                          message: first["message"]?.stringValue ?? "HostDO refused the hello")
         }
+        negotiated = true
         let hostID = host.configuration.hostID
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         try await sendOp("host.caps.set", params: .object([
@@ -54,10 +67,43 @@ public actor HostControlUplink {
         while let frame = await iterator.next() {
             await handle(frame)
         }
+        finish()
         for forwarder in forwarders.values { forwarder.cancel() }
         forwarders.removeAll()
         for chain in opChains.values { chain.cancel() }
         opChains.removeAll()
+    }
+
+    /// One read this Mac asks `HostDO` (b1-control-do.md 6: `signal.turn_credentials`).
+    /// Throws `HostControlUplinkError` with the owner's code, or
+    /// `owner.unreachable` before `hello.ok` and once the socket closed.
+    public func read(_ op: String, params: JSONValue = .object([:])) async throws -> ReadResultFrame {
+        guard negotiated, !finished else {
+            throw HostControlUplinkError(code: "owner.unreachable", message: "the host socket is not connected")
+        }
+        let id = nextReadID
+        nextReadID += 1
+        let frame = try MobileFrame.read(ReadFrame(id: id, op: op, params: params)).jsonValue
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingReads[id] = continuation
+            Task { [socket] in
+                do { try await socket.send(frame) } catch { await self.failRead(id, error) }
+            }
+        }
+    }
+
+    private func failRead(_ id: Int, _ error: any Error) {
+        pendingReads.removeValue(forKey: id)?.resume(throwing: error)
+    }
+
+    /// The socket ended: every read still waiting fails.
+    private func finish() {
+        finished = true
+        let reads = pendingReads
+        pendingReads = [:]
+        for continuation in reads.values {
+            continuation.resume(throwing: HostControlUplinkError(code: "owner.unreachable", message: "the host socket closed"))
+        }
     }
 
     private func sendOp(_ op: String, params: JSONValue) async throws {
@@ -95,6 +141,13 @@ public actor HostControlUplink {
         case "signal":
             guard let signaling, case .signal(let signal)? = try? MobileFrame(value: frame) else { return }
             await signaling.receive(signal)
+        case "read.result":
+            guard case .readResult(let result)? = try? MobileFrame(value: frame) else { return }
+            pendingReads.removeValue(forKey: result.id)?.resume(returning: result)
+        case "error":
+            guard case .int(let id)? = frame["id"], let waiter = pendingReads.removeValue(forKey: Int(id)) else { return }
+            waiter.resume(throwing: HostControlUplinkError(code: frame["code"]?.stringValue ?? "owner.unreachable",
+                                                           message: frame["message"]?.stringValue ?? "the read failed"))
         default:
             // Results of our own host ops, errors and unknown frames need no answer.
             return

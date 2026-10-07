@@ -14,4 +14,9 @@ public enum ConformanceCase: String, Sendable, CaseIterable, Hashable {
     case pathChangeMidStream
     /// Input overtakes queued bulk.
     case priority
+    /// A bare transport (no `LinkSession`) whose consumer stops reading
+    /// suspends the remote sender within `rawBufferLimitBytes`: the receive
+    /// side never grows an unbounded buffer, then delivers everything in
+    /// order once the consumer reads again.
+    case rawBackPressure
 }

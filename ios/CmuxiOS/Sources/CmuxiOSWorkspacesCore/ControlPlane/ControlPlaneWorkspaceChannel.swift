@@ -17,8 +17,8 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
     private let hostID: HostID
     private let streamKind: String
     private let reasons: ControlPlaneChannelReasons
-    private let makeClient: @Sendable () async throws -> ControlPlaneClient
-    private var client: ControlPlaneClient?
+    private let makeClient: @Sendable () async throws -> any ControlPlaneSession
+    private var client: (any ControlPlaneSession)?
     private var starter: Task<Void, Never>?
     private var tasks: [Task<Void, Never>] = []
     private var updatePump: Task<Void, Never>?
@@ -31,7 +31,7 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
     private var closed = false
 
     public init(hostID: HostID, reasons: ControlPlaneChannelReasons, streamKind: String = "workspace",
-                makeClient: @escaping @Sendable () async throws -> ControlPlaneClient) {
+                makeClient: @escaping @Sendable () async throws -> any ControlPlaneSession) {
         self.hostID = hostID
         self.streamKind = streamKind
         self.reasons = reasons
@@ -106,7 +106,7 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
     }
 
     private func connect() async {
-        let made: ControlPlaneClient
+        let made: any ControlPlaneSession
         do {
             made = try await makeClient()
         } catch {
@@ -117,7 +117,7 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
         guard !closed else { return }
         client = made
         await made.start()
-        let states = made.states
+        let states = await made.stateUpdates()
         tasks.append(Task { [weak self] in
             for await state in states { await self?.socketChanged(state) }
         })
@@ -128,7 +128,7 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
         if updateSink != nil { pumpWorkspace(made) }
     }
 
-    private func pumpWorkspace(_ client: ControlPlaneClient) {
+    private func pumpWorkspace(_ client: any ControlPlaneSession) {
         updatePump?.cancel()
         let stream = workspaceStream
         updatePump = Task { [weak self] in
@@ -146,7 +146,7 @@ public actor ControlPlaneWorkspaceChannel: WorkspaceControlChannel {
 
     private func socketChanged(_ next: ControlPlaneState) async {
         socket = next
-        if case .failed = next { failure = reasons.refused }
+        if case .failed(let error) = next { failure = error == .unauthenticated ? reasons.signedOut : reasons.refused }
         if case .connected = next, let client {
             // Viewers > 0 lets the Mac send preview lines (c5-workspaces.md 2).
             try? await client.setPresence(active: true)

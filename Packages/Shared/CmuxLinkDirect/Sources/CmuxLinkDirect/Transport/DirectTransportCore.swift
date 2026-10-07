@@ -2,8 +2,10 @@ import CmuxLink
 import Foundation
 import os
 
-/// State shared by a transport and its receive loop: the event sink, the
-/// path, and the once-only close.
+/// State shared by a transport and its receive loop: the bounded inbox, the
+/// path, and the once-only close. The receive loop stops reading the socket
+/// while the inbox holds `limits.reliableBytes`, so a slow consumer fills the
+/// kernel buffers and TCP flow control slows the sender (E1).
 final class DirectTransportCore: Sendable {
     private struct State {
         var path: LinkPath
@@ -12,20 +14,20 @@ final class DirectTransportCore: Sendable {
 
     let socket: DirectSocket
     let writer: DirectWriter
-    let continuation: AsyncStream<TransportEvent>.Continuation
+    let inbox: TransportInbox
     private let state: OSAllocatedUnfairLock<State>
     private let onFinish: @Sendable () -> Void
 
     init(
         socket: DirectSocket,
         writer: DirectWriter,
-        continuation: AsyncStream<TransportEvent>.Continuation,
+        inbox: TransportInbox,
         path: LinkPath,
         onFinish: @escaping @Sendable () -> Void
     ) {
         self.socket = socket
         self.writer = writer
-        self.continuation = continuation
+        self.inbox = inbox
         state = OSAllocatedUnfairLock(initialState: State(path: path))
         self.onFinish = onFinish
     }
@@ -41,8 +43,8 @@ final class DirectTransportCore: Sendable {
             return !state.finished
         }
         guard first else { return }
-        continuation.yield(.closed(reason))
-        continuation.finish()
+        inbox.yield(.closed(reason))
+        inbox.finish()
         socket.cancel()
         let writer = writer
         Task { await writer.fail() }
@@ -56,7 +58,7 @@ final class DirectTransportCore: Sendable {
             state.path = path
             return true
         }
-        if moved { continuation.yield(.pathChanged(path)) }
+        if moved { inbox.yield(.pathChanged(path)) }
     }
 
     /// The receive half: decrypts records in order, reassembles frames and
@@ -66,6 +68,10 @@ final class DirectTransportCore: Sendable {
         var pending: (lane: TransportLane, bytes: Data)?
         do {
             while true {
+                if !inbox.hasRoom {
+                    await inbox.waitForRoom()
+                    guard !isFinished else { return }
+                }
                 let sealed = try await socket.receiveRecord(maxLength: NoiseCipherState.maxMessageLength)
                 switch try DirectRecord(decoding: try cipher.decrypt(sealed)) {
                 case .close:
@@ -81,7 +87,11 @@ final class DirectTransportCore: Sendable {
                         pending = assembled
                     } else {
                         pending = nil
-                        continuation.yield(.frame(TransportFrame(lane: assembled.lane, bytes: assembled.bytes)))
+                        let frame = TransportFrame(lane: assembled.lane, bytes: assembled.bytes)
+                        if inbox.yield(.frame(frame)) == .overflow {
+                            finish(.pathLost("receive buffer overflow"))
+                            return
+                        }
                     }
                 }
             }

@@ -11,10 +11,22 @@ public final class ShellRouter {
     public let parser: ShellRouteParser
     private let log: (any DiagnosticRecording)?
     private var handler: Handler?
-    public private(set) var isAccountReady = false
+    public private(set) var access: RouteAccess = .none
+    public var isAccountReady: Bool { access == .account }
     public private(set) var pending: ShellRoute?
     /// Called for links this build does not understand (show "update cmux").
     public var onUnrecognized: (@MainActor (URL) -> Void)?
+    /// Called when the guest shell parks a route that needs an account
+    /// (show a sign-in prompt).
+    public var onNeedsAccount: (@MainActor (ShellRoute) -> Void)?
+
+    /// Which shell is on screen.
+    public enum RouteAccess: Hashable, Sendable {
+        case none
+        /// The signed-out guest shell (deferred sign-in).
+        case guest
+        case account
+    }
 
     public init(parser: ShellRouteParser, log: (any DiagnosticRecording)? = nil) {
         self.parser = parser
@@ -29,12 +41,27 @@ public final class ShellRouter {
     /// True once the signed-in shell is on screen. A true-to-false change
     /// (sign-out) drops the parked route; false-to-true delivers it.
     public func setAccountReady(_ ready: Bool) {
-        guard ready != isAccountReady else { return }
-        isAccountReady = ready
-        if ready {
-            deliverPending()
-        } else {
+        setAccess(ready ? .account : .none)
+    }
+
+    /// The shell on screen changed. Losing the account drops the parked
+    /// route; reaching the guest or account shell delivers what it allows.
+    public func setAccess(_ next: RouteAccess) {
+        guard next != access else { return }
+        let lostAccount = access == .account
+        access = next
+        if lostAccount {
             pending = nil
+        } else {
+            deliverPending()
+        }
+    }
+
+    private func mayOpen(_ route: ShellRoute) -> Bool {
+        switch access {
+        case .account: true
+        case .guest: route.allowsGuest || !route.requiresAccount
+        case .none: !route.requiresAccount
         }
     }
 
@@ -50,9 +77,10 @@ public final class ShellRouter {
 
     @discardableResult
     public func open(_ route: ShellRoute) -> ShellRouteOutcome {
-        guard let handler, isAccountReady || !route.requiresAccount else {
+        guard let handler, mayOpen(route) else {
             pending = route
             log?.info("router", "deferred \(Self.name(route))")
+            if access == .guest { onNeedsAccount?(route) }
             return .deferred
         }
         log?.info("router", "open \(Self.name(route))")
@@ -68,7 +96,7 @@ public final class ShellRouter {
     }
 
     private func deliverPending() {
-        guard let route = pending, let handler, isAccountReady || !route.requiresAccount else { return }
+        guard let route = pending, let handler, mayOpen(route) else { return }
         pending = nil
         log?.info("router", "deliver deferred \(Self.name(route))")
         handler(route)

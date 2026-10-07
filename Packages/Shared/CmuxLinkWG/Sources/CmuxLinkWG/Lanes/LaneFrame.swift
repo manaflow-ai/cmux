@@ -6,8 +6,11 @@ enum LaneFrame: Equatable {
     /// A fragment of an unordered or partial lane message.
     case message(lane: LaneID, id: UInt32, index: UInt16, count: UInt16, lifetimeMillis: UInt32, payload: [UInt8])
     /// `next` is the lowest sequence not yet received; bit i of `sack` says
-    /// `next + 1 + i` arrived.
-    case ack(lane: LaneID, next: UInt32, sack: UInt64)
+    /// `next + 1 + i` arrived. `consumed` (receive credit, E1) is the
+    /// sequence after the last fragment of the last frame the consumer took:
+    /// the sender keeps at most a credit window of fragments above it. A
+    /// 15-byte ack without it credits on receipt (`consumed == next`).
+    case ack(lane: LaneID, next: UInt32, sack: UInt64, consumed: UInt32?)
     case close
     case closeAck
 
@@ -30,8 +33,9 @@ enum LaneFrame: Equatable {
         case let .message(lane, id, index, count, lifetime, payload):
             return [Self.version, Self.dataType, lane.byte, 0] + Self.le32(id)
                 + Self.le16(index) + Self.le16(count) + Self.le32(lifetime) + payload
-        case let .ack(lane, next, sack):
-            return [Self.version, Self.ackType, lane.byte] + Self.le32(next) + Self.le64(sack)
+        case let .ack(lane, next, sack, consumed):
+            let base = [Self.version, Self.ackType, lane.byte] + Self.le32(next) + Self.le64(sack)
+            return consumed.map { base + Self.le32($0) } ?? base
         case .close:
             return [Self.version, Self.closeType]
         case .closeAck:
@@ -61,10 +65,11 @@ enum LaneFrame: Equatable {
                 payload: Array(bytes[messageHeaderLength...])
             )
         case ackType:
-            guard bytes.count == 15, let lane = LaneID(byte: bytes[2]) else { return nil }
+            guard bytes.count == 15 || bytes.count == 19, let lane = LaneID(byte: bytes[2]) else { return nil }
             var sack: UInt64 = 0
             for index in 0..<8 { sack |= UInt64(bytes[7 + index]) << (8 * UInt64(index)) }
-            return .ack(lane: lane, next: readLE32(bytes, 3), sack: sack)
+            let consumed = bytes.count == 19 ? readLE32(bytes, 15) : nil
+            return .ack(lane: lane, next: readLE32(bytes, 3), sack: sack, consumed: consumed)
         case closeType:
             return bytes.count == 2 ? .close : nil
         case closeAckType:

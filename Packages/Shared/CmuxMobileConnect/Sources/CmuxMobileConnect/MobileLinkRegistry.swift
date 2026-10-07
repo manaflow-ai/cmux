@@ -17,7 +17,8 @@ import Foundation
 /// update the plan and restart the race; live sessions keep running.
 @MainActor
 public final class MobileLinkRegistry {
-    public typealias SignalingFactory = @Sendable (_ hostID: String) -> MobileHostSignaling?
+    /// The Mac's signaling relay; `route.team` names another account's Mac.
+    public typealias SignalingFactory = @Sendable (_ route: MobileHostRoute) -> MobileHostSignaling?
 
     private struct Entry {
         var route: MobileHostRoute
@@ -124,7 +125,7 @@ public final class MobileLinkRegistry {
         }
         let needsSignaling = (route.webrtcHostKey != nil && credentials.webrtc != nil)
             || (options.wireGuardOverWebRTC && route.wireGuardHostKey != nil && credentials.wireGuard != nil)
-        let relay = needsSignaling ? signaling(route.hostID) : nil
+        let relay = needsSignaling ? signaling(route) : nil
         var webrtc: WebRTCCarrier?
         if let relay, route.webrtcHostKey != nil, let identity = credentials.webrtc {
             let carrier = WebRTCCarrier(router: relay.router, iceServers: relay.iceServers, identity: identity,

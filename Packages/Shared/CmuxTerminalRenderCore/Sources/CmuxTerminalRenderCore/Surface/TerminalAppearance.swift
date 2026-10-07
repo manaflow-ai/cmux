@@ -17,11 +17,13 @@ public struct TerminalAppearance: Hashable, Sendable {
     /// Key bar key ids in order (setting `ios.terminal.accessoryKeys`); empty
     /// means the default bar.
     public var keyBarKeyIDs: [String]
+    /// The composer bar above the key bar (setting `ios.terminal.composer`).
+    public var showsComposer: Bool
 
     public init(theme: ThemeInput? = nil, fontFamily: String? = nil,
                 baseFontSize: Double = TerminalFontSizing().baseSize, followsDynamicType: Bool = true,
                 cursorStyle: TerminalCursorStyle = .block, cursorBlink: Bool = false,
-                keyBarKeyIDs: [String] = []) {
+                keyBarKeyIDs: [String] = [], showsComposer: Bool = false) {
         self.theme = theme
         self.fontFamily = fontFamily
         self.baseFontSize = baseFontSize
@@ -29,6 +31,7 @@ public struct TerminalAppearance: Hashable, Sendable {
         self.cursorStyle = cursorStyle
         self.cursorBlink = cursorBlink
         self.keyBarKeyIDs = keyBarKeyIDs
+        self.showsComposer = showsComposer
     }
 
     /// The font sizing with this appearance's base size, keeping the other limits.

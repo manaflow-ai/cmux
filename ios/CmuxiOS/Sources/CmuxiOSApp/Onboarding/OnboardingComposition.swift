@@ -17,7 +17,8 @@ enum OnboardingComposition {
         return OnboardingModel(
             dependencies: dependencies(container: container, store: container.onboardingStore),
             context: OnboardingContext(isSignedIn: isSignedIn, mode: .firstRun,
-                                       offersCloudMachine: CloudComposition.onboardingHook(container: container) != nil),
+                                       offersCloudMachine: CloudComposition.onboardingHook(container: container) != nil,
+                                       offersKeepAwake: container.flags.isEnabled(.keepAwake)),
             start: start
         )
     }
@@ -48,10 +49,12 @@ enum OnboardingComposition {
             store: store,
             signIn: { [weak container] in
                 guard let container else { return UIViewControllerPlaceholder.make() }
-                return SignInScreen.makeEmbedded(coordinator: container.auth.coordinator)
+                return SignInScreen.makeEmbedded(coordinator: container.auth.coordinator,
+                                                 onContinueWithoutAccount: container.onContinueWithoutAccount)
             },
             offersSampleScan: offersSampleScan,
-            cloud: CloudComposition.onboardingHook(container: container)
+            cloud: CloudComposition.onboardingHook(container: container),
+            keepAwake: KeepAwakeComposition.onboardingHook(container: container)
         )
     }
 

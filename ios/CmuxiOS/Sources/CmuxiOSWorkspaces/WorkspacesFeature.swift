@@ -1,6 +1,6 @@
 public import CmuxiOSFeatureKit
 public import CmuxiOSWorkspacesCore
-import CmuxiOSTerminal
+public import CmuxiOSTerminal
 public import CmuxTerminalRenderCore
 public import UIKit
 
@@ -25,6 +25,10 @@ public final class WorkspacesFeature {
     /// Lane C13: Changes and Files rows in the workspace detail; nil hides them.
     public var viewers: (any WorkspaceViewerOpening)?
     private weak var navigation: UINavigationController?
+    /// Lane E4: the composer bar of a host terminal; nil offers none.
+    public var terminalComposer: (@MainActor (WorkspaceTerminalTarget) -> (any TerminalComposerProviding)?)?
+    /// Lane E4: the terminal More menu's composer toggle (writes the setting).
+    public var onComposerToggle: (@MainActor (Bool) -> Void)?
     /// Lane C3: "Remote Desktop" in a workspace's menu opens the Mac's
     /// screen. Set by the composition root with its localized title.
     public var remoteDesktop: RemoteDesktopHook?
@@ -116,6 +120,8 @@ public final class WorkspacesFeature {
     func openTerminal(_ target: WorkspaceTerminalTarget, from presenter: UIViewController) {
         let source = terminalSources.makeSource(for: target)
         let screen = TerminalViewController(source: source, title: target.title, appearance: appearance)
+        screen.composerProvider = terminalComposer?(target)
+        screen.onComposerToggle = onComposerToggle
         screen.hidesBottomBarWhenPushed = true
         screen.navigationItem.largeTitleDisplayMode = .never
         // The title bar holds the terminal's title, badge and menu: a bare back chevron.
@@ -130,9 +136,13 @@ public final class WorkspacesFeature {
         presenter.navigationController?.pushViewController(screen, animated: true)
     }
 
-    func openViewer(_ target: WorkspaceViewerTarget, changes: Bool, from presenter: UIViewController) {
+    func openViewer(_ target: WorkspaceViewerTarget, kind: WorkspaceViewerKind, from presenter: UIViewController) {
         guard let viewers else { return }
-        let screen = changes ? viewers.changesScreen(for: target) : viewers.filesScreen(for: target)
+        let screen = switch kind {
+        case .changes: viewers.changesScreen(for: target)
+        case .files: viewers.filesScreen(for: target)
+        case .todo: viewers.todoScreen(for: target)
+        }
         presenter.navigationController?.pushViewController(screen, animated: true)
     }
 

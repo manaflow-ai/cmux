@@ -29,6 +29,7 @@ public actor MobileLinkHostRunner {
     private var userClient: ControlPlaneClient?
     private var mirror: TrustStoreMirror?
     private var assembly: MobileHostAssembly?
+    private var tasks: AcpmuxMobileTaskRunner?
     private let socket = HostSocketBox()
     private var uplinkTask: Task<Void, Never>?
     private var publishTask: Task<Void, Never>?
@@ -52,8 +53,9 @@ public actor MobileLinkHostRunner {
         let principal = try await account.principal()
         let keys = MobileLinkKeyStore(directory: options.keyDirectory)
         let direct = try DirectIdentity(privateKeyRepresentation: keys.privateKey(.direct))
-        let wireGuard = options.wireGuardOverWebRTC
-            ? try WireGuardPrivateKey(rawRepresentation: keys.privateKey(.wireGuard)) : nil
+        // The `wg` key is published either way, so phones pin it before the
+        // B3 DEV switch turns the acceptor on (the assembly gates the acceptor).
+        let wireGuard = try WireGuardPrivateKey(rawRepresentation: keys.privateKey(.wireGuard))
         let daemon = try await DaemonMobileDaemon.connect(hostID: principal.hostID, endpointProvider: endpointProvider)
         self.daemon = daemon
 
@@ -72,17 +74,24 @@ public actor MobileLinkHostRunner {
 
         let box = socket
         let channel = SignalFrameChannel { frame in try await box.send(try MobileFrame.signal(frame).jsonValue) }
-        // TURN credentials ride a `read` on the host socket, which the uplink
-        // owns; until it exposes reads, ICE is STUN only (P2P, no relay).
-        let signaling = MobileHostSignaling(router: SignalRouter(channel: channel), iceServers: StaticICEServerProvider(.stunOnly),
-                                            close: { channel.finish() })
+        // TURN credentials ride a `read` on the host socket the uplink owns.
+        let ice = HostSocketICEServers { op, params in try await box.read(op, params: params) }
+        let signaling = MobileHostSignaling(router: SignalRouter(channel: channel), iceServers: ice, close: { channel.finish() })
+        let names: MobileLinkServices.DeviceNames = { install in
+            guard let state = await mirror.state else { return nil }
+            if let device = state.devices[install] { return device.name }
+            return state.guests.values.first { $0.device.install == install }?.device.name
+        }
+        let features = MobileLinkFeatureFactory.features(options.services, daemon: daemon, hostID: principal.hostID, names: names)
+        tasks = features.taskRunner as? AcpmuxMobileTaskRunner
         let assembly = MobileHostAssembly(
             credentials: MobileHostCredentials(hostID: principal.hostID, accountUserID: principal.accountUserID, direct: direct,
                                                webrtc: account.webrtcIdentity, wireGuard: wireGuard),
             trust: MobileHostTrust(mirror: mirror, environment: principal.environment, accountUserID: principal.accountUserID),
             daemon: daemon, signaling: signaling,
             options: MobileHostAssemblyOptions(listen: DirectListenConfiguration(bonjourName: options.macName),
-                                               wireGuardOverWebRTC: options.wireGuardOverWebRTC))
+                                               wireGuardOverWebRTC: options.wireGuardOverWebRTC),
+            features: features)
         self.assembly = assembly
         let port = try await assembly.start()
         logger.info("phone link: listening on \(port, privacy: .public)")
@@ -111,6 +120,8 @@ public actor MobileLinkHostRunner {
         uplinkTask = nil
         publishTask = nil
         await assembly?.stop()
+        await tasks?.close()
+        tasks = nil
         await socket.close()
         await mirror?.stop()
         await userClient?.stop()
@@ -143,9 +154,9 @@ public actor MobileLinkHostRunner {
                 let socket = try await ControlPlaneHostSocket.connect(
                     transport: URLSessionControlPlaneTransport(),
                     baseURL: socketURL(principal.apiBaseURL, path: "/"), hostID: principal.hostID, token: token)
-                await box.set(socket)
                 let uplink = HostControlUplink(socket: socket, host: host, install: principal.install, appVersion: appVersion,
                                                signaling: channel)
+                await box.set(socket, uplink: uplink)
                 backoff.reset()
                 try await uplink.run()
                 await box.set(nil)
@@ -160,22 +171,29 @@ public actor MobileLinkHostRunner {
         }
     }
 
-    /// Publishes this Mac's `direct` (and with B3, `wg`) certificate with
-    /// its host id, so phones of the account pin the keys (b6-pairing.md 3).
+    /// Publishes this Mac's `direct` and `wg` certificates with its host id,
+    /// so phones of the account pin the keys (b6-pairing.md 3).
     private static func publish(principal: MobileLinkHostPrincipal, signer: any LinkKeySigning, direct: DirectIdentity,
-                                wireGuard: WireGuardPrivateKey?, client: ControlPlaneClient, logger: Logger) async {
+                                wireGuard: WireGuardPrivateKey, client: ControlPlaneClient, logger: Logger) async {
         let issuer = LinkCertificateIssuer(environment: principal.environment, user: principal.accountUserID,
                                            install: principal.install, signer: signer)
         let pairing = PairingClient(client: client)
-        do {
-            let cert = try await issuer.issue(purpose: .direct, key: direct.publicKey.rawRepresentation)
-            try await pairing.publish(cert, host: principal.hostID)
-            if let wireGuard {
+        // Ops need a negotiated socket (nothing queues): publish on the first
+        // connection, and again on the next one after a failure. This task is
+        // the only reader of `client.states`.
+        for await state in client.states {
+            guard case .connected = state else { continue }
+            do {
+                let cert = try await issuer.issue(purpose: .direct, key: direct.publicKey.rawRepresentation)
+                try await pairing.publish(cert, host: principal.hostID)
                 let wg = try await issuer.issue(purpose: .wg, key: wireGuard.publicKey.rawRepresentation)
                 try await pairing.publish(wg, host: principal.hostID)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                logger.error("phone link: publishing link certificates failed: \(String(describing: error), privacy: .public)")
             }
-        } catch {
-            logger.error("phone link: publishing link certificates failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

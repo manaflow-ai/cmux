@@ -18,14 +18,21 @@ public final class ShellSettingsModel {
     /// A page pushed on the Settings stack from outside (lane C15 search);
     /// the stack clears it when the user goes back.
     public var openedPage: ShellSettingsPage?
-    /// Devices & Macs.
-    public let devicesModel: DeviceSettingsModel
+    /// Devices & Macs; nil signed out (the guest shell has no device registry).
+    public let devicesModel: DeviceSettingsModel?
+    /// Set in the signed-out guest shell (deferred sign-in): the Account
+    /// section shows Not Signed In with this Sign In action.
+    @ObservationIgnored public let signIn: (@MainActor () -> Void)?
     /// Team switcher and Delete Account; nil hides both.
     public let accountModel: AccountSettingsModel?
     public let terminal: TerminalPreferencesStore?
     public let notifications: NotificationPreferencesStore?
     @ObservationIgnored public let notificationAuthorization: (any NotificationAuthorizationReading)?
     public let privacy: PrivacyPreferences?
+    /// The haptics toggle (lane E5); nil hides it.
+    public let haptics: HapticsSettings?
+    /// Erase All Data (lane E5): the app's wipe; nil hides the section.
+    @ObservationIgnored public let eraseAllData: (@MainActor () async -> EraseReport)?
     @ObservationIgnored private let signOutAction: @MainActor () async -> Void
     /// DEBUG builds pass the DEV screen; nil hides the Developer section.
     @ObservationIgnored public let developer: (@MainActor () -> DevSourcesModel)?
@@ -35,7 +42,7 @@ public final class ShellSettingsModel {
     @ObservationIgnored public let replayTour: (@MainActor () -> Void)?
 
     public init(
-        account: ShellAccount, about: ShellAbout, registry: any DeviceRegistry,
+        account: ShellAccount, about: ShellAbout, registry: (any DeviceRegistry)?,
         developer: (@MainActor () -> DevSourcesModel)?, links: [ShellSettingsLink] = [],
         replayTour: (@MainActor () -> Void)? = nil,
         accountController: (any AccountControlling)? = nil,
@@ -44,16 +51,22 @@ public final class ShellSettingsModel {
         notifications: NotificationPreferencesStore? = nil,
         notificationAuthorization: (any NotificationAuthorizationReading)? = nil,
         privacy: PrivacyPreferences? = nil,
+        haptics: HapticsSettings? = nil,
+        eraseAllData: (@MainActor () async -> EraseReport)? = nil,
+        signIn: (@MainActor () -> Void)? = nil,
         signOut: @escaping @MainActor () async -> Void
     ) {
         self.account = account
         self.about = about
-        devicesModel = DeviceSettingsModel(registry: registry, links: linkDiagnostics)
+        devicesModel = registry.map { DeviceSettingsModel(registry: $0, links: linkDiagnostics) }
+        self.signIn = signIn
         accountModel = accountController.map(AccountSettingsModel.init(controller:))
         self.terminal = terminal
         self.notifications = notifications
         self.notificationAuthorization = notificationAuthorization
         self.privacy = privacy
+        self.haptics = haptics
+        self.eraseAllData = eraseAllData
         self.developer = developer
         self.links = links
         self.replayTour = replayTour
@@ -70,11 +83,19 @@ public final class ShellSettingsModel {
     /// is cancelled (SwiftUI's `.task` cancels it when Settings leaves).
     public func observe() async {
         await withDiscardingTaskGroup { group in
-            group.addTask { await self.devicesModel.observe() }
+            if let devicesModel = self.devicesModel {
+                group.addTask { await devicesModel.observe() }
+            }
             if let accountModel = self.accountModel {
                 group.addTask { await accountModel.observe() }
             }
         }
+    }
+
+    /// A fresh typed confirmation for one presentation of Erase All Data.
+    func makeEraseModel() -> EraseAllDataModel? {
+        guard let eraseAllData else { return nil }
+        return EraseAllDataModel(rule: EraseConfirmationRule(word: SettingsText.eraseWord), perform: eraseAllData)
     }
 
     public func signOut() async {

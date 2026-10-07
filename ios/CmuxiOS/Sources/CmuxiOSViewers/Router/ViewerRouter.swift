@@ -9,6 +9,8 @@ import UIKit
 @MainActor
 public final class ViewerRouter: FileViewerHook {
     let source: any ViewerContentSource
+    /// Upload and transfers in the file browser (SSH hosts); nil hides them.
+    public var fileActions: ViewerFileActions?
 
     public init(source: any ViewerContentSource) {
         self.source = source

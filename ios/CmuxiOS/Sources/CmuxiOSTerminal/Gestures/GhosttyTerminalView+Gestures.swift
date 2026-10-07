@@ -1,4 +1,5 @@
 import CmuxTerminalRenderCore
+import CmuxiOSDesign
 import GhosttyNextKit
 import UIKit
 
@@ -70,7 +71,7 @@ extension GhosttyTerminalView {
             button(GHOSTTY_MOUSE_PRESS, mods)
             button(GHOSTTY_MOUSE_RELEASE, mods)
             button(GHOSTTY_MOUSE_PRESS, mods)
-            UISelectionFeedbackGenerator().selectionChanged()
+            Haptics().play(.selection)
         case .changed:
             pointer(point, mods)
         case .ended:

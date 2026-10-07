@@ -95,10 +95,9 @@ public final class WebRTCAcceptor: LinkAcceptor {
 
     private func accept(_ incoming: SignalRouter.Incoming) async {
         let ice = (try? await iceCache.configuration(for: hostID)) ?? .stunOnly
-        let (events, sink) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .unbounded)
         guard let peer = try? WebRTCPeer(
             factory: WebRTCFactory.shared(for: configuration.network, host: true), ice: ice,
-            limits: PeerSendLimits(configuration), frameSink: sink
+            limits: PeerSendLimits(configuration)
         ) else {
             await router.unregister(incoming.session)
             return
@@ -121,7 +120,7 @@ public final class WebRTCAcceptor: LinkAcceptor {
         }
         guard let key = await connection.remoteKey else { return }
         incomingSink.yield(WebRTCTransport(
-            events: events, connection: connection, remoteKey: key, install: await connection.remoteInstall
+            events: peer.inbox.events, connection: connection, remoteKey: key, install: await connection.remoteInstall
         ))
     }
 }

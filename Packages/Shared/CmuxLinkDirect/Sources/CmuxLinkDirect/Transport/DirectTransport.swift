@@ -29,18 +29,18 @@ public final class DirectTransport: LinkTransport {
         handshakeRTT: Duration?,
         injector: DirectFaultInjector?
     ) {
-        let (events, continuation) = AsyncStream<TransportEvent>.makeStream()
-        self.events = events
+        let inbox = TransportInbox()
+        self.events = inbox.events
         self.remoteKey = remoteKey
         let writer = DirectWriter(socket: socket, cipher: ciphers.send, bytesPerSecond: injector?.currentRate)
         let registration = DirectFaultInjector.Registration()
         let core = DirectTransportCore(
-            socket: socket, writer: writer, continuation: continuation, path: path,
+            socket: socket, writer: writer, inbox: inbox, path: path,
             onFinish: { injector?.unregister(registration) }
         )
         self.core = core
         injector?.register(core, as: registration)
-        if let handshakeRTT { continuation.yield(.rtt(handshakeRTT)) }
+        if let handshakeRTT { inbox.yield(.rtt(handshakeRTT)) }
         let receive = ciphers.receive
         let limit = Self.capabilities.maxFrameBytes
         Task { await core.runReceiveLoop(cipher: receive, maxFrameBytes: limit) }

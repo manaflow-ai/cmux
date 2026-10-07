@@ -9,7 +9,9 @@ import Foundation
 /// tree mirror or runs on the main actor. Terminals attach on their own
 /// connections (`TerminalAttachment`), like the Mac's terminal views.
 public final class DaemonMobileDaemon: MobileDaemon {
-    private let connection: DaemonConnection
+    /// The phone link's own daemon connection; the files, git, tunnel and task
+    /// adapters (D1b) ride it too.
+    public let connection: DaemonConnection
     private let projection: MobileTreeProjection
     private let changes = TreeChangeSignal()
     private let pump: Task<Void, Never>
@@ -173,6 +175,11 @@ public final class DaemonMobileDaemon: MobileDaemon {
         case .clear: .clear
         case .set(let value): .set(value)
         }
+    }
+
+    /// The daemon's current tree (the adapters read workspaces and terminals from it).
+    public func currentTree() async throws -> DaemonTree {
+        try await tree()
     }
 
     private func tree() async throws -> DaemonTree {

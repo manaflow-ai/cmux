@@ -98,8 +98,34 @@ enum ViewersText {
     }
 
     // Browser
+    static var todo: String { String(localized: "viewers.todo", defaultValue: "Todo", bundle: .module) }
+    static var noTodo: String { String(localized: "viewers.todo.none", defaultValue: "No Todo List", bundle: .module) }
+    static func noTodoBody(_ names: String) -> String {
+        String(format: String(localized: "viewers.todo.none.body",
+                              defaultValue: "Add one of these files to the workspace folder on your Mac: %@", bundle: .module), names)
+    }
     static var emptyFolder: String { String(localized: "viewers.empty-folder", defaultValue: "Empty Folder", bundle: .module) }
     static var symlink: String { String(localized: "viewers.symlink", defaultValue: "Link (not followed)", bundle: .module) }
+    static var add: String { String(localized: "viewers.browser.add", defaultValue: "Add", bundle: .module) }
+    static var newFolder: String { String(localized: "viewers.browser.new-folder", defaultValue: "New Folder", bundle: .module) }
+    static var upload: String { String(localized: "viewers.browser.upload", defaultValue: "Upload Files", bundle: .module) }
+    static var transfers: String { String(localized: "viewers.browser.transfers", defaultValue: "Transfers", bundle: .module) }
+    static var rename: String { String(localized: "viewers.browser.rename", defaultValue: "Rename", bundle: .module) }
+    static var delete: String { String(localized: "viewers.browser.delete", defaultValue: "Delete", bundle: .module) }
+    static var cancel: String { String(localized: "viewers.browser.cancel", defaultValue: "Cancel", bundle: .module) }
+    static var save: String { String(localized: "viewers.browser.save", defaultValue: "Save", bundle: .module) }
+    static var name: String { String(localized: "viewers.browser.name", defaultValue: "Name", bundle: .module) }
+    static func deleteTitle(_ name: String) -> String {
+        String(format: String(localized: "viewers.browser.delete-title", defaultValue: "Delete “%@”?", bundle: .module), name)
+    }
+    static var deleteMessage: String {
+        String(localized: "viewers.browser.delete-message", defaultValue: "This removes it from the server. Folders must be empty.", bundle: .module)
+    }
+    static var ok: String { String(localized: "viewers.browser.ok", defaultValue: "OK", bundle: .module) }
+    static var invalidName: String {
+        String(localized: "viewers.browser.invalid-name", defaultValue: "Use a name without “/” that is not “.” or “..”.", bundle: .module)
+    }
+    static var actionFailed: String { String(localized: "viewers.browser.failed", defaultValue: "Couldn’t Change the File", bundle: .module) }
 
     // Errors
     static var retry: String { String(localized: "viewers.retry", defaultValue: "Try Again", bundle: .module) }

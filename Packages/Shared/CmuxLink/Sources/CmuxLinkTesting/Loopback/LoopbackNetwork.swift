@@ -113,18 +113,18 @@ public actor LoopbackNetwork {
         guard !refusing.contains(carrier.kind) else { throw LoopbackError.refused }
         let kind = carrierPaths[carrier.kind] ?? roamPath ?? carrier.defaultPath
         let path = LinkPath(kind: kind, carrier: carrier.kind)
-        let (dialerEvents, dialerContinuation) = AsyncStream<TransportEvent>.makeStream()
-        let (hostEvents, hostContinuation) = AsyncStream<TransportEvent>.makeStream()
+        let dialerInbox = TransportInbox()
+        let hostInbox = TransportInbox()
         let pipe = LoopbackPipe(
             path: path,
-            continuations: [dialerContinuation, hostContinuation],
+            inboxes: [dialerInbox, hostInbox],
             conditions: conditions,
             clock: clock,
             maxFrameBytes: carrier.capabilities.maxFrameBytes
         )
         pipes.append(pipe)
-        let host = LoopbackTransport(pipe: pipe, side: 1, events: hostEvents, capabilities: carrier.capabilities)
+        let host = LoopbackTransport(pipe: pipe, side: 1, events: hostInbox.events, capabilities: carrier.capabilities)
         activeAcceptor.continuation.yield(host)
-        return LoopbackTransport(pipe: pipe, side: 0, events: dialerEvents, capabilities: carrier.capabilities)
+        return LoopbackTransport(pipe: pipe, side: 0, events: dialerInbox.events, capabilities: carrier.capabilities)
     }
 }

@@ -15,9 +15,14 @@ final class FileBrowserViewController: UIViewController, UICollectionViewDelegat
     private var entries: [String: FilesListEntry] = [:]
     private static let sizeFormatter = ByteCountFormatter()
 
-    init(model: FileBrowserModel, router: ViewerRouter) {
+    /// Runs once when this screen leaves its navigation stack (the SSH
+    /// host's root folder releases its SFTP session).
+    private var onLeave: (@MainActor () -> Void)?
+
+    init(model: FileBrowserModel, router: ViewerRouter, onLeave: (@MainActor () -> Void)? = nil) {
         self.model = model
         self.router = router
+        self.onLeave = onLeave
         super.init(nibName: nil, bundle: nil)
         title = model.title
         navigationItem.largeTitleDisplayMode = .never
@@ -45,8 +50,120 @@ final class FileBrowserViewController: UIViewController, UICollectionViewDelegat
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { view, path, name in
             view.dequeueConfiguredReusableCell(using: cell, for: path, item: name)
         }
+        installAddMenu()
         render()
         reload()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard isMovingFromParent || navigationController?.isBeingDismissed == true, let onLeave else { return }
+        self.onLeave = nil
+        onLeave()
+    }
+
+    // MARK: Writes (SSH hosts, lane E5)
+
+    /// New Folder (when the source writes), Upload and Transfers (when the
+    /// composition root injected them); nothing for Macs.
+    private func installAddMenu() {
+        let writes = model.operations != nil
+        let actions = router.fileActions
+        guard writes || actions != nil else { return }
+        let item = UIBarButtonItem(systemItem: .add)
+        item.accessibilityLabel = ViewersText.add
+        item.accessibilityIdentifier = "viewers.files.add"
+        item.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self, weak item] completion in
+            completion(self?.addMenuItems(anchor: item) ?? [])
+        }])
+        navigationItem.rightBarButtonItem = item
+    }
+
+    private func addMenuItems(anchor: UIBarButtonItem?) -> [UIMenuElement] {
+        var items: [UIMenuElement] = []
+        let host = model.target.hostID
+        if model.operations != nil {
+            items.append(UIAction(title: ViewersText.newFolder, image: UIImage(systemName: "folder.badge.plus")) { [weak self] _ in
+                self?.promptName(title: ViewersText.newFolder, initial: "") { name in await self?.model.makeFolder(named: name) }
+            })
+        }
+        if let actions = router.fileActions {
+            if let folder = model.path {
+                items.append(UIAction(title: ViewersText.upload, image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+                    guard let self else { return }
+                    actions.upload(host, folder, self, anchor)
+                })
+            }
+            items.append(UIAction(title: ViewersText.transfers, image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
+                self?.navigationController?.pushViewController(actions.transfers(host), animated: true)
+            })
+        }
+        return items
+    }
+
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
+                        point: CGPoint) -> UIContextMenuConfiguration? {
+        guard model.operations != nil, let indexPath = indexPaths.first, let name = dataSource.itemIdentifier(for: indexPath),
+              let entry = entries[name] else { return nil }
+        return UIContextMenuConfiguration(actionProvider: { [weak self] _ in
+            let rename = UIAction(title: ViewersText.rename, image: UIImage(systemName: "pencil")) { _ in
+                self?.promptName(title: ViewersText.rename, initial: entry.name) { name in await self?.model.rename(entry, to: name) }
+            }
+            let delete = UIAction(title: ViewersText.delete, image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                self?.confirmDelete(entry)
+            }
+            return UIMenu(children: [rename, delete])
+        })
+    }
+
+    private func promptName(title: String, initial: String, commit: @escaping @MainActor (String) async -> ViewerSourceError?) {
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.text = initial
+            field.placeholder = ViewersText.name
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: ViewersText.cancel, style: .cancel))
+        alert.addAction(UIAlertAction(title: ViewersText.save, style: .default) { [weak self, weak alert] _ in
+            let name = alert?.textFields?.first?.text ?? ""
+            guard ViewerFileName(name) != nil else {
+                self?.showWriteFailure(ViewersText.invalidName)
+                return
+            }
+            Task { @MainActor in
+                let failure = await commit(name)
+                self?.finishWrite(failure)
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    private func confirmDelete(_ entry: FilesListEntry) {
+        let alert = UIAlertController(title: ViewersText.deleteTitle(entry.name), message: ViewersText.deleteMessage, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: ViewersText.cancel, style: .cancel))
+        alert.addAction(UIAlertAction(title: ViewersText.delete, style: .destructive) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let failure = await self.model.delete(entry)
+                self.finishWrite(failure)
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    private func finishWrite(_ failure: ViewerSourceError?) {
+        title = model.title
+        render()
+        guard let failure else { return }
+        showWriteFailure(ViewersText.errorBody(failure))
+    }
+
+    private func showWriteFailure(_ message: String) {
+        let alert = UIAlertController(title: ViewersText.actionFailed, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: ViewersText.ok, style: .default))
+        present(alert, animated: true)
     }
 
     private func reload() {

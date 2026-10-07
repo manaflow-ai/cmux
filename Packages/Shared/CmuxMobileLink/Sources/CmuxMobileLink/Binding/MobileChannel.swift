@@ -27,7 +27,7 @@ public actor MobileChannel {
     public init(id: UInt32, link: LinkChannel) {
         self.id = id
         self.link = link
-        (lanes, lanesContinuation) = AsyncStream.makeStream(of: MobileDatagramLane.self)
+        (lanes, lanesContinuation) = AsyncStream.makeStream(of: MobileDatagramLane.self, bufferingPolicy: .bufferingNewest(1))
     }
 
     /// Wraps a channel whose first record names its A0 id (`channel.open`).
@@ -59,15 +59,15 @@ public actor MobileChannel {
         self.id = id
         self.link = link
         receiveSeq = receivedFirst ? 1 : 0
-        (lanes, lanesContinuation) = AsyncStream.makeStream(of: MobileDatagramLane.self)
+        (lanes, lanesContinuation) = AsyncStream.makeStream(of: MobileDatagramLane.self, bufferingPolicy: .bufferingNewest(1))
     }
 
     // MARK: Datagram lanes
 
     /// Datagram lanes the phone paired with this channel
     /// (`cmux.mobile/datagram/<id>`, c2-browser-stream.md section 2), in
-    /// arrival order; a new lane replaces the previous one. Ends when the
-    /// channel does. One consumer.
+    /// arrival order; a new lane replaces the previous one (an untaken lane
+    /// is closed, so at most one waits). Ends when the channel does. One consumer.
     public func datagramLanes() -> AsyncStream<MobileDatagramLane> {
         lanes
     }
@@ -78,7 +78,11 @@ public actor MobileChannel {
             await link.close()
             return
         }
-        lanesContinuation.yield(MobileDatagramLane(channel: id, link: link))
+        // Newest wins (E1): a lane the reader has not taken yet is replaced
+        // and closed, so unread lanes never pile up.
+        if case .dropped(let replaced) = lanesContinuation.yield(MobileDatagramLane(channel: id, link: link)) {
+            await replaced.close()
+        }
     }
 
     /// `ChannelEvents` iterators are stateless handles onto the session, so a

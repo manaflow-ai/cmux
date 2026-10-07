@@ -1,0 +1,37 @@
+{
+  "carrier" : "webrtc",
+  "conditions" : {
+    "loss" : 0,
+    "note" : "real sockets on loopback; shape with the dnctl recipe in d2-bakeoff.md",
+    "rttMilliseconds" : 0,
+    "shaped" : false
+  },
+  "durationSeconds" : 4.296885667000001,
+  "errors" : [
+
+  ],
+  "machine" : {
+    "cores" : 14,
+    "cpu" : "Apple M4 Pro",
+    "loadAverage1m" : 31.21,
+    "model" : "Mac16,11",
+    "os" : "Version 27.0.1 (Build 26A434)"
+  },
+  "memory" : {
+    "baselineMaxResidentMiB" : 9.171875,
+    "finalFootprintMiB" : 22.37561798095703,
+    "finalMaxResidentMiB" : 38.046875
+  },
+  "rawTransport" : {
+    "cpuMillisecondsPerMiB" : 26.71,
+    "cpuSeconds" : 9.017,
+    "megabitsPerSecond" : 667.8,
+    "priority" : "bulk (raw transport)",
+    "receivedBytes" : 354025472,
+    "recordBytes" : 65536,
+    "seconds" : 4.241
+  },
+  "rig" : "v1-webrtc-loopback",
+  "schema" : "cmux-link-bench\/1",
+  "startedAt" : "2026-10-07T07:53:00Z"
+}

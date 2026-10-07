@@ -1,3 +1,4 @@
+import CmuxControlPlane
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
@@ -22,6 +23,7 @@ import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
 import CmuxiOSSSHWorkspacesCore
+import CmuxiOSTerminalComposeCore
 import CmuxiOSTerminalLink
 import CmuxiOSViewers
 import CmuxiOSViewersCore
@@ -79,10 +81,25 @@ final class AppContainer {
     /// Lane E3: SSH hosts' sessions in the Workspaces list (discovery and
     /// catalog-checked attach over the on-device host records).
     let sshWorkspaces: SSHWorkspacesComposition
+    /// Lane E5: SSH hosts' files over SFTP (sessions, transfers, viewers).
+    let sftp = SFTPComposition()
+    /// Lane E5 deferred sign-in (e5-extras.md section 5): the stored "Use SSH
+    /// Without an Account" choice, how this launch applies it, and the hosts
+    /// added signed out (offered for sync on sign-in).
+    let guestMode = GuestModeStore()
+    let guestPolicy: GuestAccessPolicy
+    let guestHostsLedger: GuestHostsLedger
+    /// Set by the root controller: the sign-in screens' guest entry.
+    var onContinueWithoutAccount: (@MainActor () -> Void)?
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
+    /// Lane E4 (e4-compose.md): the terminal composer's drafts per terminal
+    /// and sent history on this device; cleared on sign-out.
+    let terminalCompose = TerminalComposeStore(persistence: FileTerminalComposePersistence.standard())
     let privacy = PrivacyPreferences(consentKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+    /// Lane E5: the haptics toggle over the one `HapticsPreference` owner.
+    let haptics = HapticsSettings()
     /// C7 fills this with the push owner's per-device filter; nil keeps the
     /// notification preferences on this device.
     var notificationPreferencesSinkFactory: (@Sendable () -> any NotificationPreferencesSink)?
@@ -188,6 +205,8 @@ final class AppContainer {
         self.localHosts = localHosts
         let madeSSHWorkspaces = SSHWorkspacesComposition(hosts: localHosts, device: sshDevice, catalog: SSHSessionCatalog())
         sshWorkspaces = madeSSHWorkspaces
+        guestHostsLedger = GuestHostsLedger(url: sshDirectory.appendingPathComponent("guest-hosts.json"))
+        guestPolicy = GuestAccessPolicy(environment: environment, isDebug: isDebug)
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
@@ -226,7 +245,8 @@ final class AppContainer {
                                                 sessionToken: { @MainActor in try await coordinator.accessToken() })
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
             to: Self.addingFeed(to: withCloud, base: base, identity: madeIdentity, pairing: madePairing),
-            base: base, identity: madeIdentity, cloudHosts: flagStore.isEnabled(.cloudWorkspaces), ssh: madeSSHWorkspaces),
+            base: base, identity: madeIdentity, cloudHosts: flagStore.isEnabled(.cloudWorkspaces),
+            sockets: madePairing?.hostSockets, ssh: madeSSHWorkspaces),
             connector: madePairing == nil ? nil : links)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
@@ -320,16 +340,19 @@ final class AppContainer {
     /// socket, so no socket opens that HostDO would refuse.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
                                          identity: InstallIdentity?, cloudHosts: Bool,
+                                         sockets: HostSocketPool?,
                                          ssh: SSHWorkspacesComposition) -> RealFeatureFactories {
         var factories = factories
-        // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
-        // as this install (b1-control-do.md). Without an API origin each Mac
-        // shows as unreachable instead of as fake data.
+        // A lease on each paired Mac's one `/v1/wire/host/<host>` socket
+        // (D1b, shared with presence, tasks and signaling), as this install
+        // (b1-control-do.md). Without an API origin each Mac shows as
+        // unreachable instead of as fake data.
         let channels: any WorkspaceChannelFactory
         if let base, let identity {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             channels = ControlPlaneWorkspaceChannelFactory(
                 apiBaseURL: base, appVersion: version ?? "0", reasons: WorkspacesFeature.controlPlaneReasons,
+                sessions: sockets,
                 install: { try await identity.ownerInstall().install },
                 token: { try await identity.token(for: nil) })
         } else {
@@ -345,8 +368,8 @@ final class AppContainer {
             directories.append(ssh.directory)
             return ControlPlaneWorkspaceSource(directory: CompositeHostDirectory(directories), channels: routed)
         }
-        // C8: the composer's `task:<host>` streams ride the same host sockets'
-        // endpoint (one more subscription per Mac while a composer is open).
+        // C8: the composer's `task:<host>` streams ride the same host sockets
+        // (one more subscription per Mac while a composer is open).
         let taskChannels: any WorkspaceChannelFactory
         if let controlPlane = channels as? ControlPlaneWorkspaceChannelFactory {
             taskChannels = controlPlane.streaming("task")
@@ -578,8 +601,14 @@ final class AppContainer {
         home = nil
         homeAccount = nil
         dropFeatureSources()
+        terminalCompose.clearAll()
         accountLinks.stop()
-        if let pairing { Task { await pairing.cache.reset() } }
+        if let pairing {
+            Task {
+                await pairing.cache.reset()
+                await pairing.hostSockets.stopAll()
+            }
+        }
     }
 
     /// Binds the account's links (D1): routes from B6's trust store, Bonjour
@@ -588,7 +617,10 @@ final class AppContainer {
         guard let pairing else { return }
         let composition = LinkComposition(pairing: pairing, bundleID: Bundle.main.bundleIdentifier ?? "",
                                           appVersion: pairing.appVersion, dev: linkDev)
-        let reset: Task<Void, Never>? = resetting ? Task { await pairing.cache.reset() } : nil
+        let reset: Task<Void, Never>? = resetting ? Task {
+            await pairing.cache.reset()
+            await pairing.hostSockets.stopAll()
+        } : nil
         accountLinks.start(bootstrap: {
             await reset?.value
             return try await composition.bootstrap()
@@ -596,6 +628,25 @@ final class AppContainer {
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }
+
+    /// Signed out by choice: the guest shell shows instead of sign-in.
+    var isGuest: Bool { guestPolicy.isGuest(stored: guestMode.isChosen) }
+
+    /// The guest shell's hosts: the device's owner, recording what is added.
+    var guestHosts: any HostsStore {
+        GuestRecordingHostsStore(base: localHosts, ledger: guestHostsLedger)
+    }
+
+    /// Hosts added signed out that still exist (the sync offer).
+    func pendingGuestHosts() async -> [HostRecord] {
+        await guestHostsLedger.pending(in: await localHosts.current())
+    }
+
+    /// Joins hosts added signed out to the account's synced set.
+    func adoptGuestHosts(_ hosts: [HostID]) async {
+        await LocalHostsAdopter(store: localHosts).adopt(hosts)
+        await guestHostsLedger.clear()
+    }
 }
 
 /// Adapts the install principal to the push client's token seam.

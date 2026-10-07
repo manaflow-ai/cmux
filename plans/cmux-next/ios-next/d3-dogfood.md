@@ -34,9 +34,9 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.3 | Mac-to-phone end-to-end push keys | C7 | done (kept `CmuxPhonePush` path) |
 | 1.4 | Apple, Google, GitHub, email code, passkey errors | kept | done |
 | 1.4 | Account deletion, team switcher | C11 | done |
-| 1.4 | Deferred sign-in (SSH without an account) | C16 | missing (design note only) |
+| 1.4 | Deferred sign-in (SSH without an account) | C16, E5 | done (guest shell, sync offer; e5-extras.md 5) |
 | 1.5 | Onboarding stages, push opt-in, pairing, connect, replay | C10, B6 | done |
-| 1.5 | Keep-awake onboarding card | C10, C16 | missing |
+| 1.5 | Keep-awake onboarding card | C10, C16, E5 | mocked (flag `keepAwake` off; Mac control is D1b) |
 | 1.5 | Cloud onboarding | C12 | done (`cloudOnboarding` step) |
 | 1.5 | One-time migration sheets | - | dropped (no iroh) |
 | 1.6 | QR scanner, manual add, setup help | B6, B4 | done |
@@ -68,7 +68,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.9 | In-app WKWebView browser, mode picker, Mac/SSH tunnel | C14 | missing (C14 pending) |
 | 1.9 | Simulator stream surface | C14 | missing (C14 pending) |
 | 1.9 | Markdown and file-preview surfaces | C13 | done |
-| 1.9 | Todo surface | C13 | missing |
+| 1.9 | Todo surface | C13, E4 | done (E4: workspace todo file, read only; no daemon checklist op) |
 | 1.9 | Changes hint banner, action toasts | C13, C16 | done |
 | 1.10 | Ghostty Metal surface, render recovery, background suspend | A2 | done |
 | 1.10 | Snapshot output path, exactly-once input, send status | C1 | done |
@@ -78,9 +78,9 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.10 | Gestures: tap to focus, pinch zoom HUD, pixel scroll | A2, D1 | done |
 | 1.10 | Selection and copy, links | A2, D1 | done |
 | 1.10 | Keyboard docking and safe areas | D1 | done (unverified; audit found Home composer failures) |
-| 1.10 | Terminal composer with attachments, image paste | C8, C4 | missing (task composer only; its attach button is hidden: no `ComposerAttachmentUploading` wired) |
+| 1.10 | Terminal composer with attachments, image paste | C8, C4, E4 | done (E4 composer bar; task composer attach still unwired) |
 | 1.10 | Theme sync from the Mac, font, scrollback | C11, A2 | done (Match Mac uses the host theme) |
-| 1.10 | Drafts per terminal | D1 | missing |
+| 1.10 | Drafts per terminal | D1, E4 | done (E4) |
 | 1.10 | Files chip and transfer list | C4 | done (artifact gallery missing) |
 | 1.11 | Artifact viewer: highlight, go to line, search, Markdown, images, PDF, share | C13 | done |
 | 1.12 | Changes chip, file tree, diff pager, copy line/hunk | C13 | done (Refresh only, no git change stream) |
@@ -92,7 +92,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
 | 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (plain PTY only) |
-| 1.15 | SFTP browser | C4, C9 | missing (scoped in c4-files.md 8) |
+| 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | missing (C14 pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
 | 1.16 | Cloud VM terminal and files attach | C12 | seam only (needs the phase-2 Rust host on the VM) |
@@ -102,11 +102,11 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.17 | Connection and computers | B6, C11 | done |
 | 1.17 | Networking diagnostics (path badge, RTT) | C11, D1 | done (V1 RTT sampled at connect only, B2 F3) |
 | 1.17 | Terminal and display options, scrollback | C11 | done |
-| 1.17 | Haptics toggle | C11 | missing |
+| 1.17 | Haptics toggle | C11, E5 | done |
 | 1.17 | Privacy (telemetry consent) | C11, C16 | done |
 | 1.17 | Diagnostics: verbose log, export, clear, copy support info | C16 | done |
 | 1.17 | Legal, support links, version | C11 | done |
-| 1.17 | Erase all data on this device | C11 | missing (needs every lane's store list) |
+| 1.17 | Erase all data on this device | C11, E5 | done (sandbox-wide plan, e5-extras.md 3) |
 | 1.17 | DEBUG Developer section | A1 | done |
 | 1.18 | Structured diagnostic log, terminal latency trace | C16, C1 | done |
 | 1.18 | Analytics uploader | C16 | seam only (`NoopAnalytics`) |
@@ -283,9 +283,9 @@ Left for owners, most severe first:
   closed and path-changed events these streams carry, so the fix is a split stream.
 - Low (C13): `ChangesViewController.swift:184` derives the +/- font from the current footnote size
   without `UIFontMetrics`; `LineNumberGutterView.swift:12` has an unused fixed 11 pt default.
-- Tooling: `check-l10n.sh`, `check-concurrency.sh` and the package lint default to macOS or legacy
-  scope, so CI checks none of `ios/CmuxiOS` or the new Shared packages. Most concurrency hits are
-  macOS-only rules.
+- Tooling (fixed by E2): `check-l10n.sh --mobile`, `check-concurrency.sh --mobile`,
+  `check-crash-safety.sh --mobile` and the package lint scan `ios/CmuxiOS` and every root in
+  `scripts/cmux-next/mobile-scan-roots.txt`; `cmux-next-ios.yml` runs them in CI.
 - Session replay masks (C16 decision): Metal and video surfaces to mask before enabling replay are
   `GhosttyTerminalView` (CmuxiOSTerminal), `BrowserVideoView` and `BrowserCanvasView` (CmuxiOSBrowser), and
   `ImageViewController` and `PDFViewController` content (CmuxiOSViewers).
@@ -363,26 +363,38 @@ RPC session established`. For API-backed dogfood start `cd web && CMUX_PORT=<pri
    or lost input (type a counter before and after).
 5. Shake > DEV: Force TURN, then repeat 3 and 4; `CMUX_IOS_LINK_WG=1` only if V2 is still in the race.
 
-### 6.4 UI tests on a fleet simulator
+### 6.4 UI tests on a CI simulator
 
-There is no iOS UI test workflow on this branch: `test-e2e.yml` was deleted with the legacy macOS app
-(a4a0868db8b) and `test-ios.yml` only builds the app. Run the classes with the existing runner on a
-leased isolated simulator (one xcodebuild per test, one recording each):
+`.github/workflows/ios-next-uitests.yml` (E2) builds the app for testing, creates a simulator for the
+run, runs each test in its own xcodebuild with a screen recording and an xcresult (through
+`ios/scripts/keyboard-uitests.sh`), uploads them as the `ios-next-uitests` artifact with
+`summary.txt`, and deletes the simulator. An empty `test_filter` runs every `Next*UITests` class.
+`workflow_dispatch` only finds workflows that are on main, so until it lands there dispatch it
+through `test-ios.yml`, which calls it with `ui_tests=true` (the simulator build runs alongside):
 
 ```bash
-scripts/verify-remote.sh capacity
-# on the leased Mac, in a checkout of this branch, with NX_SIM_UDID = its per-lease simulator:
-for c in NextShellTabsUITests NextOnboardingUITests NextFeedUITests NextWorkspacesUITests \
-         NextComposerUITests NextHostsUITests NextSettingsUITests NextSearchUITests \
-         NextDiagnosticsUITests NextCloudUITests KeyboardAuditUITests; do
-  KBD_CLASS=$c NX_ARTIFACTS=artifacts/d3-uitests/$c ios/scripts/keyboard-uitests.sh
-done
+gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios-d3-dogfood -f ui_tests=true
+gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios-d3-dogfood -f ui_tests=true \
+  -f test_filter="cmuxUITests/NextShellTabsUITests NextFeedUITests/testMockItemsList KeyboardAuditUITests"
+gh run list --repo manaflow-ai/cmux --workflow test-ios.yml --limit 3
+gh run download --repo manaflow-ai/cmux <run-id> -n ios-next-uitests -D artifacts/d3-uitests
+# once ios-next-uitests.yml is on main:
+gh workflow run ios-next-uitests.yml --repo manaflow-ai/cmux --ref <branch> [-f test_filter=...]
 ```
 
-When an iOS lane is added to a dispatchable workflow, the same classes go in its `test_filter`
-(`cmuxUITests/<Class>`), for example
-`gh workflow run test-ios.yml --repo manaflow-ai/cmux -f ref=feat-cmux-next-ios-d3-dogfood -f test_filter=cmuxUITests/NextShellTabsUITests`
-once `test-ios.yml` gains a UI-test step (today it ignores `test_filter` for the simulator build).
+A pull request runs the same set while it carries the `ios-uitests` label. Without `gh` auth, run
+the script on a leased isolated simulator instead (`scripts/verify-remote.sh capacity`, then in a
+checkout of this branch on the leased Mac, with `NX_SIM_UDID` = its per-lease simulator):
+
+```bash
+KBD_TESTS="NextShellTabsUITests NextOnboardingUITests NextFeedUITests NextWorkspacesUITests \
+  NextComposerUITests NextHostsUITests NextSettingsUITests NextSearchUITests \
+  NextDiagnosticsUITests NextCloudUITests KeyboardAuditUITests" \
+  NX_ARTIFACTS=artifacts/d3-uitests ios/scripts/keyboard-uitests.sh
+```
+
+The Shared packages' `swift test`, the static checks over `ios/CmuxiOS` and the new packages, and
+the protocol vitest run on every pull request that touches them (`.github/workflows/cmux-next-ios.yml`).
 
 ### 6.5 D2 device re-measure
 
