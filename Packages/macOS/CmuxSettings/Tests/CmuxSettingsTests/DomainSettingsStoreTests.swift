@@ -425,6 +425,7 @@ struct CloseTabConfirmationPolicyTests {
         var warnsBeforeClosingTab: Bool
         var warnsBeforeClosingTabXButton: Bool
         var hidesTabCloseButton: Bool = false
+        var warnsBeforeClosingAgentSession: Bool = true
     }
 
     @Test func shortcutWarnsOnlyForConfirmationRequiringTabsWithWarningOn() {
@@ -435,6 +436,60 @@ struct CloseTabConfirmationPolicyTests {
         #expect(!warningOn.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
         #expect(!warningOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
         #expect(!warningOff.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
+    }
+
+    @Test func activeAgentUsesOnlyItsOwnWarningToggle() {
+        let agentOn = FixedWarnings(
+            warnsBeforeClosingTab: false,
+            warnsBeforeClosingTabXButton: false,
+            warnsBeforeClosingAgentSession: true
+        )
+        let agentOff = FixedWarnings(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: false,
+            warnsBeforeClosingAgentSession: false
+        )
+
+        #expect(agentOn.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
+        #expect(!agentOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
+        #expect(agentOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(agentOn.warningKindsIncludingSafety(requiresConfirmation: true, source: .shortcut, isAgentSession: true) == [.agentSession])
+    }
+
+    @Test func activeAgentUsesOnlyAgentWarningOnTabCloseButton() {
+        let warnings = FixedWarnings(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: true,
+            warnsBeforeClosingAgentSession: true
+        )
+
+        #expect(
+            warnings.warningKindsIncludingSafety(
+                requiresConfirmation: true,
+                source: .tabCloseButton,
+                isAgentSession: true
+            ) == [.agentSession]
+        )
+        #expect(
+            warnings.warningKindsIncludingSafety(
+                requiresConfirmation: true,
+                source: .tabCloseButton,
+                isAgentSession: false
+            ) == [.tab, .tabCloseButton, .safety]
+        )
+    }
+
+    @Test func agentDontAskAgainDoesNotDisableOrdinaryTabWarning() {
+        let defaults = makeScratchDefaults()
+        let store = CloseTabWarningStore(defaults: defaults)
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        store.disableWarnings([.agentSession, .tabCloseButton])
+
+        #expect(!store.warnsBeforeClosingAgentSession)
+        #expect(store.warnsBeforeClosingTab)
+        #expect(store.warnsBeforeClosingTabXButton)
+        #expect(store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(!store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
     }
 
     @Test func xButtonWarnsUnconditionallyWhenItsToggleIsOn() {
@@ -559,6 +614,20 @@ struct QuitConfirmationPolicyTests {
         #expect(store.shouldShowConfirmation(
             isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
             quitReason: .user
+        ))
+    }
+
+    /// Install and Relaunch is the user's consent to quit. A confirmation shown
+    /// when Sparkle then terminates the app stalls the update behind a modal.
+    @Test(arguments: ["always", "dirty-only"])
+    func updateRelaunchNeverWarns(mode: String) {
+        let defaults = makeScratchDefaults()
+        defaults.set(mode, forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .updateRelaunch
         ))
     }
 

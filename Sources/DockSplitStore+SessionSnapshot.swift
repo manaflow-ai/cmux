@@ -586,7 +586,7 @@ extension DockSplitStore {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: terminal.id,
             matching: restorableAgent
         ) {
@@ -630,8 +630,12 @@ extension DockSplitStore {
            confirmedRuntimeIdentities.isEmpty {
             return false
         }
+        if restorableAgent?.resumeCommand == nil,
+           terminal.shellActivity.state == .commandRunning {
+            return false
+        }
         return (relevantObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: terminal.shellActivity.state,
+            fallingBackTo: terminal.shellActivity.state == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: relevantObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,

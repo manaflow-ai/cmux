@@ -611,6 +611,22 @@ check_sentry_cli_install_portability() {
       exit 1
     fi
 
+    # nightly.yml uploads through scripts/upload-sentry-dsyms.sh (retried,
+    # never fatal), which installs through the same helper.
+    if awk '
+      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /\.\/scripts\/upload-sentry-dsyms\.sh/ { saw=1 }
+      END { exit !saw }
+    ' "$file"; then
+      uploader="$ROOT_DIR/scripts/upload-sentry-dsyms.sh"
+      if ! grep -Fq '/ensure-sentry-cli.sh")"' "$uploader" \
+        || ! grep -Fq 'debug-files upload --include-sources' "$uploader"; then
+        echo "FAIL: scripts/upload-sentry-dsyms.sh must install sentry-cli through scripts/ensure-sentry-cli.sh and upload with --include-sources"
+        exit 1
+      fi
+      continue
+    fi
     if ! awk '
       /- name: Upload dSYMs to Sentry/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
@@ -1141,17 +1157,15 @@ check_no_bare_github_hosted_runners() {
   # fallback; check_background_macos_lane enforces that.
   # The CLA policy guard is a separate immutable control-plane job and is
   # intentionally exempted below because it must never honor a repository
-  # variable or self-hosted runner override.
+  # variable or self-hosted runner override (validate-cla-policy.rb pins it).
+  # Backend migrations and web complexity hold trusted tokens and use the
+  # CI_TRUSTED_RUNNER selector, which can only pick ephemeral GitHub-hosted or
+  # Blacksmith labels; test_ci_fork_runner_routing.py pins its exact form.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  # cla-policy-guard.yml, web-complexity-trusted.yml and
-  # merge-group-policy-checks.yml are control-plane workflows. They
-  # deliberately run on GitHub-hosted ephemeral runners so untrusted
-  # policy/source bytes cannot redirect execution to a persistent or
-  # contributor-controlled machine. Exempt those files here instead.
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" | grep -v "/web-complexity-trusted.yml:" | grep -v "/merge-group-policy-checks.yml:" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"
@@ -1179,7 +1193,7 @@ check_no_self_hosted_fleet_runners() {
   # exception is test-e2e.yml's dispatch-only runner dropdown, which may offer
   # an owned label exactly: E2E is never a required
   # check, and its runner job hands the label on (e2e_runner_pool.py).
-  local owned='glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
+  local owned='glaeda-(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
   local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-persistent-macos-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
   # A fork running CI in its own repository has no fleet, so its hosted
@@ -1204,7 +1218,7 @@ check_no_self_hosted_fleet_runners() {
                'runs-on: [self-hosted, macOS, ARM64]' \
                '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
                '      group: cmux-persistent-compile' '- cmux-persistent-macos-compile' \
-               '- glaeda-std-xcode-26.6' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26' \
+               '- glaeda-std-xcode-26.6' '- glaeda-aws-std-xcode-26.3' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26' \
                '- GLAEDA-std-xcode-26.6' '- Tart-canary'; do
     if ! printf '%s\n' "$probe" | grep -Eiq "($fleet)" && ! printf '%s\n' "$probe" | grep -Eq "($selfhosted)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"

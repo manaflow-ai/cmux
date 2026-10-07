@@ -22,6 +22,14 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarSubtleSelection"
     )
 
+    /// Lightens workspace colors in dark mode so the palette stays readable on
+    /// dark sidebars. Off shows the chosen color as-is (manaflow-ai/cmux#17128).
+    public let brightenInDarkMode = DefaultsKey<Bool>(
+        id: "workspaceColors.brightenInDarkMode",
+        defaultValue: true,
+        userDefaultsKey: "workspaceColorsBrightenInDarkMode"
+    )
+
     public let notificationBadgeColorHex = DefaultsKey<String>(
         id: "workspaceColors.notificationBadgeColor",
         defaultValue: "",

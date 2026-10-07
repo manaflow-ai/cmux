@@ -45,6 +45,8 @@ public struct SettingsSearchIndex: Sendable {
         let normalizedSearchWords: [String]
         /// Unique token set cached so exact token matches stay O(1) per query token.
         let normalizedSearchWordSet: Set<String>
+        /// Folded ``title``, cached so ranking does not re-fold it per query.
+        let normalizedTitle: String
         /// Anchor id posted to the settings content scroll view when the result is selected.
         public let anchorID: String
 
@@ -72,6 +74,7 @@ public struct SettingsSearchIndex: Sendable {
             self.normalizedSearchText = normalizedSearchText
             self.normalizedSearchWords = SettingsSearchMatcher().tokens(in: normalizedSearchText)
             self.normalizedSearchWordSet = Set(normalizedSearchWords)
+            self.normalizedTitle = SettingsSearchMatcher().normalize(title)
             self.anchorID = anchorID
         }
     }

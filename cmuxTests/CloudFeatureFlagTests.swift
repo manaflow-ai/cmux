@@ -62,16 +62,8 @@ struct CloudFeatureFlagTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "cloud-machines-enabled-release" })
-        #if DEBUG
         #expect(definition.defaultWhenUnavailable == true)
-        #else
-        #expect(definition.defaultWhenUnavailable == false)
-        #endif
-        #if DEBUG
         let unavailableDefault = true
-        #else
-        let unavailableDefault = false
-        #endif
         for remote in [nil, false, true] as [Bool?] {
             defaults.removePersistentDomain(forName: suite)
             let flags = CmuxFeatureFlags(
@@ -137,11 +129,7 @@ struct CloudFeatureFlagTests {
         #expect(restored.effectiveValue(for: definition))
         remote = nil
         flags.applyLoadedFlags()
-        #if DEBUG
         let unavailableDefault = true
-        #else
-        let unavailableDefault = false
-        #endif
         #expect(flags.effectiveValue(for: definition) == unavailableDefault)
         restored.applyLoadedFlags()
         #expect(restored.effectiveValue(for: definition) == unavailableDefault)

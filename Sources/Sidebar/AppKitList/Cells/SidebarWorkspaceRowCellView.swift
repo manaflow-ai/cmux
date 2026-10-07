@@ -225,6 +225,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: palette.isSelectionEmphasized,
             increaseContrast: palette.increasesSelectionContrast,
             accent: palette.accent

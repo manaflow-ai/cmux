@@ -803,7 +803,19 @@ final class CmuxTuiSurfaceProviderRegistry {
                   !ownerTeamID.isEmpty,
                   !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
-            let fetchedSummary = try? await loadMachineStatus(machineID, ownerTeamID)
+            let fetchedSummary: VMSummary?
+            do {
+                fetchedSummary = try await loadMachineStatus(machineID, ownerTeamID)
+            } catch where CloudMachineAccessLoss(error: error) != nil {
+                guard !isRetired, generation == refreshGeneration else { return }
+                // Access is gone: the restored panes leave instead of reconnecting
+                // through a provider built from persisted metadata.
+                adoptedOwnerTeams[machineID] = nil
+                unregisterMachine(machineID)
+                continue
+            } catch {
+                fetchedSummary = nil
+            }
             let address = fetchedSummary?.addressIPv4
                 ?? info?.privateAddress
                 ?? adoptedPrivateAddresses[machineID]

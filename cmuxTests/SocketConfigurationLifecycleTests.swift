@@ -287,6 +287,38 @@ extension SocketACLReloadRegressionTests {
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
     }
 
+    @Test func malformedRecreatedPrimaryDoesNotRestorePreDeletionMode() throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = lifecycleTemporaryDirectory(prefix: "scfr")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let primaryURL = directory.appendingPathComponent("cmux.json")
+        let fallbackURL = directory.appendingPathComponent("settings.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try writeConfig(mode: SocketControlMode.allowAll.rawValue, to: primaryURL)
+        try writeConfig(mode: SocketControlMode.cmuxOnly.rawValue, to: fallbackURL)
+        let store = CmuxSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.allowAll.rawValue)
+
+        try FileManager.default.removeItem(at: primaryURL)
+        store.reload()
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
+
+        try "{".write(to: primaryURL, atomically: true, encoding: .utf8)
+        store.reload()
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
+    }
+
     @Test func missingPrimaryAcceptsFallbackThatDisablesSocket() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
