@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import CmuxConversationCore
+import CmuxConversationGeometry
 
 /// Transcript table that routes trackpad horizontal swipes and clicks on
 /// row accessories (badges, footers) back to the controller.
@@ -553,8 +554,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         host.addSubview(overlay)
         let color = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: row)
         row.alphaValue = 0
-        overlay.fly(color: color, text: rep.cgImage, textSize: textFrame.size, fromBody: fromBody, toBody: toBody,
-                    fromText: CGRect(origin: fromTextOrigin, size: textFrame.size), toText: toText, radius: MacConversationTheme.bubbleCornerRadius) { [weak row, weak overlay] in
+        // Trailing edge pinned at the bubble's from the first frame (measured
+        // on iOS Messages; ChatKit's throw is shared with the Mac).
+        var start = fromBody
+        start.size.width = max(toBody.width, toBody.maxX - start.minX)
+        overlay.fly(color: color, text: rep.cgImage, textSize: textFrame.size, fromBody: start, toBody: toBody,
+                    fromText: CGRect(origin: fromTextOrigin, size: textFrame.size), toText: toText,
+                    tail: model.showsTail) { [weak row, weak overlay] in
             row?.alphaValue = 1
             overlay?.removeFromSuperview()
         }
@@ -1602,14 +1608,17 @@ final class MacReplyFocusView: NSView {
 
 /// Hosts one send flight above the window's content (composer included).
 final class MacFlightOverlayView: NSView {
-    private let body = CALayer()
+    /// Body and text, scaled together for the send dip.
+    private let flight = CALayer()
+    private let body = CAShapeLayer()
     private let textLayer = CALayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.addSublayer(body)
-        layer?.addSublayer(textLayer)
+        layer?.addSublayer(flight)
+        flight.addSublayer(body)
+        flight.addSublayer(textLayer)
     }
 
     @available(*, unavailable)
@@ -1617,14 +1626,31 @@ final class MacFlightOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// The Messages bubble (tail included) for `rect` in this unflipped
+    /// view: the shared geometry is drawn y-down, so build it flipped.
+    private func bubblePath(_ rect: CGRect, tail: Bool) -> CGPath {
+        let height = bounds.height
+        let flipped = CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
+        let t = MacConversationTheme.self
+        let path = ConversationBubbleGeometry.path(
+            in: flipped, side: .trailing, tail: tail,
+            radius: t.bubbleCornerRadius, tailWidth: t.tailWidth, tailDrop: t.tailDrop, style: .macOS
+        )
+        var flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: height)
+        return path.copy(using: &flip) ?? path
+    }
+
     func fly(color: CGColor, text: CGImage?, textSize: CGSize, fromBody: CGRect, toBody: CGRect,
-             fromText: CGRect, toText: CGRect, radius: CGFloat, completion: @escaping @MainActor () -> Void) {
+             fromText: CGRect, toText: CGRect, tail: Bool, completion: @escaping @MainActor () -> Void) {
         let scale = window?.backingScaleFactor ?? 2
+        let fromPath = bubblePath(fromBody, tail: tail)
+        let toPath = bubblePath(toBody, tail: tail)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        body.backgroundColor = color
-        body.frame = toBody
-        body.cornerRadius = min(radius, toBody.height / 2)
+        flight.frame = bounds
+        body.frame = bounds
+        body.fillColor = color
+        body.path = toPath
         textLayer.contents = text
         textLayer.contentsScale = scale
         textLayer.frame = toText
@@ -1644,11 +1670,44 @@ final class MacFlightOverlayView: NSView {
             animation.duration = animation.settlingDuration
             return animation
         }
-        body.add(spring("position", NSValue(point: CGPoint(x: fromBody.midX, y: fromBody.midY)), NSValue(point: CGPoint(x: toBody.midX, y: toBody.midY))), forKey: "p")
-        body.add(spring("bounds.size", NSValue(size: fromBody.size), NSValue(size: toBody.size)), forKey: "s")
-        body.add(spring("cornerRadius", min(fromBody.height, radius * 2) / 2, min(radius, toBody.height / 2)), forKey: "r")
+        // One path spring moves and reshapes the tailed body.
+        body.add(spring("path", fromPath, toPath), forKey: "p")
         textLayer.add(spring("position", NSValue(point: CGPoint(x: fromText.midX, y: fromText.midY)), NSValue(point: CGPoint(x: toText.midX, y: toText.midY))), forKey: "p")
+        addSendDip(pivot: CGPoint(x: toBody.maxX, y: toBody.midY), fieldHeight: fromBody.height)
         CATransaction.commit()
+    }
+
+    /// ChatKit's glass send dip (CASpringAnimation(SendAnimation), the same
+    /// on macOS): an additive spring down to a factor set by the field
+    /// height, and one back up from 0.185 s, about the bubble's trailing
+    /// edge. Run at the 1.15x rate measured against iOS Messages.
+    private func addSendDip(pivot: CGPoint, fieldHeight: CGFloat) {
+        // Mac ChatKit's _ck_scaleDownFactorForEntryViewSize: (height only).
+        let factor = min(0.9, max(0.7, 0.7 + (fieldHeight - 40) / 1200))
+        let center = CGPoint(x: flight.bounds.midX, y: flight.bounds.midY)
+        func about(_ s: CGFloat) -> CATransform3D {
+            var m = CATransform3DMakeTranslation(center.x - pivot.x, center.y - pivot.y, 0)
+            m = CATransform3DConcat(m, CATransform3DMakeScale(s, s, 1))
+            return CATransform3DConcat(m, CATransform3DMakeTranslation(pivot.x - center.x, pivot.y - center.y, 0))
+        }
+        let now = flight.convertTime(CACurrentMediaTime(), from: nil)
+        for (target, stiffness, delay, key) in [(factor, 310.0, 0.0, "dipDown"), (1 / factor, 320.0, 0.185, "dipUp")] {
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.mass = 2
+            spring.stiffness = stiffness
+            spring.damping = 38
+            spring.isAdditive = true
+            spring.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
+            spring.toValue = NSValue(caTransform3D: about(target))
+            spring.duration = spring.settlingDuration
+            spring.speed = 1.15
+            spring.beginTime = now + delay / 1.15
+            spring.fillMode = .both
+            // Both stay until the flight lands; dropping one early would
+            // leave the other's scale applied.
+            spring.isRemovedOnCompletion = false
+            flight.add(spring, forKey: key)
+        }
     }
 }
 
