@@ -1,3 +1,4 @@
+import CmuxMobileLink
 import CmuxMobileWire
 import CmuxTerminalStream
 import Foundation
@@ -49,6 +50,11 @@ actor TerminalChannelBridge {
     func run() async {
         guard let attachment = await attach() else { return }
         self.attachment = attachment
+        // The phone opens terminals at `input` so its keystrokes leave first;
+        // this side's output must not outrank the rpc channel (c1 section 5).
+        if channel.link.descriptor.priority < .render {
+            await channel.link.setSendPriority(.render)
+        }
         let opened = ChannelOpenedFrame(channel: channel.id, window: Self.inboundWindow,
                                         params: (try? JSONValue(encoding: attachment.opened))?.objectValue ?? [:],
                                         resumed: false)

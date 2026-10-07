@@ -12,10 +12,12 @@ import Foundation
 /// while a send waits for link credit.
 public actor MobileChannel {
     /// The A0 channel id (0 for the session channel).
-    public let id: UInt32
-    public let link: LinkChannel
+    public nonisolated let id: UInt32
+    public nonisolated let link: LinkChannel
     private var sendSeq: UInt64 = 0
     private var receiveSeq: UInt64 = 0
+    /// The link reported loss: the next record's seq may jump once.
+    private var afterGap = false
     private var ended = false
     private var sending = false
     private var sendWaiters: [CheckedContinuation<Void, Never>] = []
@@ -148,6 +150,10 @@ public actor MobileChannel {
             ended = true
             return .closed(reason)
         case .gap?:
+            // The link lost messages its sender no longer retained; the A0
+            // seq jumps by the same amount. The feature resyncs (terminals
+            // reattach from a READY), so the binding accepts the jump once.
+            afterGap = true
             return .gap
         case .message(let message)?:
             do {
@@ -173,9 +179,10 @@ public actor MobileChannel {
         guard !record.flags.contains(.credit) else {
             throw MobileWireError(code: "proto.bad_record", message: "credit records are not used on a link channel")
         }
-        guard record.seq == receiveSeq + 1 else {
+        guard record.seq == receiveSeq + 1 || (afterGap && record.seq > receiveSeq) else {
             throw MobileWireError(code: "proto.bad_record", message: "seq \(record.seq) after \(receiveSeq)")
         }
+        afterGap = false
         receiveSeq = record.seq
         if record.flags.contains(.json) {
             do {
