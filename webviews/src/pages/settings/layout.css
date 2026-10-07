@@ -545,7 +545,6 @@
     flex-direction: row;
     gap: 2px;
     overflow-x: auto;
-    scrollbar-width: none;
   }
 
   .section-link {

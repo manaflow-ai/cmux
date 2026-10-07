@@ -30,9 +30,9 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
-                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the
-                // colors in effect while appearance.theme is unset (null while it names a theme).
-                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeStore.shared.input) : .null,
+                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the app
+                // scope's colors while appearance.theme is unset (null while it names a theme).
+                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeScope.app.input) : .null,
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
