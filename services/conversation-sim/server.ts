@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
 import { editedText, imageSize, mentionText, messageText, pick, randInt, replyText, type Rng } from "./corpus";
+import { AUDIO_EXPIRY_MS, audioWaveform, proceduralWAV, sniffWAVDurationMs, spokenDurationMs, spokenText } from "./audio";
 
 // ---------------------------------------------------------------- types
 
@@ -24,9 +25,15 @@ interface Conversation {
 }
 interface AttachmentRef {
   id: string;
-  kind: "image";
+  kind: "image" | "audio";
   width: number;
   height: number;
+  // audio only
+  durationMs?: number;
+  waveform?: number[]; // peak levels 0-100, evenly spaced
+  transcript?: string;
+  expiresAt?: number; // epoch ms; absent = kept / never expires
+  kept?: boolean;
 }
 interface Mention {
   participantId: string;
@@ -74,7 +81,8 @@ interface MediaEntry {
   height: number;
   ext: string;
   mime: string;
-  bytes?: Uint8Array; // uploads only; procedural images are generated on demand
+  bytes?: Uint8Array; // uploads only; procedural media is generated on demand
+  audio?: { durationMs: number; waveform: number[]; transcript?: string };
 }
 
 // ---------------------------------------------------------------- config
@@ -383,6 +391,7 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
       } else m.status = "delivered";
     }
   }
+  addHistoryAudio(conv, drafts, seed);
   // Own stream so adding formatting leaves the seeded history otherwise identical.
   const formatRng = mulberry32(seed ^ 0x7e57);
   for (const d of drafts) {
@@ -397,6 +406,53 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
     const parent = store.messages[ri];
     store.messages[i].replyToId = parent.id;
     parent.replyCount++;
+  }
+}
+
+/** An audio attachment with procedural media (history and bots). */
+function makeAudioAttachment(id: string, rng: Rng, transcript = spokenText(rng)): AttachmentRef {
+  const durationMs = spokenDurationMs(transcript, rng);
+  const waveform = audioWaveform(id, durationMs);
+  media.set(id, { width: 0, height: 0, ext: "wav", mime: "audio/wav", audio: { durationMs, waveform, transcript } });
+  return { id, kind: "audio", width: 0, height: 0, durationMs, waveform, transcript };
+}
+
+/**
+ * Turns ~1.5% of history into audio messages, plus a guaranteed recent pair
+ * (two consecutive incoming recordings, for auto-play) and one of mine near
+ * the newest page. Uses its own rng so the rest of history is unchanged.
+ */
+function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"> & { day: number })[], seed: number) {
+  const rng = mulberry32(seed ^ 0xa0d10);
+  const toAudio = (i: number) => {
+    const m = drafts[i];
+    m.text = "";
+    m.editedAt = undefined;
+    m.attachments = [makeAudioAttachment(`aud_${conv.id}_${i + 1}`, rng)];
+  };
+  for (let i = 0; i < drafts.length - 40; i++) if (rng() < 0.015 && !drafts[i].attachments.length) toAudio(i);
+  const n = drafts.length;
+  let pair = -1;
+  for (let i = n - 14; i < n - 4 && pair < 0; i++) {
+    if (drafts[i].senderId !== ME.id && drafts[i].senderId === drafts[i + 1].senderId) pair = i;
+  }
+  if (pair < 0) {
+    // No natural pair: let one participant say two things in a row.
+    pair = n - 9;
+    const sender = drafts[pair].senderId !== ME.id ? drafts[pair].senderId : conv.participants.find((p) => !p.isMe)!.id;
+    for (const d of [drafts[pair], drafts[pair + 1]]) {
+      d.senderId = sender;
+      delete d.status;
+      delete d.readAt;
+    }
+  }
+  toAudio(pair);
+  toAudio(pair + 1);
+  for (let i = n - 3; i >= n - 12; i--) {
+    if (drafts[i].senderId === ME.id && !drafts[i].attachments.length) {
+      toAudio(i);
+      break;
+    }
   }
 }
 
@@ -426,7 +482,7 @@ function boot() {
   stores.set("group", group);
   stores.set("direct", direct);
   log(
-    `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} images=${media.size} in ${Math.round(performance.now() - t0)}ms`,
+    `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} media=${media.size} in ${Math.round(performance.now() - t0)}ms`,
   );
 }
 
@@ -660,6 +716,29 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       store.emit("message.updated", m);
       return { message: wireMessage(m, conn.base) };
     }
+    case "keepAudio": {
+      const m = store.byId.get(p?.messageId);
+      if (!m) throw invalid("unknown messageId");
+      const audio = m.attachments.find((a) => a.kind === "audio");
+      if (!audio) throw invalid("not an audio message");
+      await sleep(lat(80, 300));
+      delete audio.expiresAt;
+      audio.kept = true;
+      store.emit("message.updated", m);
+      return { message: wireMessage(m, conn.base) };
+    }
+    case "audioPlayed": {
+      const m = store.byId.get(p?.messageId);
+      if (!m) throw invalid("unknown messageId");
+      const audio = m.attachments.find((a) => a.kind === "audio");
+      if (!audio) throw invalid("not an audio message");
+      // Listening starts the 2-minute expiry on someone else's recording.
+      if (m.senderId !== ME.id && !audio.kept && !audio.expiresAt) {
+        audio.expiresAt = Date.now() + AUDIO_EXPIRY_MS;
+        store.emit("message.updated", m);
+      }
+      return {};
+    }
     case "typing":
       if (typeof p?.isTyping !== "boolean") throw invalid("isTyping");
       vlog(`typing conn=${conn.id} ${p.isTyping}`);
@@ -703,6 +782,7 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   if (fail && R() < 0.5) throw new RpcError(-32002, "not delivered");
   const attachments: AttachmentRef[] = attachmentIds.map((id) => {
     const e = media.get(id)!;
+    if (e.audio) return { id, kind: "audio", width: 0, height: 0, ...e.audio, expiresAt: Date.now() + AUDIO_EXPIRY_MS };
     return { id, kind: "image", width: e.width, height: e.height };
   });
   const m = store.create(ME.id, text, {
@@ -763,7 +843,7 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
   await botSleep(typingFor ?? typingMs(text));
   store.broadcastTyping(bot.id, false);
   const m = store.create(bot.id, text, opts);
-  if (R() < 0.05) {
+  if (R() < 0.05 && !m.attachments.some((a) => a.kind === "audio")) {
     void (async () => {
       await botSleep(uniform(4000, 20_000));
       const next = editedText(R, m.text || "photo");
@@ -793,6 +873,10 @@ function randomBotMessage(store: Store, bot: Participant): { text: string; opts:
   if (target) {
     const mention = mentionMessage(R, target);
     return { text: mention.text, opts: { mentions: mention.mentions } };
+  }
+  if (R() < 0.03) {
+    opts.attachments = [makeAudioAttachment(`aud_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`, R)];
+    return { text: "", opts };
   }
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
@@ -906,7 +990,7 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     await sleep(lat(200, 1500));
     let bytes = entry.bytes ?? pngCache.get(id);
     if (!bytes) {
-      bytes = proceduralPNG(id, entry.width, entry.height);
+      bytes = entry.audio ? proceduralWAV(id, entry.audio.durationMs) : proceduralPNG(id, entry.width, entry.height);
       pngCache.set(id, bytes);
       if (pngCache.size > PNG_CACHE_CAP) pngCache.delete(pngCache.keys().next().value!);
     }
@@ -917,6 +1001,23 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
   if (path === "/upload" && req.method === "POST") {
     const bytes = new Uint8Array(await req.arrayBuffer());
     if (!bytes.length) return json({ error: "empty body" }, 400);
+    const uploadType = req.headers.get("content-type") ?? "application/octet-stream";
+    if (url.searchParams.get("kind") === "audio" || uploadType.startsWith("audio/")) {
+      const durationMs = Number(url.searchParams.get("durationMs")) || sniffWAVDurationMs(bytes) || 0;
+      if (!(durationMs > 0)) return json({ error: "durationMs required" }, 400);
+      const waveform = (url.searchParams.get("waveform") ?? "")
+        .split(",")
+        .filter(Boolean)
+        .map((v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0))));
+      const header = req.headers.get("x-transcript");
+      const transcript = header ? decodeURIComponent(header) : undefined;
+      const ext = uploadType.includes("wav") ? "wav" : uploadType.includes("mp4") || uploadType.includes("m4a") ? "m4a" : "bin";
+      const id = `up_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+      const audio = { durationMs, waveform: waveform.length ? waveform : audioWaveform(id, durationMs), transcript };
+      media.set(id, { width: 0, height: 0, ext, mime: uploadType, bytes, audio });
+      log(`upload id=${id} ${bytes.length}B audio ${durationMs}ms ${uploadType}`);
+      return json({ attachment: { id, kind: "audio", width: 0, height: 0, ...audio, url: `${base}/media/${id}.${ext}` } });
+    }
     const sniff = sniffImageSize(bytes);
     const ctype = req.headers.get("content-type") ?? "application/octet-stream";
     const width = sniff?.width || 1024;
@@ -977,6 +1078,21 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     store.setLastRead(store.leaveUnread(count), true);
     log(`admin unread conv=${conv} count=${count} lastReadSeq=${store.lastReadSeq}`);
     return json({ ok: true, conversation: conv, ...store.readState() });
+  }
+  if (path === "/admin/audio" && req.method === "POST") {
+    // One participant sends `count` audio messages back to back (auto-play testing).
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const count = Math.min(10, Math.max(1, Number(url.searchParams.get("count") ?? 1) || 1));
+    const bot = store.bots().find((b) => b.id === url.searchParams.get("sender")) ?? pick(R, store.bots());
+    const created = [];
+    for (let i = 0; i < count; i++) {
+      const attachment = makeAudioAttachment(`aud_${conv}_admin_${crypto.randomUUID().slice(0, 8)}`, R);
+      created.push(store.create(bot.id, "", { attachments: [attachment] }).id);
+    }
+    log(`admin audio conv=${conv} sender=${bot.id} count=${count}`);
+    return json({ ok: true, conversation: conv, sender: bot.id, messageIds: created });
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });

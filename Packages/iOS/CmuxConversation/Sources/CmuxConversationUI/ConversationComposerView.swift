@@ -42,9 +42,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }()
     /// Shown in place of the keyboard by the edit menu's Text Effects item.
     private(set) lazy var textEffectsPalette = TextEffectsPaletteView(composer: self)
-    private let placeholder = UILabel()
+    let placeholder = UILabel()
     let sendButton = UIButton(type: .custom)
-    private let micButton = UIButton(type: .system)
+    let micButton = UIButton(type: .system)
     private let attachmentStrip = UIScrollView()
     private let attachmentSeparator = UIView()
     private var attachmentViews: [UIView] = []

@@ -56,3 +56,36 @@ extension ConversationBackend {
         try await edit(messageID: messageID, text: text)
     }
 }
+/// Audio messages. Optional for backends: the defaults refuse, so a backend
+/// without audio support keeps compiling and the UI reports the failure.
+extension ConversationBackend {
+    /// Uploads a recording. `waveform` holds peak levels in 0...1.
+    public func uploadAudio(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment {
+        if let audio = self as? any ConversationAudioBackend {
+            return try await audio.uploadAudioRecording(data, mimeType: mimeType, info: info)
+        }
+        throw ConversationBackendError(code: -1, message: "audio messages are not supported")
+    }
+
+    /// Keeps an audio message that would otherwise expire on this device.
+    public func keepAudio(messageID: String) async throws -> ConversationMessage {
+        if let audio = self as? any ConversationAudioBackend {
+            return try await audio.keepAudioMessage(messageID: messageID)
+        }
+        throw ConversationBackendError(code: -1, message: "audio messages are not supported")
+    }
+
+    /// The reader finished listening; the backend starts the expiry clock.
+    public func audioPlayed(messageID: String) async {
+        if let audio = self as? any ConversationAudioBackend {
+            await audio.markAudioPlayed(messageID: messageID)
+        }
+    }
+}
+
+/// Backends that carry audio messages adopt this beside `ConversationBackend`.
+public protocol ConversationAudioBackend: ConversationBackend {
+    func uploadAudioRecording(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment
+    func keepAudioMessage(messageID: String) async throws -> ConversationMessage
+    func markAudioPlayed(messageID: String) async
+}

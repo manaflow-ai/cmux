@@ -103,7 +103,7 @@ enum ConversationRowBuilder {
             let sender = info.participant(message.senderID)
             let footer = footer(for: entry.status, isGroup: isGroup)
             let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
-                ReplyQuote(text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
+                ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
             }
             rows.append(.message(MessageRowModel(
                 rowID: message.rowID,

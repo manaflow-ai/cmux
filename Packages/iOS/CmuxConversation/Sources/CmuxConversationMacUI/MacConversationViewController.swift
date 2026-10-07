@@ -71,6 +71,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     var onInfoChange: ((ConversationInfo, String?, Bool) -> Void)?
     let layoutCache = MacMessageLayoutCache()
     let keyboard = MacConversationKeyboardState()
+    let audioPlayer = ConversationAudioPlayer()
+    lazy var audioComposer = MacAudioComposer(controller: self)
     private let initialSpinner = NSProgressIndicator()
 
     private(set) var rows: [MacConversationRow] = []
@@ -206,6 +208,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
         installCatchUp()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
+        installAudio()
         store.start()
     }
 
@@ -806,6 +809,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case let .message(model):
             guard let view = view as? MacMessageContainerView else { return }
             view.topSpacing = topSpacing(at: row, model)
+            view.row.audioDelegate = self
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
             view.timestampRevealDistance = timestampRevealDistance
             applyMessageSelection(to: view.row)
@@ -994,6 +998,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 guard let index = transcriptIndex[model.rowID], case let .message(transcriptModel) = rows[index] else { continue }
                 let container = MacMessageContainerView()
                 let layout = layoutCache.layout(model, width: width)
+                container.row.audioDelegate = self
                 container.row.configure(model, layout: layout, text: layoutCache.text(model))
                 // Keep the bubble where the transcript draws it: offset by the
                 // difference between the transcript row's content position and

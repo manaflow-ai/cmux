@@ -27,6 +27,12 @@ process and keep growing.
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
+| `keepAudio` | `{messageId}` | `{message: Message}` |
+| `audioPlayed` | `{messageId}` | `{}` |
+
+`keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
+`audioPlayed` reports that I listened to someone's recording; it starts that
+recording's 2-minute expiry, as Messages does.
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -67,10 +73,16 @@ Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
   replyToId?, replyCount, editedAt?, editCount?, unsentAt?,
   reactions: [{participantId, reaction}],
-  attachments: [{id, kind: "image", width, height, url}],
+  attachments: [Attachment],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
   mentions?: [Mention]                           // omitted when none
   textRuns?: [TextRun]                           // omitted when plain
+}
+Attachment {
+  id, kind: "image"|"audio", width, height, url,
+  // audio only:
+  durationMs, waveform: [Int 0-100] (peak levels, evenly spaced),
+  transcript?, expiresAt? (epoch ms; absent = kept), kept?
 }
 Mention { participantId, location, length }      // UTF-16 range of text, sorted, non-overlapping
 TextRun = { start, length, styles?: [TextStyle], effect?: TextEffect }
@@ -97,8 +109,14 @@ edit without `textRuns` clears the formatting.
 
 - `GET /media/<id>.png`: procedurally generated image, served after a latency
   delay.
+- `GET /media/<id>.wav`: procedurally generated speech-like 16 kHz mono WAV
+  for an audio attachment (waveform derived from the same syllables).
 - `POST /upload` with raw image bytes and `Content-Type`: returns
-  `{attachment}` usable in `send.attachmentIds`.
+  `{attachment}` usable in `send.attachmentIds`. Audio: `POST
+  /upload?kind=audio&durationMs=<ms>&waveform=<0-100,...>` with the recording
+  (`audio/wav` or `audio/mp4`) and optional `X-Transcript` (percent-encoded);
+  a WAV's duration is read from the bytes when `durationMs` is omitted. Sending
+  it makes an audio message that expires 2 minutes later unless kept.
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
@@ -109,6 +127,8 @@ edit without `textRuns` clears the formatting.
   may include my own messages, which real traffic never does). Boot leaves the
   last `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) messages unread, all from
   others.
+- `POST /admin/audio?conversation=<id>&count=<n>[&sender=<participantId>]`:
+  one participant sends `n` audio messages back to back (auto-play testing).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale}`.
@@ -133,3 +153,8 @@ edit without `textRuns` clears the formatting.
   messages mention someone (half of those mention me); ~4% of group history
   mentions someone. About 6% of bot and history messages are formatted: half
   animate the whole message with a random text effect, half style one word.
+
+Audio messages: ~1.5% of history (its own seeded rng, so the rest of history
+is unchanged) plus, in each conversation's newest page, two consecutive
+recordings from one participant and one of mine. Bots send a recording 3% of
+the time. Every recording has a spoken transcript.

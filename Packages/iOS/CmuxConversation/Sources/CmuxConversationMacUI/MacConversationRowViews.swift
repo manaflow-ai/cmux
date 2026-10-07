@@ -236,6 +236,9 @@ final class MacMessageRowView: MacFlippedView {
     private var imageTasks: [Task<Void, Never>] = []
     private(set) var model: MacMessageRowModel?
     private(set) var rowLayout: MacMessageLayout?
+    /// Audio messages (created on first use; see MacConversationAudio).
+    weak var audioDelegate: (any MacAudioMessageDelegate)?
+    var audioViews: MacAudioRowViews?
     private var lastFooterRowID: String?
 
     override init(frame: NSRect) {
@@ -291,16 +294,16 @@ final class MacMessageRowView: MacFlippedView {
         rowLayout = layout
         let side: ConversationBubbleGeometry.Side = model.isOutgoing ? .trailing : .leading
 
-        if let frame = layout.bubbleFrame, let textFrame = layout.textFrame {
+        if let frame = layout.bubbleFrame {
             bubble.isHidden = false
             bubble.update(rect: frame, side: side, tail: model.showsTail)
             bubble.fillColor = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: self)
             bubble.opacity = model.footer == .notDelivered ? 0.85 : 1
-            textLabel.isHidden = false
+            textLabel.isHidden = layout.textFrame == nil
             textLabel.isOutgoing = model.isOutgoing
             textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text
-            textLabel.frame = textFrame
+            if let textFrame = layout.textFrame { textLabel.frame = textFrame }
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
@@ -418,8 +421,9 @@ final class MacMessageRowView: MacFlippedView {
         failedBadge.isHidden = layout.failedBadgeFrame == nil
         if let frame = layout.failedBadgeFrame { failedBadge.frame = frame }
 
+        configureAudio(model, layout: layout)
         toolTip = model.message.sentAt.formatted(date: .abbreviated, time: .shortened)
-        setAccessibilityLabel([model.isOutgoing ? nil : model.senderName, model.message.text].compactMap { $0 }.joined(separator: ", "))
+        setAccessibilityLabel([model.isOutgoing ? nil : model.senderName, audioAccessibilityText ?? model.message.text].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityIdentifier("conversation.message.\(model.message.id)")
     }
 
@@ -489,8 +493,8 @@ final class MacMessageRowView: MacFlippedView {
     func quickLookPhoto(at point: CGPoint) -> Bool {
         guard let model,
               let index = imageViews.indices.first(where: { !imageViews[$0].isHidden && imageViews[$0].frame.contains(point) }),
-              index < model.message.attachments.count, let image = imageViews[index].image else { return false }
-        MacPhotoQuickLook.shared.show(model.message.attachments[index], image: image, from: self, rect: imageViews[index].frame)
+              index < model.message.macImageAttachments.count, let image = imageViews[index].image else { return false }
+        MacPhotoQuickLook.shared.show(model.message.macImageAttachments[index], image: image, from: self, rect: imageViews[index].frame)
         return true
     }
 
@@ -535,7 +539,7 @@ final class MacMessageRowView: MacFlippedView {
             imageViews.append(view)
         }
         for (index, view) in imageViews.enumerated() {
-            guard index < layout.imageFrames.count, index < model.message.attachments.count else {
+            guard index < layout.imageFrames.count, index < model.message.macImageAttachments.count else {
                 view.isHidden = true
                 continue
             }
@@ -549,7 +553,7 @@ final class MacMessageRowView: MacFlippedView {
                 radius: MacConversationTheme.bubbleCornerRadius, tailWidth: MacConversationTheme.tailWidth, tailDrop: 0, style: .macOS
             )
             view.layer?.mask = mask
-            let attachment = model.message.attachments[index]
+            let attachment = model.message.macImageAttachments[index]
             if let cached = MacImageLoader.shared.cached(attachment) {
                 view.image = cached
                 continue

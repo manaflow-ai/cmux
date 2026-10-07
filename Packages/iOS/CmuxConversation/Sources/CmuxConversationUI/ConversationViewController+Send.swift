@@ -15,6 +15,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
     }
 
     func composerDidTapPlus(_ composer: ConversationComposerView) {
+        // While recording, "+" is the cancel button.
+        if audioComposer.isActive {
+            audioComposer.cancel()
+            return
+        }
         presentAppsMenu()
     }
 

@@ -50,6 +50,8 @@ public final class ConversationViewController: UIViewController {
         return delegate
     }()
     let layoutCache = MessageLayoutCache()
+    let audioPlayer = ConversationAudioPlayer()
+    lazy var audioComposer = ConversationAudioComposer(controller: self)
 
     private(set) var rows: [ConversationRow] = []
     private(set) var rowIndex: [String: Int] = [:]
@@ -188,6 +190,7 @@ public final class ConversationViewController: UIViewController {
 
         installGestures()
         installMentions()
+        installAudio()
         initialSpinner.translatesAutoresizingMaskIntoConstraints = false
         initialSpinner.startAnimating()
         initialSpinner.accessibilityIdentifier = "conversation.initialLoading"
@@ -708,6 +711,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .message(model):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
+            cell.audioDelegate = self
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
             cell.timestampRevealDistance = timestampRevealDistance

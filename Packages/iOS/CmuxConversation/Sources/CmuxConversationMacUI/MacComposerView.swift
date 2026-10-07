@@ -182,12 +182,12 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         view.layer?.cornerRadius = 15.75
         return view
     }()
-    private let fieldContent = MacFlippedView()
-    private let audioButton = MacGlyphView()
+    let fieldContent = MacFlippedView()
+    let audioButton = MacGlyphView()
     private let emojiGlyph = MacGlyphView()
     let scrollView = NSScrollView()
     let textView = MacComposerTextView()
-    private let placeholder = makeMacLabel()
+    let placeholder = makeMacLabel()
     let emojiButton = NSButton()
     private let attachmentStrip = MacFlippedView()
     private(set) var attachments: [MacComposerAttachment] = []

@@ -28,6 +28,10 @@ struct MessageCellLayout {
     var tailOverhang: CGFloat
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
+    /// Audio messages: the play button, waveform and duration row inside the bubble.
+    var audioFrame: CGRect? = nil
+    /// Audio messages: "Expires in 2m · Keep" (or "Kept") under the bubble.
+    var audioExpiryFrame: CGRect? = nil
 }
 
 @MainActor
@@ -53,14 +57,17 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        if let (text, mentions, runs, value) = attributed[cacheKey], text == model.message.text,
-           mentions == model.message.mentions, runs == model.message.textRuns {
+        // Audio bubbles show the transcript; mentions and formatting index `text`.
+        let body = model.message.bodyText
+        let isAudio = model.message.audioAttachment != nil
+        let mentions = isAudio ? [] : model.message.mentions
+        let runs = isAudio ? [] : model.message.textRuns
+        if let (text, cachedMentions, cachedRuns, value) = attributed[cacheKey], text == body,
+           cachedMentions == mentions, cachedRuns == runs {
             return value
         }
-        let value = MessageCellLayout.attributedBody(
-            model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID, runs: model.message.textRuns
-        )
-        attributed[cacheKey] = (model.message.text, model.message.mentions, model.message.textRuns, value)
+        let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+        attributed[cacheKey] = (body, mentions, runs, value)
         return value
     }
 
@@ -174,7 +181,7 @@ extension MessageCellLayout {
         // tall photo is capped in height and aspect-fills (it never narrows).
         var imageFrames: [CGRect] = []
         let imageSpacing: CGFloat = 4
-        for attachment in message.attachments {
+        for attachment in message.attachments where attachment.kind == .image {
             let w = floor(width * t.maxImageWidthFraction)
             let h = min(w / CGFloat(attachment.aspectRatio), t.maxImageHeight)
             imageFrames.append(bubbleRect(bodyWidth: round(w), y: y, height: round(h)))
@@ -187,7 +194,16 @@ extension MessageCellLayout {
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
         var emojiFrame: CGRect?
-        if model.isEmojiOnly {
+        var audioFrame: CGRect?
+        if let audio = message.audioAttachment?.audio {
+            let audioLayout = AudioBubbleLayout.compute(audio: audio, text: text, maxBubbleWidth: maxBubbleWidth)
+            let frame = bubbleRect(bodyWidth: audioLayout.bodyWidth, y: y, height: audioLayout.height)
+            bubbleFrame = frame
+            let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+            audioFrame = audioLayout.row.offsetBy(dx: bodyMinX, dy: y)
+            textFrame = audioLayout.transcript?.offsetBy(dx: bodyMinX, dy: y)
+            y += audioLayout.height
+        } else if model.isEmojiOnly {
             let fontSize = t.emojiOnlyFontSize(count: emojiCount(message.text))
             let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: fontSize)])
             var size = measure(emoji, maxWidth: maxBubbleWidth)
@@ -264,6 +280,11 @@ extension MessageCellLayout {
                 ? CGRect(x: margin, y: y, width: bodyTrailing - inset - margin, height: footerHeight)
                 : CGRect(x: bodyLeading + inset, y: y, width: width - bodyLeading - inset - margin, height: footerHeight)
         }
+        var audioExpiryFrame: CGRect?
+        if let audio = message.audioAttachment?.audio, audio.expiresAt != nil || audio.isKept {
+            audioExpiryFrame = footerRect(y + 4)
+            y += 4 + footerHeight
+        }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
             y += 4 + footerHeight
@@ -331,7 +352,9 @@ extension MessageCellLayout {
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
             tailOverhang: tailOverhang,
-            contentFrame: content
+            contentFrame: content,
+            audioFrame: audioFrame,
+            audioExpiryFrame: audioExpiryFrame
         )
     }
 }
