@@ -7,7 +7,9 @@ enum ConversationRow: Hashable {
     case conversationStart
     case loadingOlder
     case timestamp(id: String, date: Date)
-    case message(MessageRowModel)
+    /// Boxed: rows are copied and compared over the whole transcript on every
+    /// update, and a boxed payload copies as one reference.
+    indirect case message(MessageRowModel)
     case typing(participantIDs: [String])
 
     var id: String {
