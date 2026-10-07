@@ -1,41 +1,136 @@
-// l10n-allow-file: gallery fixtures, not shipped UI.
-import { bridgePageEntry, type BridgePageVariant } from "../../gallery/format";
+// l10n-allow-file: gallery fixtures (sample keybindings), not shipped UI.
+import { keybindingsPageEntry } from "../../gallery/format";
 import type { Binding } from "./types";
-function fixture(count: number): BridgePageVariant {
-  const bindings: Binding[] = Array.from({ length: count }, (_, i) => ({
-    id: i,
-    key: `cmd+${i % 10}`,
-    display: `⌘${i % 10}`,
-    command: `sample.action${i}`,
-    title:
-      count > 4
-        ? `Open a workspace with a long project name and select terminal ${i + 1}`
-        : ["New workspace", "Open browser", "Find in terminal", "Show settings"][i]!,
-    when: i % 2 ? "terminalFocus" : null,
-    source: i % 3 ? "default" : "user",
+
+const bindings: Binding[] = [
+  {
+    id: 0,
+    key: "cmd+shift+p",
+    display: "⌘⇧P",
+    command: "palette.open",
+    title: "Open Command Palette",
+    when: null,
+    source: "default",
+    conflicts: [1],
+  },
+  {
+    id: 1,
+    key: "cmd+shift+p",
+    display: "⌘⇧P",
+    command: "history.open",
+    title: "Show History",
+    when: "surface.kind == 'browser'",
+    source: "user",
+    conflicts: [0],
+  },
+  {
+    id: 2,
+    key: "cmd+p",
+    display: "⌘P",
+    command: "palette.files",
+    title: "Go to File",
+    when: null,
+    source: "default",
     conflicts: [],
-  }));
-  return {
-    streams: ["cmux.keybindings.changed", "cmux.keybindings.recorded"],
-    replies: { "cmux.keybindings.list": { bindings } },
-  };
-}
-export default bridgePageEntry({
+  },
+  {
+    id: 3,
+    key: "cmd+k cmd+s",
+    display: "⌘K ⌘S",
+    command: "keybindings.open",
+    title: "Open Keyboard Shortcuts",
+    when: null,
+    source: "default",
+    conflicts: [],
+  },
+  {
+    id: 4,
+    key: "cmd+w",
+    display: "⌘W",
+    command: "tab.close",
+    title: "Close Tab",
+    when: null,
+    source: "ghostty",
+    conflicts: [],
+  },
+  {
+    id: 5,
+    key: "cmd+shift+d",
+    display: "⌘⇧D",
+    command: "split.down",
+    title: "Split Down",
+    when: null,
+    source: "default",
+    conflicts: [],
+    removed: true,
+  },
+  {
+    id: 6,
+    key: "ctrl+tab",
+    display: "⌃Tab",
+    command: "tab.next",
+    title: "Next Tab",
+    when: null,
+    source: "ghostty-fallback",
+    conflicts: [],
+  },
+  {
+    id: 7,
+    key: "cmd+alt+n",
+    display: "⌘⌥N",
+    command: "workspace.new",
+    title: "New Workspace",
+    when: "!dialog.open",
+    source: "app",
+    conflicts: [],
+  },
+];
+
+const many = Array.from({ length: 42 }, (_, index): Binding => ({
+  id: index + 20,
+  key: index % 3 === 0 ? "cmd+k cmd+d" : `cmd+alt+${(index % 9) + 1}`,
+  display: index % 3 === 0 ? "⌘K ⌘D" : `⌘⌥${(index % 9) + 1}`,
+  command: `workspace.feature${index + 1}.open`,
+  title: `Open workspace feature ${index + 1}: ${"long descriptive command ".repeat(2)}`,
+  when: index % 3 === 0 ? "surface.kind == 'terminal'" : null,
+  source: index % 4 === 0 ? "user" : "default",
+  conflicts: index % 3 === 0 ? [9] : [],
+}));
+
+export default keybindingsPageEntry({
   id: "pages.keybindings",
-  title: "Keyboard shortcuts",
+  title: "Keyboard Shortcuts",
   area: "Pages",
-  page: "keybindings",
-  covers: ["page:cmux.keybindings", "pages/keybindings/KeybindingsPage.tsx"],
+  height: 640,
+  widths: { narrow: 560, normal: 1000, wide: 1400 },
+  covers: ["page:cmux.keybindings", "pages/keybindings/KeybindingsPage.tsx#KeybindingsPage"],
   variants: {
-    empty: fixture(0),
-    loaded: fixture(4),
-    "long-content": fixture(40),
-    error: {
-      ...fixture(0),
-      failures: {
-        "cmux.keybindings.list": { code: "cmux.page.failed", message: "Sample owner is unavailable. Try again." },
-      },
+    empty: { note: "No shortcuts match the current table.", bindings: [] },
+    loading: { note: "The shortcut owner is still loading its table.", loading: true, bindings },
+    normal: { note: "Defaults, user overrides, conflicts, removed rows and Ghostty rows.", bindings },
+    "read-only": {
+      note: "Ghostty and removed defaults are visible but cannot be edited.",
+      bindings: bindings.filter(
+        (binding) => binding.source === "ghostty" || binding.source === "ghostty-fallback" || binding.removed,
+      ),
     },
-    loading: { ...fixture(0), pending: ["cmux.keybindings.list"] },
+    "many-bindings": {
+      note: "A long shortcut table with scrolling and long command names.",
+      bindings: [...bindings, ...many],
+    },
+    "selected-editing": {
+      note: "A selected row has its context condition editor open.",
+      bindings,
+      query: { selectIndex: 0, editIndex: 0 },
+    },
+    recording: {
+      note: "The search key recorder is active and waiting for strokes.",
+      bindings,
+      query: { record: true },
+    },
+    "conflicts-only": { note: "Only conflicting shortcuts are shown.", bindings, query: { conflictsOnly: true } },
+    unsupported: { note: "The host reports that shortcut writes are unavailable.", bindings, error: "unsupported" },
+    "network-error": { note: "The shortcut owner is disconnected.", bindings, error: "network" },
+    "not-found-error": { note: "A keymap import/export source is missing.", bindings, error: "not-found" },
   },
 });

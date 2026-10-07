@@ -183,7 +183,6 @@
     "ui/UiProvider.tsx#UiProvider",
     "ui/VirtualList.tsx#VirtualList",
     "viewer-empty/DiffEmptyState.tsx#DiffEmptyState",
-    "viewer-empty/EditorEmptyState.tsx#EditorEmptyState",
     "viewer-empty/EmptyState.tsx#EmptyState",
     "viewer-empty/EmptyState.tsx#RecentList",
     "viewer-empty/EmptyState.tsx#TailPath",

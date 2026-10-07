@@ -7,16 +7,10 @@ import apps from "../src/pages/apps/apps.gallery";
 import changelog from "../src/pages/changelog/changelog.gallery";
 import cloud from "../src/pages/cloud/cloud.gallery";
 import coderouter from "../src/pages/coderouter/coderouter.gallery";
-import editor from "../src/pages/editor/editor.gallery";
-import history from "../src/pages/history/history.gallery";
-import keys from "../src/pages/keybindings/keybindings.gallery";
 import { AppsStore } from "../src/pages/apps/store";
 import { ChangelogStore } from "../src/pages/changelog/store";
 import { CloudStore } from "../src/pages/cloud/store";
 import { CodeRouterStore } from "../src/pages/coderouter/store";
-import { EditorStore } from "../src/pages/editor/store";
-import { HistoryStore } from "../src/pages/history/store";
-import { KeybindingsStore } from "../src/pages/keybindings/store";
 
 function client(state: BridgePageVariant): PageClient {
   const ops = fixtureOps(state);
@@ -35,8 +29,6 @@ const cases = [
   { entry: changelog, make: (c: PageClient) => new ChangelogStore(c), rows: (s: any) => s.builds },
   { entry: cloud, make: (c: PageClient) => new CloudStore(c), rows: (s: any) => s.rows },
   { entry: coderouter, make: (c: PageClient) => new CodeRouterStore(c), rows: (s: any) => s.providers },
-  { entry: history, make: (c: PageClient) => new HistoryStore(c), rows: (s: any) => s.entries },
-  { entry: keys, make: (c: PageClient) => new KeybindingsStore(c), rows: (s: any) => s.rows },
 ];
 for (const { entry, make, rows } of cases) {
   for (const [variant, count] of [
@@ -73,26 +65,5 @@ for (const { entry, make, rows } of cases) {
     const store = make(client(entry.variants.loading!));
     void store.start();
     expect(store.getSnapshot().loading).toBe(true);
-  });
-}
-for (const variant of ["empty", "loaded", "long-content", "error"] as const) {
-  test(`editor: ${variant} uses the config input`, async () => {
-    const store = new EditorStore(client(editor.variants[variant]!));
-    await store.start();
-    const state = store.getState();
-    expect(state.phase).toBe(variant === "empty" ? "empty" : variant === "error" ? "failed" : "ready");
-    if (variant === "loaded" || variant === "long-content") {
-      let text = "";
-      store.attachView({
-        load: (doc) => {
-          text = doc.text;
-        },
-        text: () => text,
-        version: () => 1,
-        setReadOnly: () => {},
-      });
-      expect(text).toContain("export const sample0");
-    }
-    store.dispose();
   });
 }

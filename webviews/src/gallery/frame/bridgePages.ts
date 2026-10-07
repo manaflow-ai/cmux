@@ -15,9 +15,8 @@ export async function mountBridgePage(
 ): Promise<void> {
   const table = await tables[`../../pages/${entry.page}/generated/strings.json`]!();
   addPseudoLocales(table as Record<string, Record<string, string>>);
-  if (entry.page === "editor") addPseudoLocales((await import("../../viewer-empty/generated/strings.json")).default);
   const host = installMockHost(
-    fixtureOps(state, context.appearance),
+    fixtureOps(state),
     ["cmux.page.command", "cmux.page.connection", ...(state.streams ?? []), ...Object.keys(state.initialEvents ?? {})],
     state.initialEvents,
   );
