@@ -25,6 +25,16 @@ final class StreamUpdateBuffer: Sendable {
         AsyncStream(unfolding: { [self] in await next() })
     }
 
+    /// The stream, calling `onTermination` once when its reader is cancelled
+    /// or the stream is released, like a continuation's `onTermination`.
+    func stream(onTermination: @escaping @Sendable () -> Void) -> AsyncStream<StreamUpdate> {
+        let token = StreamTerminationToken(onTermination)
+        return AsyncStream(unfolding: { [self, token] in
+            withExtendedLifetime(token) {}
+            return await next()
+        }, onCancel: { token.fire() })
+    }
+
     /// Queues `update`; false (nothing queued) when the backlog is full.
     func push(_ update: StreamUpdate) -> Bool {
         let (accepted, waiter) = state.withLock { state -> (Bool, CheckedContinuation<StreamUpdate?, Never>?) in

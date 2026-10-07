@@ -8,14 +8,25 @@ import Foundation
 /// subscribed again on the socket, so the owner answers with a snapshot that
 /// every subscriber applies (a snapshot always restores a mirror); a stream
 /// is unsubscribed when its last subscriber leaves.
+///
+/// Each lease's queue is bounded like the client's (`streamBacklogLimit`):
+/// a lease that falls that far behind loses its backlog, skips events until
+/// the stream is subscribed again, and repairs its mirror from the snapshot.
 actor SharedHostSocket {
     private struct Sink<Element: Sendable> {
         let owner: UUID
         let continuation: AsyncStream<Element>.Continuation
     }
 
+    private struct Subscriber {
+        let owner: UUID
+        let buffer: StreamUpdateBuffer
+        /// Its backlog overflowed: events are skipped until the next snapshot.
+        var repairing = false
+    }
+
     private struct Fan {
-        var sinks: [UUID: Sink<StreamUpdate>] = [:]
+        var sinks: [UUID: Subscriber] = [:]
         var pump: Task<Void, Never>?
         /// The ticket of the socket subscription being read; older ones are ignored.
         var generation = 0
@@ -33,7 +44,12 @@ actor SharedHostSocket {
     private var pumps: [Task<Void, Never>] = []
     private var nextTicket = 0
 
-    init(make: @escaping @Sendable () async throws -> ControlPlaneClient) {
+    private let backlogLimit: Int
+
+    /// `backlogLimit` defaults to `ControlPlaneConfiguration.streamBacklogLimit`'s default.
+    init(backlogLimit: Int = 1024,
+         make: @escaping @Sendable () async throws -> ControlPlaneClient) {
+        self.backlogLimit = backlogLimit
         self.make = make
     }
 
@@ -88,7 +104,7 @@ actor SharedHostSocket {
         pumps = []
         for fan in fans.values { fan.pump?.cancel() }
         await client?.stop()
-        for fan in fans.values { fan.sinks.values.forEach { $0.continuation.finish() } }
+        for fan in fans.values { fan.sinks.values.forEach { $0.buffer.finish() } }
         fans = [:]
         stateSinks.values.forEach { $0.continuation.finish() }
         stateSinks = [:]
@@ -140,14 +156,16 @@ actor SharedHostSocket {
     }
 
     func subscribe(_ name: String, owner: UUID) async -> AsyncStream<StreamUpdate> {
-        let (stream, continuation) = AsyncStream.makeStream(of: StreamUpdate.self, bufferingPolicy: .unbounded)
+        let buffer = StreamUpdateBuffer(limit: backlogLimit)
+        let id = UUID()
+        let stream = buffer.stream(onTermination: { [weak self] in
+            Task { await self?.removeSubscriber(id, of: name) }
+        })
         guard !closed else {
-            continuation.finish()
+            buffer.finish()
             return stream
         }
-        let id = UUID()
-        fans[name, default: Fan()].sinks[id] = Sink(owner: owner, continuation: continuation)
-        continuation.onTermination = { [weak self] _ in Task { await self?.removeSubscriber(id, of: name) } }
+        fans[name, default: Fan()].sinks[id] = Subscriber(owner: owner, buffer: buffer)
         if let made { await resubscribe(name, on: made) }
         return stream
     }
@@ -155,7 +173,7 @@ actor SharedHostSocket {
     func unsubscribe(_ name: String, owner: UUID) async {
         guard var fan = fans[name] else { return }
         for (id, sink) in fan.sinks where sink.owner == owner {
-            sink.continuation.finish()
+            sink.buffer.finish()
             fan.sinks[id] = nil
         }
         fans[name] = fan
@@ -196,9 +214,24 @@ actor SharedHostSocket {
         fans[name] = fan
     }
 
-    private func deliver(_ update: StreamUpdate, to name: String, generation: Int) {
-        guard let fan = fans[name], fan.generation == generation else { return }
-        for sink in fan.sinks.values { sink.continuation.yield(update) }
+    private func deliver(_ update: StreamUpdate, to name: String, generation: Int) async {
+        guard var fan = fans[name], fan.generation == generation else { return }
+        var overflowed = false
+        for (id, var sink) in fan.sinks {
+            if case .event = update, sink.repairing { continue }
+            if sink.buffer.push(update) {
+                if case .snapshot = update { sink.repairing = false }
+            } else {
+                // This lease fell `backlogLimit` behind: drop its backlog and
+                // repair it from a fresh snapshot instead of queueing without bound.
+                sink.buffer.clear()
+                sink.repairing = true
+                overflowed = true
+            }
+            fan.sinks[id] = sink
+        }
+        fans[name] = fan
+        if overflowed, let made { await resubscribe(name, on: made) }
     }
 
     private func publish(_ next: ControlPlaneState) {

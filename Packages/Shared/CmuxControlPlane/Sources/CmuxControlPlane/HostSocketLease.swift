@@ -72,7 +72,7 @@ actor HostSocketLease: ControlPlaneSession {
     }
 
     private static func finished<T>() -> AsyncStream<T> {
-        let (stream, sink) = AsyncStream.makeStream(of: T.self)
+        let (stream, sink) = AsyncStream.makeStream(of: T.self, bufferingPolicy: .bufferingNewest(1))
         sink.finish()
         return stream
     }
