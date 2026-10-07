@@ -24,10 +24,28 @@ const FILES: Edit[] = [
     newText: `import { tries } from "../../src/net/retry";\ntest("tries", () => expect(tries).toBe(3));\n`,
   },
 ];
-const MANY: Edit[] = Array.from({ length: 8 }, (_, index) => ({
-  path: `src/feature/part-${index + 1}.ts`,
-  oldText: `export const part = ${index};\n`,
-  newText: `export const part = ${index + 1};\nexport const label = "part ${index + 1}";\n`,
+const FOURTEEN: Edit[] = [
+  "src/components/conversation/EditedFilesCard.tsx",
+  "src/components/conversation/turnChanges/settings.ts",
+  "src/net/client.ts",
+  "src/net/retry.ts",
+  "src/net/backoff/policy/jitter/exponential.ts",
+  "src/net/backoff/policy/index.ts",
+  "test/net/retry.test.ts",
+  "test/net/backoff.test.ts",
+  "docs/networking.md",
+  "package.json",
+  "src/app/settings/networking/RetrySettingsPanel.tsx",
+  "src/app/settings/networking/index.ts",
+  "README.md",
+  "CHANGELOG.md",
+].map((path, index) => ({
+  path,
+  oldText: Array.from({ length: 3 }, (_, line) => `line ${line}`).join("\n") + "\n",
+  newText:
+    Array.from({ length: 3 + ((index * 7) % 20) }, (_, line) =>
+      line === 1 ? `changed ${index}` : `line ${line}`,
+    ).join("\n") + "\n",
 }));
 
 /// One finished turn that wrote `files` with whole-text edits (each file's before and after).
@@ -60,17 +78,38 @@ const dryRun = (statuses: Record<string, string>) => ({
   "turn.undo": { files: Object.entries(statuses).map(([path, status]) => ({ path, status })) },
 });
 
+const showMore: Play = async (ctx) => {
+  await setting({ show: "always", maxRows: 3, scope: "turn" })(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-more"));
+};
+const expandAll: Play = async (ctx) => {
+  await showMore(ctx);
+  await ctx.click({ selector: ".acpmux-edited-more" });
+};
+
 const variants: Record<string, AgentPaneVariant> = {
-  rows: {
-    note: "Three edited files (one new): the rows with their counts, Undo and View changes.",
+  "one-file": {
+    note: "One edited file: the card names it; Undo and View changes.",
+    snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
+  },
+  "three-files": {
+    note: "Three edited files (one new): the rows with their counts.",
     snapshot: turn(FILES),
   },
-  "show-more": {
-    note: "Eight files with maxRows 5: five rows, then Show 3 more.",
-    snapshot: turn(MANY, "Bump every part"),
+  "fourteen-files": {
+    note: "Fourteen files with three rows shown: Show 11 more files. Long directories lose their middle.",
+    height: 560,
+    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
+    play: showMore,
   },
-  "undo-confirm": {
-    note: "After the Undo click: the dry run says all three files go back.",
+  "fourteen-files-expanded": {
+    note: "The same fourteen files after Show 11 more files.",
+    height: 900,
+    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
+    play: expandAll,
+  },
+  "undo-pending": {
+    note: "After the Undo click: the dry run asks to put back all three files.",
     snapshot: turn(FILES),
     native: dryRun({
       "src/net/client.ts": "wouldRevert",
@@ -90,7 +129,7 @@ const variants: Record<string, AgentPaneVariant> = {
     play: clickUndo,
   },
   "cannot-undo": {
-    note: "Fragment edits (no whole before and after text): no exact Undo, the card says so.",
+    note: "Fragment edits (no whole before and after text): no exact Undo.",
     snapshot: chat([
       user("Rename the helper", 6),
       activity(
@@ -106,7 +145,7 @@ const variants: Record<string, AgentPaneVariant> = {
   },
   collapsed: {
     note: "agentPane.editedFiles.show = collapsed: the header only; its chevron shows the rows.",
-    snapshot: turn(FILES),
+    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
     play: setting({ show: "collapsed", maxRows: 5, scope: "turn" }),
   },
   never: {
