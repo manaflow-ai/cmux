@@ -224,8 +224,17 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
     for (const item of selected)
       for (const engine of args.engines) {
         const started = Date.now();
-        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!);
-        console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
+        // One case that never loads (a navigation timeout) is that case's failure, not the run's:
+        // it is recorded not ready, so the comparison reports it broken and the rest still render.
+        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!).catch((error: unknown) => ({
+          id: item.id,
+          engine,
+          screenshot: `${safeFilePart(item.id)}-${engine}.png`,
+          params: item.params ?? {},
+          ready: null,
+          error: String(error instanceof Error ? error.message : error).slice(0, 500),
+        }));
+        console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms${"error" in result ? ` error: ${String(result.error).split("\n")[0]}` : ""}`);
         results.push(result);
       }
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
