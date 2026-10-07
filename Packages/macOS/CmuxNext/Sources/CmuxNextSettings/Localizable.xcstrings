@@ -64293,7 +64293,59 @@
           }
         }
       }
-    }
+    },
+    "settings.sidebar.showChats": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار المحادثات" } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Show Chats (bs)" } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Show Chats (da)" } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Chats anzeigen" } },
+          "en": { "stringUnit": { "state": "translated", "value": "Show Chats" } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar chats" } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher les conversations" } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Show Chats (it)" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "チャットを表示" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "Show Chats (km)" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "채팅 표시" } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Show Chats (nb)" } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Show Chats (pl)" } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Show Chats (pt-BR)" } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Show Chats (ru)" } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "Show Chats (th)" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Show Chats (tr)" } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Show Chats (uk)" } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Show Chats (vi)" } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "显示聊天" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "顯示聊天" } }
+        }
+      },
+    "settings.sidebar.showChats.help": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "needs_review", "value": "يعرض قسم المحادثات على الجهاز في الشريط الجانبي." } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (bs)" } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (da)" } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Zeigt den geräteweiten Chat-Bereich in der Seitenleiste an." } },
+          "en": { "stringUnit": { "state": "translated", "value": "Shows the device-wide Chats section in the sidebar." } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Muestra la sección de chats del dispositivo en la barra lateral." } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Affiche la section des conversations de l’appareil dans la barre latérale." } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (it)" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "デバイス全体のチャットセクションをサイドバーに表示します。" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (km)" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "기기 전체 채팅 섹션을 사이드바에 표시합니다." } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (nb)" } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (pl)" } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (pt-BR)" } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (ru)" } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (th)" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (tr)" } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (uk)" } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (vi)" } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在侧边栏显示设备上的聊天部分。" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在側邊欄顯示裝置上的聊天區段。" } }
+        }
+      }
   },
   "version": "1.0"
 }

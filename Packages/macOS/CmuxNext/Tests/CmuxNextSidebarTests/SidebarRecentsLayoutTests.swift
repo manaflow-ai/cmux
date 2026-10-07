@@ -19,15 +19,9 @@ import Testing
         #expect(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.recentsSectionID) == nil)
     }
 
-    @Test func anEarlierDefaultGainsRecentsOnce() throws {
-        for document in [SidebarLayoutDocument.defaults, SidebarLayoutDocument.migrationTarget] {
-            let stored = earlier(document)
-            #expect(stored.layoutMigrationOps == [.sectionAdd(SidebarLayoutDocument.recentsSection, index: 1)])
-            let migrated = stored.layoutMigration
-            #expect(migrated.sections == document.sections)
-            #expect(migrated.revision > stored.revision)
-            #expect(migrated.layoutMigrationOps.isEmpty, "once")
-        }
+    @Test func theChatsProjectionIsOptIn() {
+        #expect(SidebarLayoutDocument.defaults.chatsLayout(enabled: false).section(recents) == nil)
+        #expect(SidebarLayoutDocument.defaults.chatsLayout(enabled: true).section(recents) != nil)
     }
 
     @Test func aChangedLayoutDoesNotGainRecents() throws {

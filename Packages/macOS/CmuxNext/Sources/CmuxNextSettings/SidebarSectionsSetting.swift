@@ -12,6 +12,7 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
+    public static let showChatsPath = ["sidebar", "showChats"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -35,6 +36,14 @@ public nonisolated enum SidebarSectionsSetting {
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
                           keywords: ["sidebar", "workspace", "tabs"])
+    }
+
+    static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showChatsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show Chats"),
+                          help: SettingsText.keyed("settings.sidebar.showChats.help", "Shows the device-wide Chats section in the sidebar."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
+                          keywords: ["sidebar", "chats", "agents", "conversations"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -86,6 +95,13 @@ public nonisolated enum SidebarSectionsSetting {
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
+        if let value = root.value(at: showChatsPath) {
+            if let flag = value.boolValue {
+                result.showChats = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showChats", message: "expected true or false"))
+            }
+        }
         return result
     }
 
