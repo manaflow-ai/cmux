@@ -235,7 +235,10 @@ be empty. There is no command, cwd, or environment: no child is spawned. The
 replay carries the title (OSC 2) and working directory (OSC 7); an owner
 appends the last OSC 9;4 progress (`ESC ] 9 ; <progress> ESC \`) after it, and
 the host also feeds the seed to its terminal-metadata parser, discarding any
-notifications and shell marks, so its snapshots report that progress.
+notifications and shell marks, so its snapshots report that progress. Known gap:
+the seed is applied with plain VT writes, so Kitty graphics placements and
+image-number aliases from before the replacement are not restored; programs
+redraw their images on the next update.
 
 `LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
 by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity

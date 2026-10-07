@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use cmux_encode::openh264::{OpenH264, OpenH264Api};
 use cmux_encode::{EncCfg, H264Encoder, I420};
-use cmux_rd_core::service::negotiate;
+use cmux_rd_core::service::{caps as rd_caps, negotiate};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::InputEvent;
 use cmux_rd_proto::control::Control;
@@ -165,7 +165,7 @@ fn session(mut stream: TcpStream, o: Options) -> Res<String> {
     let Control::Hello { service, caps, max_datagram, .. } = hello else {
         return Err("the first control message is not hello".into());
     };
-    let negotiated = match negotiate(&service, &caps, &[SERVICE_REMOTE_BROWSER], &[]) {
+    let negotiated = match negotiate(&service, &caps, &[SERVICE_REMOTE_BROWSER], HOST_CAPS) {
         Ok(n) => n,
         Err(refusal) => {
             write_control(&mut stream, &Control::Refused { reason: refusal.reason().into() })?;
@@ -282,6 +282,9 @@ fn write_service(stream: &mut TcpStream, body: Value) -> Res<()> {
     let service = SERVICE_REMOTE_BROWSER.to_string();
     write_control(stream, &Control::Service { service, body })
 }
+
+/// The test page reads rb input events from service input (rd change C2).
+const HOST_CAPS: &[&str] = &[rd_caps::INPUT_SERVICE];
 
 /// rb modifier bit of the Command key (`cmux_remote_browser::proto::modifiers`).
 const MOD_COMMAND: u64 = 1 << 3;
