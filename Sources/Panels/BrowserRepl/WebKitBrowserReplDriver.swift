@@ -3293,56 +3293,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         what: String,
         _ body: @escaping @MainActor () async throws -> T
     ) async throws -> T {
-        let race = BrowserReplRace<T>()
-        let work = Task { @MainActor in
-            do {
-                race.finish(.success(try await body()))
-            } catch {
-                race.finish(.failure(error))
-            }
-        }
-        let sleeper = self.sleeper
-        let deadline = Task { @MainActor in
-            do {
-                try await sleeper.sleep(for: .milliseconds(milliseconds))
-            } catch {
-                return
-            }
-            race.finish(.failure(Self.error("timeout", "Timeout \(milliseconds)ms exceeded\(what.isEmpty ? "" : " while \(what)")")))
-        }
-        defer {
-            deadline.cancel()
-        }
-        let result = try await race.value()
-        if race.timedOut { work.cancel() }
-        return result
-    }
-}
-
-/// First-result-wins completion for `withTimeoutThrowing`.
-@MainActor
-private final class BrowserReplRace<T> {
-    private var result: Result<T, any Error>?
-    private var continuation: CheckedContinuation<T, any Error>?
-    private(set) var timedOut = false
-
-    func finish(_ value: Result<T, any Error>) {
-        guard result == nil else { return }
-        if case .failure(let error as BrowserReplDriverError) = value, error.code == "timeout" {
-            timedOut = true
-        }
-        result = value
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(with: value)
-        }
-    }
-
-    func value() async throws -> T {
-        if let result { return try result.get() }
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-        }
+        try await BrowserReplTimeLimit(sleeper: sleeper).run(milliseconds: milliseconds, what: what, body)
     }
 }
 
