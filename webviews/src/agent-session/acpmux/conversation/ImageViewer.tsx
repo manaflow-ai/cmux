@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { Dialog } from "../../../ui/Dialog";
 import { useT } from "../i18n";
 import type { ChatImage } from "./chatImages";
 import { copyImage } from "./clipboard";
@@ -51,7 +52,7 @@ export function ImageViewer({
   }, [view]);
   const [copied, setCopied] = useState<"copied" | "failed" | undefined>();
   const stage = useRef<HTMLDivElement>(null);
-  const layer = useRef<HTMLDivElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
   const count = images.length;
 
@@ -59,13 +60,6 @@ export function ImageViewer({
     setView(FIT);
     setCopied(undefined);
   }, [image?.src]);
-
-  // The viewer takes focus while open and gives it back to what opened it.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    layer.current?.focus();
-    return () => opener?.focus?.();
-  }, []);
 
   const step = useCallback(
     (by: number) => {
@@ -123,18 +117,7 @@ export function ImageViewer({
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key;
-    if (key === "Tab") {
-      // A modal dialog keeps focus: Tab wraps through its own buttons, never to the pane behind.
-      const buttons = [...(layer.current?.querySelectorAll<HTMLElement>("button") ?? [])];
-      const at = buttons.indexOf(document.activeElement as HTMLElement);
-      const next = event.shiftKey ? (at <= 0 ? buttons.length - 1 : at - 1) : at === buttons.length - 1 ? 0 : at + 1;
-      buttons[next]?.focus();
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    if (key === "Escape") onClose();
-    else if (key === "ArrowLeft") step(-1);
+    if (key === "ArrowLeft") step(-1);
     else if (key === "ArrowRight") step(1);
     else if (key === "+" || key === "=") setView((current) => zoomAbout(current, current.scale * STEP, { x: 0, y: 0 }));
     else if (key === "-") setView((current) => zoomAbout(current, current.scale / STEP, { x: 0, y: 0 }));
@@ -164,96 +147,104 @@ export function ImageViewer({
   if (!image) return null;
   const copyLabel =
     copied === "copied" ? t("image.copied") : copied === "failed" ? t("image.copyFailed") : t("image.copy");
+  // The shared dialog (ui/Dialog) traps focus, makes the pane behind inert, closes on Escape and
+  // gives focus back to the image that opened it.
   return (
-    // The dialog owns its keys (Escape, the arrows and zoom) while it is open.
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-    <div
-      ref={layer}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      label={image.alt || t("image.viewer")}
       className="acpmux-image-viewer"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="dialog"
-      aria-modal="true"
-      aria-label={image.alt || t("image.viewer")}
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
+      backdropClassName="acpmux-image-viewer-backdrop"
+      initialFocus={close}
     >
-      <div className="acpmux-image-viewer-bar">
-        <span className="acpmux-image-viewer-title">{image.alt}</span>
-        {count > 1 && (
-          <span className="acpmux-image-viewer-count">{t("image.position", { index: index + 1, count })}</span>
-        )}
-        <button
-          type="button"
-          className="acpmux-image-viewer-action"
-          aria-label={copyLabel}
-          title={copyLabel}
-          onClick={() =>
-            void copyImage(image.src).then(
-              () => setCopied("copied"),
-              () => setCopied("failed"),
-            )
-          }
-        >
-          {copied === "copied" ? <Check /> : <Copy />}
-        </button>
-        <button
-          type="button"
-          className="acpmux-image-viewer-action"
-          aria-label={t("image.close")}
-          title={t("image.close")}
-          onClick={onClose}
-        >
-          <Close />
-        </button>
-      </div>
-      {/* Pointer zoom and pan; the keyboard does the same from the dialog (+, -, 0). */}
-      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
-        ref={stage}
-        className={`acpmux-image-viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onDoubleClick={(event) => {
-          const point = fromCenter(event.clientX, event.clientY);
-          setView((current) => (current.scale > MIN_SCALE ? FIT : zoomAbout(current, STEP, point)));
-        }}
-        onClick={(event) => {
-          // A click beside the fitted image closes the viewer, as on the scrim of a sheet.
-          if (event.target === event.currentTarget && view.scale === MIN_SCALE) onClose();
-        }}
+        className="acpmux-image-viewer-body"
+        // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
+        onKeyDown={onKeyDown}
       >
-        <img
-          className="acpmux-image-viewer-image"
-          src={image.src}
-          alt={image.alt}
-          draggable={false}
-          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
-        />
+        <div className="acpmux-image-viewer-bar">
+          <span className="acpmux-image-viewer-title">{image.alt}</span>
+          {count > 1 && (
+            <span className="acpmux-image-viewer-count">{t("image.position", { index: index + 1, count })}</span>
+          )}
+          <button
+            type="button"
+            className="acpmux-image-viewer-action"
+            aria-label={copyLabel}
+            title={copyLabel}
+            onClick={() =>
+              void copyImage(image.src).then(
+                () => setCopied("copied"),
+                () => setCopied("failed"),
+              )
+            }
+          >
+            {copied === "copied" ? <Check /> : <Copy />}
+          </button>
+          <button
+            type="button"
+            className="acpmux-image-viewer-action"
+            ref={close}
+            aria-label={t("image.close")}
+            title={t("image.close")}
+            onClick={onClose}
+          >
+            <Close />
+          </button>
+        </div>
+        {/* Pointer zoom and pan; the keyboard does the same from the dialog (+, -, 0). */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div
+          ref={stage}
+          className={`acpmux-image-viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onDoubleClick={(event) => {
+            const point = fromCenter(event.clientX, event.clientY);
+            setView((current) => (current.scale > MIN_SCALE ? FIT : zoomAbout(current, STEP, point)));
+          }}
+          onClick={(event) => {
+            // A click beside the fitted image closes the viewer, as on the scrim of a sheet.
+            if (event.target === event.currentTarget && view.scale === MIN_SCALE) onClose();
+          }}
+        >
+          <img
+            className="acpmux-image-viewer-image"
+            src={image.src}
+            alt={image.alt}
+            draggable={false}
+            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+          />
+        </div>
+        {count > 1 && (
+          <>
+            <button
+              type="button"
+              className="acpmux-image-viewer-step is-previous"
+              aria-label={t("image.previous")}
+              title={t("image.previous")}
+              onClick={() => step(-1)}
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <button
+              type="button"
+              className="acpmux-image-viewer-step is-next"
+              aria-label={t("image.next")}
+              title={t("image.next")}
+              onClick={() => step(1)}
+            >
+              <ChevronRight size={20} />
+            </button>
+          </>
+        )}
       </div>
-      {count > 1 && (
-        <>
-          <button
-            type="button"
-            className="acpmux-image-viewer-step is-previous"
-            aria-label={t("image.previous")}
-            title={t("image.previous")}
-            onClick={() => step(-1)}
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <button
-            type="button"
-            className="acpmux-image-viewer-step is-next"
-            aria-label={t("image.next")}
-            title={t("image.next")}
-            onClick={() => step(1)}
-          >
-            <ChevronRight size={20} />
-          </button>
-        </>
-      )}
-    </div>
+    </Dialog>
   );
 }

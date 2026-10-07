@@ -10,16 +10,28 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
-);
-Object.assign(globals, {
-  window: dom.window,
-  document: dom.window.document,
-  navigator: dom.window.navigator,
-  HTMLElement: dom.window.HTMLElement,
-  IS_REACT_ACT_ENVIRONMENT: true,
-});
+// The window's globals the pane and ui/Dialog (Base UI) read.
+const NAMES = [
+  "window",
+  "document",
+  "navigator",
+  "Element",
+  "HTMLElement",
+  "Node",
+  "Event",
+  "KeyboardEvent",
+  "MouseEvent",
+  "MutationObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
+const saved = Object.fromEntries(NAMES.map((key) => [key, globals[key]]));
+for (const name of NAMES) globals[name] = (dom.window as unknown as Record<string, unknown>)[name];
+globals.window = dom.window;
+globals.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+globals.IS_REACT_ACT_ENVIRONMENT = true;
 afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
@@ -80,13 +92,29 @@ test("zooming keeps the point under the pointer still, stays in range and recent
   expect(zoomAbout(zoomed, 0.5, { x: 30, y: 30 })).toEqual({ scale: 1, x: 0, y: 0 });
 });
 
+// The viewer is a portaled dialog (ui/Dialog): it draws under the document's body, not the mount.
+const doc = () => dom.window.document;
+
+/// Waits, a frame at a time, until `ready` holds: Base UI mounts its portal and moves focus a frame
+/// after the render.
+async function until(ready: () => unknown) {
+  for (let frame = 0; frame < 60 && !ready(); frame++)
+    await act(() => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve())));
+  expect(Boolean(ready())).toBe(true);
+}
+
 async function mount(element: ReturnType<typeof createElement>) {
   const container = dom.window.document.body.appendChild(dom.window.document.createElement("div"));
   const root = createRoot(container);
   await act(async () => root.render(element));
   return {
     container,
-    unmount: () => act(async () => root.unmount()).then(() => container.remove()),
+    // A portaled dialog (Base UI) cleans up a frame after the unmount; the next test starts clean.
+    unmount: async () => {
+      await act(async () => root.unmount());
+      container.remove();
+      await until(() => !doc().querySelector("[data-base-ui-portal], [data-base-ui-inert]"));
+    },
   };
 }
 
@@ -127,45 +155,40 @@ test("the viewer names the image and its place, steps with the arrows and closes
   let closed = 0;
   const viewer = (index: number) =>
     createElement(ImageViewer, { images, index, onIndex: (next: number) => steps.push(next), onClose: () => closed++ });
-  const { container, unmount } = await mount(viewer(0));
-  const layer = container.querySelector(".acpmux-image-viewer")!;
+  const { unmount } = await mount(viewer(0));
+  await until(() => doc().querySelector(".acpmux-image-viewer"));
+  const layer = doc().querySelector(".acpmux-image-viewer")!;
   expect(layer.getAttribute("role")).toBe("dialog");
-  expect(container.querySelector(".acpmux-image-viewer-title")?.textContent).toBe("Light");
-  expect(container.querySelector(".acpmux-image-viewer-count")?.textContent).toBe("1 of 3");
-  expect(container.querySelector(".acpmux-image-viewer-image")?.getAttribute("src")).toBe(png("A"));
-  await key(layer, "ArrowLeft");
-  await key(layer, "ArrowRight");
-  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-image-viewer-step.is-next")!.click());
+  expect(layer.getAttribute("aria-label")).toBe("Light");
+  expect(doc().querySelector(".acpmux-image-viewer-title")?.textContent).toBe("Light");
+  expect(doc().querySelector(".acpmux-image-viewer-count")?.textContent).toBe("1 of 3");
+  expect(doc().querySelector(".acpmux-image-viewer-image")?.getAttribute("src")).toBe(png("A"));
+  const body = doc().querySelector(".acpmux-image-viewer-body")!;
+  await key(body, "ArrowLeft");
+  await key(body, "ArrowRight");
+  await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-image-viewer-step.is-next")!.click());
   expect(steps).toEqual([2, 1, 1]);
-  await key(layer, "Escape");
+  await key(doc().activeElement ?? body, "Escape");
   expect(closed).toBe(1);
   await unmount();
 });
 
-test("Tab stays inside the viewer, wrapping at either end", async () => {
-  const images = [
-    { src: png("A"), alt: "Light" },
-    { src: png("B"), alt: "Dark" },
-  ];
-  const outside = dom.window.document.body.appendChild(dom.window.document.createElement("button"));
-  const { container, unmount } = await mount(
-    createElement(ImageViewer, { images, index: 0, onIndex: () => {}, onClose: () => {} }),
+test("the viewer is modal and starts on Close, so Tab stays inside it", async () => {
+  const { unmount } = await mount(
+    createElement(ImageViewer, {
+      images: [{ src: png("A"), alt: "Light" }],
+      index: 0,
+      onIndex: () => {},
+      onClose: () => {},
+    }),
   );
-  const buttons = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-image-viewer button")];
-  const tab = (shiftKey: boolean) =>
-    act(async () => {
-      dom.window.document.activeElement!.dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
-      );
-    });
-  buttons.at(-1)!.focus();
-  await tab(false);
-  expect(dom.window.document.activeElement).toBe(buttons[0]!);
-  await tab(true);
-  expect(dom.window.document.activeElement).toBe(buttons.at(-1)!);
-  expect(dom.window.document.activeElement).not.toBe(outside);
+  await until(() => doc().querySelector(".acpmux-image-viewer"));
+  const layer = doc().querySelector(".acpmux-image-viewer")!;
+  expect(layer.getAttribute("role")).toBe("dialog");
+  // ui/Dialog (Base UI) is modal: the page behind is hidden and inert, so focus cannot leave.
+  expect(doc().getElementById("root")?.getAttribute("aria-hidden")).toBe("true");
+  await until(() => doc().activeElement?.getAttribute("aria-label") === "Close");
   await unmount();
-  outside.remove();
 });
 
 test("an image the list does not know still opens under its own name", async () => {
@@ -184,7 +207,7 @@ test("an image the list does not know still opens under its own name", async () 
 });
 
 test("one image has no arrows or place, and + zooms it in place", async () => {
-  const { container, unmount } = await mount(
+  const { unmount } = await mount(
     createElement(ImageViewer, {
       images: [{ src: png("A"), alt: "" }],
       index: 0,
@@ -192,15 +215,16 @@ test("one image has no arrows or place, and + zooms it in place", async () => {
       onClose: () => {},
     }),
   );
-  expect(container.querySelector(".acpmux-image-viewer-step")).toBeNull();
-  expect(container.querySelector(".acpmux-image-viewer-count")).toBeNull();
-  const layer = container.querySelector(".acpmux-image-viewer")!;
-  expect(layer.getAttribute("aria-label")).toBe("Image");
-  await key(layer, "+");
-  const image = container.querySelector<HTMLElement>(".acpmux-image-viewer-image")!;
+  await until(() => doc().querySelector(".acpmux-image-viewer"));
+  expect(doc().querySelector(".acpmux-image-viewer-step")).toBeNull();
+  expect(doc().querySelector(".acpmux-image-viewer-count")).toBeNull();
+  expect(doc().querySelector(".acpmux-image-viewer")!.getAttribute("aria-label")).toBe("Image");
+  const body = doc().querySelector(".acpmux-image-viewer-body")!;
+  await key(body, "+");
+  const image = doc().querySelector<HTMLElement>(".acpmux-image-viewer-image")!;
   expect(image.style.transform).toBe("translate(0px, 0px) scale(2)");
-  expect(container.querySelector(".acpmux-image-viewer-stage")?.classList.contains("is-zoomed")).toBe(true);
-  await key(layer, "0");
+  expect(doc().querySelector(".acpmux-image-viewer-stage")?.classList.contains("is-zoomed")).toBe(true);
+  await key(body, "0");
   expect(image.style.transform).toBe("translate(0px, 0px) scale(1)");
   await unmount();
 });
