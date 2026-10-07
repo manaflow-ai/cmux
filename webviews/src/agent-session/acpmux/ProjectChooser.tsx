@@ -2,25 +2,10 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
+import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "./popoverTrigger";
 
 export type Project = { cwd: string; label: string };
-
-const BADGE_COLORS = [
-  "var(--agent-ansi-4, #58a6ff)",
-  "var(--agent-ansi-5, #bf7af0)",
-  "var(--agent-ansi-6, #f2c94c)",
-  "var(--agent-ansi-2, #32d74b)",
-  "var(--agent-ansi-3, #ff9f0a)",
-] as const;
-
-function projectBadge(project: Project): { label: string; color: string } {
-  const words = project.label.trim().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const label = (words.length > 1 ? words.map((word) => word[0]).join("") : project.label.trim()).slice(0, 2);
-  let hash = 0;
-  for (const character of project.cwd) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  return { label: (label || "?").toUpperCase(), color: BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length]! };
-}
 
 /// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
 /// projects the user has chats in, newest first. Picking one other than the current
@@ -47,7 +32,6 @@ export function ProjectChooser({
   // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.
   const [active, setActive] = useState<string | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
 
@@ -87,7 +71,11 @@ export function ProjectChooser({
   };
 
   useEffect(() => {
-    if (open) search.current?.focus();
+    if (!open) return;
+    search.current?.focus();
+    const blur = () => setOpen(false);
+    window.addEventListener("blur", blur);
+    return () => window.removeEventListener("blur", blur);
   }, [open]);
 
   const keyDown = (event: React.KeyboardEvent) => {
@@ -112,7 +100,7 @@ export function ProjectChooser({
         type="button"
         className="acpmux-context-chip acpmux-project-button"
         aria-label={t("project.label")}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         title={current ? `${t("project.label")}: ${current}` : undefined}
@@ -130,9 +118,9 @@ export function ProjectChooser({
         className="acpmux-menu acpmux-project-menu"
         side="top"
         initialFocus={search}
-        finalFocus={trigger}
+        finalFocus={false}
       >
-        <div ref={menu}>
+        <div>
           <div className="acpmux-project-search">
             <SearchIcon />
             <input
@@ -223,15 +211,6 @@ export function ProjectChooser({
           )}
         </div>
       </Popover>
-    </span>
-  );
-}
-
-function ProjectBadge({ project }: { project: Project }) {
-  const badge = projectBadge(project);
-  return (
-    <span className="acpmux-project-badge" style={{ "--acpmux-project-badge": badge.color } as React.CSSProperties} aria-hidden="true">
-      {badge.label}
     </span>
   );
 }
