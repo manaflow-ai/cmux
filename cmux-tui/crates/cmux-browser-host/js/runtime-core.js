@@ -2814,6 +2814,9 @@
         cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
         addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
         clearCookies: (options) => this._clearCookies(options),
+        // Undo of clearCookies: the restore ids it returned (driver
+        // cookies.restore). Cookies set since the clear are kept.
+        restoreCookies: (restoreIds) => this._restoreCookies(restoreIds),
       };
     }
     // Playwright's clearCookies({ name, domain, path }), scoped like
@@ -2837,9 +2840,13 @@
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.
+      // Every clear is undoable: the host backs up what it deletes and
+      // answers a restore id (an engine without backups answers none).
+      const restoreIds = [];
       const clear = async (params) => {
         try {
-          await this._session.call("cookies.clear", params);
+          const r = await this._session.call("cookies.clear", params);
+          if (r && typeof r.restoreId === "string") restoreIds.push(r.restoreId);
         } catch (e) {
           if (driverErrorCode(e) !== "invalid") throw e;
           const message = String(e.message || "").replace(/^cookies\.clear: /, "");
@@ -2848,7 +2855,7 @@
       };
       if (!Object.values(filters).some(isRegExp)) {
         await clear({ ...scope, ...filters });
-        return;
+        return { restoreIds };
       }
       const matches = (cookie, key) => {
         const v = filters[key];
@@ -2862,6 +2869,19 @@
         if (!["name", "domain", "path"].every((key) => matches(cookie, key))) continue;
         await clear({ ...scope, name: cookie.name, domain: cookie.domain, path: cookie.path });
       }
+      return { restoreIds };
+    }
+    async _restoreCookies(restoreIds) {
+      const ids = typeof restoreIds === "string" ? [restoreIds] : restoreIds && Array.isArray(restoreIds.restoreIds) ? restoreIds.restoreIds : restoreIds;
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) {
+        throw new Error(`browserContext.restoreCookies: expected a restore id, a list of them, or clearCookies()'s result, got ${JSON.stringify(restoreIds)}`);
+      }
+      const out = { restored: 0, kept: 0, expired: 0 };
+      for (const restoreId of ids) {
+        const r = await this._session.call("cookies.restore", { restoreId });
+        for (const key of Object.keys(out)) out[key] += Number(r && r[key]) || 0;
+      }
+      return out;
     }
     opener() {
       return Promise.resolve(this._opener);
