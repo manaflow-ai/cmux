@@ -115,6 +115,23 @@ describe("links", () => {
     expect(unsafe).not.toContain("<a");
     expect(unsafe).toContain("run");
   });
+
+  test("linkifies bare and qualified GitHub references in prose", () => {
+    const out = renderToStaticMarkup(
+      createElement(Markdown, { githubRepository: "manaflow-ai/cmux" }, "Fix #1234 and upstream/cmux#56."),
+    );
+    expect(out).toContain('href="https://github.com/manaflow-ai/cmux/issues/1234"');
+    expect(out).toContain('href="https://github.com/upstream/cmux/issues/56"');
+    expect(out).toContain('title="https://github.com/manaflow-ai/cmux/issues/1234"');
+  });
+
+  test("keeps references in code spans, fences and unknown repositories as text", () => {
+    const out = html("`#1234` and #1234\n\n```text\n#1234\n```");
+    expect(out).not.toContain('href="https://github.com/');
+    expect(out).toContain("#1234");
+    const qualified = html("upstream/cmux#56");
+    expect(qualified).toContain('href="https://github.com/upstream/cmux/issues/56"');
+  });
 });
 
 describe("the specimen", () => {

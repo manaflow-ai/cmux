@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextAgentPane
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -246,6 +247,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
             if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
+            if let repository = AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
+                config["githubRepository"] = .string(repository)
+            }
         case .editor:
             config["size"] = JSONValue(file.size)
         }

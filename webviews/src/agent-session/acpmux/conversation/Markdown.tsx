@@ -19,6 +19,7 @@ import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
+import { githubReferences } from "../../../githubReferences";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -246,6 +247,8 @@ export type InlineOptions = {
   dataRefs?: string[];
   /** Data URLs past the reply's total budget (MAX_REPLY_DATA_URLS): drawn as their name. */
   overBudget?: Set<string>;
+  /** The workspace's GitHub `owner/repo`, used for bare issue references. */
+  githubRepository?: string;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -339,6 +342,28 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
+function linkedGithubText(text: string, key: string, repository?: string): ReactNode[] {
+  const refs = githubReferences(text, repository);
+  if (!refs.length) return linkedText(text, key);
+  const out: ReactNode[] = [];
+  let at = 0;
+  refs.forEach((reference, index) => {
+    if (reference.start > at) out.push(...linkedText(text.slice(at, reference.start), `${key}-${index}-before`));
+    out.push(
+      <UrlChip
+        key={`${key}-${index}`}
+        href={reference.href}
+        icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+      >
+        {reference.text}
+      </UrlChip>,
+    );
+    at = reference.end;
+  });
+  if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
+  return out;
+}
+
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a paragraph,
 // `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
 // "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
@@ -355,7 +380,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last) out.push(...linkedText(text.slice(last, m.index), `t${k++}`));
+    if (m.index! > last) out.push(...linkedGithubText(text.slice(last, m.index), `t${k++}`, opts.githubRepository));
     const t = m[0];
     if (m[1]) {
       const path = codePath(t.slice(1, -1));
@@ -422,7 +447,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     }
     last = m.index! + t.length;
   }
-  if (last < text.length) out.push(...linkedText(text.slice(last), `t${k++}`));
+  if (last < text.length) out.push(...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository));
   return out;
 }
 
