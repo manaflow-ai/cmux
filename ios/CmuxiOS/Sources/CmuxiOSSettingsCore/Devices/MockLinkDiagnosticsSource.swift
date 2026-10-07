@@ -17,6 +17,6 @@ public struct MockLinkDiagnosticsSource: LinkDiagnosticsSource {
 
     public func updates() async -> AsyncStream<[DeviceRecord.ID: PathBadge]> {
         let badges = badges
-        return AsyncStream { $0.yield(badges) }
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { $0.yield(badges) }
     }
 }

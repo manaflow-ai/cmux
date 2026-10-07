@@ -3,6 +3,4 @@ public enum NotificationAuthorization: Hashable, Sendable {
     case notDetermined
     case denied
     case authorized
-    /// Delivered quietly to Notification Center (provisional or ephemeral).
-    case quiet
 }
