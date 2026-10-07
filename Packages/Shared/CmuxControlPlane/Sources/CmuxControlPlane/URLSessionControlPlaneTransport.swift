@@ -10,7 +10,8 @@ public struct URLSessionControlPlaneTransport: ControlPlaneTransport {
 
     public func connect(url: URL, protocols: [String]) async throws -> any ControlPlaneConnection {
         let task = session.webSocketTask(with: url, protocols: protocols)
-        task.maximumMessageSize = 1 << 20
+        // Above the server's largest frame (a 1 MiB snapshot state plus its envelope).
+        task.maximumMessageSize = 4 << 20
         task.resume()
         return URLSessionControlPlaneConnection(task: task)
     }

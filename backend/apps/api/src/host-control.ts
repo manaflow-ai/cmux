@@ -25,7 +25,13 @@ export interface ControlAttachment {
   readonly subscribed: false
   streams: Array<string>
   mobile?: MobileSession
+  /** The team whose directory admitted the socket, and when TeamDO last confirmed it. */
+  readonly team: string
+  checkedAt: number
 }
+
+/** How long a socket's admission (team membership, host still enrolled) is trusted before a frame re-asks TeamDO. */
+export const ACCESS_CHECK_MS = 60_000
 
 export const HOST_CAPS = ["read", "signal", "presence", "resume"]
 export const MAX_DEVICES = 32
@@ -133,6 +139,7 @@ export class HostControl {
     const hostInstall = request.headers.get("x-cmux-host-install")
     const role = request.headers.get("x-cmux-ctl-role")
     const principalJson = request.headers.get("x-cmux-principal")
+    const team = request.headers.get("x-cmux-team") ?? ""
     if (!host || !hostInstall || !principalJson || (role !== "host" && role !== "device")) return new Response("bad request", { status: 400 })
     const principal = JSON.parse(principalJson) as Principal
     if (role === "host" && principal.install !== hostInstall) return new Response("forbidden", { status: 403 })
@@ -144,11 +151,15 @@ export class HostControl {
     if (role === "device" && !devices.has(identityOf(principal)) && devices.size >= MAX_DEVICES) return new Response("too many devices", { status: 429 })
     const { 0: client, 1: server } = new WebSocketPair()
     // One live socket per role and identity: a reconnect replaces the old one.
-    for (const old of this.ctx.getWebSockets(tag)) closeQuietly(old, 4000, "replaced")
+    const replaced = this.ctx.getWebSockets(tag)
+    for (const old of replaced) closeQuietly(old, 4000, "replaced")
+    // A replaced Mac socket cannot answer its forwards: the devices resend with the same keys.
+    if (role === "host" && replaced.length > 0) this.failForwards(this.forwards.drainAll(), "the Mac reconnected")
     this.ctx.acceptWebSocket(server, [tag])
-    server.serializeAttachment({ ctl: true, role, principal, subscribed: false, streams: [] } satisfies ControlAttachment)
+    server.serializeAttachment({ ctl: true, role, principal, subscribed: false, streams: [], team, checkedAt: Date.now() } satisfies ControlAttachment)
     this.gate.seed(server, principal, { cls: "HostDO", name: host })
     const names = this.streamNames(host)
+    this.reconcile(server, role === "host")
     if (!this.streams.head(names.host)) this.streams.commitOwned(names.host, initialHostState(host, Date.now()), (s) => ({ seq: s, t: "event", stream: names.host, tx: `tx_${host}_${s}`, op: "host.presence.set", params: { host, presence: "offline", viewers: 0, at: Date.now() }, actor: { identity: `host:${host}` }, origin: "remote", at: Date.now() }))
     if (role === "host") this.commitHost([macConnected(this.hostState(), true, Date.now())], `host:${host}`)
     sendJson(server, { t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [names.host, names.workspace, names.task], role })
@@ -171,6 +182,7 @@ export class HostControl {
     } catch {
       return sendJson(ws, errorFrame({ code: "validation.invalid", message: "frames are JSON objects", retryable: false }))
     }
+    if (!(await this.stillAdmitted(ws, a))) return
     if (frame.t === "hello") return this.hello(ws, a, frame)
     if (!a.mobile) return sendJson(ws, errorFrame({ code: "proto.hello_required", message: "send hello first", retryable: false }))
     switch (frame.t) {
@@ -219,8 +231,9 @@ export class HostControl {
     if (!a.streams.includes(stream)) [a.streams.push(stream), ws.serializeAttachment(a)]
     const pending = Array.isArray(frame.pending) ? (frame.pending as Array<unknown>).filter((k): k is string => typeof k === "string" && KEY.test(k)).slice(0, 256) : []
     const after = frame.t === "subscribe" && Number.isInteger(frame.after_seq) ? (frame.after_seq as number) : undefined
-    // Pending intents need the owner's decided keys: the Mac answers this device's snapshot itself.
-    if (stream !== names.host && pending.length > 0 && a.role === "device" && this.macOnline()) return void this.toMac({ t: "snapshot.request", stream, pending, to: identityOf(a.principal) })
+    // Pending intents need the owner's decided keys: the Mac follows with this device's own snapshot.
+    // The mirror's snapshot goes first, so a Mac that never answers leaves no subscriber without state.
+    if (stream !== names.host && pending.length > 0 && a.role === "device" && this.macOnline()) this.toMac({ t: "snapshot.request", stream, pending, to: identityOf(a.principal) })
     const r = this.streams.resume(stream, pending.length > 0 ? undefined : after)
     if (!r) return sendJson(ws, { t: "snapshot", stream, seq: 0, state: this.emptyState(stream, ids.host), decided: [] })
     if (r.snapshot) sendJson(ws, { t: "snapshot", stream, seq: r.snapshot.seq, state: r.snapshot.state, decided: [] })
@@ -258,9 +271,11 @@ export class HostControl {
         if (!DEVICE_OPS.has(op)) return this.reject(ws, key, stream, { code: family === "workspace" || family === "task" ? "auth.forbidden" : "validation.invalid", message: `${op} is not a device op on this host`, retryable: false })
         // Nothing queues while the owner is away (OWNERSHIP-PRINCIPLES "Offline").
         if (!this.macOnline()) return this.reject(ws, key, stream, { code: "owner.unreachable", message: "the Mac is offline", retryable: true })
+        this.failForwards(this.forwards.expire(Date.now()), "the Mac did not answer in time")
         if (!this.forwards.addOp(me, key, Date.now())) return this.reject(ws, key, stream, { code: "rate.limited", message: "too many requests in flight", retryable: true })
         const p = a.principal
-        this.toMac({ t: "op", op, params, idempotency_key: key, ...(frame.origin ? { origin: frame.origin } : {}), ...(typeof frame.expected_revision === "string" ? { expected_revision: frame.expected_revision } : {}), stream, from: me, actor: { identity: me, ...(p.user ? { user: p.user } : {}), ...(p.install ? { install: p.install } : {}), kind: p.kind ?? "install" } })
+        // Device ops are remote by definition (OWNERSHIP-PRINCIPLES origin rule): they never move the Mac's focus.
+        this.toMac({ t: "op", op, params, idempotency_key: key, origin: "remote", ...(typeof frame.expected_revision === "string" ? { expected_revision: frame.expected_revision } : {}), stream, from: me, actor: { identity: me, ...(p.user ? { user: p.user } : {}), ...(p.install ? { install: p.install } : {}), kind: p.kind ?? "install" } })
         return void this.scheduleAlarm()
       }
       case "read": {
@@ -269,6 +284,7 @@ export class HostControl {
         if (r.op === "signal.turn_credentials") return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, me))))
         if (!FORWARD_READS.has(r.op)) return sendJson(ws, errorFrame({ code: "validation.invalid", message: `unknown read ${r.op}`, retryable: false }, r.id))
         if (!this.macOnline()) return sendJson(ws, errorFrame({ code: "owner.unreachable", message: "the Mac is offline", retryable: true }, r.id))
+        this.failForwards(this.forwards.expire(Date.now()), "the Mac did not answer in time")
         const id = this.forwards.addRead(me, r.id, Date.now())
         if (id === null) return sendJson(ws, errorFrame({ code: "rate.limited", message: "too many requests in flight", retryable: true }, r.id))
         this.toMac({ t: "read", id, op: r.op, params: r.params, from: me })
@@ -319,7 +335,7 @@ export class HostControl {
       }
       case "snapshot": {
         if (!mirrored(frame.stream) || !Number.isInteger(frame.seq) || (frame.seq as number) < 0 || typeof frame.state !== "object" || frame.state === null) return sendJson(ws, errorFrame({ code: "validation.invalid", message: "snapshot needs a mirrored stream, seq and state", retryable: false }))
-        if (JSON.stringify(frame.state).length > MAX_SNAPSHOT_BYTES) return sendJson(ws, errorFrame({ code: "validation.invalid", message: `snapshots are at most ${MAX_SNAPSHOT_BYTES} bytes`, retryable: false }))
+        if (new TextEncoder().encode(JSON.stringify(frame.state)).length > MAX_SNAPSHOT_BYTES) return sendJson(ws, errorFrame({ code: "validation.invalid", message: `snapshots are at most ${MAX_SNAPSHOT_BYTES} bytes`, retryable: false }))
         const stream = frame.stream
         const seq = frame.seq as number
         const head = this.streams.head(stream)
@@ -337,7 +353,8 @@ export class HostControl {
         const stream = frame.stream
         const outcome = this.streams.appendMirrored(stream, frame as { seq: number })
         if (outcome === "applied") this.publish(stream, frame, ws)
-        if (outcome === "gap" || outcome === "full" || (outcome === "applied" && this.streams.wantsCompaction(stream) && !this.compacting.has(stream))) {
+        const wants = outcome === "gap" || outcome === "full" || (outcome === "applied" && this.streams.wantsCompaction(stream))
+        if (wants && !this.compacting.has(stream)) {
           this.compacting.add(stream)
           sendJson(ws, { t: "snapshot.request", stream })
         }
@@ -370,6 +387,44 @@ export class HostControl {
   private failForwards(list: ReturnType<HostForwards["drainAll"]>, why: string) {
     for (const o of list.ops) this.toDevice(o.device, { t: "error", code: "owner.unreachable", message: why, retryable: true, idempotency_key: o.key })
     for (const r of list.reads) this.toDevice(r.device, errorFrame({ code: "owner.unreachable", message: why, retryable: true }, r.deviceId))
+  }
+
+  /**
+   * Presence from the sockets that are really open: a close callback lost to a deploy or reset
+   * would otherwise leave `online` and stale devices forever. Runs at every accept.
+   */
+  private reconcile(except: WebSocket, macArriving: boolean) {
+    const ids = this.ids()
+    if (!ids || !this.streams.head(this.streamNames(ids.host).host)) return
+    const now = Date.now()
+    const live = new Set(this.sockets().filter((s) => s.ws !== except && s.a.role === "device" && s.ws.readyState === WebSocket.READY_STATE_OPEN).map((s) => identityOf(s.a.principal)))
+    for (const d of this.hostState().devices) if (!live.has(d.install)) this.commitHost(deviceRemove(this.hostState(), d.install, now), `host:${ids.host}`)
+    if (!macArriving && !this.macOnline(except) && this.hostState().presence !== "offline") this.commitHost([macConnected(this.hostState(), false, now)], `host:${ids.host}`)
+  }
+
+  /**
+   * Admission is re-asked from TeamDO every ACCESS_CHECK_MS on the socket's frames: a member who
+   * left the team or a removed host loses the socket (4403). A listen-only socket is bounded by its
+   * token's expiry (access tokens live 10 minutes). An unreachable TeamDO refuses the frame.
+   */
+  private async stillAdmitted(ws: WebSocket, a: ControlAttachment): Promise<boolean> {
+    if (Date.now() - a.checkedAt < ACCESS_CHECK_MS) return true
+    const ids = this.ids()
+    if (!ids || !a.team) return false
+    let access: { role: string } | null
+    try {
+      access = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(a.team)).hostAccess(a.team, ids.host, a.principal)
+    } catch {
+      sendJson(ws, errorFrame({ code: "owner.unreachable", message: "could not check access; retry", retryable: true }))
+      return false
+    }
+    if (!access || access.role !== a.role) {
+      closeQuietly(ws, 4403, "access revoked")
+      return false
+    }
+    a.checkedAt = Date.now()
+    ws.serializeAttachment(a)
+    return true
   }
 
   closed(ws: WebSocket, a: ControlAttachment): void {

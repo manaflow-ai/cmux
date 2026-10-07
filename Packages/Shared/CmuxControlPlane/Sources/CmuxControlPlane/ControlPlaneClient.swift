@@ -115,6 +115,16 @@ public actor ControlPlaneClient {
         trySend(.signal(out))
     }
 
+    /// Sends every undecided op again with its key (for example when `host:` reports the Mac back
+    /// online after an `owner.unreachable` whose outcome was unknown). The owner dedupes.
+    public func resendPending() {
+        guard negotiated != nil else { return }
+        for key in pendingOps.keys.sorted() {
+            pendingOps[key]?.resent = true
+            if let op = pendingOps[key] { trySend(.op(op.frame)) }
+        }
+    }
+
     /// Whether this device is actively viewing (app foreground). Feeds host viewer counts.
     public func setPresence(active: Bool, client: String = "ios") throws {
         guard connection != nil, negotiated != nil else { throw ControlPlaneError.notConnected }
@@ -130,6 +140,11 @@ public actor ControlPlaneClient {
             do {
                 let token = try await tokenProvider()
                 let conn = try await transport.connect(url: configuration.url, protocols: configuration.protocols(token: token))
+                // `stop()` may have run while connecting: never keep a socket nobody owns.
+                if Task.isCancelled {
+                    await conn.close(code: 1000)
+                    return
+                }
                 connection = conn
                 let (frames, sink) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
                 outbox = sink
@@ -187,6 +202,9 @@ public actor ControlPlaneClient {
         case .result(let result):
             pendingOps.removeValue(forKey: result.idempotencyKey)?.continuation.resume(returning: .applied(result))
         case .reject(let reject):
+            // A resent op refused because the owner is offline may still have been applied by the
+            // first send: it stays undecided (resent on reconnect or `resendPending`).
+            if reject.code == "owner.unreachable", reject.retryable, pendingOps[reject.idempotencyKey]?.resent == true { return false }
             pendingOps.removeValue(forKey: reject.idempotencyKey)?.continuation.resume(returning: .rejected(reject))
         case .readResult(let result):
             pendingReads.removeValue(forKey: result.id)?.resume(returning: result)
@@ -207,6 +225,12 @@ public actor ControlPlaneClient {
         if error.code == "proto.version_unsupported" { throw ControlPlaneError.versionUnsupported(error) }
         if let id = error.id { pendingReads.removeValue(forKey: id)?.resume(throwing: ControlPlaneError.remote(error)) }
         if let key = object["idempotency_key"]?.stringValue {
+            // Outcome unknown (the owner went away mid-request): keep the intent; it is resent with
+            // the same key after a reconnect or `resendPending` (OWNERSHIP-PRINCIPLES "Offline").
+            if error.code == "owner.unreachable", error.retryable {
+                pendingOps[key]?.resent = true
+                return
+            }
             pendingOps.removeValue(forKey: key)?.continuation.resume(throwing: ControlPlaneError.remote(error))
         }
     }
@@ -234,7 +258,10 @@ public actor ControlPlaneClient {
             let after = pending.isEmpty ? sub.seq : nil
             trySend(.subscribe(SubscribeFrame(stream: stream, afterSeq: after, pending: pending.isEmpty ? nil : pending)))
         }
-        for key in pendingOps.keys.sorted() { if let op = pendingOps[key] { trySend(.op(op.frame)) } }
+        for key in pendingOps.keys.sorted() {
+            pendingOps[key]?.resent = true
+            if let op = pendingOps[key] { trySend(.op(op.frame)) }
+        }
     }
 
     private func pendingKeys() -> [String] { pendingOps.keys.sorted() }

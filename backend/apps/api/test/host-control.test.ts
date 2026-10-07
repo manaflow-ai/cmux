@@ -209,6 +209,43 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     expect(await phone.closed).toBe(4401)
   })
 
+  it("re-checks admission with TeamDO and drops a socket whose host was removed", async () => {
+    const u = await hostUser("ctl-access")
+    const phone = await openHost(u.host, u.phone.token)
+    await phone.hello()
+    expect((await op(u.session, "host.remove", { host: u.host })).json.ok).toBe(true)
+    const stub = testEnv.HOST_DO.get(testEnv.HOST_DO.idFromName(u.host))
+    await runInDurableObject(stub, async (_instance, state) => {
+      // As if the 60 s admission window passed.
+      for (const s of state.getWebSockets(`ctl:dev:${u.phone.install}`)) s.serializeAttachment({ ...s.deserializeAttachment(), checkedAt: 0 })
+    })
+    phone.send({ t: "subscribe", stream: `host:${u.host}` })
+    expect(await phone.closed).toBe(4403)
+    expect((await openHost(u.host, u.phone.token)).status).toBe(403)
+  })
+
+  it("refuses a malformed ?team=", async () => {
+    const u = await hostUser("ctl-team")
+    expect((await openHost(u.host, u.phone.token, "?team=nope")).status).toBe(400)
+  })
+
+  it("rebuilds presence from the open sockets when a close callback was lost", async () => {
+    const u = await hostUser("ctl-reconcile")
+    const mac = await openHost(u.host, u.mac.token)
+    await mac.hello("mac")
+    const stub = testEnv.HOST_DO.get(testEnv.HOST_DO.idFromName(u.host))
+    // A device that left without a close callback: present in state, no socket.
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.sql.exec(`UPDATE host_stream SET state = json_set(state, '$.devices', json('[{"install":"inst_ghost","platform":"ios","app_version":"1","active":true,"since":1}]'), '$.viewers', 1) WHERE stream = ?`, `host:${u.host}`)
+    })
+    const phone = await openHost(u.host, u.phone.token)
+    await phone.hello()
+    phone.send({ t: "subscribe", stream: `host:${u.host}` })
+    const snap = await phone.next((f) => f.t === "snapshot")
+    expect(snap.state.devices.map((d: any) => d.install)).toEqual([u.phone.install])
+    expect(snap.state).toMatchObject({ presence: "online", viewers: 1 })
+  })
+
   it("answers signal.turn_credentials with a typed error when TURN is not configured", async () => {
     const u = await hostUser("ctl-turn")
     const phone = await openHost(u.host, u.phone.token)

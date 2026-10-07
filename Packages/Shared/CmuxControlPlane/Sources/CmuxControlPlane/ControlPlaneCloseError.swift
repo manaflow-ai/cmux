@@ -7,6 +7,13 @@ public struct ControlPlaneCloseError: Error, Hashable, Sendable {
         self.reason = reason
     }
 
-    /// Codes after which reconnecting cannot help: a version mismatch or a revoked install.
-    public var isTerminal: Bool { code == 4002 || code == 4401 || code == 4403 }
+    /// Codes after which reconnecting cannot help: a version mismatch, a revoked install or lost
+    /// access. An expired token (4401 "token expired") is not terminal: reconnect with a fresh one.
+    public var isTerminal: Bool {
+        switch code {
+        case 4002, 4403: true
+        case 4401: reason != "token expired"
+        default: false
+        }
+    }
 }

@@ -189,6 +189,46 @@ import Testing
         #expect(transport.protocolsSeen.count == 1)
     }
 
+    @Test func unknownOutcomeKeepsTheIntentForAResendWithTheSameKey() async throws {
+        let transport = FakeControlPlaneTransport()
+        let client = makeClient(transport)
+        await client.start()
+        var sockets = transport.sockets.makeAsyncIterator()
+        let server = try #require(await sockets.next())
+        _ = try await server.acceptHello()
+        await connected(client)
+        let op = OpFrame(op: "workspace.tab.close", params: .object(["tab": .string("tab_t01")]), idempotencyKey: "close-0001")
+        let outcome = Task { try await client.submit(op) }
+        _ = try await server.next(.op)
+        server.sendRaw(#"{"t":"error","code":"owner.unreachable","message":"the Mac disconnected","retryable":true,"idempotency_key":"close-0001"}"#)
+        // The Mac is back (seen on host:): resend; an offline refusal of the resend is not a decision.
+        await client.resendPending()
+        guard case .op(let again) = try await server.next(.op) else { Issue.record("no resend"); return }
+        #expect(again == op)
+        try server.send(.reject(RejectFrame(tx: "", idempotencyKey: op.idempotencyKey, code: "owner.unreachable", message: "offline", retryable: true, replayed: false)))
+        await client.resendPending()
+        _ = try await server.next(.op)
+        try server.send(.result(ResultFrame(tx: "tx_1", idempotencyKey: op.idempotencyKey, value: .null, revision: "1", replayed: true)))
+        guard case .applied(let r) = try await outcome.value else { Issue.record("not applied"); return }
+        #expect(r.replayed)
+        await client.stop()
+    }
+
+    @Test func anExpiredTokenReconnectsWithAFreshOne() async throws {
+        let transport = FakeControlPlaneTransport()
+        let client = makeClient(transport)
+        await client.start()
+        var sockets = transport.sockets.makeAsyncIterator()
+        let first = try #require(await sockets.next())
+        _ = try await first.acceptHello()
+        first.close(code: 4401, reason: "token expired")
+        let second = try #require(await sockets.next())
+        _ = try await second.acceptHello()
+        #expect(transport.protocolsSeen.count == 2)
+        #expect(ControlPlaneCloseError(code: 4401, reason: "install revoked").isTerminal)
+        await client.stop()
+    }
+
     @Test func reconnectsAfterRefusedConnects() async throws {
         let transport = FakeControlPlaneTransport()
         transport.refusals = 2

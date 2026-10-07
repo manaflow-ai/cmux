@@ -2,7 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { authenticate, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { mobileConfig } from "./mobile-config.ts"
-import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
+import { signInRules, ssoGate, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
 import { mintTurnCredentials } from "./realtime-turn.ts"
 
 /**
@@ -19,7 +19,7 @@ const refuse = (status: number, code: string, message: string) => Response.json(
  * `bearer.` subprotocol (sockets) or the Authorization header (HTTP). `grants` resolves the
  * install's grant classes (owners other than UserDO cannot see UserDO's revocations).
  */
-export const requestPrincipal = async (request: Request, env: Env, token: string | undefined, grants: boolean): Promise<Principal | Response> => {
+export const requestPrincipal = async (request: Request, env: Env, token: string | undefined, grants: boolean, otherTeam?: string): Promise<Principal | Response> => {
   const authenticated = await authenticate(env, token)
   if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
   // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
@@ -29,7 +29,13 @@ export const requestPrincipal = async (request: Request, env: Env, token: string
   const gate = await ssoGate(env, authenticated)
   // The Stack session id and the install's email domain serve only this gate; owners never receive them.
   const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
-  const refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
+  let refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
+  // A socket into another team the user belongs to (`?team=`) passes that team's SSO and version policy too.
+  if (!refused && otherTeam && otherTeam !== authenticated.team) {
+    const other = await signInRules(env, otherTeam, authenticated.user)
+    const p = gate.principal.kind === "session" && gate.principal.sso_team !== otherTeam ? await withSsoSession(env, gate.principal, otherTeam) : gate.principal
+    refused = ssoRefusal(p, other, otherTeam) ?? versionRefusal(request.headers.get("x-cmux-client-version"), other)
+  }
   if (refused) return Response.json({ error: refused }, { status: 403 })
   if (!grants) return authed
   const principal = await withGrantClasses(env, authed)
@@ -55,10 +61,12 @@ const TEAM_ID = /^team_[A-Za-z0-9]{2,64}$/
 
 /** `GET /v1/wire/host/<host>[?team=<team>]`: the HostDO control socket for the Mac or a device. */
 export const handleHostWire = async (request: Request, env: Env, host: string): Promise<Response> => {
-  const principal = await requestPrincipal(request, env, bearerOfProtocols(request), true)
+  const asked = new URL(request.url).searchParams.get("team") ?? undefined
+  if (asked !== undefined && !TEAM_ID.test(asked)) return refuse(400, "validation.invalid", "team must be a team id")
+  const principal = await requestPrincipal(request, env, bearerOfProtocols(request), true, asked)
   if (principal instanceof Response) return principal
-  const team = new URL(request.url).searchParams.get("team") ?? principal.team
-  if (!team || !TEAM_ID.test(team)) return refuse(400, "validation.invalid", "team must be a team id")
+  const team = asked ?? principal.team
+  if (!team) return refuse(400, "validation.invalid", "team must be a team id")
   const access = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).hostAccess(team, host, principal)
   if (!access) return refuse(403, "auth.forbidden", "not a host you may reach")
   const headers = new Headers(request.headers)
@@ -66,6 +74,7 @@ export const handleHostWire = async (request: Request, env: Env, host: string): 
   headers.set("x-cmux-principal", JSON.stringify(principal))
   headers.set("x-cmux-ctl-role", access.role)
   headers.set("x-cmux-host-install", access.host.enrolled_by)
+  headers.set("x-cmux-team", team)
   const stub = env.HOST_DO.get(env.HOST_DO.idFromName(host))
   return stub.fetch(new Request(request.url, { headers, method: "GET" }))
 }

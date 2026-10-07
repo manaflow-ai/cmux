@@ -40,7 +40,7 @@ final class FakeServerSocket: Sendable {
         return hello
     }
 
-    func close(code: Int) {
-        toClient.finish(ControlPlaneCloseError(code: code))
+    func close(code: Int, reason: String = "") {
+        toClient.finish(ControlPlaneCloseError(code: code, reason: reason))
     }
 }

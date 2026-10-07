@@ -31,6 +31,8 @@ export interface SshState {
 
 export const MAX_SSH_HOSTS = 500
 export const MAX_KNOWN_KEYS = 16
+/** The whole `ssh:` state stays small enough for one snapshot frame. */
+export const MAX_SSH_STATE_BYTES = 256 * 1024
 
 const SSH_ID = /^ssh_[A-Za-z0-9]{2,64}$/
 const FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/
@@ -59,7 +61,8 @@ const hostOf = (v: unknown): SshHost | string => {
   return { id, name, hostname, port: port as number, user, ...(jump ? { jump: jump as string } : {}), ...(key ? { key: key as string } : {}) }
 }
 
-const ok = (state: SshState, value: unknown, changed = true): ReduceResult<SshState> => ({ ok: true, state, value, changed })
+const ok = (state: SshState, value: unknown, changed = true): ReduceResult<SshState> =>
+  changed && JSON.stringify(state).length > MAX_SSH_STATE_BYTES ? reject("validation.invalid", "ssh records are full") : { ok: true, state, value, changed }
 
 export const sshDomain: Domain<SshState> = {
   initial: () => ({ hosts: {}, known: {} }),
@@ -101,6 +104,7 @@ export const sshDomain: Domain<SshState> = {
         return reject("validation.invalid", `unknown op ${op} for ssh`)
     }
   },
+  // The user's own session or install; never a chief token or a VM install.
   authorize: (_state, _op, _params, principal: Principal) =>
-    principal.kind === "session" || principal.kind === "install" ? undefined : { code: "auth.forbidden", message: "ssh records belong to the user" }
+    (principal.kind === "session" || principal.kind === "install") && principal.agent === undefined && principal.install_kind !== "vm" ? undefined : { code: "auth.forbidden", message: "ssh records belong to the user" }
 }

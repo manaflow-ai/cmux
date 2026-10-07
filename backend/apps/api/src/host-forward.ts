@@ -25,9 +25,8 @@ export class HostForwards {
     return ops + reads
   }
 
-  /** Records an op forward; false when the device has too many in flight. A resend of the same key refreshes it. */
+  /** Records an op forward (the caller expires old ones first and tells their devices); false when the device has too many in flight. A resend of the same key refreshes it. */
   addOp(device: string, key: string, now: number): boolean {
-    this.expire(now)
     const known = this.sql.exec(`SELECT 1 FROM host_fwd_op WHERE device = ? AND key = ?`, device, key).toArray().length > 0
     if (!known && this.count(device) >= MAX_FORWARDS_PER_DEVICE) return false
     this.sql.exec(`INSERT INTO host_fwd_op (device, key, at) VALUES (?, ?, ?) ON CONFLICT(device, key) DO UPDATE SET at = excluded.at`, device, key, now)
@@ -44,7 +43,6 @@ export class HostForwards {
 
   /** Records a read forward and returns HostDO's id for it, or null when the device has too many in flight. */
   addRead(device: string, deviceId: number, now: number): number | null {
-    this.expire(now)
     if (this.count(device) >= MAX_FORWARDS_PER_DEVICE) return null
     this.sql.exec(`INSERT INTO host_fwd_read (device, device_id, at) VALUES (?, ?, ?)`, device, deviceId, now)
     return Number(this.sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray()[0]!.id)

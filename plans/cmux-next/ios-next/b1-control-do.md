@@ -37,7 +37,8 @@ the Mac's own `seq`, and replays them. Clients see the Mac's sequence end to end
 3. `TeamDO.hostAccess(team, host, principal)` decides the role: `host` when the principal is the
    install that enrolled the host (session principals never), `device` when the user is a member of
    the host's team (a personal team has only its user, so this is "same account or same team").
-   Anything else is 403. `team` defaults to the principal's team.
+   Anything else is 403. `team` defaults to the principal's team; another team named in `?team=`
+   must also pass that team's SSO and minimum-version policy.
 4. `HostDO` accepts the socket with the role and principal in the attachment, registers it with the
    user's `UserDO` socket registry (instant revocation closes it, code 4401) and closes it at token
    expiry (alarm), through the same `SocketGate` every owner uses.
@@ -48,8 +49,13 @@ The first frame must be `hello`. `HostDO` answers `hello.ok` (version 1, caps in
 it); when sent it is negotiated the same way. Server caps: owners `read`; `HostDO` `read`, `signal`,
 `presence`, `resume`. `hello.resume[]` subscribes each listed stream with `after_seq`.
 
+Admission is re-asked from TeamDO every 60 s on the socket's frames; a member who left the team or a
+removed host loses the socket (close 4403). A listen-only socket is bounded by its token (access
+tokens live 10 minutes). Close codes: 4000 replaced, 4002 version, 4401 revoked or `token expired`
+(the client reconnects with a fresh token only for the latter), 4403 access lost.
+
 One live socket per role and identity: a reconnect of the same install replaces the old socket (4000).
-Limit: 32 device sockets per host (4429 when full).
+Limit: 32 device sockets per host (HTTP 429 on the upgrade when full).
 
 ## 3. Frames on the host socket
 
@@ -57,10 +63,10 @@ Device to `HostDO`:
 
 | Frame | Handling |
 | --- | --- |
-| `subscribe {stream, after_seq?, pending?}` | `host:`/`workspace:`/`task:` of this host. Gap within the tail: replay events. Otherwise snapshot (+ mirror tail). With `pending[]` and the Mac online, the snapshot request goes to the Mac, which answers with the decided keys for that device only. |
+| `subscribe {stream, after_seq?, pending?}` | `host:`/`workspace:`/`task:` of this host. Gap within the tail: replay events. Otherwise snapshot (+ mirror tail). With `pending[]` the mirror snapshot goes first and, when the Mac is online, the Mac follows with a snapshot carrying that device's decided keys. |
 | `snapshot.request`, `unsubscribe` | as cmux.wire/1 |
 | `op host.wake` | `HostDO`: `{presence}` when the Mac is online, else `reject host.not_wakeable` |
-| `op workspace.*`, `op task.*` | forwarded to the Mac with `from` = device identity and `actor`; Mac offline: `reject owner.unreachable` (retryable) + `request-settled ok:false`, nothing queues |
+| `op workspace.*`, `op task.*` | forwarded to the Mac with `from` = device identity, `actor` and `origin: remote` (device ops never move the Mac's focus); Mac offline: `reject owner.unreachable` (retryable) + `request-settled ok:false`, nothing queues |
 | `read task.list` | forwarded to the Mac under a fresh `HostDO` read id, mapped back to the device's id |
 | `read signal.turn_credentials` | minted in the Worker isolate (section 6) |
 | `presence.set {state {active, client}}` | the device's `active` flag in `host:` (viewers = active devices) |
@@ -96,6 +102,8 @@ snapshot follows) instead of keeping a tail it cannot replay. `host:` keeps its 
 - Per device: `host.device.set {host, device {install, platform, app_version, active, since}}` at
   hello and on `presence.set`, `host.device.remove {host, install}` at socket close. Both are new
   `owner` messages in the catalog (`host` family), committed by `HostDO`.
+- Every accept rebuilds presence from the sockets that are really open, so a close callback lost to
+  a deploy or reset cannot leave `online` or a ghost device behind.
 - Hibernation: presence lives in SQLite with the stream; sockets survive eviction (hibernation API,
   ping auto-response), and `webSocketClose` after eviction still writes `offline`/`device.remove`.
 
@@ -162,6 +170,17 @@ queues while disconnected. Transport seam `ControlPlaneTransport` (URLSession in
 in-memory server in the Swift Testing suite).
 
 ## 11. Open
+
+- Mirror epoch: if the Mac's sequence restarts (store reset), a device resuming with an old cursor
+  inside the new range could apply new events on old state. B5 should put a store epoch in snapshots
+  and events; `HostDO` then answers a cursor from another epoch with a snapshot.
+- Session principals (no install) share one identity per user, so two signed-in web clients replace
+  each other; per-session identity needs the Stack session id on the principal.
+- `HostDO`'s own `host:` ops (Mac presence and caps, `host.wake`) have no idempotency ledger; they
+  are last-writer state, so a replay reapplies the same value. A ledger lands if they gain effects.
+- TURN minting and pending-key snapshot requests have no per-identity rate limit yet.
+- Socket `read` on owners calls the owner's `read` directly; HTTP `/v1/read` also checks catalog
+  principal kinds. No read leaks today; the two paths should share admission.
 
 - Catalog ids are `h_…`/`in_…`; the backend mints `host_<20>`/`inst_<20>`. `HostDO` uses the backend
   ids; A0's patterns should widen before the phone validates ids strictly.
