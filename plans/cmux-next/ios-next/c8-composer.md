@@ -104,13 +104,17 @@ process start ms, `epoch`, bounded tail, change signals coalesced, no timer). Th
 FeatureKit (additive, defaults keep callers compiling): `ComposerModel`; `ComposerAgent.modelOptions,
 defaultModel, unavailableReason`; `ComposerCatalog.agentsByHost` + `agents(on:)` + `taskDispatch caps`;
 `TaskDraft.templateID, uploads`; `TaskReceipt.started` gains optional `taskID`, `tabID`;
-`TaskRecord`, `TaskState`; `TaskComposerSink.tasks(on:)` with a default.
+`TaskRecord`, `TaskState`; `TaskComposerSink.tasks(on:)` (a requirement with no default: a protocol
+extension default shadowed the actor witness at concrete call sites); `RealFeatureFactories.composer` takes
+the resolved `WorkspaceSource`.
 
 ### 4.1 Real sink
 
 `ControlPlaneTaskComposerSink(workspaces:channels:)`: hosts and workspaces come from C5's
-`WorkspaceSource` (no second workspace mirror); per paired Mac a `TaskControlChannel` (one
-`ControlPlaneClient` on `/v1/wire/host/<host>` subscribing `task:<host>` and `host:<host>`) feeds a
+`WorkspaceSource` (no second workspace mirror); per paired Mac a channel from C5's
+`ControlPlaneWorkspaceChannelFactory(...).streaming("task")` (C5's control-plane channel now takes a
+stream kind: one `ControlPlaneClient` on `/v1/wire/host/<host>` subscribing `task:<host>` and
+`host:<host>`) feeds a
 `TaskStreamMirror` (snapshot replaces, `task.state.set` applies, epoch change drops). Catalog =
 hosts x agents per host x caps, one snapshot per change batch. `dispatch` encodes `task.dispatch`
 with the intent key as idempotency key and `origin: user`, submits on that host's channel, and maps
@@ -163,3 +167,24 @@ C4 upload wiring (seam only), `files.list` mentions (seam only), the app's `Mobi
 acpmux (cmux-next app, no local Mac build), the live spawn check (gate stays off), task cancel UI
 beyond the receipt, Live Activity per task (C7 owns `notify.activity.*`), tagged build (blocked:
 no fleet manifest, dev backend VM).
+
+## 7. Status (2026-10-06)
+
+Done: design; Mac side in `CmuxMobileHost` (`MobileTaskRunner`, `MobileTaskPolicy`,
+`TaskStreamOwner`, `MobileTaskService` in `MobileOpExecutor`, multi-stream rpc channel and uplink,
+`read task.list`, caps `task.stream`/`task.dispatch`, `allowsTaskDispatch` default off; 18 new tests,
+69 total green with `swift test`); schema `$defs` for the task stream state; FeatureKit additions;
+`CmuxiOSComposerCore` (39 tests incl. 6 session tests, green on macOS through a scratch package, 52
+with FeatureKit's); `CmuxiOSComposer` (Compose tab, sheet, floating button over Feed and Workspaces when
+the `composeTab` flag is on); `AppContainer.realFactories.composer` registered (DEBUG still defaults
+to mocks: `CMUX_IOS_SOURCE_COMPOSER=real`). `CmuxiOSApp`, `CmuxiOSComposerCoreTests`,
+`CmuxiOSFeatureKitTests` and `CmuxiOSShellTests` compile for `arm64-apple-ios17.0-simulator`.
+
+Mocked or seams only: the app's `MobileTaskRunner` over acpmux (cmux-next app wiring, not built
+here), attachment upload (`ComposerAttachmentUploading`, nil until C4 merges, so the attach button is
+hidden), `@` mention names (`ComposerFileSuggesting`, `NoFileSuggestions` until C4's `files.list`).
+
+Unverified: everything visual (no simulator run), dictation on device, VoiceOver and large Dynamic
+Type, the live spawn check (so dispatch stays refused `spawn_unverified` on real Macs), TS catalog
+tests (no `node_modules`). Tagged build not attempted (known blocked: no fleet manifest, dev backend
+VM).
