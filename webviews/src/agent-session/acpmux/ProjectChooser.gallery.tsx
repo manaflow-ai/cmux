@@ -73,6 +73,7 @@ const addProject: Play = async (ctx) => {
 
 const sourcePicker: Play = async (ctx) => {
   await addProject(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="environment"]'));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
   await ctx.click({ selector: ".acpmux-add-project-item" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="source"]'));
@@ -80,6 +81,7 @@ const sourcePicker: Play = async (ctx) => {
 
 const directoryBrowser: Play = async (ctx) => {
   await sourcePicker(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="source"]'));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
   await ctx.click({ selector: ".acpmux-add-project-item" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="directory"]'));
