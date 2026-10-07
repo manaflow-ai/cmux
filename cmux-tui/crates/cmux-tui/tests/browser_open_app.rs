@@ -29,6 +29,7 @@ const CALLER_TAB: &str = "tab_66666666666666666666666666666666";
 const NEW_TAB: &str = "tab_77777777777777777777777777777777";
 const NEW_BROWSER: &str = "browser_88888888888888888888888888888888";
 const URL: &str = "http://127.0.0.1:8765/opener-a.html";
+const HOME_REFUSAL: &str = "openBrowser unavailable: This page has no tabs.";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
@@ -140,9 +141,121 @@ fn another_machines_browser_tab_stays_with_its_daemon() {
     assert!(run.app.is_empty(), "{:?}", run.app);
 }
 
+#[test]
+fn browser_open_from_a_terminal_in_the_shown_workspace_opens_in_that_pane() {
+    // A cmux terminal pane of the workspace the window shows runs the
+    // command: the tab goes to that pane, with no fallback and no reveal.
+    let run =
+        Run::app(AppMode::Home).cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["action"], "openBrowser");
+    assert_eq!(call["params"]["target"], format!("tab:{CALLER_TAB}"), "{call}");
+    assert!(
+        !run.daemon.iter().any(|r| r["operation"] == "tab.get" && r["params"]["tab"] == "current"),
+        "the caller's pane, not the daemon default: {:?}",
+        run.daemon
+    );
+}
+
+/// cmux-lawrence-2 GUI check of 772c55184089: the app starts on the Home
+/// page (no panes). From an SSH shell both verbs failed with
+/// `openBrowser unavailable: This page has no tabs.`; before 772c the daemon
+/// opened the tab on its default pane.
+fn assert_opens_on_the_daemon_default_pane_when_the_window_shows_a_page(args: &[&str]) {
+    let run = Run::app(AppMode::Home).cli(args, None);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let actions: Vec<_> = run.app.iter().map(|c| c["params"]["action"].clone()).collect();
+    let [first, second, reveal] = run.app.as_slice() else {
+        panic!("openBrowser, openBrowser on the default pane, tab.focus expected: {actions:?}")
+    };
+    assert_eq!(first["params"]["action"], "openBrowser");
+    assert!(first["params"].get("target").is_none(), "{first}");
+    // The daemon's default pane (the pre-772c target), still through the
+    // app's openBrowser so engine and profile rules stay the same.
+    assert_eq!(second["params"]["action"], "openBrowser");
+    assert_eq!(second["params"]["target"], format!("tab:{SHOWN_TAB}"), "{second}");
+    assert_eq!(second["params"]["args"], json!({"url": URL}), "{second}");
+    assert_ne!(second["params"]["idempotency_key"], first["params"]["idempotency_key"]);
+    // The window leaves the page and shows the new tab.
+    assert_eq!(reveal["params"]["action"], "tab.focus");
+    assert_eq!(reveal["params"]["target"], NEW_TAB, "{reveal}");
+    assert!(
+        !run.daemon_operations().contains(&"tab.create_browser".to_string()),
+        "{:?}",
+        run.daemon
+    );
+    let reply: Value = serde_json::from_slice(&run.output.stdout).expect("JSON reply");
+    assert_eq!(reply["value"]["tab_id"], NEW_TAB, "{reply}");
+}
+
+#[test]
+fn browser_open_from_ssh_with_the_window_on_a_page_uses_the_daemon_default_pane() {
+    assert_opens_on_the_daemon_default_pane_when_the_window_shows_a_page(&[
+        "--json", "browser", "open", URL,
+    ]);
+}
+
+#[test]
+fn tab_create_browser_from_ssh_with_the_window_on_a_page_uses_the_daemon_default_pane() {
+    assert_opens_on_the_daemon_default_pane_when_the_window_shows_a_page(&[
+        "--json", "tab", "create", "browser", "--url", URL,
+    ]);
+}
+
+#[test]
+fn an_app_refusal_prints_the_refusal_and_no_retry_note() {
+    // The app never ran openBrowser: there is nothing whose outcome is
+    // unknown, so no `mutation.outcome_unknown` and no retry key.
+    for json_mode in [true, false] {
+        let mut args = vec!["browser", "open", URL];
+        if json_mode {
+            args.insert(0, "--json");
+        }
+        let run = Run::app(AppMode::Refuse).cli(&args, Some(CALLER_TERMINAL));
+        assert!(!run.output.status.success(), "the refusal must fail the command");
+        let printed = format!("{}{}", String::from_utf8_lossy(&run.output.stdout), run.stderr());
+        assert!(printed.contains("This page has no tabs."), "{printed}");
+        assert!(!printed.contains("outcome_unknown"), "{printed}");
+        assert!(!printed.contains("idempotency"), "{printed}");
+    }
+}
+
+#[test]
+fn a_tab_the_window_cannot_show_still_opens_and_says_why() {
+    let run = Run::app(AppMode::HomeNoReveal).cli(&["--json", "browser", "open", URL], None);
+    assert!(run.output.status.success(), "the tab exists: {}", run.stderr());
+    let reply: Value = serde_json::from_slice(&run.output.stdout).expect("JSON reply");
+    assert_eq!(reply["value"]["tab_id"], NEW_TAB, "{reply}");
+    let stderr = run.stderr();
+    let lines: Vec<_> = stderr.lines().collect();
+    assert_eq!(
+        lines,
+        vec![format!(
+            "cmux: tab opened in {WORKSPACE}, but the window could not show it: \
+             no window lists this workspace"
+        )],
+        "{stderr}"
+    );
+}
+
 struct Run {
     dir: PathBuf,
-    with_app: bool,
+    app: Option<AppMode>,
+}
+
+/// What the fake app's window shows.
+#[derive(Clone, Copy)]
+enum AppMode {
+    /// A workspace with a focused pane: every openBrowser opens `NEW_TAB`.
+    Workspace,
+    /// The Home page: openBrowser with no target is refused, with a target
+    /// it opens `NEW_TAB`.
+    Home,
+    /// Every openBrowser is refused.
+    Refuse,
+    /// `Home`, and its window cannot show the new tab (`tab.focus` fails).
+    HomeNoReveal,
 }
 
 struct Finished {
@@ -163,12 +276,20 @@ impl Finished {
 
 impl Run {
     fn new(with_app: bool) -> Self {
+        Self::with(with_app.then_some(AppMode::Workspace))
+    }
+
+    fn app(mode: AppMode) -> Self {
+        Self::with(Some(mode))
+    }
+
+    fn with(app: Option<AppMode>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
         let dir =
             Path::new("/tmp").join(format!("cmux-bopen-{}-{stamp}-{sequence}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        Self { dir, with_app }
+        Self { dir, app }
     }
 
     fn cli(self, args: &[&str], caller_terminal: Option<&str>) -> Finished {
@@ -176,9 +297,9 @@ impl Run {
         let app_socket = self.dir.join("app.sock");
         let daemon = fake_daemon(&daemon_socket);
         let done = Arc::new(AtomicBool::new(false));
-        let app = self.with_app.then(|| fake_app(&app_socket, done.clone()));
+        let app = self.app.map(|mode| fake_app(&app_socket, mode, done.clone()));
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
-        if self.with_app {
+        if self.app.is_some() {
             command.arg("--app-socket").arg(&app_socket);
         }
         command
@@ -252,9 +373,33 @@ fn daemon_result(request: &Value) -> Result<Value, String> {
     }
 }
 
-/// An app control socket whose `openBrowser` creates `NEW_TAB`. It stops
-/// waiting for a connection once `done` is set.
-fn fake_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
+/// The fake app's answer to one `action.run`.
+fn app_response(mode: AppMode, request: &Value) -> Value {
+    let params = &request["params"];
+    let refused = match mode {
+        AppMode::Workspace => false,
+        AppMode::Home | AppMode::HomeNoReveal => {
+            params["action"] == "openBrowser" && params.get("target").is_none()
+        }
+        AppMode::Refuse => true,
+    };
+    if matches!(mode, AppMode::HomeNoReveal) && params["action"] == "tab.focus" {
+        return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
+            "message": "no window lists this workspace", "data": {}}});
+    }
+    if refused {
+        return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
+            "message": HOME_REFUSAL,
+            "data": {"action": "openBrowser", "reason": "This page has no tabs."}}});
+    }
+    let created = if params["action"] == "openBrowser" { json!([NEW_TAB]) } else { json!([]) };
+    json!({"id": request["id"], "ok": true, "result": {"action": params["action"], "ran": true,
+        "waited": true, "created": created, "replayed": false}})
+}
+
+/// An app control socket whose `openBrowser` creates `NEW_TAB` as `mode`
+/// allows. It stops waiting for a connection once `done` is set.
+fn fake_app(socket: &Path, mode: AppMode, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
     let listener = UnixListener::bind(socket).unwrap();
     listener.set_nonblocking(true).unwrap();
     let received = Arc::new(Mutex::new(Vec::new()));
@@ -270,9 +415,7 @@ fn fake_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
                     while reader.read_line(&mut line).unwrap_or(0) > 0 {
                         let request: Value = serde_json::from_str(&line).unwrap();
                         line.clear();
-                        let result = json!({"action": "openBrowser", "ran": true, "waited": true,
-                            "created": [NEW_TAB], "replayed": false});
-                        let response = json!({"id": request["id"], "ok": true, "result": result});
+                        let response = app_response(mode, &request);
                         received.lock().unwrap().push(request);
                         if writeln!(writer, "{response}").is_err() {
                             break;
