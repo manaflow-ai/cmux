@@ -162,7 +162,7 @@ private nonisolated final class Invocation: Sendable {
         }
         let stdin = state.withLock { state -> FileHandle? in
             if state.stderr.count < 8192 { state.stderr.append(data) }
-            guard !state.ready, state.stderr.range(of: DiffSidecarProcess.readyMarker) != nil else { return nil }
+            guard !state.ready, state.stderr.starts(with: DiffSidecarProcess.readyMarker) else { return nil }
             state.ready = true
             defer { state.stdin = nil }
             return state.stdin
