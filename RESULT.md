@@ -1,5 +1,5 @@
-Red SHA: 8b436fa1d408 (helper regression ran red); green SHA: be1bbf184323; merged origin/feat-cmux-next at 0adf6982430f.
-Gates: `bun run check` and `bun test test/support/requireBrowserLane.test.ts` passed after merge; browser test files were not run.
-Gallery URLs: none (gallery captures were not run locally; Freestyle-only execution remains configured with CMUX_BROWSER_TESTS=1).
-Open issues: safe-push is unavailable in this checkout and available HQ/tool paths, so the requested landing push could not run.
-Policy: no browser runner, Playwright browser, cargo, zig, xcodebuild, or Swift test was run on this laptop.
+SHAs: a3c024b97615 (red test), 009a9feca3e4 (green fix), 5c48ff32e198 (worker-test cleanup), landed at 1aa78ee17b4a; 1aa78ee17b4a is an ancestor of origin/feat-cmux-next.
+Gates: `bun install --frozen-lockfile`, `bun run check`, 18 focused tests, 213 changes/conversation tests, and all four committed web-bundle checks passed; the independent review found no production defects.
+Bench: the plan records before = 1.05–1.15 s first TS/TSX highlight and 255 ms Swift; cmux-lawrence-2 was unreachable (DNS/Tailscale auth), so the required after first-paint measurement is UNVERIFIED.
+Gallery URLs: none; this webview change has no gallery capture, and browser runners were not used.
+Open issues: run `pane-bench.ts` on cmux-lawrence-2 when access returns; repository-wide verify-local still reports unrelated localization/package-group drift.
