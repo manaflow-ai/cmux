@@ -52,11 +52,11 @@ extension SidebarLayoutDocument {
     }
 
     /// Adds `ref` as the last row of `sec_top` ("Add to Top"), else of the
-    /// first top items section, else in a new top section. Nil when the top
-    /// region already shows it. `label` is stored like a tile's.
+    /// first top items section, else in a new top section. Nil when a top
+    /// row already shows it (its tile does not count). `label` is stored like a tile's.
     public func addToTopOp(_ ref: LayoutItemRef, label: String? = nil, newItem: LayoutItemID = .mint(),
                            newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
-        guard !isOnTop(ref) else { return nil }
+        guard removeFromTopOp(ref) == nil else { return nil }
         let item = LayoutItem(id: newItem, ref: ref, label: label)
         let target = section(Self.topSectionID).map(\.id)
             ?? sections.first { $0.region == .top && $0.room == nil && $0.content == .items && $0.id != Self.pinnedSectionID }?.id

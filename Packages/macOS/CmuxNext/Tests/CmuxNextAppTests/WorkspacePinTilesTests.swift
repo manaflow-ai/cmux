@@ -102,8 +102,8 @@ struct WorkspacePinTilesTests {
         let services = Self.services(owner: nil)
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         var layout = SidebarLayoutDocument.defaults
-        for op in [layout.pinOp(Self.ref(3)), layout.pinOp(.workspace("\(Self.session):ws_gone"))] {
-            layout = try SidebarLayoutReducer.reduce(layout, try #require(op)).get()
+        for ref in [Self.ref(3), .workspace("\(Self.session):ws_gone")] {
+            layout = try SidebarLayoutReducer.reduce(layout, try #require(layout.pinOp(ref))).get()
         }
         let workspaces = SidebarWorkspaceItems.workspaceInfos(layout, refs: refs)
         let infos = SidebarBridge.itemInfo(for: layout, registered: { _ in true }, workspace: { workspaces[$0] })
