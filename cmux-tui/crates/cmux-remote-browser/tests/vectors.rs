@@ -226,6 +226,21 @@ fn control_text_round_trips() {
     assert!(Control::from_json(r#"{"t":"rb.unknown"}"#).is_err());
 }
 
+#[test]
+fn navigate_result_carries_a_refusal_or_null() {
+    use cmux_remote_browser::proto::NavigateRefusal;
+    let refused = Control::from_json(r#"{"t":"rb.navigate.result","request":6,"refused":"scheme"}"#)
+        .expect("parses");
+    assert_eq!(
+        refused,
+        Control::NavigateResult { request: 6, refused: Some(NavigateRefusal::Scheme) }
+    );
+    let started = Control::from_json(r#"{"t":"rb.navigate.result","request":5,"refused":null}"#)
+        .expect("parses");
+    assert_eq!(started, Control::NavigateResult { request: 5, refused: None });
+    assert!(Control::from_json(r#"{"t":"rb.navigate.result","request":5,"refused":"other"}"#).is_err());
+}
+
 const INPUT_MAPPING: &str = include_str!("../../../../schemas/remote-tab/input-mapping.json");
 
 #[derive(Deserialize)]
