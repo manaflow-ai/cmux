@@ -125,7 +125,9 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
         let pairings = peers.snapshot();
         let owner = owner.clone();
         tokio::spawn(async move {
-            let served = serve_inbound(stream, key, address, &pairings, &session_socket, owner.as_deref()).await;
+            let served =
+                serve_inbound(stream, key, address, &pairings, &session_socket, owner.as_deref())
+                    .await;
             // Owner session refusals are security events: always log them.
             if let Err(InboundRefused::Owner(why)) = served {
                 eprintln!("cmux link: owner session refused ({why:?}) for {address}");

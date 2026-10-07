@@ -72,8 +72,7 @@ where
             hand_to_entry(stream, &record.peer(), None, session_socket).await
         }
         Some(ServiceHello { service: Service::OwnerSession, link_token: None, epoch: None }) => {
-            let _ = (owner, &record);
-            Err(InboundRefused::BadHello) // RED: owner sessions are not served yet
+            serve_owner_session(stream, &record.peer(), owner).await
         }
         _ => Err(InboundRefused::BadHello),
     }
@@ -96,8 +95,13 @@ where
     let uid = cmux_tui_core::platform::effective_uid();
     let socket = owner.check_socket(uid).map_err(InboundRefused::Owner)?;
     let mut probe = connect_same_uid(&socket, uid).await?;
-    probe.write_all(IDENTIFY_REQUEST.as_bytes()).await.map_err(|_| InboundRefused::EntryUnavailable)?;
-    let reply = read_line(&mut probe, 64 * 1024).await.map_err(|_| InboundRefused::Owner(OwnerRefused::NotABrain))?;
+    probe
+        .write_all(IDENTIFY_REQUEST.as_bytes())
+        .await
+        .map_err(|_| InboundRefused::EntryUnavailable)?;
+    let reply = read_line(&mut probe, 64 * 1024)
+        .await
+        .map_err(|_| InboundRefused::Owner(OwnerRefused::NotABrain))?;
     if !is_brain_identity(&reply) {
         return Err(InboundRefused::Owner(OwnerRefused::NotABrain));
     }
@@ -108,8 +112,13 @@ where
 }
 
 /// Connect to `socket` and require that its listener runs as `uid`.
-async fn connect_same_uid(socket: &Path, uid: u32) -> Result<tokio::net::UnixStream, InboundRefused> {
-    let stream = tokio::net::UnixStream::connect(socket).await.map_err(|_| InboundRefused::EntryUnavailable)?;
+async fn connect_same_uid(
+    socket: &Path,
+    uid: u32,
+) -> Result<tokio::net::UnixStream, InboundRefused> {
+    let stream = tokio::net::UnixStream::connect(socket)
+        .await
+        .map_err(|_| InboundRefused::EntryUnavailable)?;
     match stream.peer_cred() {
         Ok(credentials) if credentials.uid() == uid => Ok(stream),
         _ => Err(InboundRefused::Owner(OwnerRefused::WrongOwner)),

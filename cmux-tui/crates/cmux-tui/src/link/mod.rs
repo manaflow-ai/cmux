@@ -122,7 +122,9 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "init" => run_init(&flags(rest, &["--state-dir", "--install", "--port"])?),
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
-        "serve" => run_serve(&flags(rest, &["--state-dir", "--session-socket", "--server-config"])?),
+        "serve" => {
+            run_serve(&flags(rest, &["--state-dir", "--session-socket", "--server-config"])?)
+        }
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),
         #[cfg(target_os = "macos")]
@@ -292,11 +294,16 @@ fn owner_session(flags: &Flags) -> anyhow::Result<Option<Arc<OwnerSession>>> {
             None => return Ok(None),
         },
     };
-    let owner = OwnerSession::load(&path).with_context(|| format!("read owner_session in {}", path.display()))?;
+    let owner = OwnerSession::load(&path)
+        .with_context(|| format!("read owner_session in {}", path.display()))?;
     Ok(owner.map(Arc::new))
 }
 
-async fn serve(state: LinkState, session_socket: Option<PathBuf>, owner: Option<Arc<OwnerSession>>) -> anyhow::Result<()> {
+async fn serve(
+    state: LinkState,
+    session_socket: Option<PathBuf>,
+    owner: Option<Arc<OwnerSession>>,
+) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
