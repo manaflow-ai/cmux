@@ -1,0 +1,158 @@
+{
+  "$comment": "Curated model catalog served at /api/models/v1. Each harness lists the models.dev providers it offers: \"*\" takes every current model models.dev lists for that provider (deprecated, non-text and no-tool-call models stay hidden unless a model override sets hidden false); a list takes those ids in that order. Model overrides are keyed <provider>/<model id>; a key models.dev does not list adds a model and needs a name. Edit, then run bun tools/refresh-model-catalog-snapshot.ts and bun test tests/model-catalog.test.ts.",
+  "version": 1,
+  "updatedAt": "2026-10-06T00:00:00.000Z",
+  "harnesses": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "icon": "claude",
+      "docsUrl": "https://docs.claude.com/en/docs/claude-code/setup",
+      "modelIds": "bare",
+      "providers": [
+        {
+          "id": "anthropic",
+          "models": [
+            "opus",
+            "sonnet",
+            "haiku",
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-fable-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5"
+          ]
+        }
+      ],
+      "models": {
+        "anthropic/opus": { "name": "Opus (latest)", "shortName": "Opus", "family": "claude-opus" },
+        "anthropic/sonnet": { "name": "Sonnet (latest)", "shortName": "Sonnet", "family": "claude-sonnet" },
+        "anthropic/haiku": { "name": "Haiku (latest)", "shortName": "Haiku", "family": "claude-haiku" },
+        "anthropic/claude-fable-5-1": { "shortName": "Fable 5.1", "recommended": true },
+        "anthropic/claude-opus-5-5": { "shortName": "Opus 5.5", "recommended": true },
+        "anthropic/claude-sonnet-5-5": { "shortName": "Sonnet 5.5" },
+        "anthropic/claude-opus-5": { "shortName": "Opus 5" },
+        "anthropic/claude-sonnet-5": { "shortName": "Sonnet 5" },
+        "anthropic/claude-fable-5": { "shortName": "Fable 5", "minVersion": "2.1.169" },
+        "anthropic/claude-opus-4-8": { "shortName": "Opus 4.8", "minVersion": "2.1.154" },
+        "anthropic/claude-opus-4-7": { "shortName": "Opus 4.7", "minVersion": "2.1.111" },
+        "anthropic/claude-sonnet-4-6": { "shortName": "Sonnet 4.6" },
+        "anthropic/claude-haiku-4-5": { "name": "Claude Haiku 4.5", "shortName": "Haiku 4.5" }
+      }
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "icon": "openai",
+      "docsUrl": "https://developers.openai.com/codex/cli",
+      "modelIds": "bare",
+      "providers": [
+        {
+          "id": "openai",
+          "models": [
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-6-astra",
+            "gpt-5.6-sol",
+            "gpt-5.6",
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex",
+            "gpt-5.3-codex-spark"
+          ]
+        }
+      ],
+      "models": {
+        "openai/gpt-6.1-sol": { "recommended": true },
+        "openai/gpt-6-sol": {},
+        "openai/gpt-5.5": {}
+      }
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "icon": "gemini",
+      "docsUrl": "https://github.com/google-gemini/gemini-cli",
+      "modelIds": "bare",
+      "providers": [
+        {
+          "id": "google",
+          "models": [
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash"
+          ]
+        }
+      ],
+      "models": {
+        "google/gemini-3.8-flash": { "recommended": true }
+      }
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "icon": "opencode",
+      "docsUrl": "https://opencode.ai/docs",
+      "modelIds": "provider-prefixed",
+      "providers": [
+        { "id": "opencode", "name": "OpenCode Zen", "models": "*" },
+        {
+          "id": "anthropic",
+          "models": ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        },
+        {
+          "id": "openai",
+          "models": ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini"]
+        },
+        {
+          "id": "google",
+          "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro"]
+        }
+      ],
+      "models": {}
+    },
+    {
+      "id": "pi",
+      "name": "Pi",
+      "icon": "pi",
+      "docsUrl": "https://github.com/earendil-works/pi",
+      "modelIds": "provider-prefixed",
+      "providers": [
+        {
+          "id": "anthropic",
+          "models": ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        },
+        {
+          "id": "openai",
+          "models": ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini"]
+        },
+        {
+          "id": "google",
+          "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro"]
+        }
+      ],
+      "models": {}
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "icon": "terminal",
+      "docsUrl": "https://aider.chat/docs/install.html",
+      "modelIds": "bare",
+      "providers": [],
+      "models": {}
+    }
+  ]
+}
