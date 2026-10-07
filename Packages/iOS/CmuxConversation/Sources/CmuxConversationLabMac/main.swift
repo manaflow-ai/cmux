@@ -128,11 +128,17 @@ if arguments.count > 3 {
                         } else if line.hasPrefix("appearance ") {
                             app.appearance = NSAppearance(named: line.hasSuffix("light") ? .aqua : .darkAqua)
                             reply = "ok"
-                        } else if let input = MacConversationLab.labInput(line) {
-                            // key/click/drag/rclick/copyprobe/kstate: synthesized AppKit input.
-                            reply = input
                         } else {
-                            reply = (MacConversationLab.selectedController ?? controller).labCommand(line)
+                            #if DEBUG
+                            if let input = MacConversationLab.labInput(line) {
+                                // key/click/drag/rclick/copyprobe/kstate: synthesized AppKit input.
+                                reply = input
+                            } else {
+                                reply = (MacConversationLab.selectedController ?? controller).labCommand(line)
+                            }
+                            #else
+                            reply = "error lab commands need a DEBUG build"
+                            #endif
                         }
                         print("\(line) -> \(reply)")
                         fflush(stdout)
