@@ -212,6 +212,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             await self?.receive(message)
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
+        installDocumentStartTheme()
         if load { webView.load(URLRequest(url: descriptor.url(route: route))) }
     }
 
