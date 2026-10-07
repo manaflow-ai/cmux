@@ -258,13 +258,15 @@ datagram relay rewrites `peer` (transport.md section 6). Admission is the host's
 ## 6. Codecs
 
 - Swift `CmuxMobileWire` (Swift 6, iOS 17 / macOS 14, `Sendable`, one type per file): `MobileFrame`
-  (JSON envelope, lossless `JSONValue` params), `MobileCatalog` and `MobileMessage`, `StreamRecord`,
+  (JSON envelope, lossless `JSONValue` params), `MobileCatalog.v1` and `MobileMessage`, `StreamRecord`,
   `RecordFlags`, `CreditGrant`, `RecordDeframer` (byte-stream splitting, linear time),
   `TerminalInput`, `FileChunk`, `RdStreamFrame`, typed channel params (`TerminalChannelParams`,
   `TerminalViewport`). Terminal output decodes with `CmuxTerminalStream.TerminalFrame` (dependency,
   not a copy).
 - TS `@cmux/protocol` (`mobile-wire.ts`, `mobile-wire-binary.ts`, `mobile-wire-catalog.ts`): Effect
   Schema decoders for every frame, the same binary codec, the catalog.
+- Control-plane frames decode through `JSONValue` and then the typed struct (two passes); fine at
+  control rates, and stream-plane hot paths never touch JSON.
 - Tests on both sides round-trip every fixture (decode, encode, JSON-equal), decode and re-encode every
   binary vector byte-exact, check catalog coverage (every message has a fixture), and on TS validate
   every fixture against the JSON Schemas and every `existing` op's params against its cloud Effect
