@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.app/schemas/gallery-matrix-manifest.json",
+  "title": "cmux UI gallery matrix manifest",
+  "description": "A list of deterministic gallery screenshots to render.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "path_or_url"],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "minLength": 1
+      },
+      "path_or_url": {
+        "type": "string",
+        "minLength": 1
+      },
+      "params": {
+        "type": "object",
+        "additionalProperties": {
+          "type": ["string", "number", "boolean"]
+        },
+        "properties": {
+          "locale": {"type": "string"},
+          "theme": {"type": "string"},
+          "colorScheme": {"enum": ["light", "dark", "no-preference"]},
+          "fontSize": {"type": ["string", "number"]},
+          "density": {"type": ["string", "number"]},
+          "scale": {"type": ["string", "number"]},
+          "width": {"type": "number", "exclusiveMinimum": 0},
+          "height": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    }
+  }
+}
