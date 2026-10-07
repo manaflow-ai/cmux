@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cec6aa954cc0d202e14fe945bfbac29b8eb4d5468a899a90d267725dbfd8b40e";
+pub const ir_sha256 = "569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5687,6 +5687,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
 
 pub const NewFrontendBrowserTabRequest = struct {
     activate: ?bool = null,
+    after: wire.Field(Id) = .absent,
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,

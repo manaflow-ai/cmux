@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cec6aa954cc0d202e14fe945bfbac29b8eb4d5468a899a90d267725dbfd8b40e.
+// cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1842,6 +1842,8 @@ pub struct NewConversationTabResult {
 pub struct NewFrontendBrowserTabRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub activate: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub engine: String,

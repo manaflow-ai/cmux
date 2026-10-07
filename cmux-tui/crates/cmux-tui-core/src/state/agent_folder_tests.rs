@@ -3,11 +3,15 @@
 //! as `extra.agent_folder` on every workspace snapshot, durable across a
 //! restart. Origin rules are in `server/origin_gate_tests.rs`.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use serde_json::json;
 
-use super::tests::{Session, changes_after, empty_workspace, error_code, mutate, revision, send};
+#[cfg(unix)]
+use super::tests::error_code;
+use super::tests::{Session, changes_after, empty_workspace, mutate, revision, send};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -75,6 +79,9 @@ fn agent_folder_round_trips_through_result_snapshot_events_replay_and_restart() 
     let _ = std::fs::remove_dir_all(root);
 }
 
+// Unix only: it makes a symlink with std::os::unix, and its canonical-path cases
+// (`/..`, a trailing `/`) are Unix path rules.
+#[cfg(unix)]
 #[test]
 fn agent_folder_must_be_an_absolute_existing_canonical_directory() {
     let (root, path) = folder("invalid");

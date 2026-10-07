@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-chat-index",
  "cmux-local-auth",
  "cmux-unix-socket",
  "crossterm",
@@ -16,6 +17,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libc",
+ "notify",
  "pulldown-cmark",
  "ratatui",
  "regex",
@@ -811,6 +813,8 @@ dependencies = [
 name = "cmux-browser-host"
 version = "0.1.0"
 dependencies = [
+ "chacha20poly1305",
+ "getrandom 0.3.4",
  "hmac",
  "libc",
  "rquickjs",
@@ -818,6 +822,16 @@ dependencies = [
  "serde_json",
  "sha1",
  "url",
+]
+
+[[package]]
+name = "cmux-chat-index"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
