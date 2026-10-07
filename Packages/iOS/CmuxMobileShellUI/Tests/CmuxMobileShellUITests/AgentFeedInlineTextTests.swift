@@ -59,7 +59,7 @@ import UIKit
         let view = makeView(source)
         layout(view, width: 360)
         let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
-        let fitted = text.sizeThatFits(CGSize(width: 360, height: .greatestFiniteMagnitude))
+        let fitted = text.sizeThatFits(CGSize(width: 360, height: CGFloat.greatestFiniteMagnitude))
         #expect(view.bounds.height >= fitted.height)
         #expect(view.bounds.height - fitted.height < 2)
     }

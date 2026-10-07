@@ -12,16 +12,19 @@ import Testing
         let full = "Completed this task"
         for _ in 0..<100 {
             cache.retain(reasons: [preview, full])
-            #expect(cache.matches(preview, full))
+            let matches = cache.matches(preview, full)
+            #expect(matches)
         }
         #expect(normalized == [preview, full])
 
         cache.retain(reasons: [preview, "A different result"])
-        #expect(!cache.matches(preview, "A different result"))
+        let changedMatches = cache.matches(preview, "A different result")
+        #expect(!changedMatches)
         #expect(normalized.count == 3)
 
         cache.retain(reasons: [])
-        #expect(cache.matches(preview, full))
+        let restoredMatches = cache.matches(preview, full)
+        #expect(restoredMatches)
         #expect(normalized.count == 5)
     }
 
