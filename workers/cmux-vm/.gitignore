@@ -3,3 +3,4 @@ dist/
 .wrangler/
 .gdp-lint/
 wrangler.generated.json
+custom-domains.generated.txt
