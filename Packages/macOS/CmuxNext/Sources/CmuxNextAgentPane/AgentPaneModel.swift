@@ -294,6 +294,8 @@ public final class AgentPaneModel {
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
+        case .listDirectory(let path):
+            return await listProjectDirectory(path)
         case .importAndSync:
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()

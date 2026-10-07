@@ -16,7 +16,7 @@ export type AddProjectPanelProps = {
   host?: ProjectDirectoryHost;
   localName?: string;
   peers?: string[];
-  /** Existing native folder chooser, used until a reviewed directory-list host operation exists. */
+  /** Existing native folder chooser, retained as a fallback for older hosts. */
   onBrowse?(): Promise<string | undefined> | string | undefined | void;
   onPick(path: string): void;
   onClose(): void;
@@ -62,7 +62,22 @@ export function AddProjectPanel({
         }
       })
       .catch((failure: unknown) => {
-        if (live && request.current === id) setError(failure instanceof Error ? failure.message : String(failure));
+        const code = (failure as { code?: unknown })?.code;
+        if (!live || request.current !== id) return;
+        if ((code === "unsupported" || code === "native.invalid_request") && onBrowse) {
+          void Promise.resolve()
+            .then(() => onBrowse())
+            .then((path) => {
+              if (!live || request.current !== id) return;
+              if (path) onPick(path);
+              else onClose();
+            })
+            .catch(() => {
+              if (live && request.current === id) setError(t("error.requestFailed"));
+            });
+          return;
+        }
+        setError((failure instanceof Error ? failure.message : String(failure)) || t("error.requestFailed"));
       })
       .finally(() => {
         if (live && request.current === id) setLoading(false);
@@ -71,7 +86,7 @@ export function AddProjectPanel({
       live = false;
       setLoading(false);
     };
-  }, [host, requested, step, retry]);
+  }, [host, requested, step, retry, onBrowse, onPick, onClose, t]);
 
   const back = () => {
     setStep(step === "directory" ? "source" : "environment");

@@ -107,6 +107,43 @@ import Testing
         #expect(imported)
     }
 
+    @Test func directoryListingUsesThePaneWorkspaceRoots() async throws {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("cmux-page-directory-\(UUID().uuidString)")
+        let child = root.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        model.workspaceRoots = { [root.path] }
+        model.transport.homeFolder = root.deletingLastPathComponent().path
+        let addedRootsBefore = model.transport.addedRoots
+        model.transport.gestures.record()
+        let (router, _) = router(model)
+        let reply = await call(router, "cmux.agent.project.listDirectory", ["path": .string(root.path)])
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(reply["value"]?["path"]?.stringValue == root.path)
+        #expect(reply["value"]?["directories"] == .array([.string(child.path)]))
+        #expect(reply["value"]?["parent"]?.stringValue == root.deletingLastPathComponent().path)
+        #expect(model.transport.addedRoots == addedRootsBefore)
+
+        let replay = await call(router, "cmux.agent.project.listDirectory", ["path": .string(root.path)])
+        #expect(replay["t"]?.stringValue == "err")
+        #expect(replay["code"]?.stringValue == AgentPaneTransportError.gestureRequired.rawValue)
+        #expect(model.transport.addedRoots == addedRootsBefore)
+    }
+
+    @Test func directoryListingRequiresARecordedGesture() async throws {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("cmux-page-directory-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        model.workspaceRoots = { [root.path] }
+        model.transport.homeFolder = root.path
+        let (router, _) = router(model)
+        let reply = await call(router, "cmux.agent.project.listDirectory", ["path": .string(root.path)])
+        #expect(reply["t"]?.stringValue == "err")
+        #expect(reply["code"]?.stringValue == AgentPaneTransportError.gestureRequired.rawValue)
+    }
+
     @Test func sessionPersistRecordsTheSession() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         let (router, _) = router(model)

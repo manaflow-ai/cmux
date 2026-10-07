@@ -30,7 +30,7 @@ public nonisolated struct AgentPageOps {
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate",
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",
+            "project.list", "project.listDirectory", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",
             "quick.dismiss", "quick.openInWindow", "pane.action", "pane.tabState",
             "shell.run", "shell.read", "shell.stop",
             "git.diff", "git.status", "file.search", "git.checkpoint.diff", "turn.undo",
