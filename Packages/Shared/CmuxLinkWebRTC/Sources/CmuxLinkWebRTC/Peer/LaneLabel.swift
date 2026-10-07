@@ -5,6 +5,8 @@ public import CmuxLink
 /// own control channel is `cmux/1 ctl`.
 public struct LaneLabel: Sendable, Hashable {
     public static let control = "cmux/1 ctl"
+    /// The V2 underlay's single datagram channel (b3-webrtc-wg.md).
+    public static let datagram = "wg"
     static let prefix = "cmux/1"
 
     public let lane: TransportLane

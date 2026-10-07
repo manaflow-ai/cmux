@@ -1,4 +1,5 @@
 import CmuxLink
+import CmuxLinkSignaling
 @_spi(Testing) import CmuxLinkWebRTC
 import CmuxMobileWire
 import Foundation
@@ -30,7 +31,7 @@ struct SignalingTests {
     @Test("auth rides offer and answer bodies as base64")
     func authRoundTrip() throws {
         let auth = SignalAuth(key: Data(repeating: 4, count: 65), signature: Data(repeating: 9, count: 64))
-        for payload in [SignalPayload.offer(sdp: "v=0", iceRestart: true, auth: auth), .answer(sdp: "v=0", auth: auth)] {
+        for payload in [SignalPayload.offer(sdp: "v=0", iceRestart: true, carrier: .webrtc, auth: auth), .answer(sdp: "v=0", auth: auth)] {
             let message = SignalMessage(session: "sess_Ab12", to: "h_mac1A2b", payload: payload)
             let frame = codec.frame(for: message)
             guard case let .object(fields)? = frame.body["auth"] else {
@@ -42,10 +43,18 @@ struct SignalingTests {
         }
     }
 
-    @Test("a frame for another carrier or with a bad body is ignored")
-    func rejectsForeignFrames() {
+    @Test("offers name their carrier; unknown carriers and bad bodies are ignored")
+    func carriers() {
         let wg = SignalFrame(kind: .offer, session: "sess_Ab12", to: "h", body: ["sdp": .string("v=0"), "carrier": .string("webrtc-wg")])
-        #expect(codec.message(from: wg) == nil)
+        guard case let .offer(_, _, carrier, _)? = codec.message(from: wg)?.payload else {
+            Issue.record("wg offer did not decode")
+            return
+        }
+        #expect(carrier == .webrtcWireGuard)
+        let legacy = SignalFrame(kind: .offer, session: "sess_Ab12", to: "h", body: ["sdp": .string("v=0")])
+        if case let .offer(_, _, carrier, _)? = codec.message(from: legacy)?.payload { #expect(carrier == .webrtc) }
+        let sfu = SignalFrame(kind: .offer, session: "sess_Ab12", to: "h", body: ["sdp": .string("v=0"), "carrier": .string("sfu")])
+        #expect(codec.message(from: sfu) == nil)
         let bye = SignalFrame(kind: .bye, session: "sess_Ab12", to: "h", body: ["reason": .string("bored")])
         #expect(codec.message(from: bye) == nil)
     }
@@ -78,25 +87,31 @@ struct SignalingTests {
         let phone = hub.endpoint(id: "in_phone")
         let router = SignalRouter(channel: hub.endpoint(id: "h_mac"))
         let mine = await router.register("sess_mine")
-        let offer = SignalMessage(session: "sess_new", to: "h_mac", payload: .offer(sdp: "v=0", iceRestart: false, auth: nil))
+        let newSessions = await router.newSessions(for: .webrtc)
+        let wgSessions = await router.newSessions(for: .webrtcWireGuard)
+        let offer = SignalMessage(session: "sess_new", to: "h_mac", payload: .offer(sdp: "v=0", iceRestart: false, carrier: .webrtc, auth: nil))
         let candidate = SignalMessage(session: "sess_new", to: "h_mac", payload: .ice(ICECandidateInit(candidate: "candidate:1", sdpMid: "0", sdpMLineIndex: 0)))
         // Unknown session without an offer: dropped, never queued.
         try await phone.send(SignalMessage(session: "sess_stray", to: "h_mac", payload: .iceEnd))
         try await phone.send(SignalMessage(session: "sess_mine", to: "h_mac", payload: .iceEnd))
         try await phone.send(offer)
         try await phone.send(candidate)
+        let wgOffer = SignalMessage(session: "sess_wg", to: "h_mac", payload: .offer(sdp: "v=0", iceRestart: false, carrier: .webrtcWireGuard, auth: nil))
+        try await phone.send(wgOffer)
 
         var mineIterator = mine.makeAsyncIterator()
         #expect(await mineIterator.next()?.payload == .iceEnd)
-        var sessions = router.newSessions.makeAsyncIterator()
+        var sessions = newSessions.makeAsyncIterator()
         let incoming = try #require(await sessions.next())
         #expect(incoming.session == "sess_new")
         var inbox = incoming.inbox.makeAsyncIterator()
         #expect(await inbox.next()?.payload == offer.payload)
         #expect(await inbox.next()?.payload == candidate.payload)
-        #expect(await router.liveSessions == 2)
+        var wgIterator = wgSessions.makeAsyncIterator()
+        #expect(await wgIterator.next()?.session == "sess_wg")
+        #expect(await router.liveSessions == 3)
         await router.unregister("sess_new")
-        #expect(await router.liveSessions == 1)
+        #expect(await router.liveSessions == 2)
     }
 
     @Test("the raw-frame channel decodes relayed frames and never sends from")

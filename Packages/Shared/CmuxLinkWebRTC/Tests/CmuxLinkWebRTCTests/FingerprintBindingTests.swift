@@ -1,4 +1,5 @@
 import CmuxLink
+import CmuxLinkSignaling
 @_spi(Testing) import CmuxLinkWebRTC
 import Foundation
 import Testing
@@ -126,12 +127,12 @@ struct FingerprintBindingTests {
         let incoming = pair.acceptor.incoming
         let watcher = Task { for await _ in incoming { accepted.record() } }
         pair.hub.setInterceptor { message in
-            guard case let .offer(sdp, restart, auth) = message.payload else { return message }
+            guard case let .offer(sdp, restart, carrier, auth) = message.payload else { return message }
             var forged = message
             let rewritten = sdp.replacingOccurrences(
                 of: #"a=fingerprint:sha-256 [0-9A-F:]+"#, with: "a=fingerprint:sha-256 \(Self.fp2)", options: .regularExpression
             )
-            forged.payload = .offer(sdp: rewritten, iceRestart: restart, auth: auth)
+            forged.payload = .offer(sdp: rewritten, iceRestart: restart, carrier: carrier, auth: auth)
             return forged
         }
         await #expect(throws: WebRTCCarrierError.self) {

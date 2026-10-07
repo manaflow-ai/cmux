@@ -8,6 +8,8 @@ import os
 final class WebRTCRemoteVideoTrack: WebRTCMediaBacking, @unchecked Sendable {
     private let track: RTCVideoTrack
     private let states = MediaTrackStates()
+    // carve-out: renderer adapters are libwebrtc objects; never held while
+    // calling into libwebrtc.
     private let renderers = OSAllocatedUnfairLock(uncheckedState: [ObjectIdentifier: VideoRendererAdapter]())
 
     init(track: RTCVideoTrack) {

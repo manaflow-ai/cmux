@@ -1,25 +1,22 @@
+public import CmuxLinkSignaling
 public import CmuxMobileWire
+import CmuxLink
 import Foundation
 
 /// Maps `SignalMessage` to and from the `cmux.mobile/1` `signal` frame
-/// (`families/signal.schema.json`). The carrier name is fixed per codec.
+/// (`families/signal.schema.json`).
 public struct SignalFrameCodec: Sendable {
-    /// `offer.carrier`: `webrtc` (V1) or `webrtc-wg` (V2).
-    public var carrier: String
-
-    public init(carrier: String = "webrtc") {
-        self.carrier = carrier
-    }
+    public init() {}
 
     public func frame(for message: SignalMessage) -> SignalFrame {
         let kind: SignalKind
         var body: [String: JSONValue] = [:]
         switch message.payload {
-        case let .offer(sdp, iceRestart, auth):
+        case let .offer(sdp, iceRestart, carrier, auth):
             kind = .offer
             body["sdp"] = .string(sdp)
             body["ice_restart"] = .bool(iceRestart)
-            body["carrier"] = .string(carrier)
+            body["carrier"] = .string(carrier.rawValue)
             if let auth { body["auth"] = Self.encode(auth) }
         case let .answer(sdp, auth):
             kind = .answer
@@ -48,8 +45,12 @@ public struct SignalFrameCodec: Sendable {
             guard case let .string(sdp)? = body["sdp"] else { return nil }
             var iceRestart = false
             if case let .bool(flag)? = body["ice_restart"] { iceRestart = flag }
-            if case let .string(name)? = body["carrier"], name != carrier { return nil }
-            payload = .offer(sdp: sdp, iceRestart: iceRestart, auth: Self.decodeAuth(body["auth"]))
+            var carrier = CarrierKind.webrtc
+            if case let .string(name)? = body["carrier"] {
+                guard name == CarrierKind.webrtc.rawValue || name == CarrierKind.webrtcWireGuard.rawValue else { return nil }
+                carrier = CarrierKind(rawValue: name)
+            }
+            payload = .offer(sdp: sdp, iceRestart: iceRestart, carrier: carrier, auth: Self.decodeAuth(body["auth"]))
         case .answer:
             guard case let .string(sdp)? = body["sdp"] else { return nil }
             payload = .answer(sdp: sdp, auth: Self.decodeAuth(body["auth"]))

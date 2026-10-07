@@ -11,6 +11,7 @@ public final class WebRTCFaultInjector: Sendable {
         var pathOverride: PathKind?
     }
 
+    // carve-out: test hook registry, read synchronously at connection init.
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     public init() {}
@@ -33,6 +34,13 @@ public final class WebRTCFaultInjector: Sendable {
     public func dropAll() async {
         let connections = state.withLock { Array($0.live.values) }
         for connection in connections { await connection.abort() }
+    }
+
+    /// Ends every live peer connection and tells each peer with `bye` (the
+    /// peer is gone: datagram channels see `reset` on both ends).
+    public func resetAll() async {
+        let connections = state.withLock { Array($0.live.values) }
+        for connection in connections { await connection.abort(sendBye: true) }
     }
 
     /// Moves live transports to `kind` without dropping them (what the

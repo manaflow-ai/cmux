@@ -1,4 +1,5 @@
 public import CmuxLink
+public import CmuxLinkSignaling
 import Foundation
 import os
 
@@ -15,6 +16,8 @@ public final class WebRTCAcceptor: LinkAcceptor {
     private let authorizer: any WebRTCAuthorizer
     private let configuration: WebRTCConfiguration
     private let injector: WebRTCFaultInjector?
+    // carve-out: start/stop guard and the live set are touched from synchronous
+    // finish callbacks; neither is held across an await.
     private let runner = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     private let live = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: WebRTCConnection]())
 
@@ -27,6 +30,20 @@ public final class WebRTCAcceptor: LinkAcceptor {
         configuration: WebRTCConfiguration = WebRTCConfiguration()
     ) {
         self.init(router: SignalRouter(channel: signaling), iceServers: iceServers, identity: identity,
+                  hostID: hostID, authorizer: authorizer, configuration: configuration, injector: nil)
+    }
+
+    /// Shares the host socket's router with the V2 underlay listener (one
+    /// `SignalFrameChannel` per host socket, offers routed by carrier).
+    public convenience init(
+        router: SignalRouter,
+        iceServers: any ICEServerProvider,
+        identity: any WebRTCIdentity,
+        hostID: String,
+        authorizer: any WebRTCAuthorizer,
+        configuration: WebRTCConfiguration = WebRTCConfiguration()
+    ) {
+        self.init(router: router, iceServers: iceServers, identity: identity,
                   hostID: hostID, authorizer: authorizer, configuration: configuration, injector: nil)
     }
 
@@ -54,8 +71,7 @@ public final class WebRTCAcceptor: LinkAcceptor {
     public func start() async {
         let alreadyRunning = runner.withLock { $0 != nil }
         guard !alreadyRunning else { return }
-        await router.start()
-        let sessions = router.newSessions
+        let sessions = await router.newSessions(for: .webrtc)
         let task = Task { [weak self] in
             for await incoming in sessions {
                 guard let self else { return }

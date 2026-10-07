@@ -1,3 +1,4 @@
+import CmuxLinkSignaling
 import CmuxLink
 import Foundation
 @preconcurrency import WebRTC
@@ -33,6 +34,7 @@ actor WebRTCConnection {
     private var live = false
     private var liveWaiter: CheckedContinuation<Void, any Error>?
     private(set) var finished = false
+    private(set) var endKind: WebRTCEndKind = .open
     private var pathKind: PathKind = .p2p
     private var forcedPath: PathKind?
     private var connectTimer: Task<Void, Never>?
@@ -73,7 +75,7 @@ actor WebRTCConnection {
 
     /// Dialer: offers and waits for an authenticated, open control channel.
     func dial() async throws {
-        try peer.createControlChannel()
+        try peer.createPrimaryChannel()
         startLoops()
         startConnectTimer()
         do {
@@ -150,8 +152,11 @@ actor WebRTCConnection {
         finish(.local, bye: .closed)
     }
 
+    /// Whether descriptions carry and require fingerprint bindings.
+    private var authenticated: Bool { context.identity != nil }
+
     private func checkLive() async {
-        guard !live, !finished, controlOpen, initialNegotiationDone, remoteKey != nil else { return }
+        guard !live, !finished, controlOpen, initialNegotiationDone, remoteKey != nil || !authenticated else { return }
         if let stats = await peer.selectedPairStats() {
             pathKind = CandidatePairClassifier().kind(local: stats.local, remote: stats.remote)
             if let rtt = stats.rtt { peer.frameSink.yield(.rtt(rtt)) }
@@ -171,7 +176,7 @@ actor WebRTCConnection {
     private func handle(_ message: SignalMessage) async {
         guard !finished else { return }
         switch message.payload {
-        case let .offer(sdp, _, auth):
+        case let .offer(sdp, _, _, auth):
             if !initialNegotiationDone, case let .host(authorizer) = role {
                 await acceptInitialOffer(sdp: sdp, auth: auth, from: message.from, authorizer: authorizer)
             } else {
@@ -188,25 +193,29 @@ actor WebRTCConnection {
         case .iceEnd:
             break
         case let .bye(reason):
+            endKind = .reset
             finish(.pathLost("peer said bye: \(reason.rawValue)"), bye: nil)
         }
     }
 
-    private func acceptInitialOffer(sdp: String, auth: SignalAuth?, from: String?, authorizer: any WebRTCAuthorizer) async {
+    private func acceptInitialOffer(sdp: String, auth: SignalAuth?, from: String?, authorizer: (any WebRTCAuthorizer)?) async {
         if let from { remoteTarget = from }
         remoteInstall = from
-        let key: WebRTCPublicKey
         let offerFingerprint: DTLSFingerprint
         do {
             guard let fingerprint = DTLSFingerprint(sdp: sdp) else { throw WebRTCAuthError.badFingerprint }
             offerFingerprint = fingerprint
-            key = try binding(.offer, fingerprint: fingerprint).verify(auth)
-            guard await authorizer.authorize(device: key, install: from) else { throw WebRTCAuthError.unauthorizedDevice }
+            if authenticated {
+                let key = try binding(.offer, fingerprint: fingerprint).verify(auth)
+                guard let authorizer, await authorizer.authorize(device: key, install: from) else {
+                    throw WebRTCAuthError.unauthorizedDevice
+                }
+                remoteKey = key
+            }
         } catch {
             finish(.pathLost("offer refused: \(error)"), bye: .revoked)
             return
         }
-        remoteKey = key
         do {
             try await peer.setRemote(sdp, type: .offer)
             await remoteDescriptionApplied()
@@ -226,8 +235,10 @@ actor WebRTCConnection {
         guard initialNegotiationDone else { return }
         do {
             guard let fingerprint = DTLSFingerprint(sdp: sdp) else { throw WebRTCAuthError.badFingerprint }
-            let key = try binding(.offer, fingerprint: fingerprint).verify(auth)
-            guard key == remoteKey else { throw WebRTCAuthError.wrongHostKey }
+            if authenticated {
+                let key = try binding(.offer, fingerprint: fingerprint).verify(auth)
+                guard key == remoteKey else { throw WebRTCAuthError.wrongHostKey }
+            }
             // The dialer is polite: implicit rollback drops its own pending offer.
             try await peer.setRemote(sdp, type: .offer)
             await remoteDescriptionApplied()
@@ -246,9 +257,11 @@ actor WebRTCConnection {
         guard peer.signalingState == .haveLocalOffer, let ourOfferFingerprint else { return }
         do {
             guard let fingerprint = DTLSFingerprint(sdp: sdp) else { throw WebRTCAuthError.badFingerprint }
-            let key = try binding(.answer, fingerprint: fingerprint, offerFingerprint: ourOfferFingerprint).verify(auth)
-            guard key == remoteKey else {
-                throw role.isDialer ? WebRTCAuthError.wrongHostKey : WebRTCAuthError.unauthorizedDevice
+            if authenticated {
+                let key = try binding(.answer, fingerprint: fingerprint, offerFingerprint: ourOfferFingerprint).verify(auth)
+                guard key == remoteKey else {
+                    throw role.isDialer ? WebRTCAuthError.wrongHostKey : WebRTCAuthError.unauthorizedDevice
+                }
             }
             try await peer.setRemote(sdp, type: .answer)
             await remoteDescriptionApplied()
@@ -288,16 +301,19 @@ actor WebRTCConnection {
         let sdp = try await peer.makeOffer()
         guard let fingerprint = DTLSFingerprint(sdp: sdp) else { throw WebRTCAuthError.badFingerprint }
         ourOfferFingerprint = fingerprint
-        let auth = try binding(.offer, fingerprint: fingerprint).sign(with: context.identity)
+        let auth = try context.identity.map { try binding(.offer, fingerprint: fingerprint).sign(with: $0) }
         try await context.signaling.send(SignalMessage(
-            session: context.session, to: remoteTarget, payload: .offer(sdp: sdp, iceRestart: iceRestart, auth: auth)
+            session: context.session, to: remoteTarget,
+            payload: .offer(sdp: sdp, iceRestart: iceRestart, carrier: peer.mode.carrier, auth: auth)
         ))
     }
 
     private func answer(offerFingerprint: DTLSFingerprint) async throws {
         let sdp = try await peer.makeAnswer()
         guard let fingerprint = DTLSFingerprint(sdp: sdp) else { throw WebRTCAuthError.badFingerprint }
-        let auth = try binding(.answer, fingerprint: fingerprint, offerFingerprint: offerFingerprint).sign(with: context.identity)
+        let auth = try context.identity.map {
+            try binding(.answer, fingerprint: fingerprint, offerFingerprint: offerFingerprint).sign(with: $0)
+        }
         try await context.signaling.send(SignalMessage(
             session: context.session, to: remoteTarget, payload: .answer(sdp: sdp, auth: auth)
         ))
@@ -490,7 +506,9 @@ actor WebRTCConnection {
     func close() async {
         guard !finished else { return }
         guard live, finAckWaiter == nil, peer.sendControl(.fin(counts: peer.sentCounts)) else {
-            finish(.local, bye: live ? nil : .closed)
+            // No close handshake (not live yet, or the datagram underlay):
+            // `bye` tells the peer it is gone.
+            finish(.local, bye: .closed)
             return
         }
         let clock = context.configuration.clock
@@ -509,9 +527,12 @@ actor WebRTCConnection {
         finAckWaiter = nil
     }
 
-    /// Test hook: kills the peer connection without a close handshake.
-    func abort() {
-        finish(.pathLost("dropped"), bye: nil)
+    /// Test hook: kills the peer connection without a close handshake. With
+    /// `bye` the peer learns it is gone (`reset`); without, it sees the path
+    /// die.
+    func abort(sendBye: Bool = false) {
+        if sendBye { endKind = .reset }
+        finish(.pathLost("dropped"), bye: sendBye ? .closed : nil)
     }
 
     /// Ends the connection once: emits `.closed`, fails a pending connect,
@@ -519,6 +540,13 @@ actor WebRTCConnection {
     func finish(_ reason: TransportCloseReason, bye: SignalByeReason?, closePeer: Bool = true) {
         guard !finished else { return }
         finished = true
+        if endKind == .open {
+            switch reason {
+            case .local: endKind = .local
+            case .remote: endKind = .remote
+            case .pathLost: endKind = .pathLost
+            }
+        }
         connectTimer?.cancel()
         connectTimer = nil
         for timer in timers.values { timer.cancel() }

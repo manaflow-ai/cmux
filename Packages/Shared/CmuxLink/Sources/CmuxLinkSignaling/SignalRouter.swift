@@ -1,8 +1,11 @@
+public import CmuxLink
+
 /// Demultiplexes one install's signals by session (b2-webrtc.md section 4).
 /// It reads the channel's `incoming` once; each live session gets its own
 /// inbox, and an `offer` for an unknown session opens a new inbox delivered
-/// on `newSessions` (the acceptor's queue). Other messages for unknown
-/// sessions are dropped: signals are ephemeral and never queue.
+/// to the acceptor of the offer's carrier (`newSessions(for:)`), so V1 and
+/// V2 share one host socket. Other messages for unknown sessions, and offers
+/// for a carrier nobody accepts, are dropped: signals never queue.
 public actor SignalRouter {
     /// A session someone else started: its inbox starts with the offer.
     public struct Incoming: Sendable {
@@ -11,14 +14,22 @@ public actor SignalRouter {
     }
 
     public nonisolated let channel: any SignalingChannel
-    public nonisolated let newSessions: AsyncStream<Incoming>
-    private let newSessionSink: AsyncStream<Incoming>.Continuation
+    private var acceptors: [CarrierKind: AsyncStream<Incoming>.Continuation] = [:]
     private var inboxes: [String: AsyncStream<SignalMessage>.Continuation] = [:]
     private var reader: Task<Void, Never>?
 
     public init(channel: any SignalingChannel) {
         self.channel = channel
-        (newSessions, newSessionSink) = AsyncStream.makeStream(of: Incoming.self, bufferingPolicy: .bufferingNewest(64))
+    }
+
+    /// Offers for `carrier` that start a new session. One acceptor per
+    /// carrier; a second call replaces the first.
+    public func newSessions(for carrier: CarrierKind) -> AsyncStream<Incoming> {
+        start()
+        let (stream, sink) = AsyncStream.makeStream(of: Incoming.self, bufferingPolicy: .bufferingNewest(64))
+        acceptors[carrier]?.finish()
+        acceptors[carrier] = sink
+        return stream
     }
 
     /// Starts reading the channel (idempotent).
@@ -54,17 +65,18 @@ public actor SignalRouter {
             sink.yield(message)
             return
         }
-        guard case .offer = message.payload else { return }
+        guard case let .offer(_, _, carrier, _) = message.payload, let acceptor = acceptors[carrier] else { return }
         let (stream, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .unbounded)
         inboxes[message.session] = sink
         sink.yield(message)
-        newSessionSink.yield(Incoming(session: message.session, inbox: stream))
+        acceptor.yield(Incoming(session: message.session, inbox: stream))
     }
 
     private func finishAll() {
         for sink in inboxes.values { sink.finish() }
         inboxes = [:]
-        newSessionSink.finish()
+        for sink in acceptors.values { sink.finish() }
+        acceptors = [:]
     }
 
     public func stop() {

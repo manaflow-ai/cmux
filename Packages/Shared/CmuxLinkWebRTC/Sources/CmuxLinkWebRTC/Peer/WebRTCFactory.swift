@@ -3,6 +3,7 @@
 /// The process-wide libwebrtc factory per network mode. libwebrtc factories
 /// own threads; one per mode is shared by every peer connection.
 final class WebRTCFactory: @unchecked Sendable {
+    // lint:allow singleton: libwebrtc factories own their threads; one per mode per process.
     private static let standard = WebRTCFactory(loopback: false)
     private static let loopback = WebRTCFactory(loopback: true)
 

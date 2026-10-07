@@ -25,8 +25,12 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         var closeOnControlClose = false
     }
 
+    // carve-out: libwebrtc calls the delegates synchronously on its own
+    // threads (frames must keep callback order with no actor hop); the lock
+    // is never held while calling into libwebrtc (see the data path note).
     let state = OSAllocatedUnfairLock(uncheckedState: State())
     let factory: WebRTCFactory
+    let mode: PeerMode
     /// Driver events.
     let events: AsyncStream<PeerEvent>
     let eventSink: AsyncStream<PeerEvent>.Continuation
@@ -35,11 +39,13 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
 
     init(
         factory: WebRTCFactory,
+        mode: PeerMode = .lanes,
         ice: ICEConfiguration,
         lowWater: UInt64,
         frameSink: AsyncStream<TransportEvent>.Continuation
     ) throws {
         self.factory = factory
+        self.mode = mode
         self.frameSink = frameSink
         (events, eventSink) = AsyncStream.makeStream(of: PeerEvent.self, bufferingPolicy: .unbounded)
         super.init()
@@ -63,12 +69,19 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     // objects proxy calls to the signaling or network thread and wait, and
     // those threads take `state` in the delegate callbacks.
 
-    /// Creates the carrier control channel (the dialer, before its offer).
-    func createControlChannel() throws {
+    /// Creates the primary channel (the dialer, before its offer): `ctl`
+    /// for lanes, `wg` for datagrams.
+    func createPrimaryChannel() throws {
         guard let connection, !isClosed else { throw WebRTCPeerError.closed }
         let configuration = RTCDataChannelConfiguration()
-        configuration.isOrdered = true
-        guard let channel = connection.dataChannel(forLabel: LaneLabel.control, configuration: configuration) else {
+        switch mode {
+        case .lanes:
+            configuration.isOrdered = true
+        case .datagram:
+            configuration.isOrdered = false
+            configuration.maxRetransmits = 0
+        }
+        guard let channel = connection.dataChannel(forLabel: mode.primaryLabel, configuration: configuration) else {
             throw WebRTCPeerError.channelUnavailable
         }
         channel.delegate = self
@@ -101,12 +114,28 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     }
 
     func sendControl(_ message: CarrierControlMessage) -> Bool {
-        guard let control = state.withLockUnchecked({ $0.closed ? nil : $0.control }),
+        guard mode == .lanes, let control = state.withLockUnchecked({ $0.closed ? nil : $0.control }),
               control.readyState == .open else { return false }
         return control.sendData(RTCDataBuffer(data: message.data, isBinary: false))
     }
 
     var sentCounts: [String: Int] { state.withLockUnchecked { $0.sentCounts } }
+
+    /// Datagram mode: one message on `wg`, suspending while its buffer is
+    /// above `highWater` (b3-webrtc-wg.md `DatagramUnderlay.send`).
+    func sendDatagram(_ datagram: Data, highWater: UInt64) async throws {
+        guard mode == .datagram, let channel = state.withLockUnchecked({ $0.closed ? nil : $0.control }) else {
+            throw WebRTCPeerError.closed
+        }
+        try await waitOpen(channel)
+        while channel.bufferedAmount > highWater {
+            try await waitDrain(channel)
+        }
+        guard !isClosed else { throw WebRTCPeerError.closed }
+        guard channel.sendData(RTCDataBuffer(data: datagram, isBinary: true)) else {
+            throw isClosed ? WebRTCPeerError.closed : WebRTCPeerError.sendFailed
+        }
+    }
 
     /// Records the peer's `fin`; reports `.finSatisfied` once every lane has
     /// delivered the announced count.
@@ -219,8 +248,8 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     // MARK: Callbacks from the delegates
 
     func registerRemote(_ channel: RTCDataChannel) {
-        let isControl = channel.label == LaneLabel.control
-        let label = isControl ? nil : LaneLabel(label: channel.label)
+        let isControl = channel.label == mode.primaryLabel
+        let label = isControl || mode == .datagram ? nil : LaneLabel(label: channel.label)
         guard isControl || label != nil else {
             channel.close()
             return
@@ -286,6 +315,8 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         guard let entry else { return }
         if let label = entry.label {
             frameSink.yield(.frame(TransportFrame(lane: label.lane, bytes: data)))
+        } else if mode == .datagram {
+            frameSink.yield(.frame(TransportFrame(lane: PeerMode.datagramLane, bytes: data)))
         } else if let message = CarrierControlMessage(data: data) {
             eventSink.yield(.control(message))
         }
@@ -325,6 +356,8 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         Self.teardownQueue.async { teardown.run() }
     }
 
+    // carve-out justification: libwebrtc teardown blocks on its threads and must
+    // not run on the cooperative pool.
     private static let teardownQueue = DispatchQueue(label: "dev.cmux.link.webrtc.teardown")
 
     /// Carries libwebrtc objects to the teardown queue.

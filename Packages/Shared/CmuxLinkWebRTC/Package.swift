@@ -10,11 +10,14 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "CmuxLinkWebRTC", targets: ["CmuxLinkWebRTC"]),
+        // B3's DatagramUnderlay on a WebRTC `wg` data channel (V2 underlay).
+        .library(name: "CmuxLinkWebRTCUnderlay", targets: ["CmuxLinkWebRTCUnderlay"]),
     ],
     dependencies: [
         .package(path: "../CmuxLink"),
         .package(path: "../CmuxControlPlane"),
         .package(path: "../CmuxMobileWire"),
+        .package(path: "../CmuxLinkWG"),
     ],
     targets: [
         // Google libwebrtc M154, prebuilt by stasel/WebRTC (iOS, iOS simulator,
@@ -30,16 +33,29 @@ let package = Package(
             dependencies: [
                 "WebRTC",
                 .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ]
+        ),
+        .target(
+            name: "CmuxLinkWebRTCUnderlay",
+            dependencies: [
+                "CmuxLinkWebRTC",
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkWG", package: "CmuxLinkWG"),
             ]
         ),
         .testTarget(
             name: "CmuxLinkWebRTCTests",
             dependencies: [
                 "CmuxLinkWebRTC",
+                "CmuxLinkWebRTCUnderlay",
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+                .product(name: "CmuxLinkWG", package: "CmuxLinkWG"),
+                .product(name: "CmuxLinkWGTesting", package: "CmuxLinkWG"),
+                .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ]
         ),

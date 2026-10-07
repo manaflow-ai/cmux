@@ -166,10 +166,8 @@ public protocol DatagramUnderlay: Sendable {
 }
 public protocol DatagramUnderlayDialer: Sendable { func open(to peer: LinkPeer) async throws -> any DatagramUnderlay }
 public protocol DatagramUnderlayListener: Sendable { var incoming: AsyncStream<any DatagramUnderlay> { get } }
-public protocol SignalingChannel: Sendable {       // B1 signal frames; B2 implements on CmuxControlPlane
-    func send(_ message: SignalingMessage) async throws
-    func messages() -> AsyncStream<SignalingMessage>
-}
+// Signaling is CmuxLink's `CmuxLinkSignaling` target (shared with B2): typed `SignalMessage`,
+// `SignalingChannel`, `SignalRouter` (offers routed by `carrier`), `InMemorySignalingHub`.
 
 public final class WireGuardOverWebRTCCarrier: LinkCarrier {   // kind .webrtcWireGuard, paths [.p2p, .turn]
     init(identity: WireGuardPrivateKey, installID: String, underlays: any DatagramUnderlayDialer,
@@ -183,16 +181,19 @@ public actor WireGuardLinkTransport: LinkTransport { var remoteKey: WireGuardPub
 ```
 
 `CmuxLinkWGTesting` adds `InMemoryUnderlayNetwork` (seeded loss, duplication, reorder, latency,
-jitter, rate limit; `changePath`, `roam`, `reset`) and `WireGuardConformanceHarness`.
+jitter, rate limit; `changePath`, `roam`, `reset`) and `WireGuardConformanceHarness`, which takes
+any underlay through `UnderlayEndpoints` (dialer, listener, `UnderlayFaults`).
 
-Coordination with B2: B2 had no commits when this landed, so `SignalingChannel` and
-`DatagramUnderlay` are defined here. `SignalingMessage` mirrors B1's `signal {kind, session, to,
-from?, body}` field for field, so B2's control-plane signaling conforms with a field copy. B2's part
-is one adapter: an `RTCPeerConnection` with one data channel `wg` (`ordered: false,
-maxRetransmits: 0`) conforming to `DatagramUnderlay`, its selected candidate pair type mapped to
-`.p2p`/`.turn`, `RTCPeerConnectionState.failed` to `.closed(.pathLost)` and a signaled `bye` to
-`.closed(.reset)`. V1 and V2 then share the peer connection code, the TURN credentials and the
-signaling; only the channel set differs.
+Coordination with B2 (landed): B3 first defined its own `SignalingChannel`; it was reconciled into
+one seam, CmuxLink's `CmuxLinkSignaling` target, whose `SignalPayload` is typed per kind (offer
+`ice_restart`, `carrier`, `auth`; integer `sdp_mline_index`) so it matches B1's frames, which a
+string-valued body could not. B2's `CmuxLinkWebRTCUnderlay` target provides the adapter:
+`WebRTCUnderlayDialer`/`WebRTCUnderlayListener` over B2's `WebRTCDatagramDialer`/`Listener`, one
+`RTCPeerConnection` with one `wg` channel (`ordered: false, maxRetransmits: 0`), offers tagged
+`carrier: webrtc-wg` so one host socket's `SignalRouter` feeds V1 and V2 acceptors. Selected pair
+type maps to `.p2p`/`.turn`, a dead path to `.closed(.pathLost)`, a signaled `bye` to
+`.closed(.reset)`. `WireGuardConformanceHarness` passes 7/7 over that real loopback WebRTC
+(b2-webrtc.md section 10).
 
 ## 8. Media
 

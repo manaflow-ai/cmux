@@ -1,6 +1,7 @@
-/// The signaling seam: the control plane's `signal` frames for one install
-/// (b1-control-do.md section 5). Production uses `ControlPlaneSignaling`;
-/// tests use `InMemorySignalingHub`.
+/// The signaling seam shared by the WebRTC carriers (B2 V1, B3 V2): the
+/// control plane's `signal` frames for one install (b1-control-do.md
+/// section 5). Production uses `CmuxLinkWebRTC.ControlPlaneSignaling` (phone)
+/// or `SignalFrameChannel` (Mac host socket); tests use `InMemorySignalingHub`.
 public protocol SignalingChannel: Sendable {
     /// Sends one message; throws when the control plane is not connected
     /// (nothing queues).

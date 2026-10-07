@@ -1,4 +1,5 @@
 import CmuxLink
+import CmuxLinkSignaling
 @_spi(Testing) import CmuxLinkWebRTC
 import CoreVideo
 import Foundation
@@ -99,16 +100,17 @@ struct TransportTests {
     func iceRestart() async throws {
         let pair = await WebRTCPair()
         let (dialer, host) = try await within { try await pair.connect() }
-        let offers = OSAllocatedUnfairLock(initialState: [Bool]())
+        let (offers, offerSink) = AsyncStream.makeStream(of: Bool.self)
         pair.hub.setInterceptor { message in
-            if case let .offer(_, restart, _) = message.payload { offers.withLock { $0.append(restart) } }
+            if case let .offer(_, restart, _, _) = message.payload { offerSink.yield(restart) }
             return message
         }
         try await dialer.send(TransportFrame(lane: Self.reliable, bytes: Data("before".utf8)))
         await dialer.restartICE()
-        // The restart offer is answered and ICE checks again on new credentials.
-        try await within {
-            while offers.withLock({ $0 }).isEmpty { await Task.yield() }
+        // The restart offer is signaled, answered, and ICE checks again on new credentials.
+        let restartFlag = try await within { () -> Bool? in
+            for await restart in offers { return restart }
+            return nil
         }
         try await dialer.send(TransportFrame(lane: Self.reliable, bytes: Data("after".utf8)))
         let payloads = try await within { () -> [String] in
@@ -120,7 +122,7 @@ struct TransportTests {
             }
             return payloads
         }
-        #expect(offers.withLock { $0 } == [true])
+        #expect(restartFlag == true)
         #expect(payloads == ["before", "after"])
         await dialer.close()
         await pair.stop()

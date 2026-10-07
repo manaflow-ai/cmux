@@ -1,3 +1,4 @@
+public import CmuxLinkSignaling
 public import Foundation
 
 /// The statement each side signs to bind its DTLS fingerprint to its

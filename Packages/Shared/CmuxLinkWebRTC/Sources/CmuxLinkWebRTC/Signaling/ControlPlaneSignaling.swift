@@ -1,3 +1,4 @@
+public import CmuxLinkSignaling
 public import CmuxControlPlane
 import CmuxMobileWire
 import Foundation

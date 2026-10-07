@@ -12,6 +12,7 @@ public final class InMemorySignalingHub: Sendable {
         var relayed = 0
     }
 
+    // carve-out: synchronous routing table read from every endpoint's send.
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     public init() {}

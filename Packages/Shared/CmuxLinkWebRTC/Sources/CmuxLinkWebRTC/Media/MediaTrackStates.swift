@@ -8,6 +8,7 @@ final class MediaTrackStates: Sendable {
         var continuations: [AsyncStream<MediaTrackState>.Continuation] = []
     }
 
+    // carve-out: read synchronously from libwebrtc's renderer callbacks.
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     var current: MediaTrackState { state.withLock { $0.current } }

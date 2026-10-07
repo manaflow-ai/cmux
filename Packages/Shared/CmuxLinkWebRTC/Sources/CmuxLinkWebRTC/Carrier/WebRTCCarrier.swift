@@ -1,4 +1,5 @@
 public import CmuxLink
+public import CmuxLinkSignaling
 import Foundation
 import os
 
@@ -16,6 +17,7 @@ public final class WebRTCCarrier: LinkCarrier {
     private let hostKeys: any WebRTCHostKeyResolver
     private let configuration: WebRTCConfiguration
     private let injector: WebRTCFaultInjector?
+    // carve-out: the live set is updated from a synchronous finish callback.
     private let live = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: WebRTCConnection]())
 
     public convenience init(

@@ -9,10 +9,12 @@ final class SendPacer: Sendable {
         var freeAt: Duration = .zero
     }
 
+    // carve-out: one arithmetic update per send, never held across an await.
     private let state: OSAllocatedUnfairLock<State>
     private let clock: LinkClock
 
     init(bytesPerSecond: Int?, clock: LinkClock) {
+        // carve-out: see above.
         state = OSAllocatedUnfairLock(initialState: State(bytesPerSecond: bytesPerSecond))
         self.clock = clock
     }

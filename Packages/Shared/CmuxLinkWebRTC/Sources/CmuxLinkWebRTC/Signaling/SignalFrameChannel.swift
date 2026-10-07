@@ -1,3 +1,4 @@
+public import CmuxLinkSignaling
 public import CmuxMobileWire
 import Foundation
 
