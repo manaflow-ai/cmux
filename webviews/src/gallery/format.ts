@@ -14,6 +14,7 @@
 import type { ComponentType } from "react";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { WidthName } from "./env";
+import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 
 /** Common to every variant. */
 type VariantBase = {
@@ -21,6 +22,11 @@ type VariantBase = {
   note?: string;
   /** The stage's height in px; else the entry's. */
   height?: number;
+  /**
+   * Steps that drive the mounted page into the variant's state (play.ts): an open menu, a typed
+   * prompt. They run before the stage is ready, in the shell and in the matrix runner alike.
+   */
+  play?: Play;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -85,6 +91,10 @@ type EntryBase<V> = {
   height?: number;
   /** The width presets in px, when the entry's own differ from the host's. */
   widths?: Partial<Record<WidthName, number>>;
+  /** Elements that must not move while a play step acts on something else (play.ts). */
+  anchors?: PlayTarget[];
+  /** Looser play checks than the strict defaults, each with its written reason. */
+  checks?: PlayChecks;
   variants: Record<string, V>;
 };
 
@@ -141,6 +151,7 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     for (const name of variants)
       if (!VARIANT_NAME.test(name)) problems.push(`${entry.id}#${name}: variant names are lower kebab case`);
     if (entry.covers.length === 0) problems.push(`${entry.id}: covers nothing`);
+    for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
   }
   return problems;
 }
