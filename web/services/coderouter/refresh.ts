@@ -115,16 +115,7 @@ export function createCredentialRefresher(
       // refreshed and rotated the token immediately before this lease.
       const current = await dependencies.read(input.teamId, input.accountId, input.signal);
       throwIfAborted(input.signal);
-      // A forced refresh answers a token the provider rejected. If another
-      // request already rotated past that revision, use its token instead of
-      // spending another refresh-token rotation.
-      const rotatedSinceRejection = input.force === true &&
-        input.expectedRevision > 0 &&
-        current.envelope.credentialRevision > input.expectedRevision;
-      if (
-        rotatedSinceRejection ||
-        (!input.force && credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS)
-      ) {
+      if (currentCredentialSuffices(input, current)) {
         await dependencies.release(input.accountId, leaseId, input.signal);
         throwIfAborted(input.signal);
         return current.credential;
@@ -159,29 +150,55 @@ export function createCredentialRefresher(
         await dependencies.release(input.accountId, leaseId, input.signal).catch(() => undefined);
         throw error;
       }
-      const terminal = dependencies.isTerminal(error);
-      const failureCode = dependencies.failureCode(error);
-      // A revoked sign-in (logout, password change, or a refresh token rotated
-      // by another client) is marked broken below and the dashboard asks the
-      // team to reconnect it: the tenant's state to fix, not an operator page.
-      // Other terminal codes, such as `invalid_client`, stay operator errors.
-      (dependencies.report ?? reportCoderouterFailure)("provider_refresh", error, {
-        provider: currentProvider(before.credential),
-        terminal,
-      }, terminal && isRevokedSignInCode(failureCode) ? { fault: "tenant" } : {});
-      await dependencies.fail(
-        input.accountId,
-        leaseId,
-        terminal,
-        failureCode,
-        input.signal,
-      ).catch(() => undefined);
-      if (terminal) {
-        throw new CodeRouterCredentialBroken("provider refresh token is no longer usable", true);
-      }
-      throw error;
+      return await failRefresh(dependencies, input, leaseId, before.credential, error);
     }
   };
+}
+
+/**
+ * Whether the lease winner can return the stored credential without a
+ * provider refresh. A forced refresh answers a token the provider rejected;
+ * if another request already rotated past that revision, its token is used
+ * instead of spending another refresh-token rotation.
+ */
+function currentCredentialSuffices(
+  input: FreshCredentialInput,
+  current: { readonly envelope: EncryptedCredential; readonly credential: CodeRouterCredential },
+): boolean {
+  if (input.force) {
+    return input.expectedRevision > 0 && current.envelope.credentialRevision > input.expectedRevision;
+  }
+  return credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS;
+}
+
+async function failRefresh(
+  dependencies: CredentialRefreshDependencies,
+  input: FreshCredentialInput,
+  leaseId: string,
+  credential: CodeRouterCredential,
+  error: unknown,
+): Promise<never> {
+  const terminal = dependencies.isTerminal(error);
+  const failureCode = dependencies.failureCode(error);
+  // A revoked sign-in (logout, password change, or a refresh token rotated by
+  // another client) is marked broken below and the dashboard asks the team to
+  // reconnect it: the tenant's state to fix, not an operator page. Other
+  // terminal codes, such as `invalid_client`, stay operator errors.
+  (dependencies.report ?? reportCoderouterFailure)("provider_refresh", error, {
+    provider: currentProvider(credential),
+    terminal,
+  }, terminal && isRevokedSignInCode(failureCode) ? { fault: "tenant" } : {});
+  await dependencies.fail(
+    input.accountId,
+    leaseId,
+    terminal,
+    failureCode,
+    input.signal,
+  ).catch(() => undefined);
+  if (terminal) {
+    throw new CodeRouterCredentialBroken("provider refresh token is no longer usable", true);
+  }
+  throw error;
 }
 
 /**
