@@ -34,4 +34,46 @@ import Testing
         #expect(abs(handoff.grabOffset.x - 40) < 0.5, "x \(handoff.grabOffset.x)")
         #expect(abs(handoff.grabOffset.y - (rowFrame.height - 7)) < 0.5, "y \(handoff.grabOffset.y)")
     }
+
+    /// DRAG-SHAPE-INVARIANT: over another sidebar list the handed-off row
+    /// keeps its row shape, drawn from this image; an empty image is an
+    /// invisible drag (nxshape-v1 on cmux-lawrence-2: every pixel alpha 0).
+    @Test func theHandoffImageShowsTheRow() throws {
+        let sidebar = SidebarView(model: SidebarModel(sections: fixture(), activeWorkspaceID: id("a")))
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 700, height: 500), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 500)
+        window.contentView?.addSubview(sidebar)
+        sidebar.layoutSubtreeIfNeeded()
+        let list = sidebar.list
+        list.reload(animated: false)
+        var offer: SidebarDragHandoff?
+        list.onDragHandoff = { offer = $0; return true }
+        let row = try #require(list.displayed.row(for: .workspace(id("b"))))
+        let rowFrame = list.frame(for: row)
+        let pressed = NSPoint(x: rowFrame.minX + 40, y: rowFrame.midY)
+        list.beginDrag(SidebarListView.Press(key: .workspace(id("b")), point: pressed))
+        window.displayIfNeeded()
+        list.updateDrag(windowPoint: list.convert(NSPoint(x: pressed.x + 300, y: pressed.y), to: nil))
+        let image = try #require(offer?.image)
+        #expect(image.width > 0 && image.height > 0)
+        #expect(Self.opaquePixels(image) > image.width * image.height / 4, "the row image is (nearly) empty")
+    }
+
+    /// Pixels with alpha above one half.
+    static func opaquePixels(_ image: CGImage) -> Int {
+        let width = image.width, height = image.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn: Bool = data.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return 0 }
+        return stride(from: 3, to: data.count, by: 4).count { data[$0] > 127 }
+    }
 }
