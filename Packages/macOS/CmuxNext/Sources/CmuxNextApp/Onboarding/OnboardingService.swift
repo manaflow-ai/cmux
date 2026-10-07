@@ -34,7 +34,8 @@ final class OnboardingService {
     /// Whether an open window can show `step`: it already has that step (or
     /// no step was asked for). Otherwise the window is rebuilt for the step.
     static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
-        true
+        guard let step else { return true }
+        return steps.contains(step)
     }
 
     init(services: AppServices) {
@@ -136,9 +137,15 @@ final class OnboardingService {
     /// Opens onboarding at `step` (or brings the open one to that step).
     func show(step: OnboardingModel.Step? = nil) {
         if let controller {
-            if let step { controller.model.go(to: step) }
-            controller.present()
-            return
+            if Self.reusesWindow(showing: controller.model.steps, for: step) {
+                if let step { controller.model.go(to: step) }
+                controller.present()
+                return
+            }
+            // The open window was built without this step (for example the
+            // first run, or a helper that came up since): rebuild it.
+            controller.model.finish(completed: false)
+            self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step)
         let controller = OnboardingWindowController(model: model)
