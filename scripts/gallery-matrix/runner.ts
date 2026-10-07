@@ -17,11 +17,19 @@ export type MatrixCase = {
 };
 export type Engine = "chromium" | "webkit";
 export type DiffResult = { differentPixels: number; totalPixels: number; percentage: number; passed: boolean };
-export type Ledger = { runId: string; createdAt: string; vmIds: string[]; deletedVmIds: string[] };
+export type Ledger = { runId: string; createdAt: string; vmIds: string[]; pausedVmIds?: string[]; deletedVmIds: string[] };
 
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 const DEFAULT_DEVICE_SCALE = 2;
+/** A VM pauses itself after this much network idleness (at most 300 s, coordinator rule
+ * 2026-10-07); the run's own pause by exact id is the primary path. */
+const FREESTYLE_IDLE_SECONDS = 300;
+/** Browsers run only inside a Freestyle VM (or CI), never on a developer laptop. */
+const IN_VM = process.env.CMUX_GALLERY_IN_VM === "1";
+const LEDGER_PATH = "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
+/** Published matrix runs (tailnet, every member): https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix/<run>/ */
+const PUBLISH_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix";
 const engines: Record<Engine, BrowserType> = { chromium, webkit };
 
 export function parseManifest(value: unknown): MatrixCase[] {
@@ -67,6 +75,31 @@ export function readLedger(path: string): Ledger {
   return JSON.parse(readFileSync(path, "utf8")) as Ledger;
 }
 
+/** The ids an earlier run created and neither paused nor deleted (a crash, a failed cleanup). */
+export function undeletedLedgerIds(path: string): string[] {
+  if (!existsSync(path)) return [];
+  const ledger = readLedger(path);
+  return ledger.vmIds.filter((id) => !ledger.deletedVmIds.includes(id) && !(ledger.pausedVmIds ?? []).includes(id));
+}
+
+/** Pauses only IDs already recorded in the ledger, each by its exact id. No list operation. */
+export async function pauseLedgerIds(path: string, pauseExact: (id: string) => Promise<void>): Promise<void> {
+  const ledger = readLedger(path);
+  ledger.pausedVmIds ??= [];
+  let firstError: unknown;
+  for (const id of ledger.vmIds) {
+    if (ledger.pausedVmIds.includes(id) || ledger.deletedVmIds.includes(id)) continue;
+    try {
+      await pauseExact(id);
+      ledger.pausedVmIds.push(id);
+      writeLedger(path, ledger);
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) throw firstError;
+}
+
 export function writeLedger(path: string, ledger: Ledger): void {
   writeFileSync(path, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 });
 }
@@ -103,7 +136,7 @@ function queryUrl(pathOrUrl: string, params: Record<string, Scalar> | undefined)
 function safeFilePart(value: string): string { return value.replace(/[^A-Za-z0-9._-]+/g, "_"); }
 
 async function serveDirectory(root: string): Promise<{ baseUrl: string; close: () => void }> {
-  const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2" };
+  const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".woff": "font/woff", ".ttf": "font/ttf", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2" };
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
@@ -123,16 +156,23 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
   const height = Number(params.height ?? DEFAULT_HEIGHT);
   const browser = await engines[engine].launch({ headless: true });
   try {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined });
+    const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
+    // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
     const page = await context.newPage();
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
     await page.goto(url, { waitUntil: "networkidle" });
+    // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
+    const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
+    // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
+    if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready };
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
       if (existsSync(baselinePath)) {
@@ -150,7 +190,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
 
 function renderIndex(results: Record<string, unknown>[]): string {
   const data = JSON.stringify(results).replace(/</g, "\\u003c");
-  return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>component <select data-filter="component"><option value="">all</option></select></label><label>state <select data-filter="state"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+'</article>'}).join('')}render();</script>`;
+  return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+'</article>'}).join('')}render();</script>`;
 }
 
 async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number }): Promise<Record<string, unknown>[]> {
@@ -160,10 +200,23 @@ async function runLocal(args: { manifest: string; galleryDir: string; outputDir:
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
   try {
     const results: Record<string, unknown>[] = [];
-    for (const item of selected) for (const engine of args.engines) results.push(await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold));
+    for (const item of selected)
+      for (const engine of args.engines) {
+        const started = Date.now();
+        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold);
+        console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
+        results.push(result);
+      }
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
     await writeFile(join(args.outputDir, "index.html"), renderIndex(results));
     if (results.some((r) => (r.diff as DiffResult | undefined)?.passed === false)) process.exitCode = 1;
+    // A gallery stage that never reported ready (or failed to mount) is a failed case, not a picture.
+    const isStage = (r: Record<string, unknown>) => selected.some((item) => item.id === r.id && item.path_or_url.startsWith("frame.html"));
+    const unready = results.filter((r) => isStage(r) && r.ready !== "1");
+    if (unready.length) {
+      console.error(`gallery matrix: ${unready.length} case(s) not ready: ${unready.slice(0, 5).map((r) => r.id).join(", ")}`);
+      process.exitCode = 1;
+    }
     return results;
   } finally { server?.close(); }
 }
@@ -172,25 +225,31 @@ function shellQuote(value: string): string { return `'${value.replaceAll("'", "'
 
 async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
   const { Freestyle } = await import("freestyle");
+  // The key is read from its file and only ever sent to the Freestyle API; never printed or logged.
   const key = readFileSync(args.keyFile, "utf8").trim();
   if (!key) throw new Error("Freestyle key file is empty");
   const client = new Freestyle({ apiKey: key, baseUrl: args.apiUrl ?? "https://beta-api.freestyle.sh" });
   const cases = parseManifest(JSON.parse(await readFile(args.manifest, "utf8")));
   const runId = `gallery-${randomUUID().slice(0, 8)}`;
-  const ledgerPath = resolve("/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json");
-  await mkdir(resolve("/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery"), { recursive: true });
-  const ledger: Ledger = { runId, createdAt: new Date().toISOString(), vmIds: [], deletedVmIds: [] };
+  // The shared Freestyle account holds other cmux work: VMs are created and deleted ONLY by the
+  // exact ids this ledger records. Never delete from a list call, by name or by a prefix match.
+  const ledgerPath = resolve(LEDGER_PATH);
+  await mkdir(dirname(ledgerPath), { recursive: true });
+  const leftover = undeletedLedgerIds(ledgerPath);
+  if (leftover.length) throw new Error(`the ledger still holds ${leftover.length} undeleted VM id(s) from run ${readLedger(ledgerPath).runId}; run with --freestyle-cleanup first`);
+  const ledger: Ledger = { runId, createdAt: new Date().toISOString(), vmIds: [], pausedVmIds: [], deletedVmIds: [] };
   writeLedger(ledgerPath, ledger);
   const vms: Array<{ id: string; vm: any; shard: number }> = [];
   let interrupted = false;
   const onSignal = () => { interrupted = true; };
   process.once("SIGINT", onSignal); process.once("SIGTERM", onSignal);
-  const deleteExact = async (id: string) => { const handle = vms.find((entry) => entry.id === id)?.vm; if (handle) await handle.delete(); else await fetch(`${args.apiUrl ?? "https://beta-api.freestyle.sh"}/v5/vms/${encodeURIComponent(id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${key}` } }); };
+  const pauseExact = async (id: string) => { await (vms.find((entry) => entry.id === id)?.vm ?? client.vms.ref(id)).pause(); };
   try {
     await Promise.all(Array.from({ length: args.vmCount }, async (_, shard) => {
-      const created = await client.vms.create({ snapshotId: args.snapshot, displayName: `${runId}-${shard}`, idleTimeoutSeconds: -1, metadata: { cmux: "gallery-matrix", runId }, firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] } });
+      const created = await client.vms.create({ snapshotId: args.snapshot, displayName: `${runId}-${shard}`, idleTimeoutSeconds: FREESTYLE_IDLE_SECONDS, metadata: { cmux: "gallery-matrix", runId }, firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] } });
       const entry = { id: created.vmId, vm: created.vm, shard };
       vms.push(entry); ledger.vmIds.push(created.vmId); writeLedger(ledgerPath, ledger);
+      console.error(`freestyle: created ${created.vmId} (shard ${shard}, run ${runId})`);
     }));
     const remoteRoot = `/tmp/${runId}`;
     const source = readFileSync(new URL(import.meta.url), "utf8");
@@ -209,10 +268,20 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       }
       const selected = shardCases(cases, args.vmCount, shard);
       await vm.fs.writeTextFile(`${remoteRoot}/shard.json`, `${JSON.stringify(selected)}\n`, { mode: 0o644 });
-      const command = `set -eu; mkdir -p ${shellQuote(remoteRoot)}/gallery; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps chromium webkit; bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`;
-      // Freestyle beta rejects exec-await timeout_ms above its 5-minute cap.
-      const result = await vm.exec({ command, timeoutMs: 300_000, linuxUser: "root" });
-      if (result.statusCode && result.statusCode !== 0) throw new Error(`Freestyle shard ${shard} failed with exit ${result.statusCode}: ${`${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-2000)}`);
+      // Two steps, each under the 5-minute exec cap: the toolchain, then the shard's screenshots.
+      // Each step's output is kept beside the run (shard-<n>.log) for a failed shard.
+      const steps = [
+        `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
+        // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
+      ];
+      const logPath = join(args.outputDir, `shard-${shard}.log`);
+      await mkdir(args.outputDir, { recursive: true });
+      for (const [index, command] of steps.entries()) {
+        const result = await vm.exec({ command, timeoutMs: 300_000, linuxUser: "root" });
+        await writeFile(logPath, `## step ${index + 1} exit ${result.statusCode ?? "?"}\n${result.stdout ?? ""}\n${result.stderr ?? ""}\n`, { flag: "a" });
+        if (result.statusCode !== 0) throw new Error(`Freestyle shard ${shard} step ${index + 1} failed (exit ${result.statusCode ?? "none"}); see ${logPath}`);
+      }
       await vm.exec({ command: `tar -czf ${shellQuote(`${remoteRoot}/output.tar.gz`)} -C ${shellQuote(`${remoteRoot}/output`)} .`, timeoutMs: 30_000, linuxUser: "root" });
       const archive = Buffer.from(await vm.fs.readFile(`${remoteRoot}/output.tar.gz`));
       const shardDir = join(args.outputDir, `shard-${shard}`);
@@ -237,17 +306,54 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(combined, null, 2)}\n`);
     await writeFile(join(args.outputDir, "index.html"), renderIndex(combined));
   } finally {
-    try { await deleteLedgerIds(ledgerPath, deleteExact); } catch (error) { console.error(`Freestyle cleanup failed: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
+    try {
+      await pauseLedgerIds(ledgerPath, pauseExact);
+      console.error(`freestyle: paused ${ledger.vmIds.join(", ")} (run ${runId}; ledger ${ledgerPath})`);
+    } catch (error) { console.error(`Freestyle pause failed: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
     process.removeListener("SIGINT", onSignal); process.removeListener("SIGTERM", onSignal);
   }
 }
 
+/** Pauses the ledger's unsettled ids (exact ids only), after a crashed or failed run. */
+async function cleanupLedger(keyFile: string, apiUrl?: string): Promise<void> {
+  const { Freestyle } = await import("freestyle");
+  const client = new Freestyle({ apiKey: readFileSync(keyFile, "utf8").trim(), baseUrl: apiUrl ?? "https://beta-api.freestyle.sh" });
+  const ledgerPath = resolve(LEDGER_PATH);
+  if (!existsSync(ledgerPath)) return;
+  await pauseLedgerIds(ledgerPath, async (id) => { await client.vms.ref(id).pause(); });
+}
+
+/** Copies a run's output to cmux-lawrence:~/cmux-gallery/matrix/<run>/ (tailnet-only HTTPS). */
+export function publishRun(outputDir: string, run: string, host = "cmux-lawrence"): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(run)) throw new Error("--publish-run must be a plain name");
+  const made = spawnSync("ssh", ["-o", "BatchMode=yes", host, `mkdir -p cmux-gallery/matrix/${run}`], { stdio: "inherit" });
+  if (made.status !== 0) throw new Error(`could not create the run folder on ${host}`);
+  const copied = spawnSync("rsync", ["-a", "--delete", "--exclude", ".*", `${resolve(outputDir)}/`, `${host}:cmux-gallery/matrix/${run}/`], { stdio: "inherit" });
+  if (copied.status !== 0) throw new Error(`rsync to ${host} failed`);
+  return `${PUBLISH_URL}/${run}/`;
+}
+
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
+  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
+  if (values["freestyle-cleanup"]) return cleanupLedger(values["freestyle-key-file"], values["freestyle-api-url"]);
   if (!values.manifest || !values["gallery-dir"]) throw new Error("--manifest and --gallery-dir are required");
+  if (values["dry-run"]) {
+    const cases = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
+    for (const item of cases) console.log(queryUrl(item.path_or_url, item.params));
+    console.error(`gallery matrix: ${cases.length} cases (dry run, no browser)`);
+    return;
+  }
+  const publish = () => { if (values["publish-run"]) console.log(`matrix: ${publishRun(values["output-dir"], values["publish-run"], values["publish-host"])}`); };
   const threshold = Number(values.threshold); const engines = parseEngineList(values.engines); if (!Number.isFinite(threshold) || threshold < 0) throw new Error("--threshold must be a non-negative number");
-  if (values["freestyle-vms"]) return runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"] });
+  if (values["freestyle-vms"]) {
+    await runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"] });
+    return publish();
+  }
+  // A browser on a developer laptop interrupts its owner: render only inside a VM (or CI, which sets
+  // CMUX_GALLERY_IN_VM=1 on its runner). Use --freestyle-vms N, or --dry-run to list the cases.
+  if (!IN_VM) throw new Error("the matrix renders only on Freestyle VMs or CI: pass --freestyle-vms N, or --dry-run");
   await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]) });
+  publish();
 }
 
 if (import.meta.main) await main();
