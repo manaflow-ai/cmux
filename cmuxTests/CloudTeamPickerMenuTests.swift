@@ -188,6 +188,63 @@ struct CloudTeamPickerMenuTests {
         #expect(events == ["tracking ended", "dismissed", "follow-up", "closed menu"])
     }
 
+    /// The anchor overlay takes the pointer from the trigger button beneath
+    /// it, so the button's own hover never fired. The anchor reports it.
+    @Test func anchorReportsThePointerEnteringAndLeaving() throws {
+        var hovers: [Bool] = []
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        anchor.onHoverChange = { hovers.append($0) }
+
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        anchor.mouseExited(with: try pointerEvent(.mouseExited))
+
+        #expect(hovers == [true, false])
+    }
+
+    /// A menu's tracking loop swallows the exit, so closing the menu settles
+    /// hover from where the pointer is now.
+    @Test func closingTheMenuClearsHoverWhenThePointerLeft() throws {
+        var hovers: [Bool] = []
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        anchor.onHoverChange = { hovers.append($0) }
+        anchor.makeMenu = { _ in CloudTeamPickerTestMenu { _ in } }
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+
+        anchor.mouseDown(with: try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )))
+
+        // Windowless, so the pointer is nowhere over the trigger.
+        #expect(hovers == [true, false])
+    }
+
+    private func pointerEvent(_ type: NSEvent.EventType) throws -> NSEvent {
+        try #require(NSEvent.enterExitEvent(
+            with: type,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ))
+    }
+
     /// Run-loop blocks run in FIFO order, so a scheduled open has run by the
     /// time this later block does.
     private func nextRunLoopTurn() async {
