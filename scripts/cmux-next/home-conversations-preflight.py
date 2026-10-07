@@ -32,6 +32,7 @@ parser.add_argument("--profile", required=True, choices=["personal", "agent"])
 parser.add_argument("--expected-account", required=True)
 parser.add_argument("--invite-base", required=True)
 parser.add_argument("--credentials-file", default=None)
+parser.add_argument("--read-only", action="store_true", help="stop after the signed-in Home page screenshot (no writes)")
 opts = parser.parse_args()
 APP, OUT, TAG = opts.app, opts.out, opts.tag
 LOCAL, DOMAIN = opts.invite_base.split("@", 1)
@@ -139,6 +140,9 @@ try:
     wait(lambda: len(rows()) > 0, 60)
     time.sleep(3)
     shot("01-home-page-list")
+    if opts.read_only:
+        json.dump({"page": page()}, open(os.path.join(OUT, "preflight.json"), "w"), indent=1)
+        sys.exit(0)
     # New Message sheet (no arguments: the sheet over the Home page).
     run("home.newMessage")
     time.sleep(1.5)
