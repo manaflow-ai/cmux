@@ -114,18 +114,32 @@ struct FakePermissions: RemoteDesktopPermissions {
 }
 
 /// Answers consent requests with `answer`, or never (until cancelled) when nil.
+/// With `ignoresCancellation` an unanswered request stays up until `release()`,
+/// like a panel that does not dismiss itself when the session gives up.
 actor FakeConsent: RemoteDesktopConsent {
     private let answer: Bool?
+    private let ignoresCancellation: Bool
+    private var held: CheckedContinuation<Void, Never>?
     private(set) var requests: [RemoteDesktopConsentRequest] = []
     private(set) var cancelled = 0
 
-    init(answer: Bool?) {
+    init(answer: Bool?, ignoresCancellation: Bool = false) {
         self.answer = answer
+        self.ignoresCancellation = ignoresCancellation
+    }
+
+    func release() {
+        held?.resume()
+        held = nil
     }
 
     func request(_ request: RemoteDesktopConsentRequest) async -> Bool {
         requests.append(request)
         if let answer { return answer }
+        if ignoresCancellation {
+            await withCheckedContinuation { held = $0 }
+            return true
+        }
         // Nobody answers; the session's timeout or the phone leaving cancels us.
         try? await Task.sleep(for: .seconds(3600))
         cancelled += 1
