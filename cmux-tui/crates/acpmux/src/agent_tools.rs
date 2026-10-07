@@ -168,17 +168,35 @@ pub fn acp_servers_for(remote_origin: bool, env: &BTreeMap<String, String>) -> V
     if left_out(remote_origin, env, &[]) { json!([]) } else { current().scoped(env).acp_servers() }
 }
 
-/// Extra Claude Code flags for a session whose command line is `args`.
+/// Extra Claude Code flags for session `session_id` whose command line is
+/// `args`. The MCP config goes to [`mcp_config_path`], never into argv.
 pub fn claude_args_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     args: &[String],
+    session_id: &str,
 ) -> Vec<String> {
     if left_out(remote_origin, env, args) {
         Vec::new()
     } else {
-        current().scoped(env).claude_args()
+        current().scoped(env).claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
+}
+
+/// The session's Claude Code MCP config file: `<home>/run/mcp/<session>.json`.
+/// It holds the helper's agent token, so it is 0600 in a 0700 folder and
+/// never on a command line, where any process of the user can read it.
+pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
+    let safe: String = session_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    home.join("run").join("mcp").join(format!("{safe}.json"))
+}
+
+/// Remove the session's MCP config when the session ends.
+pub fn remove_mcp_config(home: &Path, session_id: &str) {
+    let _ = (home, session_id); // red: the file stays
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -268,22 +286,31 @@ impl AgentTools {
         )
     }
 
-    /// Claude Code flags: the servers as one `--mcp-config`, the skills as a
-    /// session-only plugin.
-    pub fn claude_args(&self) -> Vec<String> {
+    /// The servers as one Claude Code MCP config, or `None` without servers.
+    pub fn mcp_config(&self) -> Option<Value> {
+        if self.servers.is_empty() {
+            return None;
+        }
+        let mut servers = Map::new();
+        for s in &self.servers {
+            let env: Map<String, Value> =
+                s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+            servers.insert(
+                s.name.clone(),
+                json!({"type": "stdio", "command": s.command, "args": s.args, "env": env}),
+            );
+        }
+        Some(json!({"mcpServers": servers}))
+    }
+
+    /// Claude Code flags: the servers as `--mcp-config <config_file>` (the
+    /// file is written here), the skills as a session-only plugin.
+    pub fn claude_args(&self, config_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
-        if !self.servers.is_empty() {
-            let mut servers = Map::new();
-            for s in &self.servers {
-                let env: Map<String, Value> =
-                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-                servers.insert(
-                    s.name.clone(),
-                    json!({"type": "stdio", "command": s.command, "args": s.args, "env": env}),
-                );
-            }
+        if let Some(config) = self.mcp_config() {
+            let _ = config_file; // red: still inline
             args.push("--mcp-config".into());
-            args.push(json!({"mcpServers": servers}).to_string());
+            args.push(config.to_string());
         }
         if let Some(dir) = &self.plugin_dir {
             args.push("--plugin-dir".into());
