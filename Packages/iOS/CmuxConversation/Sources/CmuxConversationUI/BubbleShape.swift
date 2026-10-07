@@ -39,6 +39,11 @@ final class BubbleBackgroundView: UIView {
     var hasTail = true { didSet { setNeedsLayout() } }
     var fillColor: UIColor = ConversationTheme.outgoingBubble { didSet { updateColors() } }
     var strokeColor: UIColor? { didSet { updateColors() } }
+    /// Fill with Messages' screen-anchored gradient instead of `fillColor`:
+    /// the shade depends on where the bubble sits in the window, so call
+    /// `updateScreenGradient()` when it moves without relayout (scrolling).
+    var screenGradient: ConversationTheme.ScreenGradient? { didSet { updateColors() } }
+    private var gradientLayer: CAGradientLayer?
 
     override class var layerClass: AnyClass { CAShapeLayer.self }
     private var shapeLayer: CAShapeLayer { layer as! CAShapeLayer }
@@ -66,6 +71,37 @@ final class BubbleBackgroundView: UIView {
             shapeLayer.add(pathAnimation, forKey: "path")
         }
         shapeLayer.path = path
+        if let gradientLayer, let mask = gradientLayer.mask as? CAShapeLayer {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            gradientLayer.frame = bounds
+            mask.frame = bounds
+            CATransaction.commit()
+            if let animation = shapeLayer.animation(forKey: "path")?.copy() as? CABasicAnimation {
+                mask.add(animation, forKey: "path")
+            }
+            mask.path = path
+        }
+        updateScreenGradient()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateScreenGradient()
+    }
+
+    /// Re-samples the gradient for the bubble's current place in the window.
+    func updateScreenGradient() {
+        guard let gradientLayer, let screenGradient, let window, window.bounds.height > 0 else { return }
+        let frame = convert(bounds, to: window)
+        let top = frame.minY / window.bounds.height
+        let bottom = frame.maxY / window.bounds.height
+        let sample = screenGradient.samples(from: top, to: bottom, traits: traitCollection)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.colors = sample.colors
+        gradientLayer.locations = sample.locations.map { NSNumber(value: Double($0)) }
+        CATransaction.commit()
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -74,8 +110,20 @@ final class BubbleBackgroundView: UIView {
     }
 
     private func updateColors() {
-        shapeLayer.fillColor = fillColor.resolvedColor(with: traitCollection).cgColor
+        shapeLayer.fillColor = screenGradient == nil ? fillColor.resolvedColor(with: traitCollection).cgColor : UIColor.clear.cgColor
         shapeLayer.strokeColor = strokeColor?.resolvedColor(with: traitCollection).cgColor
+        if screenGradient != nil, gradientLayer == nil {
+            let gradient = CAGradientLayer()
+            let mask = CAShapeLayer()
+            gradient.mask = mask
+            gradient.frame = bounds
+            mask.frame = bounds
+            mask.path = shapeLayer.path
+            layer.insertSublayer(gradient, at: 0)
+            gradientLayer = gradient
+        }
+        gradientLayer?.isHidden = screenGradient == nil
+        updateScreenGradient()
     }
 }
 #endif

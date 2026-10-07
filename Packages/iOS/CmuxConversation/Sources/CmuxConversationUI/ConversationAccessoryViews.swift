@@ -2,7 +2,7 @@
 import CmuxConversationCore
 import UIKit
 
-/// Contact avatar: monogram on the Messages gray gradient, or the participant tint.
+/// Contact avatar: monogram on the Contacts periwinkle gradient, or the participant tint.
 final class ConversationAvatarView: UIView {
     private let gradient = CAGradientLayer()
     private let label = UILabel()
@@ -24,12 +24,11 @@ final class ConversationAvatarView: UIView {
 
     func configure(initials: String, colorHex: String?) {
         label.text = initials
-        let base: UIColor
-        if let colorHex {
-            base = ConversationTheme.color(hex: colorHex)
-        } else {
-            base = UIColor(red: 0.62, green: 0.65, blue: 0.70, alpha: 1)
+        guard let colorHex else {
+            gradient.colors = ConversationTheme.monogramGradient.map(\.cgColor)
+            return
         }
+        let base = ConversationTheme.color(hex: colorHex)
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         base.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         gradient.colors = [
@@ -42,8 +41,8 @@ final class ConversationAvatarView: UIView {
         super.layoutSubviews()
         layer.cornerRadius = bounds.width / 2
         gradient.frame = bounds
-        label.frame = bounds.insetBy(dx: bounds.width * 0.12, dy: 0)
-        label.font = .systemFont(ofSize: bounds.width * 0.40, weight: .semibold)
+        label.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)
+        label.font = .systemFont(ofSize: bounds.width * ConversationTheme.monogramFontScale, weight: .semibold)
     }
 }
 

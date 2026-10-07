@@ -49,7 +49,6 @@ final class MessageCell: UICollectionViewCell {
         threadLine.lineCap = .round
         senderLabel.font = ConversationTheme.senderNameFont
         senderLabel.textColor = ConversationTheme.secondaryText
-        quoteLabel.font = .systemFont(ofSize: 15)
         quoteLabel.numberOfLines = 2
         quoteLabel.lineBreakMode = .byTruncatingTail
         textLabel.numberOfLines = 0
@@ -125,6 +124,7 @@ final class MessageCell: UICollectionViewCell {
         placeShiftable()
 
         senderLabel.isHidden = layout.senderNameFrame == nil
+        senderLabel.font = ConversationTheme.senderNameFont
         senderLabel.text = model.senderName
         if let frame = layout.senderNameFrame { senderLabel.frame = frame }
 
@@ -137,6 +137,7 @@ final class MessageCell: UICollectionViewCell {
             quoteBubble.fillColor = .clear
             quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.quoteStroke
             quoteBubble.frame = quoteFrame
+            quoteLabel.font = ConversationTheme.quoteFont
             quoteLabel.text = quote.text
             quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.secondaryText
             quoteLabel.frame = quoteTextFrame
@@ -158,6 +159,7 @@ final class MessageCell: UICollectionViewCell {
             bubble.fillColor = model.isOutgoing
                 ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
                 : ConversationTheme.incomingBubble
+            bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
             bubble.frame = bubbleFrame
             textLabel.attributedText = text
             textLabel.frame = textFrame
@@ -168,6 +170,7 @@ final class MessageCell: UICollectionViewCell {
 
         emojiLabel.isHidden = layout.emojiFrame == nil
         if let frame = layout.emojiFrame {
+            emojiLabel.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize(count: MessageCellLayout.emojiCount(message.text)))
             emojiLabel.text = message.text
             emojiLabel.frame = frame
         }
@@ -274,6 +277,11 @@ final class MessageCell: UICollectionViewCell {
             footerLabel.isHidden ? nil : footerLabel.text,
         ].compactMap { $0 }.joined(separator: ", ")
         isAccessibilityElement = true
+    }
+
+    /// Keeps outgoing bubbles' screen-anchored gradient in step with scrolling.
+    func updateScreenGradients() {
+        bubble.updateScreenGradient()
     }
 
     override func layoutSubviews() {

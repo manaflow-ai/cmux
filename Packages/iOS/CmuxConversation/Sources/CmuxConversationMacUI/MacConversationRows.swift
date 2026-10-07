@@ -269,7 +269,7 @@ extension MacMessageLayout {
         let isFailed = model.footer == .notDelivered
         let outgoingTrailing = width - t.outgoingMargin - (isFailed ? 26 : 0)
         let available = model.isOutgoing ? width : width - avatarColumn
-        let maxBubble = min(t.maxBubbleWidth, floor(available * t.maxBubbleWidthFraction))
+        let maxBubble = min(t.maxBubbleWidth, floor((available - 2 * margin) * t.maxBubbleWidthFraction))
 
         func bubbleRect(bodyWidth w: CGFloat, y: CGFloat, height h: CGFloat) -> CGRect {
             model.isOutgoing
@@ -326,7 +326,7 @@ extension MacMessageLayout {
         var textFrame: CGRect?
         var emojiFrame: CGRect?
         if model.isEmojiOnly {
-            let emoji = NSAttributedString(string: model.message.text, attributes: [.font: NSFont.systemFont(ofSize: t.emojiOnlyFontSize)])
+            let emoji = NSAttributedString(string: model.message.text, attributes: [.font: NSFont.systemFont(ofSize: t.emojiOnlyFontSize(count: model.message.text.filter { !$0.isWhitespace }.count))])
             var size = measure(emoji, maxWidth: maxBubble)
             size.width += 6
             size.height += 4

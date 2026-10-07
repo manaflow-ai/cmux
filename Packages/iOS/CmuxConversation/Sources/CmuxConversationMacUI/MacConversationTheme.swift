@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CmuxConversationGeometry
 
 /// Metrics and colors matched to macOS 26 Messages at the default text size.
 enum MacConversationTheme {
@@ -14,12 +15,14 @@ enum MacConversationTheme {
     /// The 18 pt line puts its extra leading above the glyphs, so the text box
     /// rides 2 pt high to land Messages' ink 10 pt from the bubble top.
     static let bubbleTextLift: CGFloat = 2
-    static let bubbleCornerRadius: CGFloat = 17
-    /// macOS tails tuck under the corner, so they add no width.
+    /// ChatKit's corner radius is half a single-line bubble (32 pt here).
+    static let bubbleCornerRadius: CGFloat = (lineHeight + 2 * bubbleVerticalPadding) / 2
+    /// The tail sits inside the body's width.
     static let tailWidth: CGFloat = 0
-    static let tailDrop: CGFloat = 5
-    /// Widest observed bubble: 680 of a 1087 pt transcript.
-    static let maxBubbleWidthFraction: CGFloat = 0.625
+    static let tailDrop: CGFloat = ConversationBubbleGeometry.iOSTailDrop(radius: bubbleCornerRadius)
+    /// CKUIBehaviorMac: 65% of the transcript between its side margins
+    /// (680 pt of a 1087 pt transcript).
+    static let maxBubbleWidthFraction: CGFloat = 0.65
     static let maxBubbleWidth: CGFloat = 10_000
     static let groupedSpacing: CGFloat = 3
     static let runSpacing: CGFloat = 12
@@ -29,7 +32,8 @@ enum MacConversationTheme {
     static let avatarSize: CGFloat = 25
     static let avatarGap: CGFloat = 10
     static let senderNameInset: CGFloat = 12
-    static let emojiOnlyFontSize: CGFloat = 36
+    /// CKUIBehaviorMac: a lone emoji at 72 pt, two or three at 48 pt.
+    static func emojiOnlyFontSize(count: Int) -> CGFloat { count == 1 ? 72 : 48 }
     static let maxImageWidth: CGFloat = 260
     static let maxImageHeight: CGFloat = 330
     static let reactionBadgeSize: CGFloat = 24

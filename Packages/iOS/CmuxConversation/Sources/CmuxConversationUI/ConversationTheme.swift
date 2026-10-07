@@ -1,39 +1,82 @@
 #if canImport(UIKit)
+import CmuxConversationGeometry
 import UIKit
 
 /// Metrics and colors matched to iOS 26 Messages.
 enum ConversationTheme {
     // MARK: Metrics (points)
 
+    /// Composer text (the composer keeps its own fixed metrics).
     static let bodyFont = UIFont.systemFont(ofSize: 17)
     static var bodyFontSize: CGFloat { bodyFont.pointSize }
-    /// Line pitch inside bubbles and the composer (measured 24 pt).
+    /// Composer line pitch.
     static let lineHeight: CGFloat = 24
-    static let bubbleHorizontalPadding: CGFloat = 14.5
-    /// (44 pt single-line body - 24 pt line) / 2.
-    static let bubbleVerticalPadding: CGFloat = 10
-    static let bubbleCornerRadius: CGFloat = 19
-    /// Width the tail adds beyond the bubble body.
-    static let tailWidth: CGFloat = 5
-    /// Max bubble width as a fraction of the view width.
-    static let maxBubbleWidthFraction: CGFloat = 0.715
-    static let groupedSpacing: CGFloat = 6
-    /// Tail bottom to the next run's first row (measured 24.7 pt).
-    static let ungroupedSpacing: CGFloat = 25
-    /// How far the tail drops below the bubble body.
-    static let tailDrop: CGFloat = 7
+
+    // Bubble metrics follow ChatKit's CKUIBehavior on iOS 26.3 and scale
+    // with Dynamic Type the way Messages does.
+
+    /// Bubble text: the body style with tight leading ("ShortBody"), 17 pt at
+    /// the default size.
+    static var bubbleFont: UIFont {
+        let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+        return UIFont(descriptor: descriptor.withSymbolicTraits(.traitTightLeading) ?? descriptor, size: 0)
+    }
+
+    /// The accessibility text sizes start where body text reaches 28 pt.
+    private static var isAccessibilitySize: Bool { bubbleFont.pointSize >= 28 }
+
+    /// Text inset inside the bubble body: 10/14 pt, 12/16.67 pt at the
+    /// accessibility sizes.
+    static var bubbleVerticalPadding: CGFloat { isAccessibilitySize ? 12 : 10 }
+    static var bubbleHorizontalPadding: CGFloat { isAccessibilitySize ? 50.0 / 3 : 14 }
+
+    /// Half a single-line bubble's height (20.14 pt at the default size), so
+    /// one-line bubbles are pills and taller ones keep the same corners.
+    static var bubbleCornerRadius: CGFloat { (bubbleFont.lineHeight + 2 * bubbleVerticalPadding) / 2 }
+
+    /// iOS 26 tails sit inside the body's width.
+    static let tailWidth: CGFloat = 0
+    /// How far the tail drops below the bubble body (6.83 pt at the default size).
+    static var tailDrop: CGFloat { ConversationBubbleGeometry.iOSTailDrop(radius: bubbleCornerRadius) }
+    /// The narrowest text bubble.
+    static let minBubbleWidth: CGFloat = 48
+
+    /// Widest bubble for `width` of transcript between the side margins:
+    /// 85%, or the full width less 23.3 pt at the accessibility sizes.
+    static func maxBubbleWidth(forAvailableWidth width: CGFloat) -> CGFloat {
+        isAccessibilitySize ? width - 70.0 / 3 : width * 0.85
+    }
+
+    /// Body-to-body gap between bubbles in a run (`balloonContiguousSpace`).
+    static let groupedSpacing: CGFloat = 4
+    /// Body-to-body gap between runs (`balloonNonContiguousSpace`); a tail
+    /// hangs into it.
+    static let ungroupedSpacing: CGFloat = 10
     static let avatarSize: CGFloat = 32
     static let avatarGap: CGFloat = 7
     /// A timestamp separates messages this far apart.
     static let timestampGap: TimeInterval = 60 * 60
     static let reactionBadgeSize: CGFloat = 32
+    /// A lone emoji shows at 72 pt, two or three at 48 pt.
+    static let singleEmojiFontSize: CGFloat = 72
     static let emojiOnlyFontSize: CGFloat = 48
+    static func emojiOnlyFontSize(count: Int) -> CGFloat { count == 1 ? singleEmojiFontSize : emojiOnlyFontSize }
     static let maxImageWidthFraction: CGFloat = 0.63
     static let maxImageHeight: CGFloat = 340
 
-    static let senderNameFont = UIFont.systemFont(ofSize: 12.5, weight: .regular)
-    static let footerFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-    static let editedFont = UIFont.systemFont(ofSize: 12, weight: .regular)
+    /// Group sender names: caption 2 (11 pt at the default size), 14 pt in
+    /// from the bubble's leading edge.
+    static var senderNameFont: UIFont { .preferredFont(forTextStyle: .caption2) }
+    static let senderNameInset: CGFloat = 14
+    /// "Delivered"/"Read": 11 pt semibold, 13.33 pt tall, 6 pt under the body
+    /// and 20 pt in from its trailing edge.
+    static let footerFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    static let footerHeight: CGFloat = 40.0 / 3
+    static let footerGap: CGFloat = 6
+    static let footerInset: CGFloat = 20
+    static let editedFont = UIFont.systemFont(ofSize: 11, weight: .regular)
+    /// Reply quote text: subheadline, 15 pt at the default size.
+    static var quoteFont: UIFont { .preferredFont(forTextStyle: .subheadline) }
     static let timestampFont = UIFont.systemFont(ofSize: 12, weight: .regular)
     static let timestampBoldFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
 
@@ -50,9 +93,58 @@ enum ConversationTheme {
 
     static let incomingBubble = UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 34 / 255, green: 33 / 255, blue: 38 / 255, alpha: 1)
-            : UIColor(red: 0.914, green: 0.914, blue: 0.922, alpha: 1)
+            ? UIColor(red: 38 / 255, green: 38 / 255, blue: 41 / 255, alpha: 1)
+            : UIColor(red: 233 / 255, green: 233 / 255, blue: 235 / 255, alpha: 1)
     }
+
+    /// Messages fills outgoing bubbles from a gradient fixed to the screen:
+    /// lighter near the top, the plain service color at the bottom. Stops
+    /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB).
+    struct ScreenGradient: Sendable {
+        var light: [(CGFloat, CGFloat, CGFloat)]
+        var dark: [(CGFloat, CGFloat, CGFloat)]
+
+        /// Colors and locations covering window fractions `top...bottom`.
+        func samples(from top: CGFloat, to bottom: CGFloat, traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
+            let stops = traits.userInterfaceStyle == .dark ? dark : light
+            func color(at fraction: CGFloat) -> CGColor {
+                let f = max(0, min(1, fraction)) * CGFloat(stops.count - 1)
+                let i = min(Int(f), stops.count - 2)
+                let t = f - CGFloat(i)
+                let a = stops[i], b = stops[i + 1]
+                return UIColor(
+                    red: (a.0 + (b.0 - a.0) * t) / 255,
+                    green: (a.1 + (b.1 - a.1) * t) / 255,
+                    blue: (a.2 + (b.2 - a.2) * t) / 255,
+                    alpha: 1
+                ).cgColor
+            }
+            guard bottom > top else { return ([color(at: top), color(at: top)], [0, 1]) }
+            var fractions = [top]
+            let step = 1 / CGFloat(stops.count - 1)
+            var stop = (top / step).rounded(.down) * step + step
+            while stop < bottom {
+                fractions.append(stop)
+                stop += step
+            }
+            fractions.append(bottom)
+            return (fractions.map(color(at:)), fractions.map { ($0 - top) / (bottom - top) })
+        }
+    }
+
+    static let iMessageGradient = ScreenGradient(
+        light: [(90, 200, 250), (72, 184, 251), (52, 168, 252), (30, 152, 254), (0, 136, 255)],
+        dark: [(64, 156, 255), (52, 153, 255), (37, 150, 255), (22, 148, 255), (0, 145, 255)]
+    )
+
+    /// Contacts' monogram for people without a photo (CNAvatarImageRenderer
+    /// on iOS 26.3): a periwinkle gradient, top to bottom, the same in dark
+    /// mode, with white semibold initials at 0.47 of the diameter.
+    static let monogramGradient = [
+        UIColor(red: 169 / 255, green: 194 / 255, blue: 226 / 255, alpha: 1),
+        UIColor(red: 115 / 255, green: 127 / 255, blue: 185 / 255, alpha: 1),
+    ]
+    static let monogramFontScale: CGFloat = 0.472
 
     static let failedBubble = UIColor.systemBlue
 
@@ -95,6 +187,13 @@ enum ConversationTheme {
 
     /// A fixed line height puts its extra space above the glyphs; frames shift up by this to center them.
     static var bodyGlyphLift: CGFloat { ((lineHeight - bodyFont.lineHeight) / 2).rounded(.down) }
+
+    /// Bubble text paragraph: natural line height, word wrapping.
+    nonisolated(unsafe) static let bubbleParagraph: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        return style
+    }()
 
     static func color(hex: String) -> UIColor {
         var value: UInt64 = 0
