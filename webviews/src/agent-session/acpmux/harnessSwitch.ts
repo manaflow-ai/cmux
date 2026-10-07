@@ -503,7 +503,14 @@ export class HarnessSwitch {
     intent.error = errorText(error) || t("switch.unknownError");
     if (intent.queued.length) {
       this.handBack(intent.queued);
-      const reason = new Error(intent.error);
+      // The prompts are back in the composer (`handedBack`); acpmux's refusal reason and folder
+      // ride along, so a trust refusal still asks about the folder.
+      const refusal = error as { reason?: unknown; cwd?: unknown } | undefined;
+      const reason = Object.assign(new Error(intent.error), {
+        handedBack: true,
+        ...(typeof refusal?.reason === "string" ? { reason: refusal.reason } : {}),
+        ...(typeof refusal?.cwd === "string" ? { cwd: refusal.cwd } : {}),
+      });
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];
     }

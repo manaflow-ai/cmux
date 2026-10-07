@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextPages
+public import CmuxNextSettings
 import Observation
 import os
 public import WebKit
@@ -39,6 +40,10 @@ public final class AgentPaneView: NSView {
     /// `labs.previewFeatures`: pushed like ``shortcuts``.
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
+    }
+    /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
+    public var editedFiles = AgentPaneEditedFilesSetting.fallback {
+        didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
@@ -274,36 +279,6 @@ public final class AgentPaneView: NSView {
     /// when the key comes up.
     public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
         dictation.toggle(from: event)
-    }
-
-    /// Opens the page's "Search chats" palette (Cmd-K, `agentPane.searchChats`);
-    /// a second call closes it.
-    public func showSearchChats() {
-        deliver([.command("searchChats")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"searchChats\");"])
-    }
-
-    /// Opens the frontend's Continue in… chooser. The chooser owns target
-    /// selection and preparation; native actions do not create a second
-    /// handoff pipeline.
-    public func showContinueIn() {
-        deliver([.command("continueIn")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
-    }
-    /// Palette and page buttons enter the same inline checkpoint review.
-    public func showCreateCheckpoint() {
-        guard model.checkpointAvailable else { return }
-        deliver([.command("createCheckpoint")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");"])
-    }
-
-    /// Runs a grouped-permission action from the app shortcut registry. The
-    /// page keeps the decision scoped to its selected session and refuses
-    /// stale, collecting, or unavailable groups before sending anything.
-    public func runPermissionAction(_ command: String) {
-        let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
-                       "permissionRetry", "permissionRevoke", "permissionRefresh"]
-        guard allowed.contains(command) else { return }
-        // The user pressed the app's permission shortcut: that is the gesture its answer uses.
-        model.transport.gestures.record()
-        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the
