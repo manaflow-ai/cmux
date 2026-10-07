@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from "react";
+import type { TurnFile } from "../diff";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -13,11 +14,13 @@ import { registerPicker } from "../pickerOpeners";
 /// nothing for it while it is closed.
 export function SummaryButton({
   rows,
+  changeFiles,
   onOpenOutput,
   changes,
   onOpenChanges,
 }: {
   rows: readonly AcpmuxRow[];
+  changeFiles?: readonly TurnFile[];
   onOpenOutput?: (path: string) => void;
   changes?: { additions: number; deletions: number };
   onOpenChanges?: () => void;
@@ -55,6 +58,7 @@ export function SummaryButton({
         >
           <SummaryPopover
             summary={summary}
+            changeFiles={changeFiles}
             changes={changes}
             onOpenChanges={() => {
               // Diff review restores focus to its opener after closing. Keep the

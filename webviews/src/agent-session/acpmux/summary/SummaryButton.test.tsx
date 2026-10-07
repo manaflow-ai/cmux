@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import type { TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 
 const dom = new JSDOM("<!doctype html><div id=outside></div><div id=root></div>", {
@@ -50,12 +51,12 @@ const rows: AcpmuxRow[] = [
   },
 ];
 
-async function render(opened: string[], shown: readonly AcpmuxRow[] = rows) {
+async function render(opened: string[], shown: readonly AcpmuxRow[] = rows, changeFiles?: readonly TurnFile[]) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
     act(async () =>
-      root.render(createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) })),
+      root.render(createElement(SummaryButton, { rows: next, changeFiles, onOpenOutput: (path) => opened.push(path) })),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
@@ -97,6 +98,27 @@ test("an output opens the changes view at that file and closes the popover", asy
   await act(async () => popover()!.querySelector<HTMLButtonElement>("button.acpmux-summary-link")!.click());
   expect(opened).toEqual(["/repo/notes.md"]);
   expect(popover()).toBeNull();
+  await unmount();
+});
+
+test("the Changes files match the totals' turn", async () => {
+  const opened: string[] = [];
+  const shown = [
+    ...rows,
+    {
+      id: "activity-3",
+      version: 1,
+      at: 3,
+      kind: "activity",
+      items: [tool({ id: "edit-2", kind: "edit", title: "Write", diffs: [{ path: "/repo/latest.md", newText: "new\n" }] })],
+    },
+  ] satisfies AcpmuxRow[];
+  const { button, popover, unmount } = await render(opened, shown, [
+    { path: "/repo/latest.md", displayPath: "latest.md", additions: 1, deletions: 0, created: true },
+  ]);
+  await act(async () => button.click());
+  const fileLinks = [...popover()!.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-link[title]")];
+  expect(fileLinks.map((link) => link.getAttribute("title"))).toEqual(["/repo/latest.md"]);
   await unmount();
 });
 

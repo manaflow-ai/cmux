@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Counts } from "../changes/Counts";
+import type { TurnFile } from "../diff";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -88,6 +89,7 @@ export function SummaryPopover({
   onFollow,
 }: {
   summary: SessionSummary;
+  changeFiles?: readonly TurnFile[];
   changes?: { additions: number; deletions: number };
   onOpenChanges?: () => void;
   onOpenOutput?: (path: string) => void;
