@@ -132,3 +132,39 @@ blocked by the unavailable build host.
 Remaining parity: tmux control mode, SSH create/rename/kill, and hashed cmux-tui sockets. SFTP is
 landed by E5; importing private keys and known_hosts lines in the UI (the stores support both), key
 install through a jump host, and B1 sync behind `HostsSyncChannel` remain follow-ups.
+
+### tmux control attachment slice (2026-10-07)
+
+Modern discovery emits `W2` records with the tmux server PID/start time and stable session/window
+IDs. Names and indexes remain labels. `NIOSSHShellConnector` opens `tmux -C -N attach-session`
+without a PTY (no protocol echo), checks the discovered server epoch before contributing size or
+accepting input, then hydrates the selected window and streams its pane bytes. No selection command
+changes another client's active window. Unknown IDs, replaced servers, malformed modern listings,
+unsupported layouts and command failures fail closed; there is no name-based fallback for a modern
+listing. Workspace and terminal IDs survive rename/reindex and change when the server is replaced.
+
+`SSHTmuxControlChannel` bounds commands (64), input per call (16 KiB), framing (256 KiB line,
+2 MiB response), pane inventory (256), and output (128 chunks of at most 16 KiB). It closes on a
+reliable-output overflow instead of silently dropping bytes. Each outstanding command sequence has
+a cancellable ten-second deadline. `SSHTerminalByteSource` also bounds and chunks its renderer
+queue. Reconnect gets a fresh owner snapshot; input bytes are never replayed. tmux layout/lifecycle
+notifications trigger catalog rediscovery; there is no sync timer. Capture restores the visible
+screen, cursor, margins and standard input modes, preserving binary live bytes and capture escapes.
+
+The per-window sizing syntax `refresh-client -C '@id:widthxheight'` and pane output selection are
+documented in the [tmux 3.3a manual](https://github.com/tmux/tmux/blob/3.3a/tmux.1), `refresh-client`;
+control response framing and notification names follow its `CONTROL MODE` section.
+
+Verification: Swift parsing, scoped iOS convention lint, mobile concurrency/crash-safety checks,
+and diff checks pass. Nine focused Swift Testing cases cover fragmented/binary protocol, bounded
+framing, stable IDs, replaced-server refusal before resizing/input, malformed targets, snapshot/live ordering, hex input isolation, unsupported
+layouts, cancellation, and mode/grid restoration. They are added but not executed: the dedicated
+Swift build host is unavailable. No live tmux or simulator/device result is claimed.
+
+Limits: this slice requires a single-pane window and a host-confirmed grid matching the phone
+viewport (at most 512 × 256). A mismatched grid, multi-pane layout or pending-wrap snapshot is
+refused, because the current `.local` renderer seam cannot reproduce it faithfully. History,
+complete terminal parser state, multi-pane composition and tmux-version compatibility need live
+verification and a richer renderer adapter before C9 parity can be marked complete. SSH
+create/rename/kill remain deferred: raw SSH commands have no durable idempotency receipt, so a
+reconnect-safe owner mutation path is still required.

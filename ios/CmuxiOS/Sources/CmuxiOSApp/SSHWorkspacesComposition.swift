@@ -41,7 +41,9 @@ struct SSHWorkspacesComposition: Sendable {
     func terminalSources(fallback: any WorkspaceTerminalSourceFactory) -> any WorkspaceTerminalSourceFactory {
         let composition = self
         return SSHWorkspaceTerminalSourceFactory(fallback: fallback, catalog: catalog) { host, target in
-            NIOSSHShellConnector(dialer: try await composition.dialer(for: host), attaching: target)
+            NIOSSHShellConnector(dialer: try await composition.dialer(for: host), attaching: target) {
+                await composition.catalog.sessionEnded(on: host)
+            }
         }
     }
 

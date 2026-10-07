@@ -22,9 +22,9 @@ public struct SSHSessionDiscovery: Sendable {
       [ -n "$p" ] && [ -x "$p" ] && { T="$p"; break; }
     done
     if [ -n "$T" ]; then
-      printf '@tmux\\t%s\\n' "$T"
+      printf '@tmux2\\t%s\\n' "$T"
       "$T" list-sessions -F 'S\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_activity}' 2>/dev/null
-      "$T" list-windows -a -F 'W\t#{session_name}\t#{window_index}\t#{window_active}\t#{window_name}' 2>/dev/null
+      "$T" list-windows -a -F 'W2\t#{session_name}\t#{window_index}\t#{window_active}\t#{session_id}\t#{window_id}\t#{pid}\t#{start_time}\t#{window_name}' 2>/dev/null
     fi
     if command -v screen >/dev/null 2>&1; then
       printf '@screen\\t%s\\n' "$(command -v screen)"
@@ -54,6 +54,7 @@ public struct SSHSessionDiscovery: Sendable {
         var screen: SSHRemoteBinary = .screen
         var cmux: SSHRemoteBinary = .cmuxTUI
         var tmuxSessions: [SSHDiscoveredSession] = []
+        var modernSessions = Set<String>()
         var windows: [String: [SSHDiscoveredSession.Window]] = [:]
         var screens: [SSHDiscoveredSession] = []
         var cmuxSessions: [SSHDiscoveredSession] = []
@@ -65,6 +66,9 @@ public struct SSHSessionDiscovery: Sendable {
                 section = parts[0]
                 let binary = parts.count > 1 ? SSHRemoteBinary(validatingPath: parts[1]) : nil
                 switch section {
+                case "@tmux2":
+                    guard let binary else { section = ""; continue }
+                    tmux = binary
                 case "@tmux": tmux = binary ?? .tmux
                 case "@screen": screen = binary ?? .screen
                 case "@cmux-tui": cmux = binary ?? .cmuxTUI
@@ -73,13 +77,21 @@ public struct SSHSessionDiscovery: Sendable {
                 continue
             }
             switch section {
-            case "@tmux":
+            case "@tmux", "@tmux2":
                 let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
                 if fields.first == "S", fields.count >= 5, let name = SSHSessionName(validating: fields[1]) {
+                    if section == "@tmux2" { modernSessions.insert(name.rawValue) }
                     tmuxSessions.append(SSHDiscoveredSession(
                         kind: .tmux, name: name, target: .tmux(binary: tmux, session: name, window: nil), windows: [],
                         isAttached: (Int(fields[3]) ?? 0) > 0, activity: Int64(fields[4])))
-                } else if fields.first == "W", fields.count >= 5, let name = SSHSessionName(validating: fields[1]),
+                } else if fields.first == "W2", fields.count >= 9, let name = SSHSessionName(validating: fields[1]),
+                          let index = Int(fields[2]), index >= 0,
+                          let pid = UInt32(fields[6]), let start = UInt64(fields[7]),
+                          let window = SSHTmuxWindow(sessionID: fields[4], windowID: fields[5], serverPID: pid, serverStart: start) {
+                    windows[name.rawValue, default: []].append(SSHDiscoveredSession.Window(
+                        index: index, name: String(fields[8...].joined(separator: "\t").prefix(200)), isActive: fields[3] == "1",
+                        target: .tmuxControl(binary: tmux, window: window)))
+                } else if section == "@tmux", fields.first == "W", fields.count >= 5, let name = SSHSessionName(validating: fields[1]),
                           let index = Int(fields[2]), index >= 0 {
                     let title = fields[4...].joined(separator: "\t")
                     windows[name.rawValue, default: []].append(SSHDiscoveredSession.Window(
@@ -110,7 +122,13 @@ public struct SSHSessionDiscovery: Sendable {
         }
         for i in tmuxSessions.indices {
             tmuxSessions[i].windows = (windows[tmuxSessions[i].name.rawValue] ?? []).sorted { $0.index < $1.index }
+            if modernSessions.contains(tmuxSessions[i].name.rawValue), let first = tmuxSessions[i].windows.first {
+                tmuxSessions[i].target = first.target
+            }
         }
+        // A malformed or disappeared modern window never downgrades to the
+        // name-based PTY attachment path.
+        tmuxSessions.removeAll { modernSessions.contains($0.name.rawValue) && $0.windows.isEmpty }
         return tmuxSessions + screens + cmuxSessions
     }
 }

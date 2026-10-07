@@ -146,3 +146,20 @@ and a live stale-owner SSH check remain unverified: `nx-remote status` fails bec
 cannot resolve `cmux-lawrence-2`. Swift syntax and scoped conventions checks are static evidence
 only. The existing connectivity soak uses Iroh and does not cover this SSH discovery/attach path;
 it needs a separate named-socket SSH workload before this change can claim live coverage.
+
+### tmux control attachment follow-up (2026-10-07)
+
+Modern tmux rows now carry host-issued server/session/window identities instead of attaching by
+name and window index. Rename and reindex preserve identity; server replacement expires it. The
+catalog remains the only attachment source. Control-mode events request rediscovery on layout,
+window/session lifecycle and name changes, in addition to the existing terminal-end trigger.
+`NIOSSHShellConnector` uses no PTY, verifies the server epoch, requests the selected window's size,
+and exposes bounded snapshot-then-live bytes and hex-only input. It never selects a shared active
+window, creates a session, or silently attaches to a different pane. Invalid modern discovery
+records cannot downgrade to the legacy attach command.
+
+See `c9-ssh.md` for bounds, protocol references, and the added Swift tests. Static checks pass;
+native test execution and live SSH/GUI verification remain unverified. The current implementation
+supports one pane per window with a matching host-confirmed viewport; multi-pane/window geometry,
+history and complete parser-state restoration remain parity gaps. No D3 row is promoted by this
+source-only verification. Lifecycle mutations remain deferred until owner idempotency exists.

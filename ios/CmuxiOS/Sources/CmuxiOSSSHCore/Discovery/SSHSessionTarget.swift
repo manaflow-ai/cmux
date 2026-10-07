@@ -7,6 +7,8 @@ import Foundation
 public enum SSHSessionTarget: Hashable, Sendable {
     /// A tmux session, or one window of it.
     case tmux(binary: SSHRemoteBinary, session: SSHSessionName, window: Int?)
+    /// A window addressed by host-issued ids, through tmux control mode.
+    case tmuxControl(binary: SSHRemoteBinary, window: SSHTmuxWindow)
     /// A GNU screen session (`<pid>.<name>`).
     case screen(binary: SSHRemoteBinary, session: SSHSessionName)
     /// An existing cmux-tui owner at the exact socket discovery found.
@@ -20,6 +22,10 @@ public enum SSHSessionTarget: Hashable, Sendable {
             // `=` makes tmux match the session name exactly, never a prefix.
             let target = "=" + session.rawValue + (window.map { ":\($0)" } ?? "")
             return "exec \(binary.quoted) attach-session -t \(target.posixShellSingleQuoted)"
+        case .tmuxControl(let binary, let window):
+            // -N refuses to start a new server; -E preserves the host's environment.
+            // A session id never changes its active window as name:index attach does.
+            return "exec \(binary.quoted) -C -N attach-session -E -f ignore-size,no-output -t \(window.sessionID.posixShellSingleQuoted)"
         case .screen(let binary, let session):
             // `-x` joins without detaching other clients.
             return "exec \(binary.quoted) -x \(session.rawValue.posixShellSingleQuoted)"
@@ -34,6 +40,7 @@ public enum SSHSessionTarget: Hashable, Sendable {
     public var surfaceID: String {
         switch self {
         case .tmux(_, let session, let window): "ssh:tmux:" + session.rawValue + (window.map { ":\($0)" } ?? "")
+        case .tmuxControl(_, let window): "ssh:tmux:\(window.serverPID)-\(window.serverStart):" + window.sessionID + ":" + window.windowID
         case .screen(_, let session): "ssh:screen:" + session.rawValue
         case .cmuxTUI(_, let socket): "ssh:cmux-tui:" + socket.session.rawValue
         }

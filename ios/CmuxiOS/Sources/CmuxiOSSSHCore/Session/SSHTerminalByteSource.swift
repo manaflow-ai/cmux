@@ -48,7 +48,7 @@ public actor SSHTerminalByteSource: TerminalByteSource {
         await stopRun(finalState: nil)
         self.viewport = viewport
         generation += 1
-        let (stream, continuation) = AsyncStream.makeStream(of: TerminalSourceEvent.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: TerminalSourceEvent.self, bufferingPolicy: .bufferingOldest(128))
         self.continuation = continuation
         if let title { continuation.yield(.title(title)) }
         let generation = self.generation
@@ -129,7 +129,14 @@ public actor SSHTerminalByteSource: TerminalByteSource {
                 guard isCurrent(generation) else { break }
                 switch event {
                 case .stdout(let data), .stderr(let data):
-                    continuation?.yield(.bytes(data))
+                    guard emit(data) else {
+                        // Dropped terminal bytes cannot be skipped safely. End
+                        // this viewer; a fresh attach will hydrate owner state.
+                        await opened.close()
+                        channel = nil
+                        serverGrid = nil
+                        return finish(.failed(.network), generation)
+                    }
                 case .exitStatus(let status):
                     exitStatus = status
                     exited = true
@@ -174,6 +181,15 @@ public actor SSHTerminalByteSource: TerminalByteSource {
         if let serverGrid, serverGrid == grid { return }
         serverGrid = grid
         try? await channel.resize(cols: grid.cols, rows: grid.rows)
+    }
+
+    private func emit(_ data: Data) -> Bool {
+        guard let continuation else { return false }
+        for offset in stride(from: 0, to: data.count, by: 16 * 1024) {
+            let chunk = data.subdata(in: offset..<min(offset + 16 * 1024, data.count))
+            guard case .enqueued = continuation.yield(.bytes(chunk)) else { return false }
+        }
+        return true
     }
 
     private func finish(_ final: SSHSessionState, _ generation: Int) {

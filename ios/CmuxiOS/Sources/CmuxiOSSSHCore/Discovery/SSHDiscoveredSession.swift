@@ -26,5 +26,10 @@ public struct SSHDiscoveredSession: Hashable, Sendable, Identifiable {
     public var activity: Int64?
 
     /// `ssh:<kind>:<session>`, stable across runs.
-    public var id: String { "ssh:\(kind.rawValue):\(name.rawValue)" }
+    public var id: String {
+        if case .tmuxControl(_, let window) = target {
+            return "ssh:tmux:\(window.serverPID)-\(window.serverStart):" + window.sessionID
+        }
+        return "ssh:\(kind.rawValue):\(name.rawValue)"
+    }
 }
