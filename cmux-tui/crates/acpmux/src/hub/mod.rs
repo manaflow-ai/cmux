@@ -35,6 +35,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+mod remote_floor;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
@@ -213,6 +214,18 @@ pub struct Session {
     pub(super) last_active: AtomicU64,
     /// Web control ended: the mode left the asking table (`web_control.rs`).
     pub(super) web_control_ended: AtomicBool,
+    /// The last turn was a Web turn: an agent request between turns is
+    /// held to the remote floor (`remote_floor.rs`).
+    pub(super) last_turn_web: AtomicBool,
+    /// The Web turn the remote floor cancelled: every later request in it
+    /// is cancelled, also after a local restore of an asking mode.
+    pub(super) floor_cancelled_turn: StdMutex<Option<String>>,
+    /// A mode the harness reported while it declared no modes; the asking
+    /// check reads it (`remote_floor.rs`). Cleared when the agent exits.
+    pub(super) undeclared_mode: StdMutex<Option<String>>,
+    /// The agent process holds a lasting grant a client gave it ("allow
+    /// always"): Web control ends until the agent exits (`web_control.rs`).
+    pub(super) harness_grant: AtomicBool,
 }
 
 impl Session {
@@ -560,6 +573,10 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
+            last_turn_web: AtomicBool::new(false),
+            floor_cancelled_turn: StdMutex::new(None),
+            undeclared_mode: StdMutex::new(None),
+            harness_grant: AtomicBool::new(false),
         })
     }
 
