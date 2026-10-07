@@ -77,6 +77,7 @@ import {
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { authorizeCronRequest } from "../../../services/cronAuth";
+import { reportError } from "../../../services/observability/report";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
 import {
@@ -103,6 +104,10 @@ const HOSTED_TENANT_DELETE_PHASE_TIMEOUT_MS = 20_000;
 // Each resumed deletion repeats idempotent external cleanup (PostHog, Stripe,
 // TestFlight, VM providers, Stack), so one cron run finishes only a few.
 const ACCOUNT_DELETION_RESUME_BATCH_SIZE = 3;
+// attempt_count counts user and cron attempts together. The stuck production
+// rows already carry up to 8 user attempts, so the cap leaves each of them
+// at least 8 hourly cron attempts before it is reported and parked.
+const ACCOUNT_DELETION_RESUME_MAX_ATTEMPTS = 16;
 // Stop starting resumes once a run has used this much of maxDuration.
 const ACCOUNT_DELETION_RESUME_START_BUDGET_MS = 6 * 60 * 1000;
 // Tombstones parked at the retired hosted step.
@@ -322,7 +327,73 @@ async function resumeAccountDeletion(userId: string, status: string): Promise<bo
   } catch (error) {
     response = await accountDeletionFailureResponse(context, progress, error);
   }
-  return response.status === 200;
+  if (response.status === 200) return true;
+  await settleFailedAccountDeletionResume(userId);
+  return false;
+}
+
+/**
+ * A resume that fails on a transient error (Stack 429, provider timeout)
+ * stays resumable until attempt_count reaches the cap. The normal failure
+ * path may have written `failed`; below the cap that becomes a `pending`
+ * tombstone, which the cron adopts once its lease is stale. At the cap the
+ * tombstone is `failed`, which the cron never selects, and Sentry gets a
+ * report. A tombstone held by a live attempt is left alone.
+ */
+async function settleFailedAccountDeletionResume(userId: string): Promise<void> {
+  try {
+    const exhausted = await cloudDb().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+      const userIdHash = accountDeletionUserHash(userId);
+      const [row] = await tx
+        .select({
+          status: accountDeletionTombstones.status,
+          attemptCount: accountDeletionTombstones.attemptCount,
+        })
+        .from(accountDeletionTombstones)
+        .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+        .limit(1)
+        .for("update");
+      if (!row || !isRestingResumeFailureStatus(row.status)) return null;
+      const now = new Date();
+      if (row.attemptCount >= ACCOUNT_DELETION_RESUME_MAX_ATTEMPTS) {
+        await tx
+          .update(accountDeletionTombstones)
+          .set({
+            status: "failed",
+            updatedAt: now,
+            errorMessage: "account deletion resume attempts exhausted",
+          })
+          .where(eq(accountDeletionTombstones.userIdHash, userIdHash));
+        return { attemptCount: row.attemptCount, lastStatus: row.status };
+      }
+      if (row.status === "failed") {
+        await tx
+          .update(accountDeletionTombstones)
+          .set({ status: "pending", updatedAt: now })
+          .where(eq(accountDeletionTombstones.userIdHash, userIdHash));
+      }
+      return null;
+    });
+    if (exhausted) {
+      reportError(
+        new Error("account deletion resume attempts exhausted"),
+        {
+          operation: "account_deletion_resume",
+          attempt_count: exhausted.attemptCount,
+          last_status: exhausted.lastStatus,
+        },
+        { fingerprint: ["account-deletion-resume-exhausted"] },
+      );
+    }
+  } catch (error) {
+    logAccountDeleteError("account.delete.resume_settle_failed", error);
+  }
+}
+
+function isRestingResumeFailureStatus(status: string): boolean {
+  return status === "failed" ||
+    (HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(status);
 }
 
 /**
@@ -361,6 +432,7 @@ async function finishAccountDeletionWithoutStackUser(
   } catch (error) {
     logAccountDeleteError("account.delete.resume_cleanup_failed", error);
     await markAccountDeletionTombstoneHostedDeletePending(userId);
+    await settleFailedAccountDeletionResume(userId);
     return false;
   }
 }

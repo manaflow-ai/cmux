@@ -2948,6 +2948,74 @@ describe("account deletion resume cron", () => {
     expect(tombstoneUpdates.at(-1)).toMatchObject({ status: "failed" });
   });
 
+  test("keeps a transiently failing stale resume resumable", async () => {
+    const updatedAt = staleUpdatedAt();
+    selectResults = [[resumeRow("in_progress", updatedAt)], ...selectResults];
+    transactionTombstoneSelectResults = [
+      [{
+        userIdHash: "existing-hash",
+        status: "in_progress",
+        updatedAt,
+        hostedSubrouterDeletedTeamIds: [],
+      }],
+      [{ status: "failed", attemptCount: 3 }],
+    ];
+    postHogDeleteError = new Error("PostHog timed out");
+
+    const response = await GET(cronRequest());
+
+    expect(await response.json()).toEqual({
+      ok: true,
+      resumed: 1,
+      completed: 0,
+      retryable: 1,
+    });
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    const statuses = tombstoneUpdates.map((values) =>
+      (values as { readonly status?: unknown }).status
+    );
+    expect(statuses.slice(-2)).toEqual(["failed", "pending"]);
+  });
+
+  test("counts each hosted-checkpoint resume and keeps it resumable below the cap", async () => {
+    selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
+    transactionTombstoneSelectResults = [
+      hostedPendingTombstone(),
+      [{ status: "hosted_delete_pending", attemptCount: 9 }],
+    ];
+    postHogDeleteError = new Error("Stack returned 429");
+
+    const response = await GET(cronRequest());
+
+    expect((await response.json()).retryable).toBe(1);
+    expect(tombstoneUpdates[0]).toMatchObject({ status: "in_progress" });
+    expect(tombstoneUpdates[0]).toHaveProperty("attemptCount");
+    expect(tombstoneUpdates.at(-1)).toMatchObject({ status: "hosted_delete_pending" });
+    expect(consoleError.mock.calls.some((call) =>
+      (call as unknown[])[0] === "cmux.observability.error"
+    )).toBe(false);
+  });
+
+  test("marks a resume failed and reports it once attempts reach the cap", async () => {
+    selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
+    transactionTombstoneSelectResults = [
+      hostedPendingTombstone(),
+      [{ status: "hosted_delete_pending", attemptCount: 16 }],
+    ];
+    postHogDeleteError = new Error("PostHog unavailable");
+
+    const response = await GET(cronRequest());
+
+    expect((await response.json()).retryable).toBe(1);
+    expect(tombstoneUpdates.at(-1)).toMatchObject({
+      status: "failed",
+      errorMessage: "account deletion resume attempts exhausted",
+    });
+    expect(consoleError.mock.calls.some((call) =>
+      (call as unknown[])[0] === "cmux.observability.error"
+    )).toBe(true);
+  });
+
   test("rejects a request without the cron secret", async () => {
     const response = await GET(cronRequest("wrong-secret"));
 
