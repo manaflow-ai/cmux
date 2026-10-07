@@ -44,9 +44,15 @@ final class ChiefInspectorPageService: InternalPageProvider {
     }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        // Each tab keeps the server it was opened for; a tab restored at
+        // launch (no open request yet) takes the first server that serves
+        // chief-inspect.
+        let opened = machineID
         let provider = ChiefInspectorPageProvider { [weak self] in
-            guard let self, let id = self.machineID else { return nil }
-            return self.services?.machines.server(id)?.daemon.connection
+            guard let machines = self?.services?.machines else { return nil }
+            let server = opened.flatMap(machines.server)
+                ?? machines.servers.first { $0.daemon.supports(DaemonCapabilities.shared.chiefInspect) }
+            return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
         return PageWebView(descriptor: .chiefInspector, routes: routes) ?? NSView()

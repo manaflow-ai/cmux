@@ -122,3 +122,22 @@ fn the_remote_relay_never_admits_it() {
     assert!(!gate.iter().any(|(name, _)| *name == "chief-inspect"));
     assert_eq!(CAPABILITY, "chief-inspect-v1");
 }
+
+/// A Unix connection that carries a link peer stamp (a stamped stream, not the
+/// owner_session splice) is not the owner either.
+#[test]
+fn a_stamped_unix_connection_is_refused() {
+    let mux = Mux::new_for_test("chief-inspect", crate::SurfaceOptions::default());
+    mux.record_remote_check("inst_1").unwrap();
+    let stamped = mux.control_clients.register(ClientTransport::Unix, writer());
+    let peer = crate::remote_relay_state::LinkPeer {
+        install: "inst_1".into(),
+        user: "user_1".into(),
+        team: "team_a".into(),
+    };
+    mux.bind_remote_peer(stamped, &peer).unwrap();
+    let (_dir, sock, seen) = tools_socket(json!({"status": 200, "body": {}}));
+    let error = inspect_with(&mux, stamped, params("/api/status"), Some(&sock)).unwrap_err();
+    assert_eq!(response_error_code(&error).as_deref(), Some("origin.forbidden"));
+    assert_eq!(seen.load(Ordering::SeqCst), 0);
+}
