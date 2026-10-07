@@ -253,8 +253,15 @@ extension AgentPaneModel {
             if result.truncated { value["truncated"] = true }
             return AgentPaneReply.success(value)
         } catch {
-            let reason: AgentPaneShell.Failure = error == .folderMissing ? .folderMissing : .spawnFailed(0)
-            return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(reason))
+            switch error {
+            case .timedOut:
+                // The shell started and ran past the deadline: a timeout, never "Could not start".
+                return AgentPaneReply.failure(code: "shell.timed_out", message: Self.shellCompletionTimedOutMessage)
+            case .folderMissing:
+                return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(AgentPaneShell.Failure.folderMissing))
+            case .spawnFailed(let code):
+                return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(AgentPaneShell.Failure.spawnFailed(code)))
+            }
         }
     }
 }
