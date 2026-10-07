@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextApp
 import CmuxNextPages
 import CmuxNextSettings
@@ -54,15 +55,63 @@ struct IconPickerHostTests {
         #expect(merged["recents"] == .array([entry("emoji:🐱", 5, 40), entry("emoji:🚀", 1, 30)]))
     }
 
-    @Test func symbolRequestsNameOneValidSymbol() {
+    @Test func symbolRequestsNameOneValidSymbolAndMode() {
         func request(_ path: [String]) -> PageResourceRequest {
             PageResourceRequest(prefix: IconPickerSymbols.prefix, path: path, url: URL(string: "cmux-page://cmux.icon-picker/x")!)
         }
-        #expect(IconPickerSymbols.name(for: request(["star.fill.png"])) == "star.fill")
-        #expect(IconPickerSymbols.name(for: request(["Star.png"])) == nil)
-        #expect(IconPickerSymbols.name(for: request(["a", "b.png"])) == nil)
-        #expect(IconPickerSymbols.name(for: request(["star.fill"])) == nil)
+        func parsed(_ path: [String]) -> String? {
+            IconPickerSymbols.symbol(for: request(path)).map { "\($0.mode.rawValue):\($0.name)" }
+        }
+        #expect(parsed(["star.fill.png"]) == "monochrome:star.fill")
+        #expect(parsed(["hierarchical", "star.fill.png"]) == "hierarchical:star.fill")
+        #expect(parsed(["multicolor", "cloud.sun.fill.png"]) == "multicolor:cloud.sun.fill")
+        #expect(parsed(["sepia", "star.png"]) == nil)
+        #expect(parsed(["Star.png"]) == nil)
+        #expect(parsed(["a", "b", "c.png"]) == nil)
+        #expect(parsed(["star.fill"]) == nil)
         #expect(IconPickerSymbols.png("star.fill") != nil)
         #expect(IconPickerSymbols.png("no.such.symbol.zz") == nil)
+    }
+
+    /// Opaque pixels of a PNG: whether each has a hue (not gray) and whether it is red.
+    static func pixels(_ png: Data) -> [(colored: Bool, red: Bool)] {
+        guard let bitmap = NSBitmapImageRep(data: png) else { return [] }
+        var out: [(colored: Bool, red: Bool)] = []
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.alphaComponent > 0.5 else { continue }
+                let (r, g, b) = (color.redComponent, color.greenComponent, color.blueComponent)
+                out.append((max(r, g, b) - min(r, g, b) > 0.15, r > 0.6 && g < 0.45 && b < 0.45))
+            }
+        }
+        return out
+    }
+
+    /// Monochrome is a black template; multicolor has the symbol's own colors (the yellow sun of
+    /// cloud.sun.fill); hierarchical is drawn in the accent color.
+    @Test func renderingModesDrawColorWhereTheModeHasIt() throws {
+        let mono = Self.pixels(try #require(IconPickerSymbols.png("cloud.sun.fill")))
+        let multi = Self.pixels(try #require(IconPickerSymbols.png("cloud.sun.fill", mode: .multicolor)))
+        let accent = Self.pixels(try #require(IconPickerSymbols.png("star.fill", mode: .hierarchical, accent: .systemRed)))
+        #expect(!mono.isEmpty && !mono.contains { $0.colored })
+        #expect(multi.contains { $0.colored })
+        #expect(accent.contains { $0.red })
+    }
+
+    /// The colored images' cache key goes with every session and changes with the accent.
+    @Test func everySessionCarriesTheSymbolStyle() {
+        var session = IconPickerSession(id: "s", current: nil)
+        session.symbolStyle = IconPickerSymbols.style(accent: NSColor(srgbRed: 1, green: 0, blue: 0.5, alpha: 1), dark: true)
+        #expect(session.event["symbolStyle"] == .string("ff0080-dark"))
+        #expect(IconPickerSymbols.style(accent: NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1), dark: false) == "000000-light")
+    }
+
+    /// The rendering mode is a pref: ours wins, theirs is kept when we have none.
+    @Test func prefsMergeKeepsTheSymbolMode() {
+        let multicolor: JSONValue = .object(["symbolMode": .string("multicolor")])
+        let hierarchical: JSONValue = .object(["symbolMode": .string("hierarchical")])
+        #expect(IconPickerPrefs.merge(multicolor, hierarchical)["symbolMode"] == .string("hierarchical"))
+        #expect(IconPickerPrefs.merge(multicolor, .object([:]))["symbolMode"] == .string("multicolor"))
+        #expect(IconPickerPrefs.merge(.null, .null)["symbolMode"] == nil)
     }
 }

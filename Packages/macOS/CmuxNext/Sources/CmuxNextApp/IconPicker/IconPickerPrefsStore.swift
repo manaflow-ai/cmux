@@ -83,7 +83,8 @@ extension IconPickerPrefsStore {
 /// The prefs document's merge rule, as plain values (unit tested).
 nonisolated enum IconPickerPrefs {
     /// `ours` and `theirs` combined: every recent of both, each with the larger
-    /// count and the later use; ours wins the skin tone. At most 36 recents
+    /// count and the later use; ours wins the skin tone and the symbol rendering
+    /// mode (`symbolMode`, kept when only theirs has it). At most 36 recents
     /// (the page's MAX_RECENTS), most recent first.
     static func merge(_ theirs: CmuxNextSettings.JSONValue, _ ours: CmuxNextSettings.JSONValue) -> CmuxNextSettings.JSONValue {
         var byKey: [String: (count: Double, last: Double)] = [:]
@@ -99,6 +100,7 @@ nonisolated enum IconPickerPrefs {
             .object(["key": .string(key), "count": .number(value.count), "last": .number(value.last)])
         }
         let tone: CmuxNextSettings.JSONValue = ours["tone"] ?? theirs["tone"] ?? .number(0)
-        return .object(["tone": tone, "recents": .array(recents)])
+        let merged: [String: CmuxNextSettings.JSONValue] = ["tone": tone, "recents": .array(recents)]
+        return .object(merged)
     }
 }

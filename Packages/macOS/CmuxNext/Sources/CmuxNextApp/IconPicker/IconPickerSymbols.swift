@@ -7,11 +7,33 @@ import CmuxNextPages
 /// drawn on request (the page never bundles symbol images; the names come from
 /// ``IconPickerSymbolCatalog``). `cmux-page://cmux.icon-picker/__symbol/<name>.png` is a
 /// black template image; the page tints it with its theme color (CSS mask).
+/// `__symbol/hierarchical/<name>.png` and `__symbol/multicolor/<name>.png` are finished
+/// images (the user's accent color, the symbol's own colors) the page shows as they are.
 @MainActor
 final class IconPickerSymbols: PageDynamicResourceSource {
     nonisolated static let prefix = "__symbol"
     /// Points of the drawn symbol; the page shows it at 24 px (2x for Retina).
     static let pointSize: CGFloat = 48
+
+    /// How a symbol is drawn (the page's prefs.symbolMode).
+    nonisolated enum Mode: String, CaseIterable, Sendable {
+        /// Black template; the page tints it.
+        case monochrome
+        /// Layers in the accent color at decreasing opacity.
+        case hierarchical
+        /// The symbol's own colors (symbols without them draw monochrome).
+        case multicolor
+    }
+
+    /// The view whose theme and appearance the colored modes draw in (the picker page), so
+    /// multicolor's neutral layers match the page's light or dark theme.
+    weak var appearanceView: NSView?
+
+    /// The page's cache key for the colored modes: the accent (sRGB hex) and light or dark.
+    /// The page puts it in the image URL, so a changed accent never reuses a cached image.
+    static func style(accent: NSColor = .controlAccentColor, dark: Bool) -> String {
+        "" // red stub
+    }
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
     /// emoji that would show as empty boxes: one new single code point per version, newest first.
@@ -29,23 +51,34 @@ final class IconPickerSymbols: PageDynamicResourceSource {
         return CTFontGetGlyphsForCharacters(font, &units, &glyphs, units.count) && glyphs[0] != 0
     }
 
-    /// The symbol name a request names (`<name>.png`), or nil.
-    nonisolated static func name(for request: PageResourceRequest) -> String? {
-        guard request.prefix == prefix, request.path.count == 1, let file = request.path.first, file.hasSuffix(".png") else {
-            return nil
+    /// The symbol and mode a request names (`<name>.png` is monochrome, `<mode>/<name>.png`
+    /// another mode), or nil.
+    nonisolated static func symbol(for request: PageResourceRequest) -> (name: String, mode: Mode)? {
+        guard request.prefix == prefix, let file = request.path.last, file.hasSuffix(".png") else { return nil }
+        let mode: Mode
+        switch request.path.count {
+        case 1: mode = .monochrome
+        default: return nil // red stub: one component only
         }
         let name = String(file.dropLast(4)).removingPercentEncoding ?? ""
-        return IconValue.isSymbolName(name) ? name : nil
+        return IconValue.isSymbolName(name) ? (name, mode) : nil
     }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
-        guard let name = Self.name(for: request), let data = Self.png(name) else { return nil }
-        return PageResource(data: data, mimeType: "image/png")
+        guard let symbol = Self.symbol(for: request) else { return nil }
+        let draw = { Self.png(symbol.name, mode: symbol.mode) }
+        let data = appearanceView.map { view in view.performWithTheme(draw) } ?? draw()
+        return data.map { PageResource(data: $0, mimeType: "image/png") }
     }
 
-    /// The symbol drawn black on clear, as PNG; nil when the system has no such symbol.
-    static func png(_ name: String) -> Data? {
-        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+    /// The symbol drawn on clear in `mode`, as PNG; nil when the system has no such symbol.
+    /// Monochrome is black (a template the page tints); hierarchical uses `accent`.
+    static func png(_ name: String, mode: Mode = .monochrome, accent: NSColor = .controlAccentColor) -> Data? {
+        var config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        switch mode {
+        case .monochrome: break
+        case .hierarchical, .multicolor: break // red stub
+        }
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else {
             return nil
         }

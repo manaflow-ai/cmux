@@ -59,7 +59,9 @@ final class IconPickerService {
         }
         open?.provider.finish(.cancel)
         prefs.load()
-        let session = IconPickerSession(id: UUID().uuidString, current: current, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
+        var session = IconPickerSession(id: UUID().uuidString, current: current, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
+        let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        session.symbolStyle = IconPickerSymbols.style(dark: dark)
         let provider = IconPickerProvider(session: session, prefs: prefs) { [weak self] result in
             self?.close()
             completion(result)
@@ -69,6 +71,7 @@ final class IconPickerService {
             completion(.cancel)
             return
         }
+        symbols.appearanceView = page
         let parent = anchor.view.window
         let screenAnchor = parent.map { $0.convertToScreen(anchor.view.convert(anchor.rect, to: nil)) } ?? anchor.rect
         let panel = IconPickerPanel(content: page, size: Self.size)
