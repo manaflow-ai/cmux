@@ -263,13 +263,14 @@ public final class ConversationStore {
         if incoming.attachments.isEmpty, !existing.attachments.isEmpty, incoming.seq == nil {
             result.attachments = existing.attachments
         }
-        // Unsending is final: a stale echo of the original never brings the
-        // text back (a refused unsend restores the original directly).
+        // Unsending is final here: a stale echo of the original (or the
+        // server's copy after a refused unsend) never brings the text back.
         if let unsentAt = existing.unsentAt, incoming.unsentAt == nil {
             result.unsentAt = unsentAt
             result.text = ""
             result.attachments = []
             result.reactions = []
+            result.unsendFailed = existing.unsendFailed
         }
         // A preview loaded here (composer, tap to load) outlives an echo that lacks it.
         if let local = existing.linkPreview, local.state != .tapToLoad,
@@ -777,11 +778,13 @@ public final class ConversationStore {
             && now.timeIntervalSince(message.sentAt) < Self.undoSendWindow
     }
 
-    /// The pre-unsend message, kept until the backend confirms.
+    /// The pre-unsend message, kept until the backend confirms (and after a
+    /// refusal, so Try Again can resend the retraction).
     private var unsendOriginals: [String: ConversationMessage] = [:]
 
-    /// Undo Send: the bubble becomes a notice at once; the original comes
-    /// back if the backend refuses (for example, the window closed).
+    /// Undo Send: the bubble becomes a notice at once. If the backend refuses,
+    /// the notice stays and gains "(!) Not Unsent", as in Messages: the
+    /// original is gone here but others may still see it.
     public func unsend(messageID: String) {
         guard let index = indexByID[messageID], canUnsend(messages[index]) else { return }
         unsendOriginals[messageID] = messages[index]
@@ -789,17 +792,42 @@ public final class ConversationStore {
         messages[index].text = ""
         messages[index].attachments = []
         messages[index].reactions = []
+        messages[index].unsendFailed = false
         notify(.live(insertedRowIDs: [], sentByMe: false))
+        sendRetraction(messageID: messageID)
+    }
+
+    /// My most recent message Undo Send would act on (macOS Edit > Undo).
+    public var lastSentByMe: ConversationMessage? {
+        messages.last { $0.senderID == meID && $0.seq != nil && !$0.isUnsent }
+    }
+
+    /// A refused unsend can be tried again while the original is inside the
+    /// two-minute window.
+    public func canRetryUnsend(_ message: ConversationMessage, now: Date = Date()) -> Bool {
+        guard message.unsendFailed, let original = unsendOriginals[message.id] else { return false }
+        return now.timeIntervalSince(original.sentAt) < Self.undoSendWindow
+    }
+
+    /// Try Again on "(!) Not Unsent".
+    public func retryUnsend(messageID: String) {
+        guard let index = indexByID[messageID], canRetryUnsend(messages[index]) else { return }
+        messages[index].unsendFailed = false
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        sendRetraction(messageID: messageID)
+    }
+
+    private func sendRetraction(messageID: String) {
         Task { [weak self] in
             guard let self else { return }
             do {
                 let updated = try await self.backend.unsend(messageID: messageID)
                 self.unsendOriginals[messageID] = nil
                 self.upsert(updated)
+                if let index = self.indexByID[messageID] { self.messages[index].unsendFailed = false }
             } catch {
-                guard let original = self.unsendOriginals.removeValue(forKey: messageID),
-                      let index = self.indexByID[messageID] else { return }
-                self.messages[index] = original
+                guard let index = self.indexByID[messageID], self.messages[index].isUnsent else { return }
+                self.messages[index].unsendFailed = true
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: false))
         }

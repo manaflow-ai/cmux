@@ -2750,6 +2750,244 @@
           }
         }
       }
+    },
+    "conversation.unsent.status.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#You# unsent a message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#あなた#はメッセージの送信を取り消しました"
+          }
+        }
+      }
+    },
+    "conversation.unsent.status.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#%@# unsent a message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#%@#さんはメッセージの送信を取り消しました"
+          }
+        }
+      }
+    },
+    "conversation.unsent.status.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#You# unsent a message. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#あなた#はメッセージを取り消しました。%@"
+          }
+        }
+      }
+    },
+    "conversation.unsent.notUnsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(!) Not Unsent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(!) 送信は取り消されませんでした"
+          }
+        }
+      }
+    },
+    "conversation.notUnsent.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message Not Unsent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージの送信は取り消されませんでした"
+          }
+        }
+      }
+    },
+    "conversation.notUnsent.retryBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original message will still be visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のメッセージはまだ表示されます。"
+          }
+        }
+      }
+    },
+    "conversation.notUnsent.expiredBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your message was not unsent. The original message will still be visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージの送信は取り消されませんでした。元のメッセージはまだ表示されます。"
+          }
+        }
+      }
+    },
+    "conversation.notUnsent.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "conversation.undoSend.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo Send?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信を取り消しますか?"
+          }
+        }
+      }
+    },
+    "conversation.undoSend.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can unsend messages for up to 2 minutes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージは、2分以内なら送信を取り消すことができます。"
+          }
+        }
+      }
+    },
+    "conversation.undoSend.expiredTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo Send Not Available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“送信を取り消す”は使用できません"
+          }
+        }
+      }
+    },
+    "conversation.undoSend.expiredBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message was sent more than 2 minutes ago. You can edit it for up to 15 minutes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージは2分以上前に送信されました。メッセージを編集できるのは15分以内です。"
+          }
+        }
+      }
+    },
+    "conversation.undoSend.undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信を取り消す"
+          }
+        }
+      }
+    },
+    "conversation.undoSend.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージを編集"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

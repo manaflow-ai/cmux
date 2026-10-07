@@ -50,7 +50,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxConversationCoreTests",
-            dependencies: ["CmuxConversationCore"],
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry"],
             swiftSettings: swiftSettings
         ),
         .testTarget(

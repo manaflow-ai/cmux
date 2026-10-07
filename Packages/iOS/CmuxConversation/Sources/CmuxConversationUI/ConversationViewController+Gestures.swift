@@ -171,6 +171,11 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             dismissPhotoDrawer()
             return
         }
+        if !isSelecting, let indexPath = collectionView.indexPathForItem(at: point), indexPath.item < rows.count,
+           case let .notice(notice) = rows[indexPath.item], notice.failure != nil {
+            presentNotUnsent(messageID: notice.messageID)
+            return
+        }
         guard let cell = messageCell(at: point, requireContentHit: false), let model = cell.model else {
             return
         }
@@ -248,6 +253,33 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         })
         sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
         present(sheet, animated: true)
+    }
+
+    /// Tapping "(!) Not Unsent": Try Again while the two-minute window is
+    /// open, otherwise just the explanation (ChatKit's two alerts).
+    func presentNotUnsent(messageID: String) {
+        guard let message = store.message(id: messageID), message.unsendFailed else { return }
+        let title = String(localized: "conversation.notUnsent.title", defaultValue: "Message Not Unsent", bundle: .module)
+        let alert: UIAlertController
+        if store.canRetryUnsend(message) {
+            alert = UIAlertController(
+                title: title,
+                message: String(localized: "conversation.notUnsent.retryBody", defaultValue: "The original message will still be visible.", bundle: .module),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
+            alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
+                self?.store.retryUnsend(messageID: messageID)
+            })
+        } else {
+            alert = UIAlertController(
+                title: title,
+                message: String(localized: "conversation.notUnsent.expiredBody", defaultValue: "Your message was not unsent. The original message will still be visible.", bundle: .module),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: String(localized: "conversation.notUnsent.ok", defaultValue: "OK", bundle: .module), style: .default))
+        }
+        present(alert, animated: true)
     }
 
     // MARK: Select mode

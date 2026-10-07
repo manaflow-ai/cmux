@@ -24,7 +24,7 @@ process and keep growing.
 | `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention], textRuns?, effect?: Effect}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text, textRuns?}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
-| `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
+| `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes, `-32005` at `unsendFailRate`) |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
 | `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
@@ -58,7 +58,7 @@ change is pushed to the conversation's subscribed clients as `conversation`.
 `event` with params `{eventSeq, kind, ...}`:
 
 - `message.created {message}`
-- `message.updated {message}` (edit, reaction, delivery status, reply count)
+- `message.updated {message}` (edit, unsend, reaction, delivery status, reply count)
 
 `conversation {conversation}` carries the conversation after a list state
 change. It has no `eventSeq`; `hello` returns the current state, so a client
@@ -160,9 +160,13 @@ edit without `textRuns` clears the formatting.
   Receiver-side effect testing. With a JSON body `{conversation, senderId,
   text, effect}` instead, the message posts at once and the sender may be me
   (deterministic link, data detector and layout fixtures).
+- `POST /admin/unsend?conversation=<id>`: a participant unsends its newest
+  message now (incoming "<Name> unsent a message").
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
+  unsendFailRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
+  `-32005 "not unsent"`.
 
 ## Link previews
 
@@ -192,7 +196,8 @@ carry only `{url, state: "tapToLoad"}`; the client fetches the card with
   message length (sometimes stops without sending), then sends. Occasional
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
-  message ~5% of the time (an edit drops formatting). In `group`, ~12% of bot
+  message ~5% of the time (an edit drops formatting) and unsends it ~3% of the
+  time (3 to 60 s later). In `group`, ~12% of bot
   messages mention someone (half of those mention me); ~4% of group history
   mentions someone. About 6% of bot and history messages are formatted: half
   animate the whole message with a random text effect, half style one word.

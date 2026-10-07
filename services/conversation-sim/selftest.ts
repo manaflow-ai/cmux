@@ -187,6 +187,14 @@ async function main() {
     const late = await c.raw("unsend", { messageId: oldMine.id });
     check(late.error?.code === -32003, "unsend after two minutes is refused (-32003)");
   }
+  await post("/admin/knobs", { unsendFailRate: 1 });
+  const fresh = await c.call("send", { clientMessageId: crypto.randomUUID(), text: "take me back" });
+  const refused = await c.raw("unsend", { messageId: fresh.message.id });
+  check(refused.error?.code === -32005, "unsend refused at unsendFailRate (-32005)");
+  await post("/admin/knobs", { unsendFailRate: 0 });
+  const peer = await post("/admin/unsend?conversation=group");
+  await c.waitFor(() => c.events().some((e) => e.kind === "message.updated" && e.message.id === peer.messageId && e.message.unsentAt > 0 && e.message.text === ""), 3000, "peer unsend event");
+  check(true, "admin unsend: a participant takes back its newest message");
 
   console.log("mentions");
   const mtext = "hey Leo and Austin";

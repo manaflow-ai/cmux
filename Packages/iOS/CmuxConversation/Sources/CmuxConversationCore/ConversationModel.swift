@@ -228,6 +228,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
     public var effect: ConversationMessageEffect?
+    /// Local only: my Undo Send was refused, so others may still see the
+    /// original ("You unsent a message. (!) Not Unsent").
+    public var unsendFailed: Bool
 
     public init(
         id: String,
@@ -247,7 +250,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
         linkPreview: ConversationLinkPreview? = nil,
-        effect: ConversationMessageEffect? = nil
+        effect: ConversationMessageEffect? = nil,
+        unsendFailed: Bool = false
     ) {
         self.id = id
         self.seq = seq
@@ -267,6 +271,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.textRuns = textRuns
         self.linkPreview = linkPreview
         self.effect = effect
+        self.unsendFailed = unsendFailed
     }
 
     /// Identity that survives the pending to acknowledged transition, so the

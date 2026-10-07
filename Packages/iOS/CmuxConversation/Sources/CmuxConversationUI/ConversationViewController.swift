@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Host-provided presentation details.
@@ -690,19 +691,31 @@ public final class ConversationViewController: UIViewController {
     /// `CKUIBehavior.scrollInNewMessageAnimationDuration`.
     static let arrivalFadeDuration: TimeInterval = 0.3
 
-    /// Unsent bubble: a snapshot swells slightly and fades out in place (the
-    /// cell itself is hidden so the row's own removal shows nothing).
+    /// Unsent bubble: Messages' pop (it swells, then breaks into debris)
+    /// over a snapshot; the cell itself is hidden so the row's own removal
+    /// shows nothing. Reduce Motion fades it instead.
     private func dissolve(_ cell: MessageCell) {
         let frame = cell.liftedContentFrame
-        guard let snapshot = cell.shiftable.resizableSnapshotView(from: frame, afterScreenUpdates: false, withCapInsets: .zero) else { return }
-        snapshot.frame = cell.convert(frame, to: view)
-        view.insertSubview(snapshot, aboveSubview: collectionView)
+        guard frame.width > 0, frame.height > 0 else { return }
+        let format = UIGraphicsImageRendererFormat.preferred()
+        let image = UIGraphicsImageRenderer(bounds: frame, format: format).image { _ in
+            cell.shiftable.drawHierarchy(in: cell.shiftable.bounds, afterScreenUpdates: false)
+        }
+        guard let cgImage = image.cgImage else { return }
+        let host = UIView(frame: view.bounds)
+        host.isUserInteractionEnabled = false
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(host, aboveSubview: collectionView)
         UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
-        UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseOut]) {
-            snapshot.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
-            snapshot.alpha = 0
-        } completion: { _ in
-            snapshot.removeFromSuperview()
+        ConversationPopEffect.play(
+            image: cgImage,
+            frame: cell.shiftable.convert(frame, to: host),
+            in: host.layer,
+            contentsScale: format.scale,
+            yUp: false,
+            reduceMotion: UIAccessibility.isReduceMotionEnabled
+        ) {
+            host.removeFromSuperview()
         }
     }
 
@@ -816,9 +829,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
             cell.configure(date: date)
             return cell
-        case let .notice(_, text):
+        case let .notice(notice):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
-            cell.configure(notice: text)
+            cell.configure(notice: notice)
             return cell
         case .loadingOlder:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
