@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 3u
+#define CMUX_RD_FFI_ABI_VERSION 4u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -54,6 +54,7 @@ extern "C" {
 #define CMUX_RD_ERR_PANIC (-6)       /* internal error; the receiver is unusable */
 #define CMUX_RD_ERR_STREAM (-7)      /* the stream is not open, or the stream limit is reached */
 #define CMUX_RD_ERR_CONSENT (-8)     /* the upstream sender has no consent for its media kind */
+#define CMUX_RD_ERR_FULL (-9)        /* a bulk queue or the open transfer limit is full */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -302,8 +303,80 @@ uint64_t cmux_rd_upstream_target_bps(const CmuxRdUpstream *upstream, uint64_t no
 int32_t cmux_rd_upstream_set_path(CmuxRdUpstream *upstream, uint32_t path);
 int32_t cmux_rd_upstream_stats(const CmuxRdUpstream *upstream, CmuxRdUpstreamStats *out);
 
+/* ---- Bulk flow control (rd change C5, cap "bulk", ABI 4) ----
+   The viewer's side of bulk transfers (a service's file uploads and
+   downloads on the stream carrier), the same flow control the host runs.
+   Upload: queue a transfer's bytes; pop_frame gives at most one 64 KiB
+   chunk per media frame interval, none while a media frame waits for the
+   carrier, and never past the host's credit (bulk_credit control messages:
+   offer each CMUX_RD_MESSAGE_CONTROL payload to on_control). Download: offer
+   each CMUX_RD_MESSAGE_BULK payload to accept; it checks order and credit
+   and returns the framed bulk_credit to send back when one is due. Send
+   bulk only when welcome lists the "bulk" cap. Not thread-safe; a panic
+   poisons only that handle. */
+typedef struct CmuxRdBulkSender CmuxRdBulkSender;
+typedef struct CmuxRdBulkReceiver CmuxRdBulkReceiver;
+
+/* Bytes of queued, unsent upload data a sender holds. */
+#define CMUX_RD_BULK_MAX_QUEUED 67108864u
+/* Transfers a receiver tracks at once (finish frees a slot). */
+#define CMUX_RD_BULK_MAX_TRANSFERS 64u
+/* The largest framed chunk pop_frame writes (5 + 16 + 65520 bytes). */
+#define CMUX_RD_BULK_FRAME_MAX 65541u
+/* A credit buffer this large always holds a framed bulk_credit. */
+#define CMUX_RD_BULK_CREDIT_MAX 128u
+
+/* One accepted download chunk; bytes points into the caller's payload. */
+typedef struct CmuxRdBulkChunk {
+    uint64_t transfer;
+    uint64_t offset;
+    const uint8_t *bytes;
+    size_t len;
+} CmuxRdBulkChunk;
+
+/* A sender with at most one chunk per interval_us (the media frame
+   interval); NULL for 0. */
+CmuxRdBulkSender *cmux_rd_bulk_sender_new(uint64_t interval_us);
+void cmux_rd_bulk_sender_free(CmuxRdBulkSender *sender);
+/* Queues a transfer's bytes (copied). CMUX_RD_ERR_INVALID for a transfer id
+   already queued, CMUX_RD_ERR_FULL past CMUX_RD_BULK_MAX_QUEUED. */
+int32_t cmux_rd_bulk_sender_queue(CmuxRdBulkSender *sender, uint64_t transfer, const uint8_t *data, size_t len);
+/* Applies the host's credit (credit only grows). */
+int32_t cmux_rd_bulk_sender_on_credit(CmuxRdBulkSender *sender, uint64_t transfer, uint64_t offset);
+/* Offers a control message payload: 1 when it was a bulk_credit and was
+   applied, 0 for another message, CMUX_RD_ERR_INVALID for a bulk_credit
+   without its fields. */
+int32_t cmux_rd_bulk_sender_on_control(CmuxRdBulkSender *sender, const uint8_t *json, size_t len);
+/* Drops a queued transfer (the user cancelled it). */
+int32_t cmux_rd_bulk_sender_cancel(CmuxRdBulkSender *sender, uint64_t transfer);
+/* Writes the next chunk as a stream frame (type 3): 1 when written, 0 when
+   none may go now, CMUX_RD_ERR_BUFFER (*out_len = size needed) when cap is
+   too small; the chunk then stays pending. *out_len is written on every path. */
+int32_t cmux_rd_bulk_sender_pop_frame(CmuxRdBulkSender *sender, uint64_t now_us, bool media_waiting,
+                                      uint8_t *out, size_t cap, size_t *out_len);
+/* When pop_frame can give a chunk next (0 when one is pending); UINT64_MAX
+   when idle or waiting for credit, for NULL or an unusable sender. */
+uint64_t cmux_rd_bulk_sender_next_deadline_us(const CmuxRdBulkSender *sender);
+/* Bytes of queued upload data not yet sent (0 for NULL). */
+uint64_t cmux_rd_bulk_sender_queued_bytes(const CmuxRdBulkSender *sender);
+
+CmuxRdBulkReceiver *cmux_rd_bulk_receiver_new(void);
+void cmux_rd_bulk_receiver_free(CmuxRdBulkReceiver *receiver);
+/* Takes one chunk (a CMUX_RD_MESSAGE_BULK payload) and fills *out. When a
+   credit is due it writes the framed bulk_credit control message to
+   credit_out (send it as is) and sets *credit_len, else *credit_len = 0.
+   credit_cap below CMUX_RD_BULK_CREDIT_MAX: CMUX_RD_ERR_BUFFER, nothing
+   taken. CMUX_RD_ERR_INVALID for bad bytes, a gap, an overlap, a chunk past
+   the credit or a finished transfer (a protocol error: end the session);
+   CMUX_RD_ERR_FULL for a new transfer while CMUX_RD_BULK_MAX_TRANSFERS are open. */
+int32_t cmux_rd_bulk_receiver_accept(CmuxRdBulkReceiver *receiver, const uint8_t *payload, size_t len,
+                                     CmuxRdBulkChunk *out, uint8_t *credit_out, size_t credit_cap, size_t *credit_len);
+/* Ends a transfer (complete or cancelled): later chunks are refused. */
+int32_t cmux_rd_bulk_receiver_finish(CmuxRdBulkReceiver *receiver, uint64_t transfer);
+
 /* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
-   One client per remote tab. Inputs and outcomes are JSON in the shapes of
+   One client per rb session of a remote tab: make a new one for each rb.open
+   (tokens and screen seqs restart per session). Inputs and outcomes are JSON in the shapes of
    schemas/remote-tab/client.json: an input is {"op": ...}; the outcome is
    {"effects": [...], "note": null|"...", "reject": null|"..."}. A reject
    leaves the state unchanged. The outcome bytes stay valid until the next

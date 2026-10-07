@@ -207,6 +207,10 @@ fn write_rollout(codex_home: &Path, cwd: &Path) {
     std::fs::create_dir_all(rollout.parent().unwrap()).unwrap();
     let record = json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": cwd, "timestamp": "2026-10-02T09:00:00Z"}});
     std::fs::write(&rollout, format!("{record}\n")).unwrap();
+    // Written an hour ago: a transcript written in the last minutes is a
+    // chat live in another process, which adopt refuses (adopt_live.rs).
+    let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(&rollout).unwrap().set_modified(hour_ago).unwrap();
 }
 
 async fn call(

@@ -2,9 +2,18 @@
 import Foundation
 import Testing
 
+/// Whether this build compiled its string catalogs into `.lproj` tables. A
+/// fleet SwiftPM build copies them uncompiled (bead cx-v2k), so there these
+/// tests skip; hosted CI always runs them.
+nonisolated private func stringCatalogsCompiled() -> Bool {
+    ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
+        || Bundle.module.path(forResource: "en", ofType: "lproj") != nil
+}
+
 /// Home's merge notice is a transcript row the user reads, so it ships in
 /// every app language of the built bundle, and each translation differs from
 /// English.
+@Suite(.enabled(if: stringCatalogsCompiled()))
 struct HomeChiefNoticeLocalizationTests {
     nonisolated private static let languages = ["en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
                                     "pl", "pt-BR", "ru", "th", "tr", "uk", "vi", "zh-Hans", "zh-Hant"]

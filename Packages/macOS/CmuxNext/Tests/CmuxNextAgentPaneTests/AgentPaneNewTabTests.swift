@@ -216,6 +216,20 @@ import Testing
         #expect(actions == ["palette.welcomeChecklist"])
     }
 
+    /// BRING-YOUR-OWN-HARNESS H3: the New Tab page's "Integrate a harness" runs Add Harness…, the
+    /// palette's action; a chat page may not.
+    @Test func newTabRunsAddHarnessAndAChatDoesNot() async {
+        let newTabPage = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        var actions: [String] = []
+        newTabPage.onRunAction = { actions.append($0); return true }
+        #expect(await newTabPage.respond(to: .runAction("palette.addHarness"))["ok"] as? Bool == true)
+        #expect(actions == ["palette.addHarness"])
+        let chat = AgentPaneModel(host: MockAgentPaneHost())
+        chat.onRunAction = { actions.append($0); return true }
+        #expect(await chat.respond(to: .runAction("palette.addHarness"))["ok"] as? Bool == false)
+        #expect(actions == ["palette.addHarness"])
+    }
+
     /// A chat's location row opens the connect flows (SSH…, cmux Cloud…; Lawrence 2026-10-06),
     /// and a blank chat may open the New Tab page; a chat runs no other app action.
     @Test func aChatRunsOnlyTheConnectFlowsAndTheNewTabPage() async {

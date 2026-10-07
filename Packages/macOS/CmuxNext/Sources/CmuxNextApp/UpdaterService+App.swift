@@ -15,6 +15,8 @@ extension UpdaterService {
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         isSheetPresented = { sheet.isPresented }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
+        // What's New after an update: bundled documents and this feed's digests.
+        whatsNew.load()
         runAllowListedAction = { [weak services] id in
             guard PageDescriptor.changelogTryItActions.contains(id) else { return }
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
@@ -45,6 +47,7 @@ extension UpdaterService {
             await settings.waitForLoad(atLeast: 1)
             for await (updates, announcements) in Observations({ (settings.snapshot.updates, settings.snapshot.announcements) }) {
                 self?.apply(updates)
+                if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
                 self?.announcementsFetch = announcements.fetch
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
             }

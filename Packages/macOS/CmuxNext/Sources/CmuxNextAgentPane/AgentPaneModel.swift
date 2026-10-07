@@ -146,10 +146,17 @@ public final class AgentPaneModel {
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
             onConfirmMode(asked, answer)
         }
+        transport.requestHarnessEnable = { [weak self] prompt, answer in
+            guard let onConfirmHarness = self?.onConfirmHarness else { return answer(false) }
+            onConfirmHarness(prompt, answer)
+        }
     }
 
     /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+
+    /// Asks the user to enable a folder harness profile (the view's native Enable harness sheet).
+    @ObservationIgnored public var onConfirmHarness: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Asks the user to add a folder the page named outside every root (the view's native sheet).
     @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
@@ -275,9 +282,10 @@ public final class AgentPaneModel {
         case .runAction(let id):
             // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New),
             // the command palette's chats page ("Show all", decision K1), and the location row's SSH and
-            // cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
+            // cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH"). The New
+            // Tab page also runs Add Harness… ("Integrate a harness").
             guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id)
-                    || (id == "palette.welcomeChecklist" && newTab != nil),
+                    || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil),
                   let onRunAction else {
                 return Self.unsupported("action.run")
             }

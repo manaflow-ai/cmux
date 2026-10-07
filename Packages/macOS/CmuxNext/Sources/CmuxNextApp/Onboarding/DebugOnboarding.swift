@@ -35,7 +35,9 @@ enum DebugOnboarding {
         case "next": model.next()
         case "back": model.back()
         case "skip": model.skipStep()
-        case "close": model.finish(completed: false)
+        // The close button: leaves the first run unfinished. `skip_all` is Escape.
+        case "close": onboarding.controller?.close()
+        case "skip_all": model.finish(completed: false)
         case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
         case "toggle_project":
             if let path = params["path"]?.stringValue, let project = model.projects.projects.first(where: { $0.id == path }) {
