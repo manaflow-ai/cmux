@@ -693,8 +693,11 @@ beforeAll(() => {
   useAccountRouteStubs = true;
 });
 
+const originalHostedSubrouterUrl = process.env.SUBROUTER_HOSTED_URL;
+
 afterAll(() => {
   useAccountRouteStubs = false;
+  restoreEnv("SUBROUTER_HOSTED_URL", originalHostedSubrouterUrl);
 });
 
 beforeEach(() => {
@@ -749,6 +752,7 @@ beforeEach(() => {
   getAuthJson.mockClear();
   process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
     "0123456789abcdef0123456789abcdef-test";
+  process.env.SUBROUTER_HOSTED_URL = "https://sr.example.test";
   selectResults = [[], [], [], [], [], []];
   transactionSelectResults = [];
   transactionTombstoneSelectResults = [];
@@ -920,7 +924,7 @@ describe("account deletion route", () => {
     expect(hostedTenantDeleteRequests).toHaveLength(1);
     const [tenantDeleteUrl, tenantDeleteInit] = hostedTenantDeleteRequests[0]!;
     expect(String(tenantDeleteUrl)).toBe(
-      "https://staging.sr.cmux.com/_subrouter/auth/stack/tenant",
+      "https://sr.example.test/_subrouter/auth/stack/tenant",
     );
     expect(new Headers(tenantDeleteInit?.headers).get("authorization")).toBe(
       "Bearer access-token",
