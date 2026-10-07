@@ -152,6 +152,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
+        let trust_gate = opts.trust_gate;
         let mut on_accepted = opts.on_accepted;
         let mut accept = |v: Value| {
             if let Some(f) = on_accepted.take() {
@@ -233,7 +234,9 @@ impl Hub {
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
         }
-        if let Err(e) = self.check_dispatch(session, control, &prompt_id, &turn_id, client) {
+        if let Err(e) =
+            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+        {
             drop(guard);
             return Err(e);
         }
@@ -293,7 +296,9 @@ impl Hub {
         let control = session.turn().map_or(control, |t| t.control);
         // Starting the agent may have changed its mode (a spawn, a resume, a
         // pool claim, a replayed config): checked again before the prompt.
-        if let Err(e) = self.check_dispatch(session, control, &prompt_id, &turn_id, client) {
+        if let Err(e) =
+            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+        {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
             return Err(e);
@@ -361,15 +366,20 @@ impl Hub {
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                match self.child_for(session).await {
-                    Ok(child2) => {
-                        // The fallback is checked as a new dispatch; its own
-                        // refusal is the turn's error.
-                        if let Err(e) =
-                            self.check_dispatch(session, control, &prompt_id, &turn_id, client)
-                        {
-                            result = Err(e);
-                        } else if let Some(sid2) = session.meta().agent_session_id {
+                let fallback = self.child_for(session).await;
+                let refusal = match &fallback {
+                    Ok(_) => self
+                        .check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client)
+                        .await
+                        .err(),
+                    Err(_) => None,
+                };
+                match (fallback, refusal) {
+                    // The fallback is checked as a new dispatch; its own
+                    // refusal (folder trust, mode, D13) is the turn's error.
+                    (Ok(_), Some(e)) => result = Err(e),
+                    (Ok(child2), None) => {
+                        if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,
@@ -378,7 +388,7 @@ impl Hub {
                                 .await;
                         }
                     }
-                    Err(e2) => result = Err(e2),
+                    (Err(e2), _) => result = Err(e2),
                 }
             }
         }
