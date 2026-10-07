@@ -1733,6 +1733,21 @@ jobs:
           set -euo pipefail
           ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
 
+      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
+      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
+      # symbol unless the channel release carries gettext-0.24.tar.gz and
+      # COPYING.LIB (the prune step keeps those names, they carry no build number).
+      - name: Verify shipped libintl has its source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(build-universal/Build/Products/Release/cmux.app)
+          if [ -n "${CHANNEL_RELEASE_TAG:-}" ]; then
+            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$CHANNEL_RELEASE_TAG")
+          fi
+          python3 scripts/verify_app_libintl.py "${args[@]}"
+
       - name: Verify nightly binary architectures
         run: |
           set -euo pipefail
@@ -2168,6 +2183,15 @@ jobs:
           - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
           - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
           EOF
+          # Older builds on this rolling release bundle GNU libintl in the ghostty
+          # CLI helper; keep the LGPL source notice while the source is attached.
+          if gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+              -q '.assets[].name' | grep -qx 'gettext-0.24.tar.gz'; then
+            cat >> nightly-downloads.md <<'EOF'
+
+          Nightly builds whose ghostty CLI helper contains GNU libintl from gettext 0.24 (LGPL-2.1-or-later) have the complete corresponding source and license text attached to this release (`gettext-0.24.tar.gz`, `COPYING.LIB`).
+          EOF
+          fi
           # Read the live completed publication under the channel writer lock,
           # rather than the decide job's baseline from before the build started.
           # nightly_release_notes.py preserves the cmux-published-sha: marker
