@@ -50,6 +50,7 @@ describe("TenantOwnsResource evidence", () => {
       actor: { kind: "api_key", keyId: newApiKeyId() },
       scopes: new Set(["vm:read"]),
       resourceAllowlist: null,
+      credentialExpiresAt: null,
     };
 
     const run = (forge: boolean) =>
