@@ -22,6 +22,8 @@ struct MessageCellLayout {
     var editedFrame: CGRect?
     var repliesFrame: CGRect?
     var failedBadgeFrame: CGRect?
+    /// "Replay" under a message sent with an effect.
+    var replayFrame: CGRect? = nil
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
 }
@@ -232,6 +234,11 @@ extension MessageCellLayout {
                 ? CGRect(x: margin, y: y, width: bodyTrailing - 9 - margin, height: footerHeight)
                 : CGRect(x: bodyLeading + 9, y: y, width: width - bodyLeading - 9 - margin, height: footerHeight)
         }
+        var replayFrame: CGRect?
+        if message.effect?.isReplayable == true, bubbleFrame != nil || emojiFrame != nil {
+            replayFrame = footerRect(y + 4)
+            y += 4 + footerHeight
+        }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
             y += 4 + footerHeight
@@ -287,6 +294,7 @@ extension MessageCellLayout {
             editedFrame: editedFrame,
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
+            replayFrame: replayFrame,
             contentFrame: content
         )
     }

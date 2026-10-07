@@ -118,6 +118,10 @@ public enum ConversationMessageEffect: String, Sendable, Hashable, CaseIterable 
         }
     }
 
+    /// Whether the message keeps a "Replay" control. Invisible Ink stays
+    /// covered until touched instead.
+    public var isReplayable: Bool { self != .invisibleInk }
+
     /// Picker order, as Messages lists them.
     public static let bubbleEffects: [ConversationMessageEffect] = [.slam, .loud, .gentle, .invisibleInk]
     public static let screenEffects: [ConversationMessageEffect] = [

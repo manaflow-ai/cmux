@@ -24,6 +24,10 @@ final class MessageCell: UICollectionViewCell {
     let timeLabel = UILabel()
     let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.fill"))
     private(set) var imageViews: [UIImageView] = []
+    /// Send-effect state (see MessageCell+Effects).
+    let replayButton = UIButton(type: .system)
+    var effectStage: MessageBubbleStage?
+    var inkView: InvisibleInkView?
     /// Everything that moves with the bubble during swipes.
     let shiftable = UIView()
 
@@ -78,6 +82,7 @@ final class MessageCell: UICollectionViewCell {
         for view in [footerLabel, failedBadge, timeLabel, replyArrow] {
             contentView.addSubview(view)
         }
+        installEffectViews()
     }
 
     @available(*, unavailable)
@@ -98,6 +103,7 @@ final class MessageCell: UICollectionViewCell {
         shiftable.transform = .identity
         contentView.transform = .identity
         contentView.mask = nil
+        resetEffects()
     }
 
     func configure(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
@@ -274,6 +280,7 @@ final class MessageCell: UICollectionViewCell {
             footerLabel.isHidden ? nil : footerLabel.text,
         ].compactMap { $0 }.joined(separator: ", ")
         isAccessibilityElement = true
+        configureEffects(model: model, layout: layout)
     }
 
     override func layoutSubviews() {

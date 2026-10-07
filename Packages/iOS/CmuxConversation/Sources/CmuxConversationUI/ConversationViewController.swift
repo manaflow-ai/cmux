@@ -83,6 +83,7 @@ public final class ConversationViewController: UIViewController {
     var photoDrawer: ConversationPhotoGridView?
     var pickedAssets: [String: UUID] = [:]
     var drawerHeightConstraint: NSLayoutConstraint?
+    var effects = ConversationEffectsState()
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
         self.store = store
@@ -166,6 +167,7 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        installEffects()
         initialSpinner.translatesAutoresizingMaskIntoConstraints = false
         initialSpinner.startAnimating()
         initialSpinner.accessibilityIdentifier = "conversation.initialLoading"
@@ -374,6 +376,9 @@ public final class ConversationViewController: UIViewController {
             case let .message(model) where model.isOutgoing && pendingFlight != nil:
                 appearances[id] = .sent
                 flyingRowIDs.insert(id)
+            case let .message(model) where !model.isOutgoing && animateLive && model.message.effect != nil:
+                // A bubble effect is the row's entrance; screen effects keep the pop.
+                if !queueArrivalEffect(model) { arrivingRowIDs.append(model.rowID) }
             case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
             case .typing: arrivingRowIDs.append(id)
             case .loadingOlder: appearances[id] = .fade
@@ -456,6 +461,7 @@ public final class ConversationViewController: UIViewController {
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals(scrollShift: scrollShift)
+        playQueuedEffects()
     }
 
     private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }

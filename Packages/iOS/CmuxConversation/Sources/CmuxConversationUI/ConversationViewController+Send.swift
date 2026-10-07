@@ -24,6 +24,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             exitEditMode()
             return
         }
+        let effect = effects.pendingSendEffect
+        effects.pendingSendEffect = nil
         let text = composer.text
         let attachments = composer.attachments
         let fieldFrame = composer.fieldFrame(in: view)
@@ -34,17 +36,20 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         }
         // Create the flight before the row exists so the row inserts hidden.
         let flight = SendFlight(text: text, attachments: attachments.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
-        pendingFlight = flight
+        // A bubble effect replaces the flight: the bubble makes its entrance in place.
+        let flies = effect?.kind != .bubble
+        pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        guard let rowID = store.send(text: text, images: images, replyToID: replyTo) else {
+        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, effect: effect) else {
             pendingFlight = nil
             return
         }
         pendingFlight = nil
         if replyTarget != nil { exitReplyMode() }
-        launch(flight, rowID: rowID)
+        if flies { launch(flight, rowID: rowID) }
+        if effect != nil { playSentEffect(rowID: rowID) }
     }
 
     /// Animates a bubble from the composer field into its slot. The real
