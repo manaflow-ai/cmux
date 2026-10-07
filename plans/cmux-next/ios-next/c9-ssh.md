@@ -105,7 +105,7 @@ against a fake session factory (PTY size, window-change dedupe, offline send ref
 after drop, no reconnect after auth failure). They run with `swift test` on macOS through a scratch
 package linking the same sources (the CmuxiOS package is iOS-only), and compile for the simulator.
 
-## 9. Status (2026-10-06)
+## 9. Status (2026-10-07)
 
 Done: `CmuxiOSSSHCore` and `CmuxiOSSSH` as above, wired into the shell (`AppContainer` registers
 one `LocalHostsStore` as the real `hosts` factory; in DEBUG the seam defaults to its mock, so use
@@ -121,6 +121,14 @@ reconnect, keepalive drop detection, Secure Enclave keys) on a simulator or devi
 (`~/.config/macfleet/hosts.json`), so it falls back to a local Mac build that refuses at 20 GiB free
 (floor 40 GiB). Rerun the same command when a fleet slot or disk is available.
 
-Not done here: SSH workspaces in the Workspaces list (tmux, screen, cmux-tui; with C5), SFTP (C4),
-port forwarding for the in-app browser (C14), importing private keys and known_hosts lines in the
-UI (the stores support both), key install through a jump host, B1 sync behind `HostsSyncChannel`.
+Follow-up on 2026-10-07: cmux-tui discovery now retains the validated socket path returned by the
+remote listing and attaches with `cmux-tui attach --socket <path>`. This prevents a terminal-launched
+owner in one runtime directory from being mistaken for a new owner in the SSH login's directory, and
+prevents a vanished owner from being silently recreated. The change is covered by four discovery
+regressions and catalog replacement/removal coverage (`931219a37c`, `18ed29075f`). Swift syntax,
+scoped package-convention lint, and diff checks pass; native tests and live SSH verification remain
+blocked by the unavailable build host.
+
+Remaining parity: tmux control mode, SSH create/rename/kill, hashed cmux-tui sockets, SFTP (C4),
+importing private keys and known_hosts lines in the UI (the stores support both), key install through a
+jump host, and B1 sync behind `HostsSyncChannel`.

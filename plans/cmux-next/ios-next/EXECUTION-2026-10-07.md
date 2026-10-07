@@ -42,6 +42,23 @@ The active wave is intentionally independent:
 | C9 SSH workspace parity | A1, A2, existing SSH host seam | deterministic tmux/screen/cmux-tui discovery and attach model | discovery fixtures, changed-key and reconnect errors, attach idempotency |
 | Integration and verification | completed slices | merged docs/code plus updated D3 rows | focused tests, static guards, tagged pair/device evidence |
 
+## Completed in this wave
+
+- `e2cb1ef9da` adds the research, J1–J8 journeys, current-head scope table, invariants,
+  prioritized risks, and release acceptance. It corrects the original D3 count's historical
+  status instead of treating it as a current completion claim.
+- `864c3eddbf` routes saved direct-address hosts through the in-app browser tunnel and makes
+  loopback URL policy consistent for `*.localhost` subframes. The focused address/navigation
+  tests and static checks pass.
+- `e3983cd23f` and `b83b98b583` preserve the exact validated cmux-tui socket discovered over
+  SSH and attach with `attach --socket`, with malformed-path, runtime-directory, replacement,
+  and stale-session regressions. Syntax and scoped convention checks pass.
+
+The dedicated build host was unavailable during this wave (`cmux-lawrence-2` did not resolve),
+so native package tests, tagged pair installs, visual evidence, and live SSH/browser paths remain
+explicitly unverified. The next action is to rerun the same focused tests and D3 journeys when a
+fleet/build slot is available; no local iOS build is substituted.
+
 ## Dependency graph for this wave
 
 ```mermaid

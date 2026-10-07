@@ -188,3 +188,10 @@ Unverified: everything visual and every live path (WKWebView through the proxy, 
 against a real server, simulator capture and HID on the Mac). No tagged build (no Mac app build, disk).
 Mac routes and simulator streams use D1's per-Mac clients (`AppContainer.webClients` over
 `AccountLinkDirectory`, the provider C2 and C4 use), available once pairing is configured.
+
+Follow-up on 2026-10-07: direct-address hosts now have an explicit browser screen seam and route through
+the same authenticated `tcp.forward` browser path as paired Macs. Saved Tailscale, LAN, and WireGuard
+endpoints no longer stop at the Hosts action. `*.localhost` navigation uses the same loopback predicate
+as address parsing, so a tunneled subframe is not misclassified as an external link. Focused address and
+navigation tests, Swift syntax parsing, package-convention lint, and diff checks pass in
+`864c3eddbf`; live direct-host and WKWebView verification remains pending.
