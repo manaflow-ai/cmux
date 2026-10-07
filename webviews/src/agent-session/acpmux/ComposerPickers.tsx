@@ -14,6 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState } from "./modelPickerLayout";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { usePopoverTrigger } from "./popoverTrigger";
@@ -309,21 +310,7 @@ export function ComposerPickers({
       )}
       <span className="acpmux-chips-spacer" />
       {modes.length > 0 && (
-        <Picker
-          label={t(PICKER_LABELS.mode)}
-          warnUnrestricted
-          className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
-          button={
-            <>
-              <ShieldIcon />
-              <span className="acpmux-mode-text">{mode?.name ?? t(PICKER_LABELS.mode)}</span>
-              <ChevronIcon />
-            </>
-          }
-          sections={[{ choices: modes, current: mode?.id, onPick: onMode }]}
-          heading={t("approval.title")}
-          align="start"
-        />
+        <AccessMenu label={t(PICKER_LABELS.mode)} modes={modes} current={mode?.id} onMode={onMode} />
       )}
       {showPlan && plan && (
         <button
@@ -338,6 +325,58 @@ export function ComposerPickers({
         </button>
       )}
     </div>
+  );
+}
+
+/** The permission control stays quiet in the footer: a lock names the control and the menu
+ * carries the mode title and one-line explanation. Base UI owns focus, typeahead and Escape. */
+function AccessMenu({
+  label,
+  modes,
+  current,
+  onMode,
+}: {
+  label: string;
+  modes: Choice[];
+  current?: string;
+  onMode(modeId: string): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const value = current ?? modes[0]?.id ?? "";
+  return (
+    <span className={`acpmux-mode acpmux-access${current && unrestricted(current) ? " acpmux-unrestricted" : ""}`}>
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
+          <LockIcon />
+          <ChevronIcon />
+        </MenuButton>
+        <MenuPopup side="top" align="start" className="acpmux-access-menu">
+          <MenuRadioGroup
+            value={value}
+            onValueChange={(next) => {
+              onMode(next);
+              setOpen(false);
+            }}
+          >
+            {modes.map((choice) => (
+              <MenuRadioItem
+                key={choice.id}
+                value={choice.id}
+                className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+              >
+                <span className="acpmux-access-item-icon" aria-hidden="true">
+                  {choice.icon ?? <ShieldIcon />}
+                </span>
+                <span className="acpmux-menu-text">
+                  <span className="acpmux-menu-label">{choice.name}</span>
+                  {choice.description ? <span className="acpmux-menu-description">{choice.description}</span> : null}
+                </span>
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuPopup>
+      </Menu>
+    </span>
   );
 }
 
@@ -685,6 +724,12 @@ export const ShieldIcon = () => (
     <path d="M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z" />
     <path d="M8 5.2v3.3" />
     <circle cx="8" cy="10.9" r=".35" fill="currentColor" />
+  </Icon>
+);
+export const LockIcon = () => (
+  <Icon>
+    <rect x="3.5" y="7" width="9" height="7" rx="1.5" />
+    <path d="M5.5 7V5.6a2.5 2.5 0 0 1 5 0V7" />
   </Icon>
 );
 export const ChevronIcon = () => (

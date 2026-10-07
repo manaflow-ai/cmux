@@ -65,31 +65,29 @@ import Testing
                 "one gap between Settings and the account")
     }
 
-    /// SIDEBAR-FOOTER-MINIMAL: the default footer line is the avatar, then the gear, both bare
-    /// icons at the leading inset with one gap between them; no fill until hover, and the glyph
-    /// goes from the secondary to the primary text color on hover.
-    @Test func theDefaultFooterIsTheAvatarThenTheGearAsBareIcons() throws {
+    /// SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the default footer line is the account
+    /// alone, a bare icon at the leading inset; no fill until hover, and the glyph goes from
+    /// the secondary to the primary text color on hover. (With the App's profile avatar it
+    /// draws the profile control, SidebarProfileControlTests.)
+    @Test func theDefaultFooterIsTheAccountAsABareIcon() throws {
         let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
-        #expect(bottom.items.map(\.id.rawValue) == ["itm_account", "itm_settings"])
+        #expect(bottom.items.map(\.id.rawValue) == ["itm_account"])
         #expect(bottom.items.allSatisfy { !$0.showsLabel && $0.span == nil })
         let region = SidebarRegionView(region: .bottom)
         let metrics = SidebarRegionMetrics.standard
         region.update(SidebarRegionView.Content(sections: [bottom], infos: [:], collapsed: [], look: .quiet,
                                                 metrics: metrics, drawsLines: true), width: 240)
         let account = try #require(region.itemView(Self.account))
-        let gear = try #require(region.itemView(LayoutItemID("itm_settings")))
-        #expect(account.style == .icon && gear.style == .icon)
-        #expect(account.frame.minX == metrics.inset, "leading: \(account.frame)")
-        #expect(abs(gear.frame.minX - account.frame.maxX - metrics.tileGap) < 0.5, "the gear right after the avatar")
-        #expect(account.frame.minY == gear.frame.minY && account.frame.height == gear.frame.height)
-        for view in [account, gear] {
-            #expect(view.fill == nil, "no background at rest")
-            view.updateLayer()
-            #expect(view.glyphTint == view.performWithTheme { Palette.textSecondary })
-            view.mouseEntered(with: Self.entered(view))
-            view.updateLayer()
-            #expect(view.fill != nil, "hover shows the background")
-            #expect(view.glyphTint == view.performWithTheme { Palette.textPrimary }, "full strength on hover")
-        }
+        #expect(account.style == .icon)
+        // Leading, its glyph on the rows' glyph column (F1).
+        let column = SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2
+        #expect(abs(account.frame.midX - column) <= 0.5, "leading: \(account.frame)")
+        #expect(account.fill == nil, "no background at rest")
+        account.updateLayer()
+        #expect(account.glyphTint == account.performWithTheme { Palette.textSecondary })
+        account.mouseEntered(with: Self.entered(account))
+        account.updateLayer()
+        #expect(account.fill != nil, "hover shows the background")
+        #expect(account.glyphTint == account.performWithTheme { Palette.textPrimary }, "full strength on hover")
     }
 }

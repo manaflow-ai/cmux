@@ -138,3 +138,99 @@ async fn a_rotated_peer_key_syncs_cleanly() {
     within(overlay_a.sync_peers(&pairings)).await.expect("a rotated key must sync");
     within(overlay_a.sync_peers(&Pairings::default())).await.unwrap();
 }
+
+const BRAIN_IDENTIFY: &str = "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[\"workspace-registry-v1\",\"agent-session-tabs-v1\"]}}\n";
+
+/// RED (security, real mesh): revoking the owner's pairing while its owner
+/// session is open closes the stream on the DIALING side too. The server
+/// must close the session before it removes the WireGuard peer: once the
+/// peer is gone its FIN can no longer reach the client.
+#[tokio::test]
+async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
+    let a = node("inst_a").await;
+    let b = node("inst_b").await;
+    let (a_udp, b_udp) = (a.socket.local_addr().unwrap(), b.socket.local_addr().unwrap());
+    let directory = cmux_unix_socket::short_test_dir("linkrev");
+    let mut pairings_a = Pairings::default();
+    pairings_a.upsert(record(&b, b_udp)).unwrap();
+    let peers_path = directory.path().join("peers.json");
+    pairings_a.save(&peers_path).unwrap();
+    let mut pairings_b = Pairings::default();
+    pairings_b.upsert(record(&a, a_udp)).unwrap();
+    let overlay_a = Arc::new(mesh(a));
+    let overlay_b = mesh(b);
+    overlay_a.sync_peers(&pairings_a).await.unwrap();
+    overlay_b.sync_peers(&pairings_b).await.unwrap();
+
+    // The brain daemon: answers the identify probe, then holds the session.
+    let home = directory.path().join("brain");
+    std::fs::create_dir_all(home.join("daemon")).unwrap();
+    let brain_socket = home.join("daemon/s.sock");
+    let brain = tokio::net::UnixListener::bind(&brain_socket).unwrap();
+    let brain_task = tokio::spawn(async move {
+        let (probe, _) = brain.accept().await.unwrap();
+        let mut probe = BufReader::new(probe);
+        let mut line = String::new();
+        probe.read_line(&mut line).await.unwrap();
+        probe.get_mut().write_all(BRAIN_IDENTIFY.as_bytes()).await.unwrap();
+        drop(probe);
+        let (session, _) = brain.accept().await.unwrap();
+        let mut session = BufReader::new(session);
+        let mut first = String::new();
+        session.read_line(&mut first).await.unwrap();
+        session.get_mut().write_all(first.as_bytes()).await.unwrap();
+        // Everything the brain receives after the first line: must be nothing.
+        let mut rest = Vec::new();
+        let _ = tokio::io::AsyncReadExt::read_to_end(&mut session, &mut rest).await;
+        rest
+    });
+    let owner = cmux_link::owner_session::OwnerSession {
+        owner_user: "42".into(),
+        owner_team: "team_a".into(),
+        socket: brain_socket,
+        brain_home: home,
+    };
+    let session = directory.path().join("s.sock");
+    let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
+    let peers = Arc::new(Peers::load(peers_path.clone()).unwrap());
+    let server =
+        tokio::spawn(serve_overlay(listener, peers.clone(), Some(session), Some(Arc::new(owner))));
+
+    let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
+    let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
+    caller
+        .write_all(
+            b"{\"op\":\"link.dial\",\"host\":\"inst_a\",\"service\":\"owner_session\"}\nhello\n",
+        )
+        .await
+        .unwrap();
+    let mut caller = BufReader::new(caller);
+    let mut reply = String::new();
+    within(caller.read_line(&mut reply)).await.unwrap();
+    assert!(reply.starts_with("{\"ok\":true"), "{reply}");
+    let mut echoed = String::new();
+    within(caller.read_line(&mut echoed)).await.unwrap();
+    assert_eq!(echoed, "hello\n", "the owner session is open over the real mesh");
+
+    // Revoke: the pairing file loses inst_b and the link reloads it.
+    Pairings::default().save(&peers_path).unwrap();
+    within(peers.reload(&*overlay_a)).await.unwrap();
+    let mut tail = String::new();
+    let closed = tokio::time::timeout(Duration::from_secs(3), caller.read_line(&mut tail)).await;
+    assert!(
+        matches!(closed, Ok(Ok(0))),
+        "the dialing side must see the session end, got {closed:?} {tail:?}"
+    );
+    // No access leak: bytes the revoked dialer still writes never reach the
+    // brain socket (its session there has ended, and the peer is gone).
+    let _ = caller.get_mut().write_all(b"after-revoke\n").await;
+    let leaked = within(brain_task).await.unwrap();
+    assert!(
+        leaked.is_empty(),
+        "the brain received {:?} after the revoke",
+        String::from_utf8_lossy(&leaked)
+    );
+    drop(caller);
+    let _ = within(dial).await;
+    server.abort();
+}

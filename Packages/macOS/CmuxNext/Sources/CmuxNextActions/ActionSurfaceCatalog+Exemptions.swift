@@ -33,7 +33,7 @@ nonisolated extension ActionSurfaceCatalog {
         "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor", "workspaceGroup.collapse",
         "workspaceGroup.expand", "workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToWindow",
         "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow",
-        "space.newWindow", "space.newWorkspace", "space.rename", "space.setColor", "space.clearColor",
+        "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
         "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete", "space.moveLeft",
         "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
         "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
@@ -167,6 +167,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.pro.upgrade", "palette.welcomeChecklist", "onboarding.continueSetup", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
+            "sidebar.profileMenu", "browser.downloads.showFolder",
         ],
         .liveInput: [
             "palette.toggleDictation",

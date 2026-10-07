@@ -72,12 +72,12 @@ import Testing
         let owner = FakeOwner()
         var refusals: [String] = []
         let service = SidebarLayoutService(remote: owner, onRefused: { refusals.append($0) }, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
-        try service.send(.itemRemove(LayoutItemID("itm_settings")))
-        #expect(service.document.item(LayoutItemID("itm_settings")) == nil)
+        try service.send(.itemRemove(LayoutItemID("itm_account")))
+        #expect(service.document.item(LayoutItemID("itm_account")) == nil)
         await settled { owner.isWaiting }
         owner.fail(try #require(owner.calls.first?.key), Rejected())
         await settled { service.pending.isEmpty }
-        #expect(service.document.item(LayoutItemID("itm_settings")) != nil)
+        #expect(service.document.item(LayoutItemID("itm_account")) != nil)
         #expect(refusals.count == 1)
     }
 
@@ -99,7 +99,7 @@ import Testing
         owner.fail(key, DaemonError.connectionClosed(reason: "test"))
         await settled { service.pending.first?.inFlight == false }
         #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
-        #expect(throws: (any Error).self) { try service.send(.itemRemove(LayoutItemID("itm_settings"))) }
+        #expect(throws: (any Error).self) { try service.send(.itemRemove(LayoutItemID("itm_account"))) }
         owner.isAvailable = true
         await settled { owner.calls.count == 2 }
         #expect(owner.calls.map(\.key) == [key, key])
