@@ -70,6 +70,25 @@ SOFTWARE.
 
 ---
 
+## GNU libintl (gettext 0.24)
+
+- **License:** GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later)
+- **Copyright:** Copyright (C) Free Software Foundation, Inc.
+- **Source:** https://ftp.gnu.org/pub/gnu/gettext/gettext-0.24.tar.gz (sha256 c918503d593d70daf4844d175a13d816afacb667c06fba1ec9dcd5002c1518b7), built with the files in https://github.com/manaflow-ai/ghostty/tree/main/pkg/libintl
+
+The bundled `ghostty` CLI helper (`Contents/Resources/bin/ghostty`) of cmux
+0.65.0 and earlier, and of nightly builds made before the helper was built with
+`-Di18n=false`, statically links GNU libintl. The complete corresponding source
+(`gettext-0.24.tar.gz`) and the license text (`COPYING.LIB`) are attached to
+those GitHub releases at https://github.com/manaflow-ai/cmux/releases. The
+release workflows refuse to publish a build that contains libintl unless its
+release carries both files. GNU libintl is free software: you can redistribute
+it and/or modify it under the terms of the GNU Lesser General Public License as
+published by the Free Software Foundation, either version 2.1 of the License,
+or (at your option) any later version.
+
+---
+
 ## Bonsplit
 
 - **License:** MIT License
