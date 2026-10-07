@@ -45,9 +45,48 @@ extension RemoteRdStreamTransport {
         }
     }
 
-    /// The access units of popup stream `stream` (rb/1 `rb.surface.show`).
+    /// The access units of popup surface stream `stream` (rb/1
+    /// `rb.surface.show {stream}`), buffered from the show on and finished
+    /// at its `rb.surface.hide` or the session's end. One caller gets them;
+    /// a stream no surface shows, or a second call, gets a finished stream.
     public func surfaceAccessUnits(stream: UInt16) -> AsyncStream<RemoteAccessUnit> {
-        AsyncStream { $0.finish() }
+        state.withLock { $0.surfaces.take(stream: stream) } ?? AsyncStream { $0.finish() }
+    }
+
+    /// Asks the host for an IDR on display stream `stream` (a popup surface's).
+    public func requestKeyframe(stream: UInt16) {
+        queue.async { [self] in
+            try? engine.core.requestKeyframe(stream: stream)
+            pump()
+        }
+    }
+
+    /// A stream source for popup surface stream `stream` (its own decoder).
+    public func surfaceSource(stream: UInt16) -> any RemoteViewStreamSource {
+        RemoteRdSurfaceStreamSource(transport: self, stream: stream)
+    }
+
+    /// Opens and closes popup surface streams as the host shows and hides
+    /// surfaces. Queue-confined; runs before the body reaches the service
+    /// stream.
+    func applySurfaceStreams(_ body: RemoteRdJSON) {
+        switch RemoteRdSurfaceStreamChange(body) {
+        case let .show(surface, stream):
+            // A resized surface comes back on a new stream; the old one ends.
+            if let old = state.withLock({ $0.surfaces.stream(of: surface) }), old != stream { closeSurfaceStream(old) }
+            guard (try? engine.core.openStream(stream)) != nil else { return }
+            state.withLock { $0.surfaces.start(stream: stream, surface: surface) }
+        case let .hide(surface):
+            guard let stream = state.withLock({ $0.surfaces.stream(of: surface) }) else { return }
+            closeSurfaceStream(stream)
+        case nil:
+            break
+        }
+    }
+
+    private func closeSurfaceStream(_ stream: UInt16) {
+        try? engine.core.closeStream(stream)
+        state.withLock { $0.surfaces.end(stream: stream) }
     }
 
     /// The rd cap that allows service input events (rd change C2).

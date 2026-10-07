@@ -18,8 +18,9 @@ public nonisolated struct RemoteBrowserInputEncoder {
         return bits
     }
 
-    /// A pointer event at `point` (pane points = page CSS pixels); nil for
-    /// event types that are not pointer input.
+    /// A pointer event at `point` (pane points = page CSS pixels, or the
+    /// popup's own CSS pixels for `surface` other than 0, the page); nil
+    /// for event types that are not pointer input.
     public static func pointer(
         type: NSEvent.EventType, button: Int, clickCount: Int, modifierFlags: NSEvent.ModifierFlags, at point: CGPoint,
         surface: UInt32 = 0
@@ -38,16 +39,37 @@ public nonisolated struct RemoteBrowserInputEncoder {
         let pressed: Int64 = kind == "down" || type == .leftMouseDragged || type == .rightMouseDragged || type == .otherMouseDragged
             ? [Int64(1), 4, 2][min(Int(domButton), 2)] : 0
         return .object([
-            "e": .string("pointer"), "surface": .int(0), "kind": .string(kind),
+            "e": .string("pointer"), "surface": .int(Int64(surface)), "kind": .string(kind),
             "x": .double(Double(point.x)), "y": .double(Double(point.y)),
             "button": .int(domButton), "buttons": .int(pressed), "click_count": .int(Int64(clickCount)),
             "modifiers": .int(modifiers(modifierFlags)), "pointer_type": .string("mouse"),
         ])
     }
 
-    public static func pointer(_ event: NSEvent, at point: CGPoint) -> RemoteRdJSON? {
+    /// A pointer or wheel event at `point`. Popup surfaces take pointer
+    /// input only (cmux-remote-browser `rp_input`), so a wheel on one is nil.
+    public static func pointer(_ event: NSEvent, at point: CGPoint, surface: UInt32 = 0) -> RemoteRdJSON? {
+        if event.type == .scrollWheel {
+            return surface == 0 ? wheel(event, at: point) : nil
+        }
         let clicks = [.mouseMoved, .mouseEntered, .mouseExited].contains(event.type) ? 0 : event.clickCount
-        return pointer(type: event.type, button: appKitButton(event), clickCount: clicks, modifierFlags: event.modifierFlags, at: point)
+        return pointer(
+            type: event.type, button: appKitButton(event), clickCount: clicks, modifierFlags: event.modifierFlags, at: point,
+            surface: surface)
+    }
+
+    /// Whether the host must get `event` even when newer input supersedes
+    /// it: moves and mid-gesture wheel deltas may go, presses, releases,
+    /// enter, leave and gesture edges may not.
+    public static func mustDeliver(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            false
+        case .scrollWheel:
+            !(event.phase == .changed || event.momentumPhase == .changed)
+        default:
+            true
+        }
     }
 
     /// The AppKit button (0 left, 1 right, 2+ other): the event type decides
@@ -61,12 +83,36 @@ public nonisolated struct RemoteBrowserInputEncoder {
         }
     }
 
-    /// A wheel event at `point`.
+    /// A page wheel event at `point` (`wheel`): AppKit's scrolling deltas
+    /// as they are (positive `dy` scrolls toward the top), in points when
+    /// `precise` (trackpad, Magic Mouse) else in lines (a wheel notch), with
+    /// the gesture and momentum phases Chromium needs for elastic scrolling.
     public static func wheel(
         dx: Double, dy: Double, precise: Bool, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase,
         modifierFlags: NSEvent.ModifierFlags, at point: CGPoint
     ) -> RemoteRdJSON {
-        .null
+        .object([
+            "e": .string("wheel"), "surface": .int(0), "x": .double(Double(point.x)), "y": .double(Double(point.y)),
+            "dx": .double(dx), "dy": .double(dy), "precise": .bool(precise),
+            "phase": .string(phaseName(phase)), "momentum_phase": .string(phaseName(momentumPhase)),
+            "modifiers": .int(modifiers(modifierFlags)),
+        ])
+    }
+
+    public static func wheel(_ event: NSEvent, at point: CGPoint) -> RemoteRdJSON {
+        wheel(
+            dx: Double(event.scrollingDeltaX), dy: Double(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas,
+            phase: event.phase, momentumPhase: event.momentumPhase, modifierFlags: event.modifierFlags, at: point)
+    }
+
+    /// rb/1 `Phase` names; a stationary trackpad is a gesture still in progress.
+    static func phaseName(_ phase: NSEvent.Phase) -> String {
+        if phase.contains(.began) { return "began" }
+        if phase.contains(.changed) || phase.contains(.stationary) { return "changed" }
+        if phase.contains(.ended) { return "ended" }
+        if phase.contains(.cancelled) { return "cancelled" }
+        if phase.contains(.mayBegin) { return "may_begin" }
+        return "none"
     }
 
     /// A key down or up; nil for other events (modifier changes ride on the
