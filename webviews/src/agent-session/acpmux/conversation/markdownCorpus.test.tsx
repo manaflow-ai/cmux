@@ -77,7 +77,9 @@ describe("tables and lists reply", () => {
     expect(out).toContain('class="cv-list cv-ol" data-depth="0"');
     expect(out).toContain('class="cv-list cv-ul" data-depth="1"');
     expect(out).toContain('class="cv-list cv-ol" data-depth="1"');
-    expect(out.match(/cv-checkbox/g)!.length).toBe(3);
+    // The checked box also contains `cv-checkbox__check` on its SVG; count the exact element
+    // class so the check mark does not look like a fourth task checkbox.
+    expect(out.match(/class="[^"]*\bcv-checkbox\b[^"]*"/g)!.length).toBe(3);
     expect(out).toContain('<blockquote class="cv-quote">');
   });
 

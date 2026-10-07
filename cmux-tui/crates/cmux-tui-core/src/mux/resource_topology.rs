@@ -3609,7 +3609,7 @@ impl Mux {
             delta.workspace_revision = None;
         }
         Ok(ResourceClosePlan {
-            state: projected,
+            state: dock_columns::close_keeping_permanent(operation, state, projected)?,
             removed,
             terminal_runtime,
             closed_terminal_public_id: terminal_public_id,

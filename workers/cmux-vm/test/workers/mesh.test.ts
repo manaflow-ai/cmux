@@ -154,7 +154,8 @@ describe("device enrollment", () => {
     const body = Object.fromEntries(Object.entries(typeof create?.json === "object" && create.json !== null ? create.json : {}));
     expect(body["clientPublicKey"]).toBe(KEY_1);
     const mesh = await json(await call(`/v1/meshes/${meshId}`, key));
-    expect(body["routes"]).toEqual([mesh["ipv4Cidr"]]);
+    // The provider refuses a tunnel whose routes do not cover the network's IPv6 range too (measured live in M1c).
+    expect(body["routes"]).toEqual([mesh["ipv4Cidr"], "fd00:1::/64"]);
     expect(tunnel).toMatchObject({
       id: tunnelId,
       meshId,
@@ -163,7 +164,7 @@ describe("device enrollment", () => {
       endpointPort: 51820,
       mtu: 1280,
       persistentKeepaliveSeconds: 25,
-      allowedIps: [mesh["ipv4Cidr"]],
+      allowedIps: [mesh["ipv4Cidr"], "fd00:1::/64"],
     });
     const text = JSON.stringify(tunnel);
     expect(text).not.toMatch(/private/iu);
@@ -426,5 +427,89 @@ describe("tenant isolation", () => {
     const response = await call(`/v1/meshes/${meshId}/vms/${foreign.vmId}`, keyA, "PUT");
     expect(response.status).toBe(404);
     expect(h.upstreamRequests).toHaveLength(before);
+  });
+});
+
+describe("device ownership (M2, cx-0op.4)", () => {
+  /** Keys that may join and read but are not tenant admins. */
+  const MEMBER_SCOPES = ["mesh:read", "mesh:join", "acl:read"] as const;
+
+  const fixture = async () => {
+    const admin = await h.addKey(A, ALL_SCOPES);
+    const meshId = await createMesh(admin);
+    const vm = h.addVm(A);
+    await attach(admin, meshId, vm.vmId);
+    await putAcl(admin, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);
+    const keyA = await h.addKey(A, MEMBER_SCOPES);
+    const keyB = await h.addKey(A, MEMBER_SCOPES);
+    const device = await enroll(keyA, meshId);
+    return { admin, meshId, keyA, keyB, ...device };
+  };
+
+  const deviceRoutes = (ids: { deviceId: string; tunnelId: string }) => [
+    { method: "GET", path: `/v1/devices/${ids.deviceId}` },
+    { method: "GET", path: `/v1/devices/${ids.deviceId}/peers` },
+    { method: "GET", path: `/v1/tunnels/${ids.tunnelId}` },
+  ];
+
+  it("another principal of the same tenant gets 404 on read, peer map, tunnel config and delete, and nothing reaches upstream", async () => {
+    const ids = await fixture();
+    const before = h.upstreamRequests.length;
+    for (const route of [...deviceRoutes(ids), { method: "DELETE", path: `/v1/devices/${ids.deviceId}` }]) {
+      const response = await call(route.path, ids.keyB, route.method);
+      expect(response.status, `${route.method} ${route.path}`).toBe(404);
+    }
+    expect(h.upstreamRequests).toHaveLength(before);
+    // The device still exists for its owner.
+    expect((await call(`/v1/devices/${ids.deviceId}`, ids.keyA)).status).toBe(200);
+  });
+
+  it("another principal's device list leaves out devices it did not enroll", async () => {
+    const ids = await fixture();
+    const own = await enroll(ids.keyB, ids.meshId, KEY_2, "bravo");
+    const listB = await json(await call(`/v1/meshes/${ids.meshId}/devices`, ids.keyB));
+    expect((Array.isArray(listB["items"]) ? listB["items"] : []).map((item) => str(Object(item)["id"]))).toEqual([own.deviceId]);
+    const listAdmin = await json(await call(`/v1/meshes/${ids.meshId}/devices`, ids.admin));
+    expect(listAdmin["items"]).toHaveLength(2);
+  });
+
+  it("the enrolling principal and a key with the admin scope can read, fetch peers and config, and delete", async () => {
+    const ids = await fixture();
+    for (const key of [ids.keyA, ids.admin]) {
+      for (const route of deviceRoutes(ids)) {
+        expect((await call(route.path, key, route.method)).status, `${route.method} ${route.path}`).toBe(200);
+      }
+    }
+    expect((await call(`/v1/devices/${ids.deviceId}`, ids.keyA, "DELETE")).status).toBe(204);
+    const second = await enroll(ids.keyA, ids.meshId, KEY_2, "second");
+    expect((await call(`/v1/devices/${second.deviceId}`, ids.admin, "DELETE")).status).toBe(204);
+  });
+
+  it("sessions: the owner and a team admin act on the device, another member gets 404", async () => {
+    const admin = await h.addKey(A, ALL_SCOPES);
+    const meshId = await createMesh(admin);
+    h.addMember(A, "user_amy");
+    h.addMember(A, "user_bob");
+    h.addMember(A, "user_ada");
+    h.addAdmin(A, "user_ada");
+    const session = async (user: string) => ({ ...bearer(await h.sessionToken(user)), "x-cmux-team-id": A });
+    const amy = await session("user_amy");
+    const enrolled = await h.request(`/v1/meshes/${meshId}/devices`, amy, { method: "POST", body: { name: "amy-laptop", wgPublicKey: KEY_1 } });
+    expect(enrolled.status).toBe(201);
+    const deviceId = str(Object((await json(enrolled))["device"])["id"]);
+    expect((await h.request(`/v1/devices/${deviceId}`, amy)).status).toBe(200);
+    expect((await h.request(`/v1/devices/${deviceId}`, await session("user_bob"))).status).toBe(404);
+    expect((await h.request(`/v1/devices/${deviceId}/peers`, await session("user_bob"))).status).toBe(404);
+    expect((await h.request(`/v1/devices/${deviceId}`, await session("user_ada"))).status).toBe(200);
+    expect((await h.request(`/v1/devices/${deviceId}`, await session("user_bob"), { method: "DELETE" })).status).toBe(404);
+    expect((await h.request(`/v1/devices/${deviceId}`, await session("user_ada"), { method: "DELETE" })).status).toBe(204);
+  });
+
+  it("a key with every scope except admin is not an admin for another principal's device", async () => {
+    const ids = await fixture();
+    const wide = await h.addKey(A, allScopesExcept("admin"));
+    for (const route of [...deviceRoutes(ids), { method: "DELETE", path: `/v1/devices/${ids.deviceId}` }]) {
+      expect((await call(route.path, wide, route.method)).status, `${route.method} ${route.path}`).toBe(404);
+    }
   });
 });
