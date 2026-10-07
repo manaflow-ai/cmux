@@ -57,12 +57,16 @@ impl ServerConfig {
         self.root.get(name).and_then(Value::as_object)
     }
 
-    fn section_mut(&mut self, name: &str) -> &mut Map<String, Value> {
-        let entry = self.root.entry(name).or_insert_with(|| Value::Object(Map::new()));
-        if !entry.is_object() {
-            *entry = Value::Object(Map::new());
+    /// Edits section `name`, created (or replaced, when it is not an
+    /// object) as an empty object first.
+    fn edit_section(&mut self, name: &str, edit: impl FnOnce(&mut Map<String, Value>)) {
+        let slot = self.root.entry(name).or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
         }
-        entry.as_object_mut().expect("object")
+        if let Value::Object(map) = slot {
+            edit(map);
+        }
     }
 
     pub fn install_id(&self) -> Option<&str> {
@@ -89,7 +93,9 @@ impl ServerConfig {
     }
 
     pub fn set_channel(&mut self, channel: &str) {
-        self.section_mut("server").insert("channel".to_owned(), Value::String(channel.to_owned()));
+        self.edit_section("server", |server| {
+            server.insert("channel".to_owned(), Value::String(channel.to_owned()));
+        });
     }
 
     pub fn pinned_version(&self) -> Option<String> {
@@ -100,11 +106,12 @@ impl ServerConfig {
     }
 
     pub fn set_pinned_version(&mut self, version: Option<&str>) {
-        let server = self.section_mut("server");
-        match version {
-            Some(v) => server.insert("pinnedVersion".to_owned(), Value::String(v.to_owned())),
-            None => server.remove("pinnedVersion"),
-        };
+        self.edit_section("server", |server| {
+            match version {
+                Some(v) => server.insert("pinnedVersion".to_owned(), Value::String(v.to_owned())),
+                None => server.remove("pinnedVersion"),
+            };
+        });
     }
 
     pub fn postgres_port(&self) -> Option<u16> {
@@ -115,6 +122,8 @@ impl ServerConfig {
     }
 
     pub fn set_postgres_port(&mut self, port: u16) {
-        self.section_mut("postgres").insert("port".to_owned(), Value::from(port));
+        self.edit_section("postgres", |postgres| {
+            postgres.insert("port".to_owned(), Value::from(port));
+        });
     }
 }

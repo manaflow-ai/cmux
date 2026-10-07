@@ -126,6 +126,6 @@ pub struct MemorySink {
 
 impl FeedSink for MemorySink {
     fn post(&self, post: &Post) {
-        self.posts.lock().expect("posts").push(post.clone());
+        self.posts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(post.clone());
     }
 }

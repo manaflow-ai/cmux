@@ -170,16 +170,14 @@ pub fn parse(args: &[String]) -> Result<Args> {
             Some((n, v)) => (n.to_owned(), Some(v.to_owned())),
             None => (arg[2..].to_owned(), None),
         };
+        // A value for a flag that takes one may be the following word.
+        let inline = match inline {
+            None if takes_value_anywhere(&name) => {
+                iter.next_if(|n| !n.starts_with("--")).cloned()
+            }
+            inline => inline,
+        };
         raw_flags.push((name, inline));
-        // A value for a flag that takes one is attached later, so collect
-        // the following word lazily below.
-        if let Some((name, None)) = raw_flags.last()
-            && takes_value_anywhere(name)
-            && let Some(next) = iter.next_if(|n| !n.starts_with("--"))
-        {
-            let last = raw_flags.last_mut().expect("just pushed");
-            last.1 = Some(next.clone());
-        }
     }
     if words.first().map(String::as_str) == Some("server") {
         words.remove(0);

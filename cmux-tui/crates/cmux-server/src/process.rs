@@ -10,7 +10,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use crate::error::{Error, Result};
 
@@ -135,12 +135,17 @@ impl Runner for SystemRunner {
         // Stdin is written on its own thread, so a child that writes a lot
         // before it reads cannot deadlock against us. A child that exits
         // early closes the pipe; its exit status reports why.
-        let writer = cmd.stdin.clone().map(|bytes| {
-            let mut pipe = child.stdin.take().expect("stdin is piped");
-            std::thread::spawn(move || {
+        let writer = match (cmd.stdin.clone(), child.stdin.take()) {
+            (Some(bytes), Some(mut pipe)) => Some(std::thread::spawn(move || {
                 let _ = pipe.write_all(&bytes);
-            })
-        });
+            })),
+            (Some(_), None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::other("the child's stdin pipe is missing"));
+            }
+            (None, _) => None,
+        };
         let out = child.wait_with_output()?;
         if let Some(writer) = writer {
             let _ = writer.join();
@@ -165,11 +170,11 @@ impl RecordingRunner {
     /// The next command whose display contains `needle` gets `output`
     /// (each rule answers once).
     pub fn answer(&self, needle: &str, output: Output) {
-        self.rules.lock().expect("rules").push_back((needle.to_owned(), output));
+        self.rules.lock().unwrap_or_else(PoisonError::into_inner).push_back((needle.to_owned(), output));
     }
 
     pub fn commands(&self) -> Vec<Cmd> {
-        self.log.lock().expect("log").clone()
+        self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// Display strings of the recorded commands.
@@ -180,11 +185,13 @@ impl RecordingRunner {
 
 impl Runner for RecordingRunner {
     fn run(&self, cmd: &Cmd) -> std::io::Result<Output> {
-        self.log.lock().expect("log").push(cmd.clone());
+        self.log.lock().unwrap_or_else(PoisonError::into_inner).push(cmd.clone());
         let line = cmd.display();
-        let mut rules = self.rules.lock().expect("rules");
-        if let Some(pos) = rules.iter().position(|(needle, _)| line.contains(needle.as_str())) {
-            return Ok(rules.remove(pos).expect("position is valid").1);
+        let mut rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(pos) = rules.iter().position(|(needle, _)| line.contains(needle.as_str()))
+            && let Some((_, output)) = rules.remove(pos)
+        {
+            return Ok(output);
         }
         Ok(Output { code: Some(0), ..Output::default() })
     }

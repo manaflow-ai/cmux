@@ -4,7 +4,7 @@
 //! to exec; `cli` checks the staged binary before it calls [`Exec::exec`].
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use crate::error::Error;
 
@@ -112,13 +112,13 @@ pub struct RecordingExec {
 
 impl RecordingExec {
     pub fn requests(&self) -> Vec<ExecRequest> {
-        self.requests.lock().expect("exec log").clone()
+        self.requests.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 
 impl Exec for RecordingExec {
     fn exec(&self, request: &ExecRequest) -> Error {
-        self.requests.lock().expect("exec log").push(request.clone());
+        self.requests.lock().unwrap_or_else(PoisonError::into_inner).push(request.clone());
         Error::internal(format!("exec of {} recorded", request.program.display()))
     }
 }

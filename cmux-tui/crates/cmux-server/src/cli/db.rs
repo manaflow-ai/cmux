@@ -99,7 +99,8 @@ pub fn health(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let host_id = cfg
         .install_id()
         .and_then(HostId::parse)
-        .unwrap_or_else(|| HostId::parse("inst_local").expect("valid literal"));
+        .or_else(|| HostId::parse("inst_local"))
+        .ok_or_else(|| Error::internal("no valid host id for the health facts"))?;
     let inhibitors = (layout.platform == Platform::Linux).then(inhibit::probe_all);
     let input = ProbeInput { link_up: args.has("link-up"), inhibitors };
     let facts = collect(&layout, host_id, ctx.runner, &input);
