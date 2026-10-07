@@ -58,6 +58,7 @@ const SPECS: CategorySpec[] = [
       { group: "settings.group.diffViewer" },
       { group: "settings.group.updates" },
       { group: "settings.group.announcements" },
+      { group: "settings.group.chats" },
     ],
     trail: ["spaces"],
     actions: ["general", "rooms"],
