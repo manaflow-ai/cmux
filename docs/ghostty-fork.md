@@ -146,7 +146,8 @@ When we change the fork, update this document and the parent submodule SHA.
 - Branch: `issue-17490-cjk-fallback-sizing`
   ([manaflow-ai/ghostty#259](https://github.com/manaflow-ai/ghostty/pull/259))
 - Commits: `4eabe98fc` (regression test), `b657a8188` (fix), `324f86c88`
-  (keep the existing CI test filter), `5f0ae5e41` (exclude halfwidth Hangul)
+  (keep the existing CI test filter), `5f0ae5e41` (exclude halfwidth Hangul),
+  `01f4e0fe2` (exercise the capped mode directly)
 - Summary: keep the existing measured ideograph width for fallback faces, but
   choose the target width by script. Hangul fallback faces use the primary
   font's full two-cell terminal span to avoid inter-character gaps. Chinese,
@@ -158,8 +159,8 @@ When we change the fork, update this document and the parent submodule SHA.
   The test-only commit fails with `expected 1.25, found 1.75`; the fixed head
   passes 75 tests locally. Hosted [run 37437551741](https://github.com/manaflow-ai/cmux/actions/runs/37437551741)
   passed the Ghostty filters and published GhosttyKit.
-- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5f0ae5e41a7101dc223dc26ae34aed7eee188183-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `0c7931561c142a0b3384cf9f82d8bdd7f0bb77418c25d5be6463ccfe96587a0a`
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: preserve the distinction between `icWidth()` for the
   height-capped Chinese/Japanese target and `fallbackIcWidth()` for the
@@ -179,11 +180,11 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `5f0ae5e41`, the script-aware CJK fallback
+The submodule pinned by this branch is `01f4e0fe2`, the script-aware CJK fallback
 sizing fix on top of `e2a26bc94` (the layer display teardown fix,
 manaflow-ai/ghostty#258). Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5f0ae5e41a7101dc223dc26ae34aed7eee188183-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `0c7931561c142a0b3384cf9f82d8bdd7f0bb77418c25d5be6463ccfe96587a0a`, pinned in
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`, pinned in
 `scripts/ghosttykit-checksums.txt`.
 The previous pin `e2a26bc94` is the layer display teardown fix
 ([manaflow-ai/ghostty#258](https://github.com/manaflow-ai/ghostty/pull/258)) on
