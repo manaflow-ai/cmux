@@ -25,6 +25,24 @@ import Testing
         }
     }
 
+    /// The exact colour from nxdog66's report: "NSColor sRGB IEC61966-2.1 colorspace hdrm(1)
+    /// 0.865882 0.865882 0.865882 1" (headroom 1: plain SDR sRGB). FixtureTheme makes every
+    /// themed colour with NSColor(srgbRed:), so any cmux theme gives such a text colour.
+    @Test func theCrashingThemeTextColourBuildsItsMarkdownPalette() {
+        let theme = HomePalette.Theme(background: .gray255(30), foreground: .gray255(230), accent: .rgb255(10, 132, 255),
+                                      failure: .rgb255(255, 69, 58))
+        var active = HomePalette.themed(theme), inactive = HomePalette.themed(theme, active: false)
+        active.incomingText = HomeColor(red: 0.865882, green: 0.865882, blue: 0.865882, alpha: 1)
+        inactive.incomingText = active.incomingText
+        Fixture.theme = FixtureTheme(active: active, inactive: inactive, measuredAccent: false)
+        defer { Fixture.theme = nil }
+        let text = Fixture.incomingText
+        #expect(text.colorSpace.colorSpaceModel == .rgb, "the theme path gives an sRGB colour, not grey")
+        let incoming = MDPalette.make(outgoing: false)
+        #expect(!incoming.tokens.isEmpty)
+        #expect(abs(MDPalette.luminance(text) - 0.865882) < 0.02)
+    }
+
     @Test func anHDRThemeColourBuildsItsMarkdownPalette() {
         // Components above 1: an extended-range (HDR headroom) sRGB colour from the theme path.
         let hdr = HomePalette.Theme(background: HomeColor(red: 0.02, green: 0.02, blue: 0.03, alpha: 1),
