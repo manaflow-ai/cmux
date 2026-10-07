@@ -112,6 +112,8 @@ pub struct Output {
     pub encode: Option<EncodeRequest>,
     /// The last frame was too large to send: halve the encoder's bitrate.
     pub halve_bitrate: bool,
+    /// Complete upstream media frames (stream, frame) from the viewer (rd change C4).
+    pub upstream: Vec<(u16, cmux_rd_core::reassembly::CompleteFrame)>,
 }
 
 /// Why a stream cannot be added.
@@ -243,6 +245,16 @@ impl MediaEngine {
             state.tile_of = Some(of);
         }
         Ok(())
+    }
+
+    /// Accepts upstream media on `stream` (red-commit stub).
+    pub fn add_upstream(&mut self, _stream: u16) -> Result<(), StreamError> {
+        Ok(())
+    }
+
+    /// The next upstream feedback datagram (red-commit stub).
+    pub fn upstream_feedback(&mut self, _now_us: u64) -> Option<Vec<u8>> {
+        None
     }
 
     /// Removes a display stream and its frame state.

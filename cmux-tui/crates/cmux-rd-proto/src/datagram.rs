@@ -52,6 +52,10 @@ pub enum DatagramKind {
     ClockPing = 9,
     /// The host's answer to a clock probe (host to viewer; cap `clock`).
     ClockPong = 10,
+    /// One shard (data when `index < count`, parity otherwise) of an
+    /// upstream media frame, viewer to host: microphone, camera or screen
+    /// share (rd change C4; cap `up_media`).
+    UpMedia = 11,
 }
 
 impl DatagramKind {
@@ -68,6 +72,7 @@ impl DatagramKind {
             8 => Self::Probe,
             9 => Self::ClockPing,
             10 => Self::ClockPong,
+            11 => Self::UpMedia,
             other => return Err(DecodeError::Kind(other)),
         })
     }
