@@ -192,7 +192,8 @@ enum SidebarHelpMenuItems {
             handler: onSendFeedback
         )
         let title = String(localized: "sidebar.help.button", defaultValue: "Help")
-        let help = SidebarFooterMenu(title: title, actionSink: menu.actionSink)
+        let actionSink = (menu as? SidebarFooterMenu)?.actionSink
+        let help = SidebarFooterMenu(title: title, actionSink: actionSink)
         help.autoenablesItems = false
         help.addSidebarFooterItem(
             String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),

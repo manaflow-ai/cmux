@@ -74,6 +74,21 @@ final class WhatsNewCenter {
         versionOverride ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
     }
 
+    /// A fallback card from an older release is useful for an on-demand recap,
+    /// but it must not consume the automatic announcement for this release.
+    static func hasHighlightsForCurrentRelease(
+        catalog: WhatsNewCatalog,
+        currentVersion: String
+    ) -> Bool {
+        guard let currentKey = WhatsNewAutomaticPresentation.releaseKey(currentVersion) else {
+            return false
+        }
+        return catalog.releases.contains { release in
+            !release.features.isEmpty
+                && WhatsNewAutomaticPresentation.releaseKey(release.version) == currentKey
+        }
+    }
+
     private var mode: WhatsNewPresentationMode {
         UserDefaultsSettingsClient(defaults: defaults).value(for: AppCatalogSection().whatsNew)
     }
@@ -188,7 +203,7 @@ final class WhatsNewCenter {
             let current = WhatsNewAutomaticPresentation.releaseKey(self.currentVersion) ?? "\(Int.max)"
             let releases = catalog.recentReleases(through: current)
             model.phase = .loaded(releases)
-            if !releases.isEmpty {
+            if Self.hasHighlightsForCurrentRelease(catalog: catalog, currentVersion: self.currentVersion) {
                 self.markSeen()
             }
         }

@@ -292,6 +292,16 @@ struct SettingsRowAnchorResolutionTests {
         )
     }
 
+    @Test
+    func whatsNewSearchEntryTargetsItsSettingsRow() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let anchor = try #require(index.anchorID(forSettingsPath: "app.whatsNew"))
+
+        #expect(anchor == "setting:app:whats-new")
+        #expect(index.entries.contains { $0.id == anchor })
+        #expect(Self.rowConfigPaths.contains("app.whatsNew"))
+    }
+
     /// A setting search hit must select a real row anchor, not merely
     /// dump the user at the owning section. Section-only setting hits are
     /// dead ends for scroll/highlight and usually mean an internal

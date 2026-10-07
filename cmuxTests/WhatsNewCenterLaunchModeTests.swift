@@ -13,6 +13,29 @@ import Testing
 @Suite("What's New launch mode", .serialized)
 struct WhatsNewCenterLaunchModeTests {
     @Test
+    func onDemandFallbackDoesNotCountAnUnpublishedCurrentRelease() {
+        let older = WhatsNewRelease(
+            version: "0.64.25",
+            title: "cmux 0.64.25",
+            features: [WhatsNewRelease.Feature(title: "Older", description: "Already published")]
+        )
+        let current = WhatsNewRelease(
+            version: "0.64.26",
+            title: "cmux 0.64.26",
+            features: [WhatsNewRelease.Feature(title: "Current", description: "Available now")]
+        )
+
+        #expect(!WhatsNewCenter.hasHighlightsForCurrentRelease(
+            catalog: WhatsNewCatalog(releases: [older]),
+            currentVersion: "0.64.26"
+        ))
+        #expect(WhatsNewCenter.hasHighlightsForCurrentRelease(
+            catalog: WhatsNewCatalog(releases: [older, current]),
+            currentVersion: "0.64.26-nightly.1"
+        ))
+    }
+
+    @Test
     func markingCurrentReleaseSeenDuringCatalogLoadSuppressesAnnouncement() async throws {
         let suite = "WhatsNewCenterLaunchModeTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
