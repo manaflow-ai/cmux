@@ -248,6 +248,15 @@ Two traps found by the prototype: the host may set the clock again between readi
 
 The bake parks exactly as today (`/etc/cmux/bake-instance-id`): the session host stopped, no metadata request in flight, timers stopped, then the snapshot.
 
+### 6.3a Session host remote entry (bind and auth)
+
+The session host's `--remote-ws` listener comes only from the host config `/etc/cmux/host.json` (`cmux-host` `remote_entry.rs`); inherited `CMUX_TUI_REMOTE_WS_*` variables never reach the session host.
+
+- Default (no file, or no `remoteWs`): `127.0.0.1:1337` with enrolled auth. Every connection presents a device enrolled with the session host (cmux-remote enrollment); revoking the device closes its live sessions at once (tested within one heartbeat).
+- A loopback or tailnet bind (100.64.0.0/10, fd7a:115c:a1e0::/48) keeps enrolled auth. Any other bind is refused.
+- cmux Cloud machines: `{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}` runs the exact Cloud command line (`--remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind --remote-ws-trusted-carrier`, equal to `cmuxTuiDaemon.ts` and `cmux-devbox-boot`, pinned by the daemon_spec parity test). The loader accepts it only with the wildcard bind, on Linux, on a machine bound to a metadata instance id, and logs one warning line at start that names the mode and bead cx-wx2. A refused file falls back to the default and is logged.
+- **Assumption of the trusted-carrier mode:** nothing reaches port 1337 except the Freestyle edge. The listener grants carrier auth to every link without enrollment, so any packet that reaches 1337 is trusted. Before an image runs `cmux host run` in this mode, the image must enforce that (firewall or interface bind; public IPv6 on Freestyle VMs must not reach 1337). Bead cx-wx2 tracks that check and the move of Cloud clients to enrolled auth, after which this mode is removed.
+
 ### 6.4 Private network announce
 
 Today a clone sends a gratuitous ARP burst at bind and every 30 s, because an earlier measurement found the provider fabric dropped traffic to a clone until it transmitted. On 2026-10-02 a clone on a private network was reachable 7 s after create, and again after 8 and 40 minutes idle, with no announce (IPv4 and IPv6, 0% loss): the private VLAN interface is created at create time, so the kernel transmits on it by itself. Proposal: announce once at bind and on each resume signal (pause and start produce the same clock-set and address events), and drop the 30 s loop. Idle periods longer than 40 minutes and snapshots baked while already on a private network are UNVERIFIED; the CI smoke adds a 2-hour idle reachability check before the loop is removed in production.

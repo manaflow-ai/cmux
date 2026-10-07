@@ -53,7 +53,8 @@ fn loopback_and_tailnet_binds_keep_enrolled_auth() {
 
 #[test]
 fn other_binds_without_the_edge_carrier_are_refused() {
-    for bind in ["0.0.0.0:1337", "[::]:1337", "192.168.1.5:1337", "100.128.0.1:1337", "8.8.8.8:1337"]
+    for bind in
+        ["0.0.0.0:1337", "[::]:1337", "192.168.1.5:1337", "100.128.0.1:1337", "8.8.8.8:1337"]
     {
         let text = format!(r#"{{"remoteWs": {{"bind": "{bind}"}}}}"#);
         let reason = refused(&text, CLOUD);
@@ -85,7 +86,9 @@ fn the_cloud_edge_carrier_keeps_the_exact_cloud_command_line() {
 
 #[test]
 fn the_edge_carrier_is_refused_outside_its_conditions() {
-    let edge = |bind: &str| format!(r#"{{"remoteWs": {{"bind": "{bind}", "carrier": "freestyle-edge"}}}}"#);
+    let edge = |bind: &str| {
+        format!(r#"{{"remoteWs": {{"bind": "{bind}", "carrier": "freestyle-edge"}}}}"#)
+    };
     // Only with the wildcard bind.
     assert!(refused(&edge("127.0.0.1:1337"), CLOUD).contains("0.0.0.0"));
     assert!(refused(&edge("100.101.102.103:1337"), CLOUD).contains("0.0.0.0"));

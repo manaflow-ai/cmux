@@ -101,8 +101,6 @@ pub struct Config {
     pub metadata_attempts: u32,
     pub metadata_timeout: Duration,
     pub daemon: DaemonOverride,
-    /// `CMUX_TUI_REMOTE_WS_BIND`, else the IPv4 wildcard.
-    pub remote_ws_bind: String,
     /// Send the gratuitous ARP announce (off only in tests).
     pub announce: bool,
     /// `announce_interval_seconds`: repeat the announce this often while
@@ -128,7 +126,6 @@ impl Config {
             metadata_attempts: crate::metadata::DEFAULT_ATTEMPTS,
             metadata_timeout: crate::metadata::ATTEMPT_TIMEOUT,
             daemon: DaemonOverride::default(),
-            remote_ws_bind: crate::daemon_spec::DEFAULT_REMOTE_WS_BIND.to_owned(),
             announce: true,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             rearm_delay: HOUSEKEEPING_DELAY,

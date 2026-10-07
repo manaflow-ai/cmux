@@ -125,6 +125,8 @@ User mode on Linux needs `loginctl enable-linger` to run without a login session
 
 `cmux server roles set apps,postgres,...` and Settings > Server toggle them. A role that is off costs disk, not memory or CPU.
 
+The `session` role's remote WebSocket on a user's server binds loopback by default, or a tailnet address when the pairing transport needs it, never 0.0.0.0, and every connection presents an enrolled device (revocation closes live sessions). The 0.0.0.0 trusted-carrier mode exists only for cmux Cloud machines behind the Freestyle edge, selected explicitly in `/etc/cmux/host.json` with `"carrier": "freestyle-edge"`; it assumes no ingress to port 1337 except the edge (vm-image.md 6.3a, bead cx-wx2).
+
 ## 6. Pairing and trust model
 
 ### 6.1 Principals

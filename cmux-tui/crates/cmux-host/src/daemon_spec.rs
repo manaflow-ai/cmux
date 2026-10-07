@@ -11,10 +11,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::remote_entry::RemoteEntry;
+
 /// The session name every Cloud machine uses.
 pub const SESSION: &str = "cloud";
-/// `CMUX_TUI_DEFAULT_REMOTE_WS_BIND`.
-pub const DEFAULT_REMOTE_WS_BIND: &str = "0.0.0.0:1337";
 /// argv[1] of a terminal host process (cmux-tui `__terminal-host`).
 pub const TERMINAL_HOST_ARG: &str = "__terminal-host";
 /// The work user of the image (`DEVBOX_WORK_USER`).
@@ -85,7 +85,7 @@ pub fn ghostty_version(file: Option<&str>) -> String {
 pub fn daemon_spec(
     layout: &DaemonLayout,
     ghostty_version: &str,
-    remote_ws_bind: &str,
+    remote_entry: &RemoteEntry,
     template_bound_file: &Path,
 ) -> DaemonSpec {
     let mut set_env: Vec<(String, String)> = vec![
@@ -106,12 +106,7 @@ pub fn daemon_spec(
     set_env.push(("TERM_PROGRAM".into(), "ghostty".into()));
     set_env.push(("TERM_PROGRAM_VERSION".into(), ghostty_version.to_owned()));
     let mut args: Vec<String> = IDENTITY_ARGS.iter().map(|s| (*s).to_owned()).collect();
-    args.extend([
-        "--remote-ws".to_owned(),
-        remote_ws_bind.to_owned(),
-        "--remote-ws-insecure-bind".to_owned(),
-        "--remote-ws-trusted-carrier".to_owned(),
-    ]);
+    args.extend(remote_entry.args());
     DaemonSpec {
         program: layout.bin.clone(),
         args,
@@ -127,7 +122,8 @@ pub fn daemon_spec(
 pub const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 /// The agent environment the session host (and so every pane) may see:
-/// `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TZ` and `CMUX_TUI_*` settings.
+/// `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TZ` and `CMUX_TUI_*` settings except
+/// `CMUX_TUI_REMOTE_WS*` (the remote entry comes only from the host config).
 /// Service-manager variables (`INVOCATION_ID`, `JOURNAL_STREAM`,
 /// `NOTIFY_SOCKET`, `LISTEN_*`) and `CMUX_SERVER_MODE` never pass.
 pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
@@ -136,7 +132,7 @@ pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(S
         .filter(|(k, _)| {
             matches!(k.as_str(), "PATH" | "LANG" | "LANGUAGE" | "TZ")
                 || k.starts_with("LC_")
-                || k.starts_with("CMUX_TUI_")
+                || (k.starts_with("CMUX_TUI_") && !k.starts_with("CMUX_TUI_REMOTE_WS"))
         })
         .collect();
     if !out.iter().any(|(k, _)| k == "PATH") {
@@ -257,13 +253,16 @@ mod tests {
     /// enrolled auth: no insecure bind, no trusted carrier.
     #[test]
     fn the_default_entry_is_loopback_without_the_trusted_carrier() {
-        let entry = crate::remote_entry::parse(None, crate::remote_entry::Facts {
-            linux: true,
-            bound_instance: true,
-        })
+        let entry = crate::remote_entry::parse(
+            None,
+            crate::remote_entry::Facts { linux: true, bound_instance: true },
+        )
         .unwrap();
         let spec = daemon_spec(&layout(LayoutKind::User), "", &entry, Path::new("/run/cmux/bound"));
-        assert_eq!(spec.args, ["server", "start", "--session", "cloud", "--remote-ws", "127.0.0.1:1337"]);
+        assert_eq!(
+            spec.args,
+            ["server", "start", "--session", "cloud", "--remote-ws", "127.0.0.1:1337"]
+        );
         assert!(spec.set_env.iter().all(|(k, _)| !k.starts_with("CMUX_TUI_REMOTE_WS")));
     }
 

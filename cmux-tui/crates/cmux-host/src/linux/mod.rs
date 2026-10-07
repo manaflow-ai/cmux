@@ -212,8 +212,8 @@ impl LinuxPlatform {
     }
 
     fn spawn_daemon(&mut self) -> io::Result<Option<Input>> {
-        let bind = self.cfg.remote_ws_bind.clone();
         let paths = self.cfg.paths.clone();
+        let entry = remote_entry(&paths);
         let layout = self.layout()?.clone();
         let _ = identity::write_atomic(
             &paths.at(LAYOUT_MARKER_FILE),
@@ -222,7 +222,7 @@ impl LinuxPlatform {
         );
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let spec = daemon_spec(&layout, &version, &bind, &paths.at(TEMPLATE_BOUND_FILE));
+        let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
         ensure_run_dir(&paths, &layout);
         let child = spawn::spawn_daemon(&spec)?;
         let pid = child.id();
@@ -642,4 +642,25 @@ impl Platform for LinuxPlatform {
         ensure_agent_dir(&self.cfg.paths)?;
         identity::write_atomic(&path, status.to_json().as_bytes(), 0o644)
     }
+}
+
+/// The session host's remote entry from `/etc/cmux/host.json`. A refused
+/// config falls back to the default (loopback, enrolled auth) and is
+/// logged; the trusted-carrier mode logs its warning line.
+fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntry {
+    use crate::remote_entry::{DEFAULT_BIND, Facts, HOST_CONFIG_FILE, RemoteEntry, parse};
+    let text = fs::read_to_string(paths.at(HOST_CONFIG_FILE)).ok();
+    let bound_instance =
+        fs::read_to_string(paths.at(BOUND_INSTANCE_FILE)).is_ok_and(|id| !id.trim().is_empty());
+    let entry =
+        parse(text.as_deref(), Facts { linux: true, bound_instance }).unwrap_or_else(|why| {
+            eprintln!(
+                "cmux-host: host.json refused ({why}); remote entry {DEFAULT_BIND}, enrolled auth"
+            );
+            RemoteEntry::Enrolled { bind: DEFAULT_BIND }
+        });
+    if let Some(warning) = entry.warning() {
+        eprintln!("{warning}");
+    }
+    entry
 }

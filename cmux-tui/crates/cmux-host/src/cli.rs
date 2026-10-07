@@ -26,11 +26,6 @@ fn code(n: u8) -> ExitCode {
 fn parse_run(args: &[String], self_argv: Vec<String>) -> Result<Config, String> {
     let mut cfg = Config::production();
     cfg.self_argv = self_argv;
-    if let Ok(bind) = std::env::var("CMUX_TUI_REMOTE_WS_BIND")
-        && !bind.is_empty()
-    {
-        cfg.remote_ws_bind = bind;
-    }
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));

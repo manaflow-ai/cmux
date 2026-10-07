@@ -224,7 +224,7 @@ async fn dial_once(
     auth: ClientAuthMode,
     session: SessionId,
     reconnect: ReconnectPolicy,
-) -> Result<ClientConnection, cmux_remote::connection::ConnectionError> {
+) -> Result<std::sync::Arc<ClientConnection>, cmux_remote::connection::ConnectionError> {
     let endpoint =
         Url::parse(&format!("ws://127.0.0.1:{}/v1/link", server.local_addr().port())).unwrap();
     let group = DirectWebSocketProvider::new(65_535)
@@ -278,12 +278,20 @@ async fn enrolled_listener_refuses_strangers_and_closes_a_revoked_session_within
         let once = ReconnectPolicy { maximum_attempts: Some(1), ..Default::default() };
 
         // Unauthenticated: a stranger's key, and a carrier claim.
-        for (auth_mode, session) in
-            [(ClientAuthMode::Enrolled, SessionId([91; 16])), (ClientAuthMode::Carrier, SessionId([92; 16]))]
-        {
+        for (auth_mode, session) in [
+            (ClientAuthMode::Enrolled, SessionId([91; 16])),
+            (ClientAuthMode::Carrier, SessionId([92; 16])),
+        ] {
             tokio::time::timeout(
                 CONNECT_TIMEOUT,
-                dial_once(&server, daemon_key, StaticIdentity::generate().unwrap(), auth_mode, session, once),
+                dial_once(
+                    &server,
+                    daemon_key,
+                    StaticIdentity::generate().unwrap(),
+                    auth_mode,
+                    session,
+                    once,
+                ),
             )
             .await
             .expect("stranger dial timed out")
@@ -359,7 +367,14 @@ async fn enrolled_listener_refuses_strangers_and_closes_a_revoked_session_within
         // Stale credential: the revoked device's key is refused.
         tokio::time::timeout(
             CONNECT_TIMEOUT,
-            dial_once(&server, daemon_key, identity, ClientAuthMode::Enrolled, SessionId([95; 16]), once),
+            dial_once(
+                &server,
+                daemon_key,
+                identity,
+                ClientAuthMode::Enrolled,
+                SessionId([95; 16]),
+                once,
+            ),
         )
         .await
         .expect("revoked dial timed out")
