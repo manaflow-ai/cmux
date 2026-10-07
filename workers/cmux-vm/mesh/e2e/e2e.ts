@@ -136,6 +136,17 @@ const services = Layer.mergeAll(
             ? Option.some({ id: memberKeyId, tenantId, scopes: ["mesh:read", "mesh:join"], resourceAllowlist: null, expiresAt: null })
             : Option.none(),
       ),
+    // M3: codes and device-signed requests check that the creating key is still live.
+    findActiveById: (tenant, id) =>
+      Effect.succeed(
+        tenant !== tenantId
+          ? Option.none()
+          : id === ownerKeyId
+            ? Option.some({ id: ownerKeyId, tenantId, scopes: SCOPES.filter((s) => s !== "admin"), resourceAllowlist: null, expiresAt: null })
+            : id === memberKeyId
+              ? Option.some({ id: memberKeyId, tenantId, scopes: ["mesh:read", "mesh:join"], resourceAllowlist: null, expiresAt: null })
+              : Option.none(),
+      ),
   }),
   tenantPolicyLayer({ environment: "local" }),
   Layer.succeed(Entitlements, { mayCreate: (t) => Effect.succeed(t === tenantId) }),
