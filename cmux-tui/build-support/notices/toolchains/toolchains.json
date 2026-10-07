@@ -24,11 +24,11 @@
       "binaries": "Iroh.framework: the manaflow-ai/iroh-ffi release xcframework at the Package.resolved revision (release_swift.yml pins toolchain 1.91.0; the v1.2.0-cmux.1.ios17 macOS binary names /rustc/f8297e351a40c1439a467bbbb6879088047f50b3/); the bundle check reads the commit from the binary"
     },
     {
-      "version": "1.88.0",
-      "rustc_commit": "6b00bc3880198600130e1cf62b8f8a93494488cc",
-      "file": "rust-1.88.0/COPYRIGHT-library.html",
-      "sha256": "3d3f60160f5214efa0a7fd804102d02ce9ea6af04b5249a19eeb243450246ae9",
-      "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/rustc-1.88.0-aarch64-apple-darwin.tar.xz (xz_hash 249f4cacd3fac1f718af19373c73e9d3b9a595965972d8b1f3947c578110f520 in https://static.rust-lang.org/dist/channel-rust-1.88.0.toml; the x86_64-unknown-linux-gnu rustc of 1.95.0 carries the same bytes)",
+      "version": "1.98.1",
+      "rustc_commit": "48a229ceaefd4985c50990b14116b6d856af0985",
+      "file": "rust-1.98.1/COPYRIGHT-library.html",
+      "sha256": "68129500b616d5838629e68f55ff3aed5e096dacf60ce9eb41bbe599a563afa6",
+      "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/2026-09-03/rustc-1.98.1-aarch64-apple-darwin.tar.xz (xz_hash 738e3f60114b20550fcf4f8a57c9cea0544239f214709f45594ff3fde327f577 in https://static.rust-lang.org/dist/channel-rust-1.98.1.toml)",
       "toolchain_files": [
         "Native/DiffSidecar/rust-toolchain.toml"
       ],

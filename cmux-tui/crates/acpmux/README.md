@@ -382,6 +382,12 @@ there, and a selection covers only the useful text: the gutter, role markers and
 padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
+## Bring your own harness
+
+Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
+with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
+
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,

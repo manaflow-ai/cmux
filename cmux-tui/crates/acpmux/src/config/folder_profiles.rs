@@ -329,16 +329,8 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     for file in &fp.checked_files {
         out.push_str(&format!("  checked: {} (a change asks again)\n", visible(file)));
     }
-    if let Some(p) = resolved_program
-        && p.starts_with(&fp.folder)
-        && !fp.checked_files.iter().any(|f| Path::new(f) == p)
-    {
-        out.push_str("  warning: the program is a file inside this folder; a change to it is not checked again\n");
-    }
-    if let Some(launcher) = download_launcher(&profile.argv) {
-        out.push_str(&format!(
-            "  warning: {launcher} downloads and runs a package at launch; a new package version is not checked\n"
-        ));
+    for warning in program_warnings(fp, resolved_program) {
+        out.push_str(&format!("  warning: {warning}\n"));
     }
     if profile.env.is_empty() {
         out.push_str("  env:     none\n");
@@ -346,11 +338,8 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     for (key, value) in &profile.env {
         let shown = env_source(value);
         out.push_str(&format!("  env:     {key} = {shown}\n"));
-        if CODE_LOADING_ENV.contains(&key.as_str())
-            || key.starts_with("DYLD_")
-            || key.starts_with("LD_")
-        {
-            out.push_str(&format!("  warning: {key} changes which code a program loads\n"));
+        if let Some(warning) = env_warning(key) {
+            out.push_str(&format!("  warning: {warning}\n"));
         }
     }
     if let Some(sha) = &fp.sha256 {
@@ -361,6 +350,74 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
         visible(&fp.folder)
     ));
     out
+}
+
+/// The confirmation as data, for the app's "Enable harness" sheet
+/// (`_acpmux/harness_enable`): the same facts and warnings as the CLI text,
+/// plus that text. Plain values are shown as in the CLI; Keychain items and
+/// login variables are named, never read.
+pub fn prompt(fp: &FolderProfile, resolved_program: Option<&Path>) -> serde_json::Value {
+    let profile = fp.profile.as_ref();
+    let env: Vec<serde_json::Value> = profile
+        .map(|p| p.env.iter().map(|(key, value)| env_entry(key, value)).collect())
+        .unwrap_or_default();
+    let mut warnings = program_warnings(fp, resolved_program);
+    if let Some(p) = profile {
+        warnings.extend(p.env.keys().filter_map(|k| env_warning(k)));
+    }
+    json!({
+        "id": fp.id,
+        "folder": fp.folder,
+        "path": fp.path,
+        "state": fp.state,
+        "trust": fp.trust,
+        "argv": profile.map(|p| p.argv.clone()).unwrap_or_default(),
+        "program": resolved_program,
+        "env": env,
+        "checkedFiles": fp.checked_files,
+        "warnings": warnings,
+        "sha256": fp.sha256,
+        "diagnostics": fp.diagnostics,
+        "text": confirmation_text(fp, resolved_program),
+    })
+}
+
+/// Warnings about the program: a file inside the folder that is not
+/// checked, or a launcher that downloads a package on each launch.
+fn program_warnings(fp: &FolderProfile, resolved_program: Option<&Path>) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(p) = resolved_program
+        && p.starts_with(&fp.folder)
+        && !fp.checked_files.iter().any(|f| Path::new(f) == p)
+    {
+        out.push(
+            "the program is a file inside this folder; a change to it is not checked again".into(),
+        );
+    }
+    if let Some(launcher) = fp.profile.as_ref().and_then(|p| download_launcher(&p.argv)) {
+        out.push(format!(
+            "{launcher} downloads and runs a package at launch; a new package version is not checked"
+        ));
+    }
+    out
+}
+
+/// The warning for an env key that changes which code a program loads.
+fn env_warning(key: &str) -> Option<String> {
+    (CODE_LOADING_ENV.contains(&key) || key.starts_with("DYLD_") || key.starts_with("LD_"))
+        .then(|| format!("{key} changes which code a program loads"))
+}
+
+/// One env entry of the prompt: key, source kind and, for a plain value,
+/// the value (control characters written out).
+fn env_entry(key: &str, value: &str) -> serde_json::Value {
+    if let Some(item) = value.strip_prefix("${keychain:").and_then(|v| v.strip_suffix('}')) {
+        return json!({"key": key, "source": "keychain", "item": item});
+    }
+    if let Some(var) = value.strip_prefix("${env:").and_then(|v| v.strip_suffix('}')) {
+        return json!({"key": key, "source": "env", "variable": var});
+    }
+    json!({"key": key, "source": "plain", "value": visible(value)})
 }
 
 /// One env value as the confirmation shows it.

@@ -28,8 +28,18 @@ cli="$app/Contents/Resources/bin/cmux"
 slug="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' -e 's/^-+//' -e 's/-+$//')"
 socket="/tmp/cmux-debug-$slug.sock"
 
+# shellcheck source=SCRIPTDIR/../../lib/stop-cmux-tui-owners.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../lib/stop-cmux-tui-owners.sh"
+
+# Quit the app by its executable and stop its cmux-tui owners by socket. A
+# pattern on "$app/" also matched every terminal host and killed its shell.
+stop_app() {
+  pkill -f "$app/Contents/MacOS/" 2>/dev/null || true
+  cmux_stop_cmux_tui_owners "$app/Contents/Resources/bin"
+}
+
 teardown() {
-  pkill -f "$app/" 2>/dev/null || true
+  stop_app
   pkill -f "$work/VDisplay.app/" 2>/dev/null || true
   sleep 1
   system_profiler SPDisplaysDataType 2>/dev/null | grep -m1 'UI Looks like' | sed 's/^ */main display after teardown: /' || true
@@ -55,7 +65,7 @@ for mode in 0 1; do
   for _ in $(seq 90); do [ -S "$socket" ] && break; sleep 1; done
   if [ ! -S "$socket" ]; then
     echo "mode $mode: no socket at $socket" | tee "$out/$mode-error.txt"
-    pkill -f "$app/" 2>/dev/null || true
+    stop_app
     continue
   fi
   sleep 3
@@ -70,6 +80,6 @@ for mode in 0 1; do
     [ "$n" = 0 ] && continue
     printf '{"fling":%s,"perf":%s}\n' "$(rpc '{"action":"fling_stats"}')" "$(rpc '{"action":"perf_stats"}')" > "$out/$mode-$n.json"
   done
-  pkill -f "$app/" 2>/dev/null || true
+  stop_app
   sleep 2
 done

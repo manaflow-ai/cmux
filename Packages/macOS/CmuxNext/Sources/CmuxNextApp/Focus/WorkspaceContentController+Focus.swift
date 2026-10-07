@@ -46,6 +46,11 @@ extension WorkspaceContentController {
     func focusRememberedPane(on screen: LayoutScreenID) {
         guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes,
               let pane = FocusNavigation.mostRecent(panes, recency: recentPanes) ?? panes.first else { return }
+        // Keep the layout model's shown screen and pane in sync immediately.
+        // The focus coordinator may not have this newly mirrored pane in its
+        // topology yet, so waiting for its effect would let a later topology
+        // echo restore the previously shown screen.
+        layoutModel.focus(pane, notify: false)
         focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 

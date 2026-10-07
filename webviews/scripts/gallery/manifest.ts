@@ -18,6 +18,9 @@
 // --layouts  pane layouts for window mode: one (default), all, or one|two|agent-right
 // --widths   pane widths for component mode: normal (default), all, or narrow|normal|wide|<px>
 // --limit    at most N cases (after the order above)
+// --experiments  instead of the matrix above: for each entry with an experiment, one measured case
+//            per arm (`measure=1`: the script at 1x, frame timings in the results) and a frame strip
+//            per arm and step (`freeze=<step>:<ms>` at STRIP_TIMES_MS). Theme, locale and width as above.
 import fs from "node:fs";
 import { parseArgs } from "node:util";
 import { readChromeMetrics, readShippedThemes } from "../../dev-server/galleryHost";
@@ -43,6 +46,9 @@ export const SAMPLE_THEMES = [
 ];
 
 export type ManifestCase = { id: string; path_or_url: string; params: Record<string, string | number | boolean> };
+/** Times after a step's input that a frame strip shows, in ms. */
+export const STRIP_TIMES_MS = [0, 40, 80, 120, 160, 200, 260];
+
 export type ManifestOptions = {
   entries?: string[];
   variants?: string[];
@@ -53,6 +59,7 @@ export type ManifestOptions = {
   windows?: string;
   layouts?: string;
   limit?: number;
+  experiments?: boolean;
 };
 
 const list = (value: string | undefined) =>
@@ -142,6 +149,30 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
   return options.limit ? cases.slice(0, options.limit) : cases;
 }
 
+/** The experiment cases (`--experiments`): per arm, one measured run of the script and its strips. */
+export function experimentCases(entries: GalleryEntry[], options: ManifestOptions = {}): ManifestCase[] {
+  const base = manifestCases(entries, { ...options, frame: "component", limit: undefined });
+  const cases: ManifestCase[] = [];
+  for (const item of base) {
+    const entry = entries.find((candidate) => candidate.id === item.params.entry);
+    const experiment = entry?.experiment;
+    if (!experiment) continue;
+    for (const arm of Object.keys(experiment.definition.arms)) {
+      const params = { ...item.params, exp: experiment.definition.id, arm };
+      cases.push({ id: `${item.id}--${arm}--measure`, path_or_url: "frame.html", params: { ...params, measure: "1" } });
+      experiment.script.forEach((_, index) => {
+        for (const ms of STRIP_TIMES_MS)
+          cases.push({
+            id: `${item.id}--${arm}--s${index + 1}-t${ms}`,
+            path_or_url: "frame.html",
+            params: { ...params, freeze: `${index + 1}:${ms}` },
+          });
+      });
+    }
+  }
+  return options.limit ? cases.slice(0, options.limit) : cases;
+}
+
 if (import.meta.main) {
   const { values } = parseArgs({
     options: {
@@ -154,10 +185,12 @@ if (import.meta.main) {
       windows: { type: "string" },
       layouts: { type: "string" },
       limit: { type: "string" },
+      experiments: { type: "boolean", default: false },
       out: { type: "string" },
     },
   });
-  const cases = manifestCases(await loadEntries(), {
+  const build = values.experiments ? experimentCases : manifestCases;
+  const cases = build(await loadEntries(), {
     entries: list(values.entries),
     variants: list(values.variants),
     locales: values.locales,
