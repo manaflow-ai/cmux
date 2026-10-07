@@ -102,6 +102,27 @@ test("the field has the keyboard when the screen appears, and the cards show rec
   await act(async () => root.unmount());
 });
 
+test("Tools cards use host shortcuts and run their catalog action", async () => {
+  const { container, root, calls } = await mount({
+    tools: [
+      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌘G", menu: [] },
+      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight"] },
+    ],
+    onRunAction: (id: string) => calls.push(`action:${id}`),
+  });
+  expect(container.querySelector(".nt-tools h2")?.textContent).toBe("Tools");
+  expect([...container.querySelectorAll(".nt-tool-main")].map((button) => button.textContent)).toEqual([
+    "±Changes⌘G",
+    "›_Terminal⌘T",
+  ]);
+  await act(async () => {
+    container.querySelector<HTMLButtonElement>(".nt-tool-main")!.click();
+    container.querySelector<HTMLButtonElement>(".nt-tool-menu-popover button")!.click();
+  });
+  expect(calls).toEqual(["action:openDiffViewer", "action:splitRight"]);
+  await act(async () => root.unmount());
+});
+
 test("! puts the field in shell mode in place: no terminal, no rows, the cards stay", async () => {
   const { container, root, field, type, calls } = await mount();
   await type("!");

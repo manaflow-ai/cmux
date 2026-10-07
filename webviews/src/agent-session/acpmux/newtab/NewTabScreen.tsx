@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AgentMark, FOCUS_LOCATION_EVENT } from "../NewTabPage";
+import { AgentMark, FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
@@ -17,6 +17,7 @@ export type NewTabScreenActions = {
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
+  onRunAction?(id: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
 };
@@ -28,6 +29,7 @@ type Props = NewTabScreenActions & {
   location?: string;
   lastAgent?: string;
   home?: string;
+  tools?: NewTabHost["tools"];
   now?: number;
 };
 
@@ -36,7 +38,7 @@ type Props = NewTabScreenActions & {
 /// row under it; no Search/Ask mode, R86), and the recent chats as cards.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
-  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now } = props;
+  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [] } = props;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -197,8 +199,66 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+      <ToolsSection tools={tools} onRunAction={props.onRunAction} />
     </div>
   );
+}
+
+function ToolsSection({
+  tools,
+  onRunAction,
+}: {
+  tools: NonNullable<NewTabHost["tools"]>;
+  onRunAction?: (id: string) => void;
+}) {
+  const t = useT();
+  if (!tools.length) return null;
+  return (
+    <section className="nt-tools" aria-labelledby="nt-tools-heading">
+      <h2 id="nt-tools-heading">{t("newTabPage.tools")}</h2>
+      <div className="nt-tools-grid">
+        {tools.map((tool) => (
+          <div className="nt-tool-card" key={tool.id}>
+            <button type="button" className="nt-tool-main" onClick={() => onRunAction?.(tool.id)}>
+              <span className="nt-tool-icon" aria-hidden="true">
+                {toolIcon(tool.symbol)}
+              </span>
+              <span>{toolTitle(t, tool)}</span>
+              {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
+            </button>
+            {tool.menu.length > 0 && (
+              <div className="nt-tool-menu">
+                <button type="button" aria-label={t("newTabPage.moreOptions")}>
+                  …
+                </button>
+                <div className="nt-tool-menu-popover">
+                  {tool.menu.map((id) => (
+                    <button type="button" key={id} onClick={() => onRunAction?.(id)}>
+                      {id}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function toolIcon(symbol: string): string {
+  return { plusminus: "±", terminal: "›_", folder: "▱", "bubble.left.and.text.bubble.right": "◌" }[symbol] ?? "•";
+}
+
+function toolTitle(t: ReturnType<typeof useT>, tool: NonNullable<NewTabHost["tools"]>[number]): string {
+  const key: Record<string, "newTabPage.tool.changes" | "newTabPage.tool.terminal" | "newTabPage.tool.files" | "newTabPage.tool.sideChat"> = {
+    openDiffViewer: "newTabPage.tool.changes",
+    newSurface: "newTabPage.tool.terminal",
+    "file.open": "newTabPage.tool.files",
+    "agentPane.searchChats": "newTabPage.tool.sideChat",
+  };
+  return key[tool.id] ? t(key[tool.id]) : tool.title;
 }
 
 function rowKey(row: ScreenRow): string {

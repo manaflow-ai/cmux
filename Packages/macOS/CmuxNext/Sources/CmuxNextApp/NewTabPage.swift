@@ -49,6 +49,22 @@ enum NewTabPage {
         .terminal: "newSurface", .browser: "openBrowser", .agent: "palette.newAgentChat",
     ]
 
+    /// The New Tab Tools cards are projections of the action catalog. The
+    /// registry supplies both availability and the user-visible shortcut.
+    static func tools(_ services: AppServices) -> [AgentPaneNewTab.Tool] {
+        let specs: [(ActionID, String, String, [ActionID])] = [
+            ("openDiffViewer", "newTabPage.tool.changes", "plusminus", []),
+            ("newSurface", "newTabPage.tool.terminal", "terminal", ["splitRight", "splitDown"]),
+            ("file.open", "newTabPage.tool.files", "folder", []),
+            ("agentPane.searchChats", "newTabPage.tool.sideChat", "bubble.left.and.text.bubble.right", []),
+        ]
+        return specs.compactMap { id, title, symbol, menu in
+            guard services.registry.canPerform(id) else { return nil }
+            return AgentPaneNewTab.Tool(id: id.rawValue, title: title, symbol: symbol,
+                                        shortcut: services.registry.shortcutDisplay(for: id), menu: menu.map(\.rawValue))
+        }
+    }
+
     /// The page's initially selected kind: Agent chat, ready for the first prompt.
     static func kind(selectedID: String?, selectedKind: TabKind?) -> AgentPaneTabKind { .agent }
 
@@ -131,7 +147,7 @@ enum NewTabPage {
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: NSHomeDirectory()
+            home: NSHomeDirectory(), tools: tools(services)
         )
     }
 
@@ -140,7 +156,8 @@ enum NewTabPage {
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
-            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
+            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
+            tools: tools(services)
         )
     }
 
