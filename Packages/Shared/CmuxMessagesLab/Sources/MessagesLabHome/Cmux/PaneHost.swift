@@ -258,6 +258,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
+    /// Runs work at the start of the next display frame (FrameTick; tests capture it).
+    var nextFrame: (@escaping () -> Void) -> Void = { $0() }
+    /// A keystroke was dispatched in this display frame (MessagesLab bd65bbf: it goes first).
+    var inKeystrokeFrame: Bool { false }
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
