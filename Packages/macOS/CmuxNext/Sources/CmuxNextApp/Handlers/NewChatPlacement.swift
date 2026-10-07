@@ -37,11 +37,12 @@ extension NewChatPlacement {
                        isLoneChat: ChatColumnPlacement.resolve(from: controller, services: controller.services) == .dockChat)
     }
 
-    /// Moves new chat `key`, opened in `controller`'s pane, into a new left
-    /// chat dock once the store shows it.
+    /// Moves new chat `key`, opened hidden in `controller`'s pane, into a new
+    /// left chat dock once the store shows it, then focuses it there. A
+    /// failed move shows it where it is.
     @MainActor static func dock(_ key: String, from controller: PaneController) {
         let services = controller.services
-        services.registry.track(Task { @MainActor in
+        services.registry.track(Task { @MainActor [weak controller] in
             var found = services.locateTab(key)
             if found == nil {
                 for await located in Observations({ services.locateTab(key) != nil }) where located {
@@ -51,7 +52,28 @@ extension NewChatPlacement {
             }
             guard let found else { return nil }
             let (tab, pane) = found
-            TabMoves.toNewDockColumn(tab, anchor: pane, edge: .left, role: .agentChat, services: services)
+            TabMoves.toNewDockColumn(tab, anchor: pane, edge: .left, role: .agentChat, services: services) { moved in
+                guard let controller else { return }
+                controller.pendingDock.removeAll()
+                controller.apply(controller.snapshot())
+                guard moved, let content = controller.workspace else { return }
+                focusWhenShown(key, in: content, services: services)
+            }
+            return nil
+        })
+    }
+
+    /// Focuses the pane that shows tab `key` once the layout has it.
+    @MainActor private static func focusWhenShown(_ key: String, in content: WorkspaceContentController, services: AppServices) {
+        func pane() -> LayoutPaneID? {
+            guard let model = services.locateTab(key)?.1 else { return nil }
+            return services.paneController(for: model)?.layoutPaneID
+        }
+        services.registry.track(Task { @MainActor in
+            if pane() == nil {
+                for await shown in Observations({ pane() != nil }) where shown { break }
+            }
+            if let pane = pane() { PaneHandlers.focus(pane, in: content) }
             return nil
         })
     }

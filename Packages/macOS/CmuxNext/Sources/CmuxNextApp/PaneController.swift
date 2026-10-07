@@ -32,6 +32,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
+    /// New chats bound for a new chat dock: never shown in this strip, so the
+    /// move does not flash (``NewChatPlacement``).
     var pendingDock: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     private(set) var pendingSelectSurface: SurfaceID?
@@ -100,7 +102,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
-        var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
+        let hidden = pendingClosed.union(pendingDock)
+        var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
             let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
@@ -142,7 +145,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             }
             return item
         }
-        for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
+        for local in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(local.id) {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
@@ -151,7 +154,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
-        items += services.localTabItems(in: paneKey, hiding: pendingClosed)
+        items += services.localTabItems(in: paneKey, hiding: hidden)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
