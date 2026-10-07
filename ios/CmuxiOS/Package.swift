@@ -40,6 +40,8 @@ let package = Package(
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
+                "CmuxiOSOnboarding",
+                "CmuxiOSOnboardingCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -138,6 +140,25 @@ let package = Package(
         .testTarget(
             name: "CmuxiOSFeatureKitTests",
             dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // First-run onboarding (plans/cmux-next/ios-next/c10-onboarding.md):
+        // the platform-neutral flow, persistence and pairing projection...
+        .target(
+            name: "CmuxiOSOnboardingCore",
+            dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSOnboardingCoreTests",
+            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // ...and its screens.
+        .target(
+            name: "CmuxiOSOnboarding",
+            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Root navigation, placeholder screens, feature flags, DEV sources.
