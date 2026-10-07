@@ -414,15 +414,15 @@ import Testing
         #expect(remote?.contains("'tmux'") == true)
     }
 
-    /// Without a broker the ET argv keeps its endpoint flags, so the two shapes cannot be confused.
-    @Test func directEtArgvStillCarriesEndpointFlags() {
+    /// Without a broker the ET argv keeps its transport port but leaves helper discovery to ET.
+    @Test func directEtArgvLeavesRemoteHelperUnspecifiedByDefault() {
         let host = RemoteTmuxHost(destination: "somehost", transport: .et, transportPort: 2022)
         let argv = host.transport
             .profile(port: host.transportPort)
             .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
         #expect(argv.contains("-p"))
         #expect(argv.contains("2022"))
-        #expect(argv.contains("--terminal-path"))
+        #expect(!argv.contains("--terminal-path"))
     }
 
     /// ssh ignores a broker on purpose: ProxyCommand/ProxyJump already do this, configured where
@@ -752,15 +752,13 @@ import Testing
         #expect(notFound.hasPrefix("/"), "must be absolute so `script` cannot mis-resolve it")
     }
 
-    /// A terminal path is always sent. Dropping the flag was measured to be worse than the literal
-    /// it replaced: `etterminal` is not on a non-interactive ssh PATH on macOS, so et fails outright
-    /// with "Error starting ET process through ssh".
-    @Test func theRemoteTerminalPathIsAlwaysSent() {
+    /// A direct connection does not assume a host platform or installation prefix for `etterminal`.
+    @Test func theRemoteTerminalPathIsNotSentByDefault() {
         let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
         let argv = RemoteTmuxTransportKind.et
             .profile(port: 2039)
             .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
-        #expect(consecutive(argv, "--terminal-path", RemoteTmuxETTransportProfile.defaultRemoteTerminalPath))
+        #expect(!argv.contains("--terminal-path"))
     }
 
     /// et bootstraps over ssh before its own protocol takes over, and inherits none of the host's
