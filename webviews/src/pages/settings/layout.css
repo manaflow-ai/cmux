@@ -1,0 +1,560 @@
+/*
+ * Settings layout and looks (SETTINGS-PAGE-FIRST-PRINCIPLES P1-P5), after styles.css.
+ * P1: the categories stay at the window's left; the content is one centered column of at most
+ * 720 px, in slightly smaller type and rows than before. Two looks; mount.tsx SHIPPED_LOOK picks:
+ *   quiet (shipped): grouped rows in hairline-outlined cards, as macOS System Settings groups them;
+ *   dense (:root[data-settings-look="dense"], a gallery variant): no cards, hairline rows, tighter type.
+ * The render rule holds: containers stay transparent; only controls and interaction states fill,
+ * with --input-bg, --accent-soft, or --accent for an on control (a switch, a default button).
+ */
+:root {
+  --accent: var(--cmux-app-accent, var(--cmux-accent, var(--text)));
+  --on-accent: var(--cmux-app-on-accent, var(--cmux-surface-background, Canvas));
+  --accent-text: var(--cmux-app-accent-text, var(--text));
+  --column: 720px;
+  --row-pad-y: 7px;
+  --row-pad-x: 12px;
+  --row-min: 38px;
+  --card-radius: 10px;
+  --sidebar-width: 208px;
+  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
+     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
+     own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-hover, 80ms);
+  --motion-focus: var(--cmux-motion-focus, 100ms);
+  --motion-in: var(--cmux-motion-in, 120ms);
+  --motion-out: var(--cmux-motion-out, 80ms);
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  font-size: 12.5px;
+}
+
+:root[data-settings-look="dense"] {
+  --row-pad-y: 4px;
+  --row-pad-x: 2px;
+  --row-min: 30px;
+  --card-radius: 0;
+  --sidebar-width: 188px;
+  font-size: 12px;
+}
+
+.settings {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.sidebar {
+  gap: 12px;
+  padding: 12px 10px;
+}
+
+.content {
+  padding: 26px 32px 56px;
+}
+
+.column {
+  max-width: var(--column);
+  margin: 0 auto;
+}
+
+/* P5: search across every setting, at the top of the sidebar; the changed filter at its end. */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-bar .search {
+  flex: 1;
+  min-width: 0;
+}
+
+.search .search-input {
+  border-radius: 7px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.filter-button {
+  position: relative;
+  gap: 2px;
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.filter-button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.filter-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.section-link {
+  gap: 9px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--text);
+}
+
+.section-icon {
+  display: inline-flex;
+  color: var(--muted-text);
+}
+
+.section-link[aria-current] .section-icon {
+  color: var(--accent-text);
+}
+
+.section-link[aria-current] .section-name {
+  font-weight: 500;
+}
+
+:root[data-settings-look="dense"] .section-link {
+  padding: 3px 7px;
+  border-radius: 5px;
+}
+
+.section-title {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 20px;
+}
+
+:root[data-settings-look="dense"] .section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.result-section-title {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--muted-text);
+}
+
+.group {
+  margin-bottom: 22px;
+}
+
+.group-title {
+  margin: 0 0 7px 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+
+:root[data-settings-look="dense"] .group {
+  margin-bottom: 16px;
+}
+
+:root[data-settings-look="dense"] .group-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
+
+/* Quiet: one outlined card per group, rows divided by hairlines inset from the card's edge. */
+.rows {
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.row {
+  min-height: var(--row-min);
+  padding: var(--row-pad-y) var(--row-pad-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--border);
+  border-radius: 0;
+}
+
+.rows > .row:last-child {
+  box-shadow: none;
+}
+
+.rows > .row:first-child {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
+}
+
+.rows > .row:last-child {
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
+}
+
+:root[data-settings-look="dense"] .rows {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+:root[data-settings-look="dense"] .rows > .row:last-child {
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.row-main {
+  gap: 20px;
+}
+
+.row-title {
+  font-weight: 400;
+}
+
+.row-help,
+.row-key {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+:root[data-settings-look="dense"] .row-help {
+  font-size: 11px;
+}
+
+/* P4: a scope override or an MDM lock, inline on its setting. */
+.row-managed {
+  display: inline-flex;
+  margin-top: 3px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.row.row-note {
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  font-size: 11.5px;
+  color: var(--muted-text);
+}
+
+.row-note-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-note .link-button {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.field {
+  border-radius: 6px;
+}
+
+/* Native switch: the accent track when on, a light knob on a quiet track when off. */
+.switch {
+  width: 28px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.switch .knob {
+  top: 1px;
+  left: 1px;
+  border-width: 6px;
+  border-color: var(--muted-text);
+}
+
+.switch[aria-checked="true"] {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.switch[aria-checked="true"] .knob {
+  border-color: var(--on-accent);
+  transform: translateX(12px);
+}
+
+.button {
+  border-color: var(--border);
+  background: var(--input-bg);
+  border-radius: 6px;
+  padding: 2px 10px;
+}
+
+.link-button {
+  color: var(--accent-text);
+}
+
+/* P3: the Theme section. */
+.theme-studio {
+  margin-bottom: 4px;
+}
+
+.theme-hero {
+  margin: 0 0 24px;
+}
+
+.theme-preview,
+.theme-palette {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.theme-palette {
+  margin-top: 14px;
+  color: var(--muted-text);
+}
+
+.theme-palette-hex {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.theme-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--muted-text);
+}
+
+.theme-caption-name {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The Theme section's help explains a choice; it wraps instead of truncating. */
+.theme-studio .row-help {
+  white-space: normal;
+}
+
+.theme-caption-contrast {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-caption-contrast .icon {
+  color: var(--accent-text);
+}
+
+.theme-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 280px;
+  padding: 2px 6px 2px 3px;
+}
+
+.theme-button-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-button .icon {
+  color: var(--muted-text);
+}
+
+.theme-chip {
+  flex-shrink: 0;
+  width: 28px;
+  height: 18px;
+}
+
+.theme-chip-empty {
+  display: inline-block;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+}
+
+.theme-popover {
+  width: 320px;
+  padding: 6px;
+}
+
+.theme-popover .theme-search {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.theme-list {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.theme-option {
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+
+.theme-option[data-highlighted] {
+  background: var(--accent-soft);
+}
+
+.theme-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-option-check {
+  color: var(--accent-text);
+}
+
+.theme-count {
+  padding: 6px 6px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
+
+/* The Reset slot: every row reserves it, so the control fades and scales in place. */
+.reset-slot {
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.reset-button {
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity var(--motion-out) var(--motion-ease),
+    transform var(--motion-out) var(--motion-ease),
+    background var(--motion-hover);
+}
+
+.reset-slot[data-shown] .reset-button {
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--motion-in), var(--motion-in), var(--motion-hover);
+}
+
+/* A category fades in when it opens; a transform never moves anything else. */
+@keyframes settings-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes settings-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.section,
+.host-form,
+.domain-panel {
+  animation: settings-enter var(--motion-in) var(--motion-ease) both;
+}
+
+/* Inline override notes, MDM locks, section badges and the changed count arrive, not appear. */
+.row-note,
+.row-managed,
+.badge,
+.filter-count {
+  animation: settings-pop var(--motion-in) var(--motion-ease) both;
+}
+
+/* Search and Show Only Changed: rows outside the filter collapse in place (their own height and
+   opacity), so the list never jumps between keystrokes. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--motion-out) var(--motion-ease),
+    opacity var(--motion-out) var(--motion-ease),
+    margin var(--motion-out) var(--motion-ease);
+}
+
+.collapse[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition-duration: var(--motion-in);
+}
+
+.collapse-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.group.collapse:not([data-open]),
+.result-section.collapse:not([data-open]),
+.empty.collapse:not([data-open]) {
+  margin-bottom: 0;
+}
+
+.empty.collapse {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+  }
+}
+
+/* A narrow pane: the search and the categories stack over one column, the categories as one
+   horizontal strip that scrolls, so no category is cut off and nothing overlaps (layout.test.ts).
+   This block must stay after the two-column grid above. */
+@media (max-width: 600px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    max-height: none;
+    gap: 8px;
+    padding: 10px 12px 8px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-list {
+    flex-direction: row;
+    gap: 2px;
+    overflow-x: auto;
+  }
+
+  .section-link {
+    flex: none;
+    width: auto;
+    white-space: nowrap;
+    padding: 4px 8px;
+  }
+
+  .content {
+    padding: 14px 16px 40px;
+  }
+}
