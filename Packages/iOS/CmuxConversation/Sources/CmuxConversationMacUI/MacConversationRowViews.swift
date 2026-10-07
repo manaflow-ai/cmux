@@ -551,27 +551,19 @@ final class MacMessageRowView: MacFlippedView {
 
     /// Arrivals: the bubble grows from its tail corner (bottom leading edge)
     /// and fades in; the avatar and sender name do not scale.
+    /// An arrival fades in at its place (0.3 s) while the transcript scrolls
+    /// it into view, as ChatKit's transcript layout does; there is no scale.
     func growIn() {
-        guard let rowLayout else { return }
-        let content = rowLayout.contentFrame
-        let pivot = CGPoint(x: model?.isOutgoing == true ? content.maxX : content.minX, y: content.maxY)
-        func scaled(_ s: CGFloat, origin: CGPoint) -> NSValue {
-            let p = CGPoint(x: pivot.x - origin.x, y: pivot.y - origin.y)
-            var m = CATransform3DMakeTranslation(-p.x, -p.y, 0)
-            m = CATransform3DConcat(m, CATransform3DMakeScale(s, s, 1))
-            m = CATransform3DConcat(m, CATransform3DMakeTranslation(p.x, p.y, 0))
-            return NSValue(caTransform3D: m)
-        }
-        var targets: [(CALayer, CGPoint)] = [(bubble, .zero)]
+        var targets: [CALayer] = [bubble]
         for view in [textLabel, emojiLabel, badge] + imageViews where !view.isHidden {
-            if let layer = view.layer { targets.append((layer, view.frame.origin)) }
+            if let layer = view.layer { targets.append(layer) }
         }
-        for (layer, origin) in targets {
-            layer.add(spring("transform", from: scaled(0.6, origin: origin), to: NSValue(caTransform3D: CATransform3DIdentity)), forKey: "arrive")
+        for layer in targets {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
-            fade.duration = 0.15
+            fade.duration = 0.3
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             layer.add(fade, forKey: "arriveFade")
         }
     }
@@ -700,25 +692,45 @@ final class MacConversationStartRowView: MacFlippedView {
 }
 
 /// Three pulsing dots in an incoming bubble.
+/// Messages' typing indicator, built to macOS ChatKit's `CKTypingIndicatorLayer`
+/// (`CKUIBehaviorMac`): a 44 x 27 capsule with 9.25 and 4.75 pt tail circles
+/// and three dots that brighten in turn.
 final class MacTypingRowView: MacFlippedView {
-    private let bubble = MacBubbleLayer()
-    private var dots: [CALayer] = []
+    private let bubble = CALayer()
+    private let medium = CALayer()
+    private let small = CALayer()
+    private let replicator = CAReplicatorLayer()
+    private let dot = CALayer()
     let avatar = MacAvatarView()
     var showsAvatar = false { didSet { needsLayout = true } }
-    /// 0...1: the indicator grows from its tail corner as its row opens.
+    /// 0...1 as the row opens or collapses; the indicator fades with it.
     var progress: CGFloat = 1 { didSet { applyProgress() } }
-    /// The typing bubble matches a single-line message bubble (32 pt).
     static let height: CGFloat = 39
+
+    private static let bubbleSize = CGSize(width: 44, height: 27)
+    // Relative to the bubble's origin (CKTypingIndicatorPunchOutLayer, Mac idiom).
+    private static let mediumFrame = CGRect(x: 0.12, y: 20.14, width: 9.25, height: 9.25)
+    private static let smallFrame = CGRect(x: -3.37, y: 28.05, width: 4.75, height: 4.75)
+    private static let dotDiameter: CGFloat = 6.5
+    private static let dotSpacing: CGFloat = 9.5
+    /// The bubble's bottom sits where a one-line message's does (keeps the composer gap).
+    private static let bubbleBottom: CGFloat = 34
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        layer?.addSublayer(bubble)
-        for _ in 0..<3 {
-            let dot = CALayer()
-            dot.cornerRadius = 3.5
-            layer?.addSublayer(dot)
-            dots.append(dot)
+        for (part, anchor) in [(small, CGPoint(x: 0.318, y: 0.318)), (medium, CGPoint(x: 0.326, y: 0.37)), (bubble, CGPoint(x: 0.185, y: 0.28))] {
+            part.anchorPoint = anchor
+            layer?.addSublayer(part)
         }
+        dot.bounds = CGRect(x: 0, y: 0, width: Self.dotDiameter, height: Self.dotDiameter)
+        dot.position = CGPoint(x: Self.dotDiameter / 2, y: Self.dotDiameter / 2)
+        dot.cornerRadius = Self.dotDiameter / 2
+        dot.opacity = 0.2
+        replicator.instanceCount = 3
+        replicator.instanceTransform = CATransform3DMakeTranslation(Self.dotSpacing, 0, 0)
+        replicator.instanceDelay = 0.25
+        replicator.addSublayer(dot)
+        bubble.addSublayer(replicator)
         addSubview(avatar)
         setAccessibilityIdentifier("conversation.typing")
     }
@@ -730,36 +742,35 @@ final class MacTypingRowView: MacFlippedView {
         super.layout()
         let t = MacConversationTheme.self
         let leading = t.sideMargin + (showsAvatar ? t.avatarSize + t.avatarGap : 0)
-        let frame = CGRect(x: leading - t.tailWidth, y: 2, width: 50 + t.tailWidth, height: 32)
-        bubble.update(rect: frame, side: .leading, tail: true)
-        bubble.fillColor = resolved(t.incomingBubble, in: self)
-        for (index, dot) in dots.enumerated() {
-            dot.frame = CGRect(x: leading + 10.5 + CGFloat(index) * 11, y: frame.midY - 3.5, width: 7, height: 7)
-            dot.backgroundColor = NSColor.secondaryLabelColor.cgColor
+        let origin = CGPoint(x: leading, y: Self.bubbleBottom - Self.bubbleSize.height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        func place(_ part: CALayer, _ rect: CGRect) {
+            let frame = rect.offsetBy(dx: origin.x, dy: origin.y)
+            part.bounds = CGRect(origin: .zero, size: frame.size)
+            part.position = CGPoint(x: frame.minX + frame.width * part.anchorPoint.x, y: frame.minY + frame.height * part.anchorPoint.y)
+            part.cornerRadius = min(frame.width, frame.height) / 2
+            part.backgroundColor = resolved(t.incomingBubble, in: self)
         }
+        place(bubble, CGRect(origin: .zero, size: Self.bubbleSize))
+        place(medium, Self.mediumFrame)
+        place(small, Self.smallFrame)
+        let dotsWidth = Self.dotDiameter + 2 * Self.dotSpacing
+        replicator.frame = CGRect(x: (Self.bubbleSize.width - dotsWidth) / 2, y: (Self.bubbleSize.height - Self.dotDiameter) / 2, width: dotsWidth, height: Self.dotDiameter)
+        dot.backgroundColor = resolved(.labelColor, in: self)
+        CATransaction.commit()
         avatar.isHidden = !showsAvatar
-        avatar.frame = CGRect(x: t.sideMargin, y: frame.maxY - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
-        bubbleFrame = frame
+        avatar.frame = CGRect(x: t.sideMargin, y: Self.bubbleBottom - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
         applyProgress()
-        startPulse()
+        startAnimating()
     }
-
-    private var bubbleFrame: CGRect = .zero
 
     private func applyProgress() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let p = CGPoint(x: bubbleFrame.minX, y: bubbleFrame.maxY)
-        let scale = 0.5 + 0.5 * progress
-        var m = CATransform3DMakeTranslation(-p.x, -p.y, 0)
-        m = CATransform3DConcat(m, CATransform3DMakeScale(scale, scale, 1))
-        m = CATransform3DConcat(m, CATransform3DMakeTranslation(p.x, p.y, 0))
-        for layer in [bubble as CALayer] + dots {
-            layer.transform = m
-            layer.opacity = Float(progress)
-        }
-        avatar.alphaValue = progress
+        for part in [bubble, medium, small] { part.opacity = Float(progress) }
         CATransaction.commit()
+        avatar.alphaValue = progress
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -767,16 +778,87 @@ final class MacTypingRowView: MacFlippedView {
         needsLayout = true
     }
 
-    private func startPulse() {
-        for (index, dot) in dots.enumerated() where dot.animation(forKey: "pulse") == nil {
-            let pulse = CAKeyframeAnimation(keyPath: "opacity")
-            pulse.values = [0.35, 1, 0.35, 0.35]
-            pulse.keyTimes = [0, 0.22, 0.44, 1]
-            pulse.duration = 1.3
-            pulse.repeatCount = .infinity
-            pulse.beginTime = CACurrentMediaTime() + Double(index) * 0.18
-            dot.add(pulse, forKey: "pulse")
+    private var parts: [(layer: CALayer, pulseScale: CGFloat, pulseDuration: CFTimeInterval, delay: CFTimeInterval, wobble: CGPoint)] {
+        [
+            (small, 1.15, 0.7, 0, CGPoint(x: 4, y: -2)),
+            (medium, 1.1, 0.9, 0.065, CGPoint(x: 3.5, y: 2)),
+            (bubble, 1.03, 1.9, 0.12, CGPoint(x: 3.5, y: -4)),
+        ]
+    }
+
+    private var isGrowing = false
+
+    private func startAnimating() {
+        if dot.animation(forKey: "dot") == nil {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.2
+            fade.toValue = 0.45
+            fade.duration = 0.5
+            fade.autoreverses = true
+            fade.repeatCount = .infinity
+            fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.757, 0.015, 0.58, 1)
+            fade.fillMode = .both
+            dot.add(fade, forKey: "dot")
         }
+        guard !isGrowing else { return }
+        let now = CACurrentMediaTime()
+        for part in parts where part.layer.animation(forKey: "pulse") == nil {
+            let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
+            pulse.values = [1, part.pulseScale, 1]
+            pulse.calculationMode = .cubicPaced
+            pulse.duration = part.pulseDuration
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pulse.beginTime = now + part.delay
+            pulse.fillMode = .forwards
+            part.layer.add(pulse, forKey: "pulse")
+        }
+    }
+
+    /// ChatKit's insertion: small circle, medium, then bubble scale up from
+    /// nothing (0.25 s ease) while swinging out and back (0.4 s); the pulse
+    /// takes over at 0.52 s.
+    func grow() {
+        layoutSubtreeIfNeeded()
+        isGrowing = true
+        let now = CACurrentMediaTime()
+        let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                self?.isGrowing = false
+                self?.startAnimating()
+            }
+        }
+        for part in parts {
+            let layer = part.layer
+            layer.removeAnimation(forKey: "pulse")
+            let scale = CABasicAnimation(keyPath: "transform.scale.xy")
+            scale.fromValue = 0
+            scale.toValue = 1
+            scale.duration = 0.25
+            scale.timingFunction = ease
+            let x = CAKeyframeAnimation(keyPath: "position.x")
+            x.values = [layer.position.x, layer.position.x + part.wobble.x, layer.position.x]
+            x.calculationMode = .cubicPaced
+            x.duration = 0.4
+            x.timingFunction = ease
+            let y = CAKeyframeAnimation(keyPath: "position.y")
+            y.values = [layer.position.y, layer.position.y + part.wobble.y, layer.position.y]
+            y.calculationMode = .cubicPaced
+            y.duration = 0.4
+            y.timingFunction = layer === bubble
+                ? CAMediaTimingFunction(controlPoints: 0.209, 0.258, 0.561, 0.954)
+                : CAMediaTimingFunction(controlPoints: 0.332, 0.1, 0.561, 0.954)
+            let group = CAAnimationGroup()
+            group.animations = [scale, x, y]
+            group.duration = 0.4
+            group.beginTime = now + part.delay
+            group.fillMode = .backwards
+            layer.add(group, forKey: "grow")
+        }
+        CATransaction.commit()
     }
 }
 /// A Liquid Glass circle wrapping a borderless button (the glass bezel style
