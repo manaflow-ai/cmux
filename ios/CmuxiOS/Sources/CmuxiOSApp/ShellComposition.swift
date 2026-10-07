@@ -21,7 +21,8 @@ import UIKit
 enum ShellComposition {
     static func makeShell(
         container: AppContainer, account: SignedInAccount, home: UIViewController,
-        searchOpener: any SearchOpening, replayTour: @escaping @MainActor () -> Void
+        searchOpener: any SearchOpening, replayTour: @escaping @MainActor () -> Void,
+        eraseAllData: @escaping @MainActor () async -> EraseReport
     ) -> (shell: ShellRootController, features: ShellFeatures) {
         let sources = container.featureSources(for: account)
         // Lane C4: built with the seams so background transfer handling runs
@@ -40,6 +41,8 @@ enum ShellComposition {
             notifications: container.notificationPreferences,
             notificationAuthorization: SystemNotificationAuthorization(permissions: container.permissions),
             privacy: container.privacy,
+            haptics: container.haptics,
+            eraseAllData: eraseAllData,
             signOut: { [weak container] in await container?.auth.signOut() }
         )
         // Lane C9: the Hosts tab over this account's host records and the

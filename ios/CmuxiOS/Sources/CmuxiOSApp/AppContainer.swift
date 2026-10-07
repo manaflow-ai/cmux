@@ -81,6 +81,8 @@ final class AppContainer {
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
     let privacy = PrivacyPreferences(consentKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+    /// Lane E5: the haptics toggle over the one `HapticsPreference` owner.
+    let haptics = HapticsSettings()
     /// C7 fills this with the push owner's per-device filter; nil keeps the
     /// notification preferences on this device.
     var notificationPreferencesSinkFactory: (@Sendable () -> any NotificationPreferencesSink)?

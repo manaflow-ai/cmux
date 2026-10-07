@@ -26,6 +26,10 @@ public final class ShellSettingsModel {
     public let notifications: NotificationPreferencesStore?
     @ObservationIgnored public let notificationAuthorization: (any NotificationAuthorizationReading)?
     public let privacy: PrivacyPreferences?
+    /// The haptics toggle (lane E5); nil hides it.
+    public let haptics: HapticsSettings?
+    /// Erase All Data (lane E5): the app's wipe; nil hides the section.
+    @ObservationIgnored public let eraseAllData: (@MainActor () async -> EraseReport)?
     @ObservationIgnored private let signOutAction: @MainActor () async -> Void
     /// DEBUG builds pass the DEV screen; nil hides the Developer section.
     @ObservationIgnored public let developer: (@MainActor () -> DevSourcesModel)?
@@ -44,6 +48,8 @@ public final class ShellSettingsModel {
         notifications: NotificationPreferencesStore? = nil,
         notificationAuthorization: (any NotificationAuthorizationReading)? = nil,
         privacy: PrivacyPreferences? = nil,
+        haptics: HapticsSettings? = nil,
+        eraseAllData: (@MainActor () async -> EraseReport)? = nil,
         signOut: @escaping @MainActor () async -> Void
     ) {
         self.account = account
@@ -54,6 +60,8 @@ public final class ShellSettingsModel {
         self.notifications = notifications
         self.notificationAuthorization = notificationAuthorization
         self.privacy = privacy
+        self.haptics = haptics
+        self.eraseAllData = eraseAllData
         self.developer = developer
         self.links = links
         self.replayTour = replayTour
@@ -75,6 +83,12 @@ public final class ShellSettingsModel {
                 group.addTask { await accountModel.observe() }
             }
         }
+    }
+
+    /// A fresh typed confirmation for one presentation of Erase All Data.
+    func makeEraseModel() -> EraseAllDataModel? {
+        guard let eraseAllData else { return nil }
+        return EraseAllDataModel(rule: EraseConfirmationRule(word: SettingsText.eraseWord), perform: eraseAllData)
     }
 
     public func signOut() async {

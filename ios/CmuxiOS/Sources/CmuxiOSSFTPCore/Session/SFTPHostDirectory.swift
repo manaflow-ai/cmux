@@ -37,6 +37,10 @@ public actor SFTPHostDirectory {
         await openers.removeValue(forKey: host)?.opener.close()
     }
 
+    public func closeAll() async {
+        for host in Array(openers.keys) { await close(host) }
+    }
+
     public func isRegistered(_ host: HostID) -> Bool { openers[host] != nil }
 
     /// Runs `body` on the host's session; a lost session is reset first and

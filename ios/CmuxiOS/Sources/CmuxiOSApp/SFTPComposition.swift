@@ -27,6 +27,11 @@ final class SFTPComposition {
         return made
     }()
 
+    /// Closes every SSH host's SFTP session (Erase All Data).
+    func closeAll() async {
+        await directory.closeAll()
+    }
+
     /// The Hosts tab's Files action: registers the host's opener, shows its
     /// login folder, and releases the session when the screen goes away.
     var screens: SSHFileScreens {

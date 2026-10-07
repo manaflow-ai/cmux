@@ -6,6 +6,7 @@ import CmuxiOSPlatform
 import CmuxiOSPlatformUI
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
+import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSTerminal
 import UIKit
@@ -28,6 +29,9 @@ final class RootViewController: UIViewController {
     private var whatsNewChecked = false
     private var onboarding: OnboardingViewController?
     private var onboardingDecided = false
+    /// Set while Erase All Data runs and after: auth changes no longer
+    /// rebuild the UI, and the erased screen stays until the app closes.
+    private var erased = false
 
     init(container: AppContainer) {
         self.container = container
@@ -89,6 +93,7 @@ final class RootViewController: UIViewController {
     }
 
     private func show(_ state: AuthState) {
+        guard !erased else { return }
         // A new display name or email for the same account keeps the screen.
         guard Self.screenKey(state) != shownState.map(Self.screenKey) else { return }
         shownState = state
@@ -154,6 +159,18 @@ final class RootViewController: UIViewController {
         }
     }
 
+    /// Settings > Erase All Data: wipes, then shows the final screen.
+    func eraseAllData() async -> EraseReport {
+        erased = true
+        container.router.setAccountReady(false)
+        let report = await container.eraseAllData()
+        if presentedViewController != nil { dismiss(animated: true) }
+        shell = nil
+        shellFeatures = nil
+        install(ErasedViewController(report: report))
+        return report
+    }
+
     /// Settings > Replay Welcome Tour: the tour in memory, full screen.
     private func presentReplay() {
         let model = OnboardingComposition.replay(container: container)
@@ -183,7 +200,8 @@ final class RootViewController: UIViewController {
         searchOpener.root = self
         let (shell, features) = ShellComposition.makeShell(
             container: container, account: account, home: navigation, searchOpener: searchOpener,
-            replayTour: { [weak self] in self?.presentReplay() }
+            replayTour: { [weak self] in self?.presentReplay() },
+            eraseAllData: { [weak self] in await self?.eraseAllData() ?? EraseReport() }
         )
         shell.onSearchCommand = { [weak self] in self?.openSearch(query: nil) }
         self.shell = shell

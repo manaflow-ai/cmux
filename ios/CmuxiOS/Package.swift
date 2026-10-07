@@ -156,6 +156,7 @@ let package = Package(
         .target(
             name: "CmuxiOSTerminal",
             dependencies: [
+                "CmuxiOSDesign",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
@@ -236,6 +237,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSDesign",
+            dependencies: ["CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Feature seams (protocols, value types, mocks) for the ios-next
@@ -361,7 +363,7 @@ let package = Package(
         // The AVFoundation QR scanner (replaces C10's placeholder viewfinder).
         .target(
             name: "CmuxiOSPairing",
-            dependencies: ["CmuxiOSPairingCore", .product(name: "CmuxPairing", package: "CmuxPairing")],
+            dependencies: ["CmuxiOSPairingCore", "CmuxiOSDesign", .product(name: "CmuxPairing", package: "CmuxPairing")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

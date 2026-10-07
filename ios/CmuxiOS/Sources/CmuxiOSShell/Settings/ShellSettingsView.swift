@@ -27,6 +27,9 @@ struct ShellSettingsView: View {
             if let account = model.accountModel {
                 DeleteAccountSection(model: account)
             }
+            if model.eraseAllData != nil {
+                EraseAllDataSection { [model] in model.makeEraseModel() }
+            }
         }
         .navigationTitle(ShellTab.settings.title)
         .navigationDestination(item: $model.openedPage) { page in
@@ -55,7 +58,7 @@ struct ShellSettingsView: View {
     }
 
     @ViewBuilder private var preferences: some View {
-        if model.terminal != nil || model.notifications != nil || model.privacy != nil {
+        if model.terminal != nil || model.notifications != nil || model.privacy != nil || model.haptics != nil {
             Section(SettingsText.preferences) {
                 if let terminal = model.terminal {
                     NavigationLink {
@@ -72,6 +75,9 @@ struct ShellSettingsView: View {
                         Label(SettingsText.notifications, systemImage: "bell.badge")
                     }
                     .accessibilityIdentifier("shell.settings.notifications")
+                }
+                if let haptics = model.haptics {
+                    HapticsRow(haptics: haptics)
                 }
                 if let privacy = model.privacy {
                     NavigationLink {
