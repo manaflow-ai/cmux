@@ -168,7 +168,7 @@ green, TS vitest not run here: no `node_modules`), FeatureKit types, `CmuxiOSWor
 `CmuxiOSWorkspaces` as above, wired into the shell (`ShellContent(screens:)` `.workspaces`;
 `AppContainer.realFactories.workspaces` is `ControlPlaneWorkspaceSource` over the resolved device
 registry with `UnavailableWorkspaceChannelFactory`; DEBUG defaults to the mock, so use
-`CMUX_IOS_SOURCE_WORKSPACES=real` or the DEV switch). 51 Swift Testing tests in
+`CMUX_IOS_SOURCE_WORKSPACES=real` or the DEV switch). 50 Swift Testing tests in
 `CmuxiOSWorkspacesCoreTests` pass with `swift test` on macOS through a scratch package (plus the 13
 FeatureKit tests); `CmuxiOSApp`, `CmuxiOSWorkspacesCoreTests`, `CmuxiOSShellTests` and
 `CmuxiOSFeatureKitTests` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
