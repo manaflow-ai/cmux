@@ -746,7 +746,7 @@ Claude Code sessions run over Claude's own headless protocol, not ACP:
 session stays alive until you stop it. acpmux translates the stream into the same events the
 TUI, web page, and peers already understand, so nothing changes for the user.
 
-What this gives over the ACP adapter: no injected MCP servers or hooks, real permission
+What this gives over the ACP adapter: none of the adapter's injected MCP servers or hooks, real permission
 prompts with Claude's own options, `AskUserQuestion` and plan approval answered from the TUI
 or web page, model and mode changes mid-session, exact resume with `--resume`, fork with
 `--fork-session`, and background Bash tasks that live as long as the session because the
@@ -761,6 +761,17 @@ Everything after `claude` in `argv` is passed through, so `--settings`, `--mcp-c
 picks this backend automatically when `claude` is on PATH. Interrupt uses Claude's
 `control_request` `interrupt`; the interrupted turn ends with `stopReason: cancelled` and the
 process keeps running.
+
+### cmux tools in every session
+
+Every local session gets cmux's own agent tools: the `cmux-cua` MCP server (Computer Use)
+when `cmux-cua` sits next to the acpmux binary, the `cmux` MCP server with the browser REPL
+tools when `cmux.json` sets `"mcp": {"enabled": true}`, and, for Claude Code, a session-only
+plugin `cmux` with the skills `cmux:cmux-browser` and `cmux:cmux-cua`. Set
+`ACPMUX_AGENT_TOOLS=0` in the daemon's environment to turn all of them off, or in one
+profile's or preset's `env` to turn them off for that profile only. A Claude profile whose
+`argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its
+own `--mcp-config` names.
 
 Stopping a session kills the agent's whole process group, so background shells the agent
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those

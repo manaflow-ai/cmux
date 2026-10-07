@@ -16,6 +16,10 @@ on:
       - "scripts/cmux-next/build-palette-ranker.sh"
       - "scripts/cmux-next/build-agent-activity-web.sh"
       - "scripts/cmux-next/build-optchat-inspector-web.sh"
+      - "scripts/cmux-next/build-pages-web.sh"
+      - "scripts/cmux-next/build-web-bundles.sh"
+      - "scripts/cmux-next/web-bundle-key.py"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/**"
       - "Native/OptChat/optchat-chief/inspector/**"
       - ".github/workflows/cmux-next-web-bundles.yml"
 
@@ -61,6 +65,25 @@ jobs:
 
       - name: Verify generated Chief memory inspector
         run: ./scripts/cmux-next/build-optchat-inspector-web.sh --check
+
+      # The app build path (cx-vn5): build-web-bundles.sh, which every build
+      # entry runs before it compiles, must produce the committed bundles byte
+      # for byte, the pages included.
+      - name: Verify the app build path's web bundles
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/web-bundles"
+          ./scripts/cmux-next/build-web-bundles.sh --out-root "$out"
+          status=0
+          for path in \
+            Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane \
+            Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages \
+            Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity \
+            Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js \
+            Resources/markdown-viewer/webviews-app; do
+            diff -r "$path" "$out/$path" >/dev/null || { echo "::error::$path differs from build-web-bundles.sh output"; diff -rq "$path" "$out/$path" || true; status=1; }
+          done
+          exit "$status"
 
   # Signal only for now (the coordinator's call): `vp check` and the full
   # webviews test suite. Make them blocking (drop continue-on-error) once both

@@ -31,6 +31,9 @@ pub use query::ChatQuery;
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
+/// Work run once the chat index has started.
+pub type ChatsWaiter = Box<dyn FnOnce(&Arc<ChatService>) + Send>;
+
 /// The index, its roots and the watcher over them.
 pub struct ChatService {
     sources: ChatSources,
@@ -411,6 +414,11 @@ impl crate::hub::Hub {
             .await
             .map_err(|e| format!("chat index start: {e}"))?;
         let _ = self.chats.set(service.clone());
+        // Taken under the waiters' lock after the set: a later waiter sees the index.
+        let waiters = std::mem::take(&mut *lock(&self.chats_waiters));
+        for waiter in waiters {
+            waiter(&service);
+        }
         // Settings sent during the first scan went only to the file.
         tokio::task::spawn_blocking(move || service.reload_settings())
             .await
@@ -434,6 +442,18 @@ impl crate::hub::Hub {
                 Ok(true)
             }
             None => Ok(false),
+        }
+    }
+
+    /// Runs `waiter` once the chat index has started: now when it runs.
+    pub fn when_chats_ready(&self, waiter: ChatsWaiter) {
+        let mut waiters = lock(&self.chats_waiters);
+        match self.chats.get() {
+            Some(service) => {
+                drop(waiters);
+                waiter(service);
+            }
+            None => waiters.push(waiter),
         }
     }
 

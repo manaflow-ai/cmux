@@ -30,6 +30,25 @@ extension WindowController {
         return showTopPage(.home)
     }
 
+    /// The content of the workspace this window names: the shown one, else
+    /// the parked one under a top page (a tab opened behind the page lands
+    /// there).
+    var workspaceContent: WorkspaceContentController? {
+        content ?? parked.last { $0.workspace.id == state.workspaceID }
+    }
+
+    /// Leaves the top page for the window's workspace at once
+    /// (SIDEBAR-SELECTION-ONE-MODEL: one selection, so showing something in
+    /// the workspace selects it). True when a page was left.
+    @discardableResult
+    func leaveTopPage() -> Bool {
+        guard state.page != nil else { return false }
+        state.page = nil
+        services.windows.recordSaver.stateDidChange(state)
+        showWorkspace(requested: state.workspaceID)
+        return true
+    }
+
     /// The top page this window shows, if any.
     var shownTopPage: TopPageRoute? {
         guard let route = state.page, let view = topPages.views[route], root.content === view else { return nil }

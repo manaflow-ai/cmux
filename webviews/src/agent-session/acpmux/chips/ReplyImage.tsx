@@ -3,12 +3,15 @@
 // a data URL. A file inside the session's folders loads at once; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
 // its link only (never), or at once (always). Every web load uses the host's network rules.
+// A local image the host will not show (outside the folders, missing, or a failed load) draws as
+// a compact card: its alt text, its file name and Open, the path chip's open with the same
+// outside-folders confirmation. A deny-listed path is its alt text only.
 import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
-import { ImageIcon } from "../conversation/icons";
+import { ImageIcon, Lock } from "../conversation/icons";
 import { callChipHost } from "./host";
-import { useReplyPolicy } from "./linkStore";
-import { linkPath } from "./paths";
+import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { isDeniedPath, linkPath, pathName } from "./paths";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
 
@@ -66,15 +69,47 @@ export function ReplyImage({ src, alt, fallback }: { src: string; alt: string; f
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (
-    <LocalImage src={src} alt={alt} fallback={fallback} />
+    <LocalImage src={src} path={local} alt={alt} fallback={fallback} />
   ) : (
     <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} />
   );
 }
 
-function LocalImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
-  const { state } = useImageLoad(src, true);
-  return state.kind === "shown" ? <img className="cv-img" src={state.src} alt={alt} /> : <>{fallback}</>;
+function LocalImage({ src, path, alt, fallback }: { src: string; path: string; alt: string; fallback: ReactNode }) {
+  const t = useT();
+  const { info, answered, policy } = usePathInfo(path);
+  const place = info?.place;
+  const denied = place === "denied" || isDeniedPath(path);
+  // The host refuses a file outside the folders, so the page asks only for one it may show.
+  const loadable = answered && !denied && place !== "outside" && place !== "missing";
+  const { state } = useImageLoad(src, loadable);
+  if (state.kind === "shown") return <img className="cv-img" src={state.src} alt={alt} />;
+  if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
+  const outside = place === "outside";
+  if (!outside && place !== "missing" && state.kind !== "failed") return <>{fallback}</>;
+  const canOpen = outside ? policy.outsideRoots !== "text" : place !== "missing";
+  return (
+    <span
+      className={`cv-image-file${outside ? " is-outside" : ""}`}
+      title={outside ? `${path}\n${t("chip.outsideProject")}` : path}
+      data-path={path}
+    >
+      <ImageIcon size={16} className="cv-chip__icon" />
+      {alt && <span className="cv-image-file__alt">{alt}</span>}
+      <span className="cv-image-file__name">{pathName(path)}</span>
+      {outside && <Lock size={11} className="cv-chip__lock" />}
+      {!outside && <span className="cv-image-file__note">{t("image.unavailable")}</span>}
+      {canOpen && (
+        <button
+          type="button"
+          className="cv-image-file__open"
+          onClick={() => void callChipHost("link.openPath", { path })}
+        >
+          {t("image.open")}
+        </button>
+      )}
+    </span>
+  );
 }
 
 function RemoteImage({ src, alt, host, fallback }: { src: string; alt: string; host: string; fallback: ReactNode }) {

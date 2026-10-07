@@ -127,6 +127,25 @@ struct KeyInterceptionTests {
         #expect(ran.isEmpty)
     }
 
+    /// cx-6so.46: with the palette open over a terminal, AppKit offers the
+    /// palette's unhandled Cmd-K to the main window behind it too. The
+    /// palette keeps the terminal's context bits (its commands act on that
+    /// terminal), so the window hook resolved Cmd-K to Clear Screen and
+    /// Scrollback and cleared the terminal under the palette.
+    @Test func windowHookRunsNothingWhileAnOverlayHasTheKeys() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        var ran: [ActionID] = []
+        services.registry.bind("terminal.clear", invoke: { _ in ran.append("terminal.clear") })
+        let commandK = try Self.key("k", keyCode: 40, [.command])
+        #expect(services.keyRouter.routeContentKeyEquivalent(commandK, focus: Self.terminal), "control: Cmd-K clears a focused terminal")
+        #expect(ran == ["terminal.clear"])
+        ran.removeAll()
+        for overlay in [Self.paletteOpen, Self.sheetOpen] {
+            #expect(!services.keyRouter.routeContentKeyEquivalent(commandK, focus: overlay))
+        }
+        #expect(ran.isEmpty, "Cmd-K under the palette ran \(ran)")
+    }
+
     @Test func ghosttyTriggersMatchLikeGhostty() {
         let unicode = GhosttyHostKeybind(key: .unicode(104), modifiers: [.command, .control], action: .gotoSplit(.left))
         #expect(unicode.matches(keyCode: 4, unshifted: "h", modifiers: [.command, .control]))
