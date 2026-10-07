@@ -234,9 +234,10 @@ export class HostControl {
     // Pending intents need the owner's decided keys: the Mac follows with this device's own snapshot.
     // The mirror's snapshot goes first, so a Mac that never answers leaves no subscriber without state.
     if (stream !== names.host && pending.length > 0 && a.role === "device" && this.macOnline()) this.toMac({ t: "snapshot.request", stream, pending, to: identityOf(a.principal) })
-    const r = this.streams.resume(stream, pending.length > 0 ? undefined : after)
+    const epoch = typeof frame.epoch === "string" ? frame.epoch : undefined
+    const r = this.streams.resume(stream, pending.length > 0 ? undefined : after, epoch)
     if (!r) return sendJson(ws, { t: "snapshot", stream, seq: 0, state: this.emptyState(stream, ids.host), decided: [] })
-    if (r.snapshot) sendJson(ws, { t: "snapshot", stream, seq: r.snapshot.seq, state: r.snapshot.state, decided: [] })
+    if (r.snapshot) sendJson(ws, { t: "snapshot", stream, seq: r.snapshot.seq, state: r.snapshot.state, decided: [], ...(r.snapshot.epoch ? { epoch: r.snapshot.epoch } : {}) })
     for (const e of r.events) sendJson(ws, e)
   }
 
@@ -340,9 +341,11 @@ export class HostControl {
         const seq = frame.seq as number
         const head = this.streams.head(stream)
         this.compacting.delete(stream)
-        const moved = !head || head.head !== seq
-        if (moved || typeof frame.to !== "string") this.streams.replaceSnapshot(stream, seq, frame.state)
-        const plain = { t: "snapshot", stream, seq, state: frame.state, decided: [] }
+        const epoch = typeof frame.epoch === "string" && frame.epoch.length > 0 && frame.epoch.length <= 128 ? frame.epoch : null
+        // A new epoch replaces the mirror and its tail even at a lower seq (the Mac's store restarted).
+        const moved = !head || head.head !== seq || head.epoch !== epoch
+        if (moved || typeof frame.to !== "string") this.streams.replaceSnapshot(stream, seq, frame.state, epoch)
+        const plain = { t: "snapshot", stream, seq, state: frame.state, decided: [], ...(epoch ? { epoch } : {}) }
         const target = typeof frame.to === "string" ? frame.to : undefined
         if (target) this.toDevice(target, { ...plain, decided: Array.isArray(frame.decided) ? frame.decided : [] })
         if (moved) for (const { ws: d, a: da } of this.sockets()) if (da.role === "device" && identityOf(da.principal) !== target && da.streams.includes(stream) && this.gate.live(d, da as never)) sendJson(d, plain)

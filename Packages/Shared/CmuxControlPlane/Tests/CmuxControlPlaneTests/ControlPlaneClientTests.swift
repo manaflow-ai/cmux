@@ -89,6 +89,49 @@ import Testing
         await client.stop()
     }
 
+    func event(_ seq: UInt64, epoch: String) -> MobileFrame {
+        .event(EventFrame(stream: stream, seq: seq, tx: "tx_\(seq)", op: "workspace.upsert", params: .object([:]), actor: [:], origin: .user, at: Int64(seq), epoch: epoch))
+    }
+
+    @Test func aNewEpochResetsTheCursorInsteadOfDroppingAsStale() async throws {
+        let transport = FakeControlPlaneTransport()
+        let client = makeClient(transport)
+        let updates = await client.subscribe(stream)
+        await client.start()
+        var sockets = transport.sockets.makeAsyncIterator()
+        let server = try #require(await sockets.next())
+        _ = try await server.acceptHello()
+        _ = try await server.next(.subscribe)
+        try server.send(.snapshot(SnapshotFrame(stream: stream, seq: 40, state: .object([:]), decided: [], epoch: "ep_1_a")))
+        try server.send(event(41, epoch: "ep_1_a"))
+        // The Mac's store restarted: seq 3 is below the cursor but belongs to a new epoch.
+        try server.send(event(3, epoch: "ep_2_b"))
+        guard case .snapshotRequest(let req) = try await server.next(.snapshotRequest) else { Issue.record("no snapshot request"); return }
+        #expect(req.stream == stream)
+        try server.send(event(4, epoch: "ep_2_b"))  // waits for the snapshot
+        try server.send(.snapshot(SnapshotFrame(stream: stream, seq: 3, state: .object([:]), decided: [], epoch: "ep_2_b")))
+        try server.send(event(4, epoch: "ep_2_b"))
+        var seen: [String] = []
+        for await u in updates {
+            switch u {
+            case .snapshot(let s): seen.append("snap\(s.seq)@\(s.epoch ?? "-")")
+            case .event(let e): seen.append("ev\(e.seq)@\(e.epoch ?? "-")")
+            }
+            if seen.count == 4 { break }
+        }
+        #expect(seen == ["snap40@ep_1_a", "ev41@ep_1_a", "snap3@ep_2_b", "ev4@ep_2_b"])
+        #expect(await client.cursor(of: stream) == 4)
+
+        // A reconnect resumes with the cursor's epoch, so the owner can tell a stale cursor.
+        server.close(code: 1006)
+        let next = try #require(await sockets.next())
+        _ = try await next.acceptHello()
+        guard case .subscribe(let resumed) = try await next.next(.subscribe) else { Issue.record("no resubscribe"); return }
+        #expect(resumed.afterSeq == 4)
+        #expect(resumed.epoch == "ep_2_b")
+        await client.stop()
+    }
+
     @Test func reconnectResumesFromTheCursorAndResendsPendingOpsWithTheirKeys() async throws {
         let transport = FakeControlPlaneTransport()
         let client = makeClient(transport)

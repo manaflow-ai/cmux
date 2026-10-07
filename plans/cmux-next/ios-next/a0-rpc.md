@@ -181,8 +181,8 @@ on one side only.
 ## 5. Families
 
 Params are in `families/<family>.schema.json`; one fixture per message is in
-`fixtures/<family>.json`. Ids: `h_…` host, `ws_…` workspace, `pane_…`, `tab_…`, `term_…` (daemon public
-ids), `in_…` install, `fi_…` feed item, `task_…`, `ssh_…`, `sess_…` signaling session.
+`fixtures/<family>.json`. Ids: `h_…` host (the backend mints `host_<20>`, also accepted), `ws_…` workspace, `pane_…`, `tab_…`, `term_…` (daemon public
+ids), `in_…` install (backend `inst_<20>`, also accepted), `fi_…` feed item, `task_…`, `ssh_…`, `sess_…` signaling session.
 
 ### 5.1 host (control; owner `HostDO`, registry `TeamDO`; stream `host:<host>`)
 `host.list` (read): hosts the principal may reach with presence and caps. `host.presence.set` (owner,

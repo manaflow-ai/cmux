@@ -90,6 +90,13 @@ per device), so a hibernated object still routes the Mac's answer. When the Mac 
 in-flight forward gets `error owner.unreachable` (retryable, outcome unknown: the client keeps the
 intent and resends with the same key, OWNERSHIP-PRINCIPLES "Offline").
 
+Epochs (B5): the Mac stamps workspace and task snapshots and events with `epoch`. `HostDO` stores it
+with the snapshot and serves it; a Mac snapshot with another epoch replaces the mirror and drops the
+tail even at a lower seq; an event of another epoch is a gap (`snapshot.request`); a `subscribe`
+whose `epoch` differs from the stored one gets a snapshot, never a replay. The Swift client treats an
+event of another epoch as a reset (cursor cleared, `snapshot.request`) and resubscribes with its
+cursor's epoch. Schema ids accept both `h_…`/`in_…` and the backend's `host_<20>`/`inst_<20>`.
+
 Mirror limits: snapshot at most 1 MiB; tail at most 512 events or 512 KiB, then `HostDO` asks the
 Mac for a compacting snapshot; past 2048 events it drops new events (the next one is a gap and a
 snapshot follows) instead of keeping a tail it cannot replay. `host:` keeps its last 256 events.
@@ -171,9 +178,6 @@ in-memory server in the Swift Testing suite).
 
 ## 11. Open
 
-- Mirror epoch: if the Mac's sequence restarts (store reset), a device resuming with an old cursor
-  inside the new range could apply new events on old state. B5 should put a store epoch in snapshots
-  and events; `HostDO` then answers a cursor from another epoch with a snapshot.
 - Session principals (no install) share one identity per user, so two signed-in web clients replace
   each other; per-session identity needs the Stack session id on the principal.
 - `HostDO`'s own `host:` ops (Mac presence and caps, `host.wake`) have no idempotency ledger; they
@@ -182,8 +186,6 @@ in-memory server in the Swift Testing suite).
 - Socket `read` on owners calls the owner's `read` directly; HTTP `/v1/read` also checks catalog
   principal kinds. No read leaks today; the two paths should share admission.
 
-- Catalog ids are `h_…`/`in_…`; the backend mints `host_<20>`/`inst_<20>`. `HostDO` uses the backend
-  ids; A0's patterns should widen before the phone validates ids strictly.
 - The datagram relay will pick its object name per host (`host:<id>:<n>`, transport.md section 6);
   control sockets use `idFromName(<host id>)` today. When placement lands, TeamDO records the chosen
   name and both planes use it.
