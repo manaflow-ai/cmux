@@ -60,18 +60,18 @@ import Testing
         off.setChromeRevealed(false)
         #expect(bandAlpha(off.aboveRegion) == 1 && bandAlpha(off.belowRegion) == 1)
     }
-    /// The update pill is the only update notice (SIDEBAR-FOOTER-MINIMAL): it is the sidebar's
+    /// The update card is the only update notice (UPDATE-CARD): it is the sidebar's
     /// own view, so it stays visible while minimal mode fades the bottom band.
-    @Test func theUpdatePillStaysWhileTheBottomBandFades() async {
+    @Test func theUpdateCardStaysWhileTheBottomBandFades() async {
         let (view, restore) = sidebar(.bottom)
         defer { restore() }
-        view.model.updatePill = SidebarUpdatePill(title: "Update Ready", help: "Restart to update.")
-        for _ in 0..<200 where view.updatePillView.pill == nil { await Task.yield() }
+        view.model.updateCard = SidebarUpdateCardTests.card
+        for _ in 0..<200 where view.updateCardView.card == nil { await Task.yield() }
         view.setChromeRevealed(false)
         view.layoutSubtreeIfNeeded()
         #expect(bandAlpha(view.belowRegion) == 0)
-        #expect(!view.updatePillView.isHiddenOrHasHiddenAncestor && view.updatePillView.alphaValue == 1)
-        #expect(view.updatePillView.frame.width > 0)
+        #expect(!view.updateCardView.isHiddenOrHasHiddenAncestor && view.updateCardView.alphaValue == 1)
+        #expect(view.updateCardView.frame.width > 0)
     }
 }
 

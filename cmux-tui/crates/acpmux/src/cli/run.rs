@@ -452,6 +452,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             )
             .await
         }
+        Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -832,21 +833,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             Ok(())
         }
-        Command::Shutdown => {
-            let client = connect(false).await?;
-            let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
-            // The daemon holds its lock until it exits, so a `daemon start`
-            // right after this cannot lose the lock to the stopping one.
-            let stopped = crate::daemon::wait_for_exit().await;
-            if json_out {
-                print_json(&json!({"stopped": stopped}));
-            } else if stopped {
-                println!("stopped");
-            } else {
-                println!("shutdown requested");
-            }
-            Ok(())
-        }
+        Command::Shutdown { keep_agents } => crate::cli::shutdown::run(keep_agents, json_out).await,
         Command::Config => {
             let path = Config::path();
             if json_out {
@@ -956,6 +943,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         | Command::Stdio { .. }
         | Command::Session(_)
         | Command::Daemon(_)
+        | Command::Harness(_)
         | Command::Host(_) => {
             unreachable!()
         }

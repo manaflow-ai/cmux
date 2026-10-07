@@ -64,6 +64,12 @@ else is image-only: design it so old machines keep working without it.
   adoptable. Never kill hosts on shutdown, and never move them into a path
   where `systemctl restart cmux-tui-daemon` is the only restart (the unit's
   `KillMode=control-group` kills every host).
+  Terminal hosts run in the daemon unit's cgroup. A host ignores a stray
+  SIGTERM, SIGHUP, SIGINT or SIGQUIT (it is the only holder of its PTY), but
+  it honors a SIGTERM from PID 1: a `systemctl stop`/`restart` of the unit or
+  a machine shutdown ends each terminal promptly through the host's normal
+  exit path (exit record written), never after the stop timeout. Such a stop
+  still ends every terminal; only the SIGTERM-to-the-daemon path keeps them.
 - **Journal and registry migrations are forward-only and one-way.** The new
   daemon must open every older on-disk schema. After it migrates, the old
   binary may not start, so a rollback is only safe before the new daemon runs.

@@ -46,6 +46,7 @@ import Testing
         case .numberList(let number): [[], [.number(number.range.lowerBound), .number(number.range.upperBound)]]
         case .stringMap: [[:], ["*": "★", "Work": ""]]
         case .stringList: [[], ["ws-1", "ws-2"]]
+        case .orderedChoices(let choices): [[], .array(choices.reversed().map { .string($0.value) })]
         }
     }
 
@@ -68,6 +69,7 @@ import Testing
         case .numberList(let number): [.number(number.range.lowerBound), [.number(number.range.upperBound + 1)], ["1"]]
         case .stringMap: ["★", ["Work": 1]]
         case .stringList: ["ws-1", [1], [""]]
+        case .orderedChoices: ["directory", ["__not_a_choice__"], [1]]
         }
     }
 

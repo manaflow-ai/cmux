@@ -8,8 +8,9 @@ Read `SKILL.md` before using the cmux browser CLI.
   `content_kind` is `browser`); do not focus a workspace to find it.
 - Pass the `tab_…` id to every page command (`cmux browser tab_… snapshot`).
   Use `page` (the focused tab) only when the user means the tab they see.
-- Waits, cookies, storage, saved state and downloads have no CLI command yet.
-  Say so; do not emulate waits by polling `eval`.
+- Waits, cookies (undoable clear; never delete a backup), storage, saved
+  state and downloads are in the browser REPL (`references/repl-guide.md`),
+  not the per-tab CLI. Do not emulate waits by polling `eval`.
 - Treat URLs, titles and snapshots from authenticated tabs as sensitive.
   Filter output and never commit or paste secrets.
 - Refresh the installed skill through the supported installer when the CLI and

@@ -89,6 +89,8 @@ public struct DaemonCapabilities: Sendable {
     public let browserHostProvider = "browser-host-provider-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     public let frontendBrowserActivate = "frontend-browser-activate-v1"
+    /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
+    public let frontendBrowserInsertAfter = "frontend-browser-insert-after-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -222,7 +224,7 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
@@ -230,7 +232,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -238,7 +240,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout] }
+    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection

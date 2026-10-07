@@ -235,7 +235,7 @@ fn every_routed_scope_prints_its_own_help() {
 #[test]
 fn global_options_before_acp_or_link_name_the_fix() {
     let names = Names::new("acp-globals");
-    for scope in ["acp", "link"] {
+    for scope in ["acp", "link", "harness"] {
         let output = names.run("cmux", &["--json", scope, "list"]);
         assert_eq!(output.status.code(), Some(2));
         let error: serde_json::Value = serde_json::from_slice(&output.stdout)
@@ -245,6 +245,19 @@ fn global_options_before_acp_or_link_name_the_fix() {
         assert!(!message.contains("unknown resource scope"), "{scope}: {message}");
         assert!(message.contains(&format!("cmux {scope} --help")), "{scope}: {message}");
     }
+}
+
+/// `cmux harness …` is `cmux acp harness …` (BRING-YOUR-OWN-HARNESS): the
+/// short spelling the doctor fixes, the guide and the docs name works.
+#[test]
+fn cmux_harness_is_acp_harness() {
+    let names = Names::new("harness-alias");
+    let long = names.run("cmux", &["acp", "harness", "guide"]);
+    let short = names.run("cmux", &["harness", "guide"]);
+    assert!(long.status.success(), "cmux acp harness guide: {}", text(&long.stderr));
+    assert!(short.status.success(), "cmux harness guide: {}", text(&short.stderr));
+    assert_eq!(text(&short.stdout), text(&long.stdout));
+    assert!(text(&short.stdout).contains("cmux harness doctor"), "{}", text(&short.stdout));
 }
 
 #[test]

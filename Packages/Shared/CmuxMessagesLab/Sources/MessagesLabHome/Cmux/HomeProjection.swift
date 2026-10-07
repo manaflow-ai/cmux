@@ -141,15 +141,33 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
         let diff = core.step(items: items, summary: summary)
-        if diff.rebuild {
-            rebuild()
-        } else {
-            for a in diff.actions {
-                if case .prependPage = a { olderRequested = false }
-                controller.dispatch(a)
-            }
+        // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
+        // keystroke frame are committed at the start of the next display frame; anything
+        // else (a message, a tapback, a page) is committed now, in order.
+        let typingActions = core.typing(controller.store.state, wanted: typing)
+        let ambient = !diff.rebuild && (diff.actions + typingActions).allSatisfy {
+            switch $0 { case .status, .typing: return true; default: return false }
         }
-        for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+        if ambient, controller.inKeystrokeFrame, !(diff.actions + typingActions).isEmpty {
+            let held = diff.actions
+            controller.nextFrame { [weak self] in
+                guard let self, !self.stopped, self.controller.store != nil else { return }
+                for a in held { self.controller.dispatch(a) }
+                // Typing against the projection then (a receive in between may have ended it).
+                for a in self.core.typing(self.controller.store.state, wanted: typing) { self.controller.dispatch(a) }
+                self.onRowsChange()
+            }
+        } else {
+            if diff.rebuild {
+                rebuild()
+            } else {
+                for a in diff.actions {
+                    if case .prependPage = a { olderRequested = false }
+                    controller.dispatch(a)
+                }
+            }
+            for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+        }
         if titleChanged { applyHeader() }
         refreshAttachments()
         video.place()
