@@ -8,29 +8,24 @@ public import Foundation
 /// carries WireGuard datagrams (b3-webrtc-wg.md section 1).
 public final class WebRTCUnderlay: DatagramUnderlay {
     public let channel: WebRTCDatagramChannel
-    public let events: AsyncStream<UnderlayEvent>
-    private let pump: Task<Void, Never>
+    /// Mapped from the channel on demand; no buffer of its own (E1).
+    public var events: AsyncStream<UnderlayEvent> {
+        let channel = channel
+        return AsyncStream(unfolding: {
+            switch await channel.next() {
+            case nil: nil
+            case let .datagram(data)?: .datagram(data)
+            case let .pathChanged(kind)?: .pathChanged(kind)
+            case .closed(.local)?: .closed(.local)
+            case .closed(.reset)?: .closed(.reset)
+            case let .closed(.pathLost(detail))?: .closed(.pathLost(detail))
+            }
+        })
+    }
 
     public init(channel: WebRTCDatagramChannel) {
         self.channel = channel
-        let (events, sink) = AsyncStream.makeStream(of: UnderlayEvent.self, bufferingPolicy: .unbounded)
-        self.events = events
-        let source = channel.events
-        pump = Task {
-            for await event in source {
-                switch event {
-                case let .datagram(data): sink.yield(.datagram(data))
-                case let .pathChanged(kind): sink.yield(.pathChanged(kind))
-                case .closed(.local): sink.yield(.closed(.local))
-                case .closed(.reset): sink.yield(.closed(.reset))
-                case let .closed(.pathLost(detail)): sink.yield(.closed(.pathLost(detail)))
-                }
-            }
-            sink.finish()
-        }
     }
-
-    deinit { pump.cancel() }
 
     public var path: PathKind {
         get async { await channel.path }

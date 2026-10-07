@@ -13,4 +13,7 @@ public enum ControlPlaneError: Error, Hashable, Sendable {
     case stopped
     /// No install principal or token to connect with (signed out).
     case unauthenticated
+    /// The socket is not draining: `outboxLimit` frames already wait, so this
+    /// one was not queued. Retry later (E1).
+    case busy
 }

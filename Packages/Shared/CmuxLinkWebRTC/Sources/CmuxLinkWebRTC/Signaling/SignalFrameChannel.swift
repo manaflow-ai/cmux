@@ -15,7 +15,9 @@ public final class SignalFrameChannel: SignalingChannel {
     public init(codec: SignalFrameCodec = SignalFrameCodec(), send: @escaping @Sendable (SignalFrame) async throws -> Void) {
         self.codec = codec
         sendFrame = send
-        (incoming, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .unbounded)
+        // Bounded like ControlPlaneClient.signals (E1): a router that falls
+        // 256 signals behind loses the oldest; nothing grows without bound.
+        (incoming, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .bufferingNewest(256))
     }
 
     /// A frame the relay delivered to this install.

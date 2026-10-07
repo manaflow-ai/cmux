@@ -13,7 +13,10 @@ public actor WireGuardLinkTransport: LinkTransport {
     /// install the authorizer resolved it to (B5 `CarrierAttestation`).
     public nonisolated let peerIdentity: LinkPeerIdentity?
 
-    let eventSink: AsyncStream<TransportEvent>.Continuation
+    /// Bounded ingress (E1): reliable lanes are held by receive credit,
+    /// unreliable lanes drop past the inbox's datagram budget.
+    let inbox: TransportInbox
+    let receiveCredit = ReceiveCredit()
     let role: TransportRole
     let configuration: WireGuardLinkConfiguration
     let clock: LinkClock
@@ -88,7 +91,17 @@ public actor WireGuardLinkTransport: LinkTransport {
         retransmit = RetransmitTimer(
             minimum: configuration.minimumRetransmitTimeout, maximum: configuration.maximumRetransmitTimeout
         )
-        (events, eventSink) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .unbounded)
+        let inbox = TransportInbox()
+        self.inbox = inbox
+        events = inbox.events
+        let credit = receiveCredit
+        let threshold = max(1, Self.creditFragments(configuration: configuration, maxDatagramBytes: 1200) / 4)
+        inbox.setConsumeHandler { [weak self] frame, end in
+            guard frame.lane.reliability.isReliable else { return }
+            let lane = LaneID(frame.lane)
+            guard credit.consumed(lane, end: UInt32(truncatingIfNeeded: end), threshold: threshold) else { return }
+            Task { await self?.creditDue(lane) }
+        }
     }
 
     public var path: LinkPath {
@@ -162,11 +175,31 @@ public actor WireGuardLinkTransport: LinkTransport {
         UInt32(max(256, configuration.reliableWindowBytes / max(1, maxReliablePayload) * 2))
     }
 
+    /// Fragments a reliable lane may have above the receiver's credit: the
+    /// receive window, so credited fragments always fit the reorder window.
+    var creditFragments: UInt32 { receiveWindowFragments }
+
+    static func creditFragments(configuration: WireGuardLinkConfiguration, maxDatagramBytes: Int) -> UInt32 {
+        let plaintext = (maxDatagramBytes - WireGuardProtocol.minimumDataLength) / 16 * 16
+        let payload = max(1, plaintext - OverlayDatagram.headerLength - LaneFrame.reliableHeaderLength)
+        return UInt32(max(256, configuration.reliableWindowBytes / payload * 2))
+    }
+
+    /// The consumer moved a lane's credit far enough: ack it now so a
+    /// sender waiting for credit resumes.
+    func creditDue(_ lane: LaneID) {
+        guard phase == .open || phase == .closing else { return }
+        ackDirty.insert(lane)
+        wakePump()
+    }
+
     // MARK: Helpers
 
-    func emit(_ event: TransportEvent) {
+    func emit(_ event: TransportEvent, cost: Int? = nil) {
         guard phase != .closed else { return }
-        eventSink.yield(event)
+        if inbox.yield(event, cost: cost) == .overflow {
+            finish(.pathLost("receive buffer overflow: the peer ignored credit"))
+        }
     }
 
     func transportLane(_ lane: LaneID, lifetimeMillis: UInt32 = 0) -> TransportLane {

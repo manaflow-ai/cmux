@@ -16,6 +16,10 @@ public struct LinkConformanceSuite: Sendable {
     public var policy: PathPolicy
     /// Real-time limit for each step of a case.
     public var stepTimeout: Duration
+    /// `rawBackPressure`: the most bytes a sender may get accepted while the
+    /// receiving consumer reads nothing (both ends' queues, libraries and
+    /// kernel socket buffers together).
+    public var rawBufferLimitBytes: Int = 24 << 20
 
     public init(
         harness: any ConformanceHarness,
@@ -37,6 +41,16 @@ public struct LinkConformanceSuite: Sendable {
 
     public func run(_ testCase: ConformanceCase) async throws -> ConformanceOutcome {
         let deadline = Deadline(limit: stepTimeout, harness: harness.name, testCase: testCase)
+        if testCase == .rawBackPressure {
+            do {
+                let outcome = try await rawBackPressure(deadline: deadline)
+                await harness.tearDown()
+                return outcome
+            } catch {
+                await harness.tearDown()
+                throw error
+            }
+        }
         let fixture = try await ConformanceFixture(
             harness: harness, configuration: configuration, policy: policy, deadline: deadline
         )
@@ -69,6 +83,7 @@ public struct LinkConformanceSuite: Sendable {
         case .closeSemantics: closeSemantics
         case .pathChangeMidStream: pathChangeMidStream
         case .priority: priority
+        case .rawBackPressure: { _ in .skipped("runs without a session fixture") }
         }
     }
 }

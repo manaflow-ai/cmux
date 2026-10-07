@@ -11,8 +11,8 @@ public actor LinkBrowserStreamSession: BrowserStreamSession {
     private var state: BrowserStreamState
     private var size: (width: Int, height: Int)
     private var stateSubscribers: [UUID: AsyncStream<BrowserStreamState>.Continuation] = [:]
-    private let pages: AsyncStream<BrowserPageUpdate>
-    private let pagesContinuation: AsyncStream<BrowserPageUpdate>.Continuation
+    /// Newest value per kind (E1): a consumer that stops reading holds at most five.
+    private let pages = BrowserPageUpdateBuffer()
     private var pump: Task<Void, Never>?
 
     init(tabID: BrowserTabInfo.ID, client: BrowserStreamClient, opened: BrowserChannelOpened) {
@@ -20,8 +20,7 @@ public actor LinkBrowserStreamSession: BrowserStreamSession {
         self.client = client
         size = (Int(opened.width), Int(opened.height))
         state = .streaming(width: size.width, height: size.height)
-        (pages, pagesContinuation) = AsyncStream.makeStream(of: BrowserPageUpdate.self)
-        pagesContinuation.yield(.pageSize(width: opened.pageWidth, height: opened.pageHeight))
+        pages.push(.pageSize(width: opened.pageWidth, height: opened.pageHeight))
     }
 
     /// Starts relaying the client's events; called once after init.
@@ -50,7 +49,7 @@ public actor LinkBrowserStreamSession: BrowserStreamSession {
     }
 
     public func pageUpdates() -> AsyncStream<BrowserPageUpdate> {
-        pages
+        pages.stream
     }
 
     public func videoSamples() -> AsyncStream<BrowserVideoSample> {
@@ -115,14 +114,14 @@ public actor LinkBrowserStreamSession: BrowserStreamSession {
     private func relay(_ event: BrowserStreamEvent) {
         switch event {
         case .page(let page):
-            pagesContinuation.yield(.page(BrowserPageInfo(url: page.url, title: page.title, isLoading: page.loading,
+            pages.push(.page(BrowserPageInfo(url: page.url, title: page.title, isLoading: page.loading,
                                                           canGoBack: page.canGoBack, canGoForward: page.canGoForward)))
         case .cursor(let cursor):
-            pagesContinuation.yield(.cursor(cursor.kind))
+            pages.push(.cursor(cursor.kind))
         case .textInput(let type, _):
-            pagesContinuation.yield(.textFocus(type != "none"))
+            pages.push(.textFocus(type != "none"))
         case .clipboardWrite(let items):
-            if let text = items.compactMap(\.plainText).first { pagesContinuation.yield(.clipboard(text)) }
+            if let text = items.compactMap(\.plainText).first { pages.push(.clipboard(text)) }
         case .screenApplied(let width, let height):
             size = (Int(width), Int(height))
             publish(.streaming(width: size.width, height: size.height))
@@ -152,7 +151,7 @@ public actor LinkBrowserStreamSession: BrowserStreamSession {
             continuation.finish()
         }
         stateSubscribers.removeAll()
-        pagesContinuation.finish()
+        pages.finish()
     }
 
     private func unsubscribe(_ id: UUID) {

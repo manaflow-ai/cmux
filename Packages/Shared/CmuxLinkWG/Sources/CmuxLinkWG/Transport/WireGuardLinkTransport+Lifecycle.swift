@@ -214,8 +214,8 @@ extension WireGuardLinkTransport {
     func finish(_ reason: TransportCloseReason) {
         guard phase != .closed else { return }
         phase = .closed
-        eventSink.yield(.closed(reason))
-        eventSink.finish()
+        inbox.yield(.closed(reason))
+        inbox.finish()
         failAllWaiters()
         let closed = closedWaiters
         closedWaiters.removeAll()

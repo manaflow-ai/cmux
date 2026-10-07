@@ -109,7 +109,15 @@ actor WebRTCConnection {
                 guard let self else { return }
                 await self.handle(event)
             }
+            // The peer ended itself (receive overflow, event backlog) or was
+            // closed by `finish`, which makes this a no-op.
+            await self?.peerEventsEnded()
         })
+    }
+
+    private func peerEventsEnded() {
+        guard !finished else { return }
+        finish(.pathLost(peer.abortReason ?? "peer connection closed"), bye: .closed)
     }
 
     func startHost(inbox: AsyncStream<SignalMessage>) {
@@ -159,7 +167,7 @@ actor WebRTCConnection {
         guard !live, !finished, controlOpen, initialNegotiationDone, remoteKey != nil || !authenticated else { return }
         if let stats = await peer.selectedPairStats() {
             pathKind = CandidatePairClassifier().kind(local: stats.local, remote: stats.remote)
-            if let rtt = stats.rtt { peer.frameSink.yield(.rtt(rtt)) }
+            if let rtt = stats.rtt { peer.inbox.yield(.rtt(rtt)) }
         }
         guard !live, !finished else { return }
         if let forcedPath { pathKind = forcedPath }
@@ -403,7 +411,7 @@ actor WebRTCConnection {
             timers = [:]
             if live, forcedPath == nil, let stats = await peer.selectedPairStats() {
                 applyPath(CandidatePairClassifier().kind(local: stats.local, remote: stats.remote))
-                if let rtt = stats.rtt { peer.frameSink.yield(.rtt(rtt)) }
+                if let rtt = stats.rtt { peer.inbox.yield(.rtt(rtt)) }
             }
         case .disconnected:
             guard live else { return }
@@ -471,7 +479,7 @@ actor WebRTCConnection {
         let effective = forcedPath ?? kind
         guard effective != pathKind else { return }
         pathKind = effective
-        if live, !finished { peer.frameSink.yield(.pathChanged(path)) }
+        if live, !finished { peer.inbox.yield(.pathChanged(path)) }
     }
 
     /// Test hook: moves the reported path without touching ICE.
@@ -498,7 +506,7 @@ actor WebRTCConnection {
             remoteTracks[id] = nil
             let backing = WebRTCRemoteVideoTrack(track: video)
             mediaBackings.append(backing)
-            peer.frameSink.yield(.mediaTrack(MediaTrackHandle(descriptor: descriptor, backing: backing)))
+            peer.inbox.yield(.mediaTrack(MediaTrackHandle(descriptor: descriptor, backing: backing)))
         }
     }
 
@@ -582,9 +590,9 @@ actor WebRTCConnection {
         finAckWaiter?.resume()
         finAckWaiter = nil
         if live {
-            peer.frameSink.yield(.closed(reason))
+            peer.inbox.yield(.closed(reason))
         }
-        peer.frameSink.finish()
+        peer.inbox.finish()
         for backing in mediaBackings { backing.end() }
         mediaBackings = []
         if closePeer {

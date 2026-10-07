@@ -23,7 +23,9 @@ extension WebRTCPeer {
         Task { [weak self] in
             for await _ in wakes {
                 guard let self else { return }
-                while self.sendOne() {}
+                // One drain can move hundreds of MiB without suspending; each
+                // send drains the autorelease pool its libwebrtc calls fill.
+                while autoreleasepool(invoking: { self.sendOne() }) {}
             }
         }
     }
@@ -86,13 +88,22 @@ extension WebRTCPeer {
         if opened { wakeSink.yield() }
     }
 
-    /// Receiver side: credits the peer once `creditEvery` new reliable
-    /// bytes arrived (the socket was drained; SCTP already acknowledged them).
+    /// Receiver side: the consumer took a reliable frame of `bytes` message bytes.
+    func consumed(_ bytes: Int) {
+        state.withLockUnchecked { $0.consumedBytes += bytes }
+        creditIfDue()
+    }
+
+    /// Receiver side: credits the peer once the credit (bytes of frames the
+    /// consumer took plus pieces still reassembling) moved `creditEvery` past
+    /// the last credit sent. Never lowers it: a completed frame leaves the
+    /// reassembling count before the consumer takes it.
     func creditIfDue() {
         let due = state.withLockUnchecked { state -> Int? in
-            guard state.receivedBytes - state.receivedCredited >= limits.creditEvery else { return nil }
-            state.receivedCredited = state.receivedBytes
-            return state.receivedBytes
+            let credit = state.consumedBytes + state.partialTotal
+            guard credit - state.creditSent >= limits.creditEvery else { return nil }
+            state.creditSent = credit
+            return credit
         }
         if let due { _ = sendControl(.credit(received: due)) }
     }

@@ -9,40 +9,47 @@ public final class WebRTCDatagramChannel: Sendable {
     /// One SCTP chunk after DTLS and SCTP headers on a 1280-byte path MTU.
     public static let maxDatagramBytes = 1200
 
-    public let events: AsyncStream<WebRTCDatagramEvent>
+    /// Pulled from the peer's bounded inbox on demand, with no buffer of
+    /// its own: datagrams past the inbox budget drop on arrival (counted in
+    /// `droppedDatagrams`), closed and path events are never dropped (E1).
+    public var events: AsyncStream<WebRTCDatagramEvent> {
+        AsyncStream(unfolding: { [self] in await next() })
+    }
     let connection: WebRTCConnection
+    private let inbox: TransportInbox
     private let highWater: UInt64
-    private let pump: Task<Void, Never>
 
-    init(raw: AsyncStream<TransportEvent>, connection: WebRTCConnection) {
+    init(inbox: TransportInbox, connection: WebRTCConnection) {
+        self.inbox = inbox
         self.connection = connection
         highWater = connection.context.configuration.highWaterBytes
-        let (events, sink) = AsyncStream.makeStream(of: WebRTCDatagramEvent.self, bufferingPolicy: .unbounded)
-        self.events = events
-        pump = Task {
-            for await event in raw {
-                switch event {
-                case let .frame(frame):
-                    sink.yield(.datagram(frame.bytes))
-                case let .pathChanged(path):
-                    sink.yield(.pathChanged(path.kind))
-                case let .closed(reason):
-                    let kind = await connection.endKind
-                    switch (kind, reason) {
-                    case (.local, _): sink.yield(.closed(.local))
-                    case (.reset, _), (.remote, _): sink.yield(.closed(.reset))
-                    case let (_, .pathLost(detail)): sink.yield(.closed(.pathLost(detail)))
-                    default: sink.yield(.closed(.pathLost("\(reason)")))
-                    }
-                case .rtt, .health, .mediaTrack:
-                    break
-                }
-            }
-            sink.finish()
-        }
     }
 
-    deinit { pump.cancel() }
+    /// Datagrams dropped because the consumer fell a full budget behind.
+    public var droppedDatagrams: Int { inbox.stats.droppedFrames }
+
+    /// The next event (one consumer); nil once the channel ended.
+    public func next() async -> WebRTCDatagramEvent? {
+        while let event = await inbox.next() {
+            switch event {
+            case let .frame(frame):
+                return .datagram(frame.bytes)
+            case let .pathChanged(path):
+                return .pathChanged(path.kind)
+            case let .closed(reason):
+                let kind = await connection.endKind
+                switch (kind, reason) {
+                case (.local, _): return .closed(.local)
+                case (.reset, _), (.remote, _): return .closed(.reset)
+                case let (_, .pathLost(detail)): return .closed(.pathLost(detail))
+                default: return .closed(.pathLost("\(reason)"))
+                }
+            case .rtt, .health, .mediaTrack:
+                continue
+            }
+        }
+        return nil
+    }
 
     public var maxDatagramBytes: Int { Self.maxDatagramBytes }
 

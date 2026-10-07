@@ -25,12 +25,13 @@ struct BrowserHostHarness {
     let client: MobileLinkClient
     let pages: StubPages
 
-    static func make() async throws -> BrowserHostHarness {
+    /// `cursorFlood`: cursor changes the page sends after its first events.
+    static func make(cursorFlood: Int = 0) async throws -> BrowserHostHarness {
         let key = P256.Signing.PrivateKey()
         let store = StaticTrustStore(devices: [PairedDevice(install: install, userID: userID, keyID: "k1",
                                                             publicKey: key.publicKey.x963Representation)])
         let network = LoopbackNetwork()
-        let pages = StubPages()
+        let pages = StubPages(cursorFlood: cursorFlood)
         let host = MobileHost(configuration: MobileHostConfiguration(hostID: hostID, accountUserID: userID),
                               acceptor: network.acceptor, daemon: EmptyDaemon(),
                               authorizer: TrustStoreAuthorizer(hostID: hostID, accountUserID: userID, store: store),
@@ -100,7 +101,11 @@ struct StubDirectory: BrowserTabDirectory {
 /// One browser tab whose video source emits a keyframe and then whatever
 /// the test pushes.
 final class StubPages: BrowserPageHost {
-    let attachment = StubAttachment()
+    let attachment: StubAttachment
+
+    init(cursorFlood: Int = 0) {
+        attachment = StubAttachment(cursorFlood: cursorFlood)
+    }
 
     func attach(_ request: BrowserAttachRequest) async throws -> any BrowserPageAttachment {
         guard request.tab == "tab_b1" else { throw BrowserPageError.tabNotFound }
@@ -114,11 +119,20 @@ actor StubAttachment: BrowserPageAttachment {
     var geometry: BrowserPageGeometry { BrowserPageGeometry(cssWidth: 1440, cssHeight: 900, backingScale: 2) }
     private(set) var inputs: [RbInputEvent] = []
     private(set) var loads: [URL] = []
+    nonisolated let cursorFlood: Int
+
+    init(cursorFlood: Int = 0) {
+        self.cursorFlood = cursorFlood
+    }
 
     func events() -> AsyncStream<BrowserPageEvent> {
-        AsyncStream { continuation in
+        let flood = cursorFlood
+        return AsyncStream { continuation in
             continuation.yield(.page(RbPage(url: "https://example.com/", title: "Example", canGoBack: true)))
             continuation.yield(.textInput(inputType: "text", caret: nil))
+            for index in 0..<flood {
+                continuation.yield(.cursor(RbCursorShape(kind: index.isMultiple(of: 2) ? "text" : "pointer")))
+            }
         }
     }
 

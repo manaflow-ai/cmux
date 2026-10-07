@@ -18,15 +18,21 @@ struct ReliableReceiver {
 
     /// Accepts a fragment and returns every frame it completes, in order.
     mutating func receive(seq: UInt32, first: Bool, last: Bool, payload: [UInt8]) -> [[UInt8]] {
+        receiveFrames(seq: seq, first: first, last: last, payload: payload).map(\.bytes)
+    }
+
+    /// Like `receive`, with each frame's end: the sequence after its last
+    /// fragment (what the receiver credits once the consumer takes it).
+    mutating func receiveFrames(seq: UInt32, first: Bool, last: Bool, payload: [UInt8]) -> [(bytes: [UInt8], end: UInt32)] {
         guard seq >= nextExpected, seq < nextExpected &+ windowFragments, buffered[seq] == nil else { return [] }
         buffered[seq] = Fragment(first: first, last: last, payload: payload)
-        var frames: [[UInt8]] = []
+        var frames: [(bytes: [UInt8], end: UInt32)] = []
         while let fragment = buffered.removeValue(forKey: nextExpected) {
             nextExpected += 1
             if fragment.first { assembling = [] }
             assembling?.append(contentsOf: fragment.payload)
             if fragment.last, let frame = assembling {
-                frames.append(frame)
+                frames.append((frame, nextExpected))
                 assembling = nil
             }
         }

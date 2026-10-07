@@ -7,6 +7,9 @@ import Foundation
 /// idempotency keys, answers reads by id, and carries WebRTC signals both ways.
 ///
 /// Nothing queues while disconnected: `submit`, `read` and `sendSignal` throw `.notConnected`.
+/// Everything is bounded (E1): `states` keeps the newest 16, a subscriber that falls
+/// `streamBacklogLimit` updates behind is resynced from a fresh snapshot, and past
+/// `outboxLimit` frames waiting for the socket sends fail with `.busy`.
 public actor ControlPlaneClient {
     public nonisolated let states: AsyncStream<ControlPlaneState>
     /// Signals relayed to this client (`from` is the sender's authenticated install).
@@ -34,7 +37,7 @@ public actor ControlPlaneClient {
         self.configuration = configuration
         self.transport = transport
         self.tokenProvider = tokenProvider
-        (states, stateSink) = AsyncStream.makeStream(of: ControlPlaneState.self, bufferingPolicy: .unbounded)
+        (states, stateSink) = AsyncStream.makeStream(of: ControlPlaneState.self, bufferingPolicy: .bufferingNewest(16))
         (signals, signalSink) = AsyncStream.makeStream(of: SignalFrame.self, bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -56,7 +59,7 @@ public actor ControlPlaneClient {
         connection = nil
         negotiated = nil
         failAll(.stopped)
-        for (_, sub) in subscriptions { sub.continuation.finish() }
+        for (_, sub) in subscriptions { sub.buffer.finish() }
         subscriptions = [:]
         publish(.stopped)
         stateSink.finish()
@@ -68,17 +71,17 @@ public actor ControlPlaneClient {
     /// Mirrors `stream`: a snapshot first (or the events after a known seq on resume), then
     /// contiguous events. A second call for the same stream replaces the first subscriber.
     public func subscribe(_ stream: String) -> AsyncStream<StreamUpdate> {
-        let (updates, sink) = AsyncStream.makeStream(of: StreamUpdate.self, bufferingPolicy: .unbounded)
-        subscriptions[stream]?.continuation.finish()
-        subscriptions[stream] = StreamSubscription(seq: nil, continuation: sink)
-        if connection != nil, negotiated != nil { trySend(.subscribe(SubscribeFrame(stream: stream))) }
-        return updates
+        let buffer = StreamUpdateBuffer(limit: configuration.streamBacklogLimit)
+        subscriptions[stream]?.buffer.finish()
+        subscriptions[stream] = StreamSubscription(seq: nil, buffer: buffer)
+        if connection != nil, negotiated != nil { sendInternal(.subscribe(SubscribeFrame(stream: stream))) }
+        return buffer.stream
     }
 
     public func unsubscribe(_ stream: String) {
         guard let sub = subscriptions.removeValue(forKey: stream) else { return }
-        sub.continuation.finish()
-        if negotiated != nil { trySend(.unsubscribe(UnsubscribeFrame(stream: stream))) }
+        sub.buffer.finish()
+        if negotiated != nil { sendInternal(.unsubscribe(UnsubscribeFrame(stream: stream))) }
     }
 
     /// The last applied seq of a stream (its revision cursor).
@@ -93,7 +96,9 @@ public actor ControlPlaneClient {
         return try await withCheckedThrowingContinuation { continuation in
             if let old = pendingOps[op.idempotencyKey] { old.continuation.resume(throwing: ControlPlaneError.stopped) }
             pendingOps[op.idempotencyKey] = PendingOp(frame: op, continuation: continuation)
-            trySend(.op(op))
+            if !trySend(.op(op)) {
+                pendingOps.removeValue(forKey: op.idempotencyKey)?.continuation.resume(throwing: ControlPlaneError.busy)
+            }
         }
     }
 
@@ -103,7 +108,9 @@ public actor ControlPlaneClient {
         nextReadID += 1
         return try await withCheckedThrowingContinuation { continuation in
             pendingReads[id] = continuation
-            trySend(.read(ReadFrame(id: id, op: op, params: params, stream: stream)))
+            if !trySend(.read(ReadFrame(id: id, op: op, params: params, stream: stream))) {
+                pendingReads.removeValue(forKey: id)?.resume(throwing: ControlPlaneError.busy)
+            }
         }
     }
 
@@ -112,7 +119,7 @@ public actor ControlPlaneClient {
         guard connection != nil, negotiated != nil else { throw ControlPlaneError.notConnected }
         var out = signal
         out.from = nil
-        trySend(.signal(out))
+        guard trySend(.signal(out)) else { throw ControlPlaneError.busy }
     }
 
     /// Sends every undecided op again with its key (for example when `host:` reports the Mac back
@@ -121,14 +128,16 @@ public actor ControlPlaneClient {
         guard negotiated != nil else { return }
         for key in pendingOps.keys.sorted() {
             pendingOps[key]?.resent = true
-            if let op = pendingOps[key] { trySend(.op(op.frame)) }
+            if let op = pendingOps[key] { sendInternal(.op(op.frame)) }
         }
     }
 
     /// Whether this device is actively viewing (app foreground). Feeds host viewer counts.
     public func setPresence(active: Bool, client: String = "ios") throws {
         guard connection != nil, negotiated != nil else { throw ControlPlaneError.notConnected }
-        trySend(.presenceSet(PresenceSetFrame(state: PresenceState(active: active, client: client))))
+        guard trySend(.presenceSet(PresenceSetFrame(state: PresenceState(active: active, client: client)))) else {
+            throw ControlPlaneError.busy
+        }
     }
 
     // MARK: Session loop
@@ -146,13 +155,13 @@ public actor ControlPlaneClient {
                     return
                 }
                 connection = conn
-                let (frames, sink) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
+                let (frames, sink) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingOldest(configuration.outboxLimit))
                 outbox = sink
                 let sender = Task {
                     for await text in frames { try? await conn.send(text) }
                 }
                 defer { sender.cancel() }
-                trySend(.hello(HelloFrame(min: configuration.minVersion, max: configuration.maxVersion, caps: configuration.caps, client: configuration.client)))
+                sendInternal(.hello(HelloFrame(min: configuration.minVersion, max: configuration.maxVersion, caps: configuration.caps, client: configuration.client)))
                 while !Task.isCancelled {
                     let text = try await conn.receive()
                     if try handle(text) { attempt = 0 }
@@ -198,7 +207,11 @@ public actor ControlPlaneClient {
             sub.epoch = snapshot.epoch
             sub.repairing = false
             subscriptions[snapshot.stream] = sub
-            sub.continuation.yield(.snapshot(snapshot))
+            // A snapshot supersedes whatever the subscriber has not read yet.
+            if !sub.buffer.push(.snapshot(snapshot)) {
+                sub.buffer.clear()
+                _ = sub.buffer.push(.snapshot(snapshot))
+            }
         case .event(let event):
             apply(event)
         case .result(let result):
@@ -246,7 +259,7 @@ public actor ControlPlaneClient {
             sub.seq = nil
             sub.repairing = true
             subscriptions[event.stream] = sub
-            trySend(.snapshotRequest(SnapshotRequestFrame(stream: event.stream, pending: pendingKeys())))
+            sendInternal(.snapshotRequest(SnapshotRequestFrame(stream: event.stream, pending: pendingKeys())))
             return
         }
         if event.seq <= seq { return }
@@ -254,12 +267,20 @@ public actor ControlPlaneClient {
             // A gap: never apply out of order; the owner answers with a snapshot.
             sub.repairing = true
             subscriptions[event.stream] = sub
-            trySend(.snapshotRequest(SnapshotRequestFrame(stream: event.stream, pending: pendingKeys())))
+            sendInternal(.snapshotRequest(SnapshotRequestFrame(stream: event.stream, pending: pendingKeys())))
+            return
+        }
+        guard sub.buffer.push(.event(event)) else {
+            // The subscriber fell `streamBacklogLimit` behind: drop its backlog
+            // and repair from a fresh snapshot instead of queueing without bound.
+            sub.buffer.clear()
+            sub.repairing = true
+            subscriptions[event.stream] = sub
+            sendInternal(.snapshotRequest(SnapshotRequestFrame(stream: event.stream, pending: pendingKeys())))
             return
         }
         sub.seq = event.seq
         subscriptions[event.stream] = sub
-        sub.continuation.yield(.event(event))
     }
 
     /// After `hello.ok`: every stream resumes from its cursor, then undecided ops are resent.
@@ -268,11 +289,11 @@ public actor ControlPlaneClient {
         for (stream, sub) in subscriptions.sorted(by: { $0.key < $1.key }) {
             // With intents in flight the owner sends a snapshot carrying their decided keys.
             let after = pending.isEmpty ? sub.seq : nil
-            trySend(.subscribe(SubscribeFrame(stream: stream, afterSeq: after, pending: pending.isEmpty ? nil : pending, epoch: after == nil ? nil : sub.epoch)))
+            sendInternal(.subscribe(SubscribeFrame(stream: stream, afterSeq: after, pending: pending.isEmpty ? nil : pending, epoch: after == nil ? nil : sub.epoch)))
         }
         for key in pendingOps.keys.sorted() {
             pendingOps[key]?.resent = true
-            if let op = pendingOps[key] { trySend(.op(op.frame)) }
+            if let op = pendingOps[key] { sendInternal(.op(op.frame)) }
         }
     }
 
@@ -314,9 +335,20 @@ public actor ControlPlaneClient {
         stateSink.yield(next)
     }
 
-    private func trySend(_ frame: MobileFrame) {
-        guard let outbox, let text = try? Self.text(frame) else { return }
-        outbox.yield(text)
+    /// Queues a frame for the socket; false when `outboxLimit` frames already wait.
+    @discardableResult
+    private func trySend(_ frame: MobileFrame) -> Bool {
+        guard let outbox, let text = try? Self.text(frame) else { return true }
+        if case .dropped = outbox.yield(text) { return false }
+        return true
+    }
+
+    /// A protocol frame the session needs (hello, subscribe, repair, resend).
+    /// If the socket stopped draining, it is closed: the reconnect resumes
+    /// every stream and resends pending ops.
+    private func sendInternal(_ frame: MobileFrame) {
+        guard !trySend(frame), let connection else { return }
+        Task { await connection.close(code: 1013) }
     }
 
     private static func text(_ frame: MobileFrame) throws -> String {

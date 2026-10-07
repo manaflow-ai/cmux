@@ -36,7 +36,7 @@ extension WireGuardLinkTransport {
         if let lane = ackDirty.min(by: { $0.priority < $1.priority || ($0.priority == $1.priority && $0.byte < $1.byte) }) {
             ackDirty.remove(lane)
             guard let ack = receivers[lane]?.ack else { return nil }
-            return seal(LaneFrame.ack(lane: lane, next: ack.next, sack: ack.sack).encode())
+            return seal(LaneFrame.ack(lane: lane, next: ack.next, sack: ack.sack, consumed: receiveCredit.advertise(lane)).encode())
         }
         let now = clock.now
         for priority in ChannelPriority.allCases {

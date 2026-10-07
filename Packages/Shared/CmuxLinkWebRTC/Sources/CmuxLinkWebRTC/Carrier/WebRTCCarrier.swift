@@ -66,12 +66,11 @@ public final class WebRTCCarrier: LinkCarrier {
         try Task.checkCancellation()
         let session = SignalSessionID().rawValue
         let inbox = await router.register(session)
-        let (events, sink) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .unbounded)
         let webrtcPeer: WebRTCPeer
         do {
             webrtcPeer = try WebRTCPeer(
                 factory: WebRTCFactory.shared(for: configuration.network), ice: ice,
-                limits: PeerSendLimits(configuration), frameSink: sink
+                limits: PeerSendLimits(configuration)
             )
         } catch {
             await router.unregister(session)
@@ -90,7 +89,7 @@ public final class WebRTCCarrier: LinkCarrier {
         live.withLock { $0[ObjectIdentifier(connection)] = connection }
         await connection.attach(inbox: inbox)
         try await connection.dial()
-        return WebRTCTransport(events: events, connection: connection, remoteKey: hostKey, install: nil)
+        return WebRTCTransport(events: webrtcPeer.inbox.events, connection: connection, remoteKey: hostKey, install: nil)
     }
 
     /// The app's NWPathMonitor reported a change: restart ICE on every live

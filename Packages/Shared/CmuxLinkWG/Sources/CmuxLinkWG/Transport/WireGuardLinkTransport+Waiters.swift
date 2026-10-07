@@ -2,8 +2,14 @@ extension WireGuardLinkTransport {
     func waitForWindow(_ lane: LaneID, adding bytes: Int) async throws {
         while phase == .open {
             let inFlight = senders[lane]?.bytesInFlight ?? 0
-            // An empty lane always takes one frame, however large.
-            if inFlight == 0 || inFlight + bytes <= configuration.reliableWindowBytes { return }
+            let uncredited = senders[lane]?.uncredited ?? 0
+            let fragments = ReliableSender.fragmentCount(bytes, maxPayload: maxReliablePayload)
+            // An empty lane always takes one frame, however large. Past the
+            // in-flight window, or the receiver's credit (its consumer lags),
+            // `send` waits (E1).
+            let windowOpen = inFlight == 0 || inFlight + bytes <= configuration.reliableWindowBytes
+            let creditOpen = uncredited == 0 || uncredited + fragments <= creditFragments
+            if windowOpen, creditOpen { return }
             nextWaiterID += 1
             let id = nextWaiterID
             try await withTaskCancellationHandler {
