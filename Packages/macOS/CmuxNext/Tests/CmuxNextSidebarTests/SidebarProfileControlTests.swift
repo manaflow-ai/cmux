@@ -33,7 +33,7 @@ import Testing
     }
 
     private func control(_ view: SidebarView) throws -> SidebarItemRowView {
-        try #require(view.belowRegion.itemView(Self.account))
+        try #require(view.footerRegion.itemView(Self.account))
     }
 
     @Test func theFooterIsOneAvatarControlWithAChevronAndNoGear() throws {
@@ -41,17 +41,17 @@ import Testing
         let control = try control(view)
         #expect(control.showsAvatar)
         #expect(!control.avatarView.isHidden)
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) == nil, "no gear")
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_settings")) == nil, "no gear")
         #expect(control.frame.height == Metrics.sidebarRowHeight)
         #expect(control.frame.width == SidebarStyle.avatarControlWidth)
         let circle = control.avatarView.circleFrame, chevron = control.avatarView.chevronFrame
         #expect(circle.width == 16 && circle.height == 16, "16 pt avatar at the default density: \(circle)")
         #expect(chevron.minX > circle.maxX && chevron.maxX <= control.bounds.maxX, "the chevron trails the circle inside the control")
         // The circle sits on the rows' glyph column and the row's center line.
-        let inSidebar = view.convert(control.avatarView.convert(circle, to: view.belowRegion), from: view.belowRegion)
+        let inSidebar = view.convert(control.avatarView.convert(circle, to: view.footerRegion), from: view.footerRegion)
         let column = SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2
         #expect(abs(inSidebar.midX - column) <= 0.5, "\(inSidebar.midX) vs \(column)")
-        #expect(abs(inSidebar.midY - view.convert(control.frame, from: view.belowRegion).midY) <= 0.5)
+        #expect(abs(inSidebar.midY - view.convert(control.frame, from: view.footerRegion).midY) <= 0.5)
         #expect(control.avatarView.avatar?.initial == "W")
         #expect(control.accessibilityRole() == .menuButton)
         #expect(control.accessibilityLabel() == "Work")
@@ -79,7 +79,7 @@ import Testing
     /// above the band is gone.
     @Test func theDotsSitInTheControlsRowAfterIt() throws {
         let view = sidebar()
-        let control = view.convert(try control(view).frame, from: view.belowRegion)
+        let control = view.convert(try control(view).frame, from: view.footerRegion)
         let bar = view.convert(view.profileBar.frame, from: view.profileBar.superview)
         #expect(abs(bar.midY - control.midY) <= 0.5, "one row: \(bar) \(control)")
         #expect(bar.minX >= control.maxX - 0.5, "after the control: \(bar) \(control)")
@@ -90,7 +90,7 @@ import Testing
     /// bar (Leo: no reflow); removing one does not either.
     @Test func addingOrRemovingASpaceMovesNothingElse() throws {
         let view = sidebar(profiles: 2)
-        let controlFrame = view.convert(try control(view).frame, from: view.belowRegion)
+        let controlFrame = view.convert(try control(view).frame, from: view.footerRegion)
         let barFrame = view.convert(view.profileBar.frame, from: view.profileBar.superview)
         let slot = Double(Metrics.roomDotSlot), leading = Double(view.profileBar.slotsLeading)
         let two = ProfileBarLogic.slotXs(count: 2, slot: slot, leading: leading)
@@ -99,7 +99,7 @@ import Testing
         view.layoutSubtreeIfNeeded()
         let three = ProfileBarLogic.slotXs(count: 3, slot: slot, leading: Double(view.profileBar.slotsLeading))
         #expect(Array(three.prefix(2)) == Array(two.prefix(2)), "existing dots stay: \(two) \(three)")
-        #expect(view.convert(try control(view).frame, from: view.belowRegion) == controlFrame)
+        #expect(view.convert(try control(view).frame, from: view.footerRegion) == controlFrame)
         #expect(view.convert(view.profileBar.frame, from: view.profileBar.superview) == barFrame)
         view.model.profiles = Array(Self.profiles.prefix(2))
         view.needsLayout = true
@@ -121,8 +121,8 @@ import Testing
         let far = NSPoint(x: start.x + 80, y: start.y + 40)
         let drag = try #require(NSEvent.mouseEvent(with: .leftMouseDragged, location: far, modifierFlags: [], timestamp: 0,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        #expect(view.belowRegion.dragMoved(.item(Self.account), from: start, drag) == false)
-        #expect(view.belowRegion.reorder == nil)
+        #expect(view.footerRegion.dragMoved(.item(Self.account), from: start, drag) == false)
+        #expect(view.footerRegion.reorder == nil)
 
         let bar = view.profileBar
         let slot = Metrics.roomDotSlot

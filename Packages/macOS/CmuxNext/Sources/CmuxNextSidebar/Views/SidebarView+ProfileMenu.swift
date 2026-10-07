@@ -9,7 +9,7 @@ extension SidebarView {
     /// The item that draws the profile control, in band order, with its
     /// view: the footer's account item by default.
     var profileControl: (id: LayoutItemID, view: SidebarItemRowView)? {
-        for region in [belowRegion, aboveRegion] {
+        for region in bandRegions {
             for row in region.layoutResult.rows {
                 guard case .tile(let id, _) = row.kind, let view = region.itemView(id), view.showsAvatar, !view.isHidden else { continue }
                 return (id, view)

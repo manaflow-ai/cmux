@@ -49,16 +49,16 @@ import Testing
         try #require(maxX >= minX, "the glyph draws")
         let local = CGRect(x: frame.minX + CGFloat(minX) / scale, y: frame.minY + CGFloat(minY) / scale,
                            width: CGFloat(maxX - minX + 1) / scale, height: CGFloat(maxY - minY + 1) / scale)
-        return view.convert(item.convert(local, to: view.belowRegion), from: view.belowRegion)
+        return view.convert(item.convert(local, to: view.footerRegion), from: view.footerRegion)
     }
 
     @Test func theAvatarAndTheGearDrawAtOneSizeOnOneCenterLine() throws {
         let view = try sidebar()
-        let account = try #require(view.belowRegion.itemView(LayoutItemID("itm_account")))
-        let gear = try #require(view.belowRegion.itemView(LayoutItemID("itm_settings")))
+        let account = try #require(view.footerRegion.itemView(LayoutItemID("itm_account")))
+        let gear = try #require(view.footerRegion.itemView(LayoutItemID("itm_settings")))
         let a = try ink(account, in: view), g = try ink(gear, in: view)
-        let accountBox = view.convert(account.frame, from: view.belowRegion)
-        let gearBox = view.convert(gear.frame, from: view.belowRegion)
+        let accountBox = view.convert(account.frame, from: view.footerRegion)
+        let gearBox = view.convert(gear.frame, from: view.footerRegion)
         let target = SidebarStyle.kindGlyphSize
         // One visual size: the avatar's circle spans the gear's teeth.
         #expect(abs(a.width - g.width) <= 1 && abs(a.height - g.height) <= 1, "avatar \(a.size) gear \(g.size)")

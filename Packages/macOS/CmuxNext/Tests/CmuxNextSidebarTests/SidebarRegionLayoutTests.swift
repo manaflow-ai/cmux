@@ -158,7 +158,7 @@ import Testing
         let home = try #require(view.aboveRegion.itemView(LayoutItemID("itm_home")))
         #expect(home.info.title == SidebarBuiltIn.home.title)
         #expect(view.aboveRegion.layoutResult.height > 0)
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_account")) != nil)
         let aboveTop = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.minY
         let aboveBottom = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.maxY
         let belowTop = try #require(view.belowRegion.enclosingScrollView?.superview).frame.minY
@@ -180,7 +180,7 @@ import Testing
         let view = SidebarView(model: model)
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()
-        let account = try #require(view.belowRegion.itemView(LayoutItemID("itm_account")))
+        let account = try #require(view.footerRegion.itemView(LayoutItemID("itm_account")))
         #expect(account.accessibilityPerformPress())
         #expect(sent == [.activateItem(LayoutItemID("itm_account"))])
     }

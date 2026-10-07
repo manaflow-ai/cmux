@@ -42,8 +42,8 @@ import Testing
         for id in ["itm_new_workspace", "itm_import_sync"] {
             #expect(view.aboveRegion.itemView(LayoutItemID(id)) == nil, "\(id) is not in the top band by default")
         }
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) == nil, "no gear by default")
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_settings")) == nil, "no gear by default")
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_account")) != nil)
     }
 
     /// A layout the rail default migrated is moved back by ordinary layout
