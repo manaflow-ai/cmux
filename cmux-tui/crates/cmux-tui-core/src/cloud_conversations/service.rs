@@ -338,6 +338,38 @@ impl CloudConversations {
         history_data(value)
     }
 
+    /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is
+    /// the lease token's `agt` claim, so a client can never name another
+    /// chief's queue. Refused for a person's session token.
+    pub fn mux_target(&self) -> Result<Target, CloudError> {
+        self.lease_agent().map(Target::Mux)
+    }
+
+    fn lease_agent(&self) -> Result<String, CloudError> {
+        let session = self.inner.usable_session()?;
+        session.agent.ok_or_else(|| {
+            CloudError::daemon_reject(
+                "mux_needs_chief",
+                "the wake queue needs a chief token (cloud-session-set with the chief's token)",
+            )
+        })
+    }
+
+    /// `cloud-mux-ack`: the brain handled the wakes of `conversation` up to
+    /// `seq`. `mux.ack` for the lease's own chief; the idempotency key names
+    /// the wake row (`<conversation>:<seq>`), so a repeated ack is a replay.
+    pub fn mux_ack(&self, conversation: &str, seq: u64) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let agent = self.lease_agent()?;
+        let body = json!({
+            "op": "mux.ack",
+            "params": {"agent": agent, "conversation": conversation, "seq": seq},
+            "idempotency_key": format!("mux-ack:{conversation}:{seq}"),
+            "origin": "agent",
+        });
+        mutation_data(self.post("/v1/ops", &body)?)
+    }
+
     /// `cloud-conversation-op`: forwards one op; never retried here.
     pub fn op(&self, request: &OpRequest) -> Result<Value, CloudError> {
         let body = contract::op_body(request)?;

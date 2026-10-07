@@ -88,10 +88,67 @@ import UniformTypeIdentifiers
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(max(image.width, image.height) == AgentPaneReplyImages.thumbnailSide)
         #expect(image.height > image.width, "portrait like the page")
+        // The page fills the thumbnail: a Letter page (792 pt tall) is drawn at 1024/792, so the
+        // square at 100...300 pt covers about 129...388 px from the bottom left.
+        let inSquare = try Self.pixel(image, 140, 140), pastSquare = try Self.pixel(image, 450, 450)
+        #expect(inSquare.isBlue, "the page is scaled up to the thumbnail: \(inSquare)")
+        #expect(pastSquare.isWhite, "\(pastSquare)")
+        // A page turned by /Rotate shows turned: its left half (filled) is the top half.
+        let turned = folder.appending(path: "turned.pdf")
+        try Self.rotatedPDF().write(to: turned)
+        let turnedSrc = try await AgentPaneReplyImages.local(turned.path).get()
+        let turnedData = try #require(Data(base64Encoded: String(turnedSrc.dropFirst("data:image/png;base64,".count))))
+        let turnedSource = try #require(CGImageSourceCreateWithData(turnedData as CFData, nil))
+        let turnedImage = try #require(CGImageSourceCreateImageAtIndex(turnedSource, 0, nil))
+        #expect(turnedImage.width == 512 && turnedImage.height == 1024, "200x400 pt once turned")
+        let top = try Self.pixel(turnedImage, 256, 900), bottom = try Self.pixel(turnedImage, 256, 100)
+        #expect(top.isBlue, "\(top)")
+        #expect(bottom.isWhite, "\(bottom)")
         // Bytes that only claim to be a PDF are refused.
         let fake = folder.appending(path: "fake.pdf")
         try Data("not a pdf".utf8).write(to: fake)
         #expect(await AgentPaneReplyImages.local(fake.path) == .failure(.imageFailed))
+    }
+
+    /// One pixel's red, green and blue. A color the PDF stores as sRGB comes out shifted in device
+    /// RGB, so blue means mostly blue, not exactly 0, 0, 255.
+    struct Pixel: CustomStringConvertible {
+        let red: UInt8, green: UInt8, blue: UInt8
+        var isBlue: Bool { Int(blue) - Int(max(red, green)) > 100 }
+        var isWhite: Bool { min(red, green, blue) > 230 }
+        var description: String { "rgb(\(red), \(green), \(blue))" }
+    }
+
+    /// The pixel of `image` at `x`, `y` points from its bottom left.
+    static func pixel(_ image: CGImage, _ x: Int, _ y: Int) throws -> Pixel {
+        let context = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.draw(image, in: CGRect(x: -x, y: -y, width: image.width, height: image.height))
+        let pointer = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        let bytes = Array(UnsafeBufferPointer(start: pointer, count: 3))
+        return Pixel(red: bytes[0], green: bytes[1], blue: bytes[2])
+    }
+
+    /// A one-page PDF, 400x200 pt with /Rotate 90, whose left half is blue.
+    static func rotatedPDF() -> Data {
+        let content = "0 0 1 rg 0 0 200 200 re f"
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Rotate 90 /Contents 4 0 R >>",
+            "<< /Length \(content.utf8.count) >>\nstream\n\(content)\nendstream",
+        ]
+        var pdf = "%PDF-1.4\n", offsets: [Int] = []
+        for (index, object) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(index + 1) 0 obj\n\(object)\nendobj\n"
+        }
+        let table = pdf.utf8.count
+        pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+        for offset in offsets { pdf += String(format: "%010d 00000 n \n", offset) }
+        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(table)\n%%EOF\n"
+        return Data(pdf.utf8)
     }
 
     @Test func anSVGLosesScriptHandlersAndLinksOut() throws {

@@ -25,7 +25,10 @@ extension ServerReachService {
             binary: binary,
             local: { ServerReachService.thisMac() },
             linkPeers: { await ServerReachService.readLinkPeers(binary: cli) },
-            cli: cli)
+            cli: cli,
+            linkSetupFile: cli.map { _ in
+                ServerReachPlan.defaultLinkSetupFile(environment: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
+            })
     }
 }
 

@@ -36,6 +36,9 @@ final class ServerReachService {
     private let local: @MainActor () -> ServerReachPlan.LocalServer?
     /// This Mac's link (running or not) and its paired installs, or nil (no link).
     private let linkPeers: @MainActor () async -> ServerReachPlan.LinkPeers?
+    /// Where `cmux link init` writes the link (watched while `link show`
+    /// fails, so a later init re-reads by event); nil watches nothing.
+    private let linkSetupFile: String?
     private let makeWatcher: LocalServerSource.MakeWatcher
     private var linkWatchers: [any ServerFileWatching] = []
     private var watchedLinkFiles: [String] = []
@@ -53,7 +56,8 @@ final class ServerReachService {
     init(machines: MachineRegistry, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
          linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
-         makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
+         linkSetupFile: String? = nil, makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
+        self.linkSetupFile = linkSetupFile
         self.makeWatcher = makeWatcher
         self.cli = cli
         self.machines = machines
@@ -158,7 +162,7 @@ final class ServerReachService {
             // A read that a sign-out or an account switch overtook applies nothing.
             guard !Task.isCancelled, signedInUser() == user else { return }
             let link = await linkPeers()
-            watchLink(link?.watchedFiles ?? [])
+            watchLink(link?.watchedFiles ?? [linkSetupFile].compactMap { $0 })
             guard !Task.isCancelled, signedInUser() == user else { return }
             let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan
@@ -241,6 +245,9 @@ final class ServerReachService {
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
                                            localIdentity: { [machines] in machines.local.identity }, cli: cli)
         session.daemon.workTracker = machines.local.workTracker
+        // The overlay ended: re-read the link (`link show` checks its pid
+        // and socket), so a crashed link with a stale link.json falls back.
+        session.onOverlayEnded = { [weak self] in self?.refresh() }
         machines.add(session)
         logger.info("server \(reach.name, privacy: .public) (\(reach.hostID, privacy: .public)) added")
         session.autoConnect = connect

@@ -127,8 +127,7 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         }
         if resolvedRunning != .some(running) {
             resolvedRunning = .some(running)
-            let registered = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: CuaHelperIdentity.bundleIdentifier)
-            helperAppURL = await Self.resolve(identity, running: running, registered: registered).helperURL
+            helperAppURL = await Self.resolve(identity, running: running, isDevBuild: ComputerUseHelperDaemon.isDevBuild).helperURL
         }
         return Self.permissions(status)
     }
@@ -136,8 +135,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     /// The signature checks read bundles on disk, so they run off the main
     /// actor, once per daemon app (not on every one-second read).
     @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity, running: URL?,
-                                                registered: [URL]) async -> CuaHelperIdentity.Resolution {
-        identity.resolve(running: running, installed: CuaHelperIdentity.installedCandidates(registered: registered))
+                                                isDevBuild: Bool) async -> CuaHelperIdentity.Resolution {
+        identity.resolve(running: running, installed: CuaHelperIdentity.installedCandidates(isDevBuild: isDevBuild))
     }
 
     /// The two grants out of a `permissions_status` result.

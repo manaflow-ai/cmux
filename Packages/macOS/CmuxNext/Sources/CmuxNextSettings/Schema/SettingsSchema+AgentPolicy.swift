@@ -113,6 +113,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.cards.tips",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -180,6 +181,8 @@ extension SettingsSchema {
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
         "announcements.fetch": .network,
+        // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
+        "computerUse.enabled": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]
