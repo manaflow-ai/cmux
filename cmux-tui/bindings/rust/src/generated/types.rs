@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e.
+// cmux-tui mux protocol 12, IR 574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -898,6 +898,8 @@ pub struct MintTerminalRendererResult {
     pub incarnation: String,
     pub protocol_version: u16,
     pub rights: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub supports_viewer_size_priority: Option<bool>,
     pub terminal_id: String,
     pub token: String,
     pub ttl_ms: u64,

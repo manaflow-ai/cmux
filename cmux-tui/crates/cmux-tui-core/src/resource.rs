@@ -448,6 +448,8 @@ pub enum ResourceOperation {
     WorkspacePlacementList,
     #[serde(rename = "workspace.update")]
     WorkspaceUpdate,
+    #[serde(rename = "workspace.agent_folder.set")]
+    WorkspaceAgentFolderSet,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -834,8 +836,7 @@ impl Selector {
     }
 }
 
-/// Tokens consumed by the noun-first CLI grammar. A resource may retain any
-/// of these exact names, but callers must select it with the `name:` escape.
+/// A noun-first CLI token: a resource may keep the name; callers select it with `name:`.
 pub fn is_reserved_selector_token(value: &str) -> bool {
     matches!(
         value,
@@ -984,8 +985,7 @@ pub struct ResourceDeltaBatch {
     pub deltas: Vec<ResourceDelta>,
 }
 
-/// Bounded contiguous journal. One commit advances the resource revision
-/// exactly once and may append several ordered deltas at that revision.
+/// Bounded contiguous journal: one commit advances the revision once, with ordered deltas.
 #[derive(Debug)]
 pub struct ResourceJournal {
     generation: String,
