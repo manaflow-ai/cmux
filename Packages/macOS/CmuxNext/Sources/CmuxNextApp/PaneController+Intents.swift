@@ -91,13 +91,17 @@ extension PaneController {
     /// other callers (config commands, account logins) keep the pane's.
     /// `typingAhead` names a new tab page whose `!` type-ahead the shell
     /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
-    /// `then` runs once the new tab is selected.
+    /// `then` runs once the new tab is selected. `source` is the pane whose
+    /// selected tab it is opened from, when that is another pane (a docked
+    /// agent chat's terminal opens in the strip).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
-                        fromSelectedTab: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                        fromSelectedTab: Bool = false, source: PaneController? = nil,
+                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
+        let source = source ?? self
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
-        let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
-        let cwd = cwd ?? selectedTab?.cwd
+        let agent = cwd == nil && fromSelectedTab ? source.selectedAgentView : nil
+        let cwd = cwd ?? source.selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()

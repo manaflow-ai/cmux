@@ -31,7 +31,16 @@ enum TabLifecycle {
             })
             return
         }
-        if let controller { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
+        if let controller {
+            // From the docked agent chat, a tab in the strip (ChatColumnPlacement).
+            var target: PaneController? = controller
+            if invocation.origin == .user {
+                let spawn = SpawnOptions(cwd: cwd ?? controller.selectedTab?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+                target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
+            }
+            target?.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true, source: controller)
+            return
+        }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
@@ -107,11 +116,18 @@ enum TabLifecycle {
             invocation.arguments["cwd"] = nil
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation)
-        case .agent:
-            ctx.services.newTabKinds.record(.agent, folder: folder)
-            controller?.newAgentTab()
-        case .page:
-            controller?.newTabPage()
+        case .agent, .page:
+            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
+            if user, let controller, let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services),
+               strip !== controller {
+                return strip.newTabPage()
+            }
+            if kind == .page {
+                controller?.newTabPage()
+            } else {
+                ctx.services.newTabKinds.record(.agent, folder: folder)
+                controller?.newAgentTab()
+            }
         }
     }
 
@@ -168,8 +184,17 @@ enum TabLifecycle {
         if case .explicit(let id) = profileRequest, !ctx.services.browserProfiles.isKnown(id) {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(id))
         }
-        guard let pane = ctx.daemonPane(invocation) else { return }
+        guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement).
+        let pane: PaneModel
+        if invocation.origin == .user, let chat = ctx.services.paneController(for: invoked) {
+            let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
+            guard let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) else { return }
+            pane = target.pane
+        } else {
+            pane = invoked
+        }
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
         if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
             noteUserChoice(.browser(engine: engine), ctx, invocation, pane: pane)
@@ -220,6 +245,17 @@ enum TabLifecycle {
                 return "new-frontend-browser-tab: \(error)"
             }
         })
+    }
+
+    /// The browser tab a lone agent chat leaves in its pane when it docks: a
+    /// frontend tab on the resolved engine, else nil (the chat stays).
+    private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
+                                    profile: AgentBrowserProfile.Request) -> SplitRespawn? {
+        guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(),
+              case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
+        var profileID: String?
+        if case .explicit(let id) = profile { profileID = id }
+        return .browser(url: url?.absoluteString ?? ctx.services.newTabAddress(for: choice), engine: choice.engine, profileID: profileID)
     }
 
     /// A new browser tab in browser profile `profile` (openBrowser's
