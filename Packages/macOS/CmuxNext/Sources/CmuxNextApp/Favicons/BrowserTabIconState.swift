@@ -36,6 +36,7 @@ enum BrowserTabIconState: Equatable {
         if BookmarkPageAddress.matches(url) { return .bookmarkManager }
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
         if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return .machineRemote }
+        if TabContentCache.isRemoteBrowserPage(url) { return .machineRemote }
         return nil
     }
 
