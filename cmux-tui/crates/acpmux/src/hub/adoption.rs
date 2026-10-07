@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::adopt::AdoptRequest;
+use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
 pub(super) enum Adoption {
@@ -23,6 +24,7 @@ impl Hub {
         adopt: Option<&AdoptRequest>,
         agent: &str,
         family: &str,
+        env: &[&BTreeMap<String, String>],
     ) -> Result<Adoption, RpcError> {
         let Some(a) = adopt else { return Ok(Adoption::Found(None)) };
         if let Some(asked) = &a.harness
@@ -36,8 +38,9 @@ impl Hub {
         if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
             return Ok(Adoption::Existing(existing));
         }
-        // The store walk and the record read are file I/O.
-        let homes = self.harness_homes.lock().unwrap().clone();
+        // The store the resuming harness reads: its spawn env's home, else
+        // the daemon's. The store walk and the record read are file I/O.
+        let homes = self.harness_homes.lock().unwrap().with_env(env);
         let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
         let found = tokio::task::spawn_blocking(move || crate::adopt::find(&fam, &id, &homes))
             .await
