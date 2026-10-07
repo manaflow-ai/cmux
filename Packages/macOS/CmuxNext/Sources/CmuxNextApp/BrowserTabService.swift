@@ -13,9 +13,10 @@ typealias BrowserEngineTag = CmuxNextDaemon.BrowserEngine
 final class BrowserTabService {
     /// `new-frontend-browser-tab` in `pane` with a browser profile id (nil
     /// for an incognito tab). With `activate` false the tab stays in the
-    /// background (`frontend-browser-activate-v1`). Returns the new surface.
+    /// background (`frontend-browser-activate-v1`); `after` is the tab it
+    /// should go right after (not sent yet). Returns the new surface.
     var create: @MainActor (_ pane: PaneID, _ url: String, _ engine: BrowserEngineTag, _ profile: String?,
-                            _ activate: Bool) async throws -> SurfaceID
+                            _ activate: Bool, _ after: SurfaceID?) async throws -> SurfaceID
     /// The browser profile a new tab in `pane` gets: the explicit one, else
     /// the workspace's, the room's or `default` (`BrowserProfileService`).
     var resolveProfile: @MainActor (_ pane: PaneID, _ explicit: String?) -> String? = { _, explicit in explicit }
@@ -64,7 +65,7 @@ final class BrowserTabService {
     private(set) var openedSurfaces: Set<SurfaceID> = []
 
     init(daemon: DaemonService, cef: CEFEngine) {
-        create = { [weak daemon] pane, url, engine, profile, activate in
+        create = { [weak daemon] pane, url, engine, profile, activate, _ in
             guard let connection = daemon?.connection else { throw DaemonError.notConnected }
             // An older daemon without the capability would ignore the field: send it only when served.
             let background = !activate && daemon?.supports(DaemonCapabilities.shared.frontendBrowserActivate) == true
@@ -141,10 +142,10 @@ final class BrowserTabService {
     /// known one, else the cascade) and stored on its record; an incognito
     /// tab stores none (its window's session is its store).
     func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String, incognito: Bool? = nil, profile explicit: String? = nil,
-              notice: String? = nil, activate: Bool = true) async throws -> SurfaceID {
+              notice: String? = nil, activate: Bool = true, after: SurfaceID? = nil) async throws -> SurfaceID {
         let offTheRecord = incognito ?? isIncognitoPane(pane)
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
-        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate)
+        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
         if offTheRecord { incognitoURLs[surface] = url }
         if let notice { pendingNotices[surface] = notice }
         openedSurfaces.insert(surface)

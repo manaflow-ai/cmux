@@ -259,3 +259,7 @@ mod reuse_tests;
 #[cfg(test)]
 #[path = "frontend_browser_activate_tests.rs"]
 mod activate_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_insert_tests.rs"]
+mod insert_tests;
