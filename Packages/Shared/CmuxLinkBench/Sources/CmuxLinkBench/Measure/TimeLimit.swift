@@ -16,8 +16,15 @@ struct TimeLimit: Sendable {
             do { await gate.resolve(.success(try await operation())) } catch { await gate.resolve(.failure(error)) }
         }
         let timer = Task {
-            try? await Task.sleep(for: limit)
-            await gate.resolve(.success(nil))
+            do {
+                try await Task.sleep(for: limit)
+                guard !Task.isCancelled else { return }
+                await gate.resolve(.success(nil))
+            } catch is CancellationError {
+                // The caller won the race and cancelled the timer.
+            } catch {
+                await gate.resolve(.failure(error))
+            }
         }
         defer {
             work.cancel()

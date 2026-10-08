@@ -32,18 +32,22 @@ public final class BenchSplitFixture: BenchFixtureProtocol, Sendable {
         let states = await dialer.states()
         let clock = ContinuousClock()
         let start = clock.now
-        await dialer.connect()
-        guard let live = try await TimeLimit(configuration.handshakeTimeout).run({
-            for await state in states {
-                if state.isLive { return true }
-                if state.isClosed { return false }
+        do {
+            await dialer.connect()
+            guard let live = try await TimeLimit(configuration.handshakeTimeout).run({
+                for await state in states {
+                    if state.isLive { return true }
+                    if state.isClosed { return false }
+                }
+                return false
+            }), live else {
+                throw BenchSplitError.server("dialer did not reach a live path")
             }
-            return false
-        }), live else {
+            return BenchSplitFixture(dialer: dialer, connectToLive: clock.now - start)
+        } catch {
             await dialer.close()
-            throw BenchSplitError.server("dialer did not reach a live path")
+            throw error
         }
-        return BenchSplitFixture(dialer: dialer, connectToLive: clock.now - start)
     }
 
     public func openPair(_ descriptor: ChannelDescriptor) async throws -> BenchChannelPair {

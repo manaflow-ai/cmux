@@ -70,10 +70,15 @@ public struct BenchRunner: Sendable {
             startedAt: ISO8601DateFormatter().string(from: Date())
         )
         func attempt<T>(_ workload: BenchWorkload, _ body: () async throws -> T) async -> T? {
-            guard spec.runs(workload) else { return nil }
+            guard spec.runs(workload), !Task.isCancelled else { return nil }
             progress("\(rig.name): \(workload.rawValue)")
+            guard !Task.isCancelled else { return nil }
             do {
-                return try await body()
+                let value = try await body()
+                try Task.checkCancellation()
+                return value
+            } catch is CancellationError {
+                return nil
             } catch {
                 report.errors.append("\(workload.rawValue): \(error)")
                 progress("  error: \(error)")
