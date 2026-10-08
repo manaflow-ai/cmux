@@ -61,6 +61,22 @@ struct ProUpgradeCardTests {
         #expect(flow.accountPlanStatus == .managedPro)
     }
 
+    @Test("refreshes keep a verified plan visible")
+    func refreshKeepsKnownPlanVisible() {
+        let flow = PlanTestAccountFlow()
+        flow.isWorkingOnAuth = false
+        flow.isProStatusKnown = true
+        flow.isProActive = true
+        flow.canManageBilling = true
+
+        flow.isRefreshing = true
+        #expect(flow.accountPlanStatus == .managedPro)
+
+        flow.isRefreshing = false
+        flow.lookupFailed = true
+        #expect(flow.accountPlanStatus == .managedPro)
+    }
+
     @Test("team scope is part of the plan snapshot")
     func teamScopeChangesPlan() async {
         let flow = PlanTestAccountFlow()
@@ -102,28 +118,37 @@ private final class PlanTestAccountFlow: AccountFlow {
     var refreshCount = 0
     var result: (isPro: Bool, canManage: Bool)? = (true, true)
     var statusOverride: AccountPlanStatus?
+    var isRefreshing = false
+    var lookupFailed = false
 
     var accountPlanStatus: AccountPlanStatus {
         if let statusOverride { return statusOverride }
         if isWorkingOnAuth { return .checking }
         guard currentIdentity != nil else { return .free }
-        guard isProStatusKnown else { return .checking }
-        if isProActive { return canManageBilling ? .managedPro : .pro }
-        return .free
+        if isProStatusKnown {
+            if isProActive { return canManageBilling ? .managedPro : .pro }
+            return .free
+        }
+        if lookupFailed { return .unavailable }
+        if isRefreshing { return .checking }
+        return .checking
     }
 
     func refreshBillingPlan() async {
         refreshCount += 1
         refreshedTeams.append(confirmedTeamID)
         statusOverride = nil
+        isRefreshing = true
         if let result {
             isProActive = result.isPro
             canManageBilling = result.canManage
             isProStatusKnown = true
+            lookupFailed = false
         } else {
             isProStatusKnown = false
-            statusOverride = .unavailable
+            lookupFailed = true
         }
+        isRefreshing = false
     }
 
     func selectTeam(id: String?) async throws { selectedTeamID = id }

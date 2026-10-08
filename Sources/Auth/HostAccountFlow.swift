@@ -35,12 +35,18 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
     /// The host-owned presentation snapshot for the Settings account plan row.
     var accountPlanStatus: AccountPlanStatus {
-        if isWorkingOnAuth || billingPlanRefreshing { return .checking }
+        if isWorkingOnAuth { return .checking }
         guard currentIdentity != nil else { return .free }
+        // Keep a verified answer visible while refreshing or recovering from a
+        // transient failure. `hasLoadedBillingPlan` is scope-checked, so this
+        // cannot leak the previous account or team's entitlement.
+        if hasLoadedBillingPlan {
+            if isProActive { return canManageBilling ? .managedPro : .pro }
+            return .free
+        }
         if billingPlanLookupFailed { return .unavailable }
-        guard hasLoadedBillingPlan else { return .checking }
-        if isProActive { return canManageBilling ? .managedPro : .pro }
-        return .free
+        if billingPlanRefreshing { return .checking }
+        return .checking
     }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
