@@ -27058,12 +27058,6 @@ struct CMUXCLI {
   }
 }
 """#
-    private static let openCodeTUIPluginServerSource = #"""
-// cmux-opencode-tui-plugin-server-marker v1
-// The V2 server entry is intentionally inert. The bridge runs in ./tui.
-export default { id: "cmux.server", setup() {} };
-"""#
-
     func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
         let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
             .split(separator: ":")
@@ -34741,15 +34735,29 @@ export default {
         for url in candidates where fileManager.fileExists(atPath: url.path) {
             if let source = try? String(contentsOf: url, encoding: .utf8) { return source }
         }
-        throw CLIError(message: "bundled opencode-tui-plugin.js not found")
+        throw CLIError(message: String(localized: "cli.hooks.error.bundledPluginUnavailable", defaultValue: "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."))
+    }
+
+    private func validateOpenCodeTUIPluginDirectory(in configDir: URL) throws {
+        let directory = openCodeTUIPluginDirectory(in: configDir)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: directory.path) {
+            let indexURL = directory.appendingPathComponent("index.js", isDirectory: false)
+            let index = try? String(contentsOf: indexURL, encoding: .utf8)
+            guard index?.contains("cmux-opencode-tui-plugin-server-marker") == true else {
+                throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+            }
+        }
     }
 
     private func writeOpenCodeTUIPlugin(in configDir: URL) throws {
         let directory = openCodeTUIPluginDirectory(in: configDir)
         let fileManager = FileManager.default
+        try validateOpenCodeTUIPluginDirectory(in: configDir)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try Self.openCodeTUIPluginPackageSource.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
-        try Self.openCodeTUIPluginServerSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n" + (try bundledOpenCodePluginSource())
+        try serverSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
         try bundledOpenCodeTUIPluginSource().write(to: directory.appendingPathComponent("tui.js"), atomically: true, encoding: .utf8)
     }
 
@@ -34940,6 +34948,7 @@ export default {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        try validateOpenCodeTUIPluginDirectory(in: configDir)
         if existing == Self.openCodeSessionPluginSource {
             try writeOpenCodeTUIPlugin(in: configDir)
             print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
@@ -34963,11 +34972,18 @@ export default {
 
     private func removeOpenCodeTUIPlugin(in configDir: URL) throws {
         let directory = openCodeTUIPluginDirectory(in: configDir)
+        let fileManager = FileManager.default
         let indexURL = directory.appendingPathComponent("index.js", isDirectory: false)
         guard let index = try? String(contentsOf: indexURL, encoding: .utf8),
               index.contains("cmux-opencode-tui-plugin-server-marker")
         else { return }
-        try FileManager.default.removeItem(at: directory)
+        for name in ["package.json", "index.js", "tui.js"] {
+            let url = directory.appendingPathComponent(name, isDirectory: false)
+            if fileManager.fileExists(atPath: url.path) { try fileManager.removeItem(at: url) }
+        }
+        if (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?.isEmpty == true {
+            try fileManager.removeItem(at: directory)
+        }
     }
 
     private func uninstallOpenCodePluginHooks(_ def: AgentHookDef) throws {
@@ -41459,7 +41475,7 @@ export default {
                 return contents
             }
         }
-        throw CLIError(message: "bundled opencode-plugin.js not found (Bundle.main, app bundle, executable, and repo fallbacks)")
+        throw CLIError(message: String(localized: "cli.hooks.error.bundledPluginUnavailable", defaultValue: "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."))
     }
 
     private func openCodePluginResourceCandidates() -> [URL] {
@@ -41535,7 +41551,12 @@ export default {
         )
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
+        let pluginConfigDir = projectLocal
+            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
+            : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
+        try validateOpenCodeTUIPluginDirectory(in: pluginConfigDir)
         if existing == source {
+            try writeOpenCodeTUIPlugin(in: pluginConfigDir)
             print("OpenCode plugin already up to date at \(path)")
             return
         }
@@ -41553,9 +41574,6 @@ export default {
             }
         }
         try source.write(toFile: path, atomically: true, encoding: .utf8)
-        let pluginConfigDir = projectLocal
-            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
-            : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
         try writeOpenCodeTUIPlugin(in: pluginConfigDir)
         print("OpenCode plugin installed at \(path)")
     }

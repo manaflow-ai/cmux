@@ -1,159 +1,218 @@
-// cmux-opencode-tui-plugin-marker v1
-// OpenCode V2 CLI/TUI bridge. This module is loaded in each TUI process.
-// It deliberately has no server event subscription.
+// cmux-opencode-tui-plugin-marker v2
+// OpenCode V2 bridge loaded inside each TUI process.
+// The server entry is inert; this module owns the TUI's cmux identity.
 
-import net from "node:net";
+import fs from "node:fs";
+import path from "node:path";
 import { spawn } from "node:child_process";
-import os from "node:os";
-
-const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
-const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
-const MAX_EVENT_TEXT = 1000;
+import { CMUXFeed } from "./index.js";
 
 const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || null;
 const properties = (event) => event?.data || event?.properties || {};
-const sessionID = (event) => {
-  const data = properties(event);
-  return firstString(data.sessionID, data.sessionId, data.session_id, data.info?.id, data.info?.sessionID, data.permission?.sessionID, data.permission?.sessionId, event?.sessionID);
-};
-const cwd = (ctx, event) => firstString(properties(event).info?.directory, properties(event).directory, ctx?.location?.directory, ctx?.directory, process.cwd());
-const compact = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, MAX_EVENT_TEXT) : null;
 
-function visibleSessionIDs(ctx) {
-  const ids = [];
-  const current = ctx?.ui?.router?.current?.();
-  if (current?.type === "session") ids.push(current.sessionID || current.sessionId || current.id);
-  if (ctx?.ui?.tabs?.enabled?.() !== false) {
-    for (const tab of ctx?.ui?.tabs?.list?.() || []) {
-      ids.push(typeof tab === "string" ? tab : tab?.sessionID || tab?.sessionId || tab?.id);
+function sessionID(event) {
+  const data = properties(event);
+  const info = data.info || data.message || {};
+  const part = data.part || {};
+  const permission = data.permission || {};
+  const sessionEventID = event?.type?.startsWith("session.") ? info.id : null;
+  return firstString(
+    data.sessionID,
+    data.sessionId,
+    data.session_id,
+    info.sessionID,
+    info.sessionId,
+    part.sessionID,
+    part.sessionId,
+    permission.sessionID,
+    permission.sessionId,
+    sessionEventID,
+    event?.sessionID,
+    event?.sessionId,
+  );
+}
+
+function cwd(ctx, event) {
+  const data = properties(event);
+  return firstString(
+    data.info?.directory,
+    data.info?.location?.directory,
+    data.directory,
+    data.cwd,
+    ctx?.location?.directory,
+    ctx?.directory,
+    process.cwd(),
+  );
+}
+
+function rootFor(ctx, id) {
+  try { return ctx?.data?.session?.root?.(id) || id; } catch (_) { return id; }
+}
+
+/** Return true when a session's root is currently visible in this TUI. */
+function visibleRoots(ctx) {
+  const roots = new Set();
+  try {
+    const route = ctx?.ui?.router?.current?.() || ctx?.ui?.route?.current;
+    const routeID = route?.sessionID || route?.sessionId || route?.params?.sessionID || route?.params?.sessionId;
+    if (route?.type === "session" || route?.name === "session" || routeID) roots.add(rootFor(ctx, routeID));
+    if (ctx?.ui?.tabs?.enabled?.() !== false) {
+      for (const tab of ctx?.ui?.tabs?.list?.() || []) {
+        const idForTab = typeof tab === "string" ? tab : tab?.sessionID || tab?.sessionId || tab?.id;
+        if (idForTab) roots.add(rootFor(ctx, idForTab));
+      }
+    }
+  } catch (_) {}
+  return roots;
+}
+
+/** Return true when a session's root is currently visible in this TUI. */
+export function sessionBelongsToTUI(ctx, id) {
+  if (!id) return false;
+  return visibleRoots(ctx).has(rootFor(ctx, id));
+}
+
+function createOwnership(ctx) {
+  let roots = new Set();
+  const refresh = () => {
+    roots = visibleRoots(ctx);
+  };
+  refresh();
+  const disposers = [];
+  for (const owner of [ctx?.ui?.router, ctx?.ui?.tabs]) {
+    for (const name of ["onChange", "subscribe", "listen"]) {
+      const subscribe = owner?.[name];
+      if (typeof subscribe !== "function") continue;
+      try {
+        const stop = subscribe.call(owner, refresh);
+        if (typeof stop === "function") disposers.push(stop);
+      } catch (_) {}
+      break;
     }
   }
-  return ids.filter(Boolean);
-}
-
-/** Return true when a session is shown by this TUI's route or tabs. */
-export async function sessionBelongsToTUI(ctx, id) {
-  if (!id) return false;
-  const visible = visibleSessionIDs(ctx);
-  if (visible.length === 0) return false;
-  const root = (candidate) => {
-    try { return ctx?.data?.session?.root?.(candidate) || candidate; } catch (_) { return candidate; }
+  return {
+    // Router and tab state are live, but the public TUI API does not expose a
+    // stable change subscription on every supported OpenCode release. Resolve
+    // ownership from the current state for each event so a closed starter
+    // surface cannot retain a session after navigation changes.
+    belongs: (id) => Boolean(id && sessionBelongsToTUI(ctx, id)),
+    refresh,
+    dispose: () => disposers.forEach((stop) => { try { stop(); } catch (_) {} }),
   };
-  const targetRoot = root(id);
-  return visible.some((candidate) => root(candidate) === targetRoot);
 }
 
-function launchEnvironment(cwdValue) {
-  const env = { ...process.env, CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" };
-  if (cwdValue) env.CMUX_AGENT_LAUNCH_CWD = cwdValue;
+function resolveExecutable(name) {
+  for (const directory of (process.env.PATH || "").split(path.delimiter)) {
+    if (!directory) continue;
+    const candidate = path.join(directory, name);
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && (stat.mode & 0o111)) return candidate;
+    } catch (_) {}
+  }
+  return name;
+}
+
+function launchArgv() {
+  const raw = Array.isArray(process.argv) ? process.argv.map(String) : [];
+  if (raw.length === 0) return [resolveExecutable("opencode")];
+  const worker = (value) => String(value).replaceAll("\\", "/").includes("/$bunfs/") && String(value).endsWith("/tui/worker.js");
+  const filtered = raw.filter((value, index) => index === 0 || !worker(value));
+  const first = path.basename(filtered[0] || "").toLowerCase();
+  if (first.includes("opencode") || first.includes("open-code")) return filtered;
+  const tail = filtered.slice(1);
+  if (tail.length && /opencode|open-code/i.test(path.basename(tail[0]))) tail.shift();
+  return [resolveExecutable("opencode"), ...tail];
+}
+
+function launchEnvironment(cwdValue, baseEnvironment = process.env) {
+  const env = { ...baseEnvironment, CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" };
+  delete env.AMP_API_KEY;
+  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    const argv = launchArgv();
+    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = Buffer.from(`${argv.join("\0")}\0`, "utf8").toString("base64");
+    env.CMUX_AGENT_LAUNCH_CWD = cwdValue || process.cwd();
+  }
   return env;
 }
 
-/** Dispatch session restore asynchronously so one TUI cannot block the shared service. */
-export function dispatchSessionHook(eventName, payload, spawnImpl = spawn) {
-  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1" || !process.env.CMUX_SURFACE_ID) return false;
-  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
-  const child = spawnImpl(cmux, ["hooks", "enqueue", "opencode", eventName], {
-    env: launchEnvironment(payload.cwd),
-    stdio: ["pipe", "ignore", "ignore"],
-  });
-  child.stdin?.end(JSON.stringify(payload));
-  child.stdin?.on?.("error", () => {});
-  child.on?.("error", () => {});
-  child.unref?.();
-  return true;
-}
-
-function feedPush(event) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
-    const socket = net.createConnection(SOCKET_PATH);
-    let buffered = "";
-    socket.setEncoding("utf8");
-    socket.on("data", (chunk) => {
-      buffered += chunk;
-      let index;
-      while ((index = buffered.indexOf("\n")) >= 0) {
-        const line = buffered.slice(0, index); buffered = buffered.slice(index + 1);
-        try {
-          const message = JSON.parse(line);
-          if (message?.result?.request_id || message?.request_id || message?.id) finish(message.result || message);
-        } catch (_) {}
-      }
+/** Admit session restore without blocking the shared OpenCode service. */
+export function dispatchSessionHook(eventName, payload, spawnImpl = spawn, baseEnvironment = process.env) {
+  if (baseEnvironment.CMUX_OPENCODE_HOOKS_DISABLED === "1" || !baseEnvironment.CMUX_SURFACE_ID) return false;
+  const cmux = baseEnvironment.CMUX_OPENCODE_CMUX_BIN || "cmux";
+  try {
+    const child = spawnImpl(cmux, ["hooks", "enqueue", "opencode", eventName], {
+      env: launchEnvironment(payload.cwd, baseEnvironment),
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
     });
-    socket.once("error", () => finish(null));
-    socket.once("close", () => finish(null));
-    socket.setTimeout?.(120000, () => { socket.destroy(); finish(null); });
-    socket.write(JSON.stringify({
-      id: `opencode-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      method: "feed.push",
-      params: { event, wait_timeout_seconds: 120 },
-    }) + "\n");
-  });
+    child.stdin?.on?.("error", () => {});
+    child.on?.("error", () => {});
+    child.stdin?.end(JSON.stringify(payload));
+    child.unref?.();
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
-function permissionFrame(id, request) {
-  const data = properties(request);
-  const permission = data.permission || data;
-  return {
-    session_id: `opencode-${id}`,
-    _source: "opencode",
-    _ppid: process.pid,
-    surface_id: process.env.CMUX_SURFACE_ID,
-    workspace_id: process.env.CMUX_WORKSPACE_ID,
-    cwd: firstString(permission.directory, data.directory),
-    hook_event_name: "PermissionRequest",
-    _opencode_request_id: firstString(permission.id, permission.requestID, data.id),
-    tool_name: firstString(permission.action, permission.permission, permission.tool?.name) || "permission",
-    tool_input: permission,
+function sessionEventName(event) {
+  const data = properties(event);
+  if (event?.type === "session.created") return "session-start";
+  if (event?.type === "session.deleted") return "session-end";
+  if (event?.type === "session.updated") return data.info?.time?.archived ? "session-end" : "session-start";
+  if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(event?.type)) return "stop";
+  if (event?.type === "session.idle") return "stop";
+  if (event?.type === "session.status" && (data.status?.type || data.status?.status || data.status) === "idle") return "stop";
+  return null;
+}
+
+function reportError(ctx, error) {
+  try {
+    const report = ctx?.error || ctx?.ui?.error || ctx?.onError;
+    if (typeof report === "function") report.call(ctx, error);
+  } catch (_) {}
+}
+
+async function handleEvent(ctx, ownership, feed, details, environment) {
+  const event = details?.event || details;
+  const id = sessionID(event);
+  if (!id || !ownership.belongs(id)) return;
+  const hook = sessionEventName(event);
+  if (hook) {
+    dispatchSessionHook(hook, {
+      session_id: id,
+      cwd: cwd(ctx, event),
+      event: event.type,
+      hook_event_name: hook === "stop" ? "Stop" : event.type,
+    }, spawn, environment);
+  }
+  await feed.event({ event });
+}
+
+export async function createCMUXTUIBridge(ctx, options = {}) {
+  const environment = { ...process.env, ...options.environment };
+  const ownership = createOwnership(ctx);
+  const feed = await CMUXFeed(ctx, {
+    tui: true,
+    ownsSession: ownership.belongs,
+    locationForSession: () => ctx?.location,
+    environment,
+  });
+  const onEvent = ({ details, event }) => {
+    void handleEvent(ctx, ownership, feed, details || event, environment).catch((error) => reportError(ctx, error));
   };
-}
-
-async function handleEvent(ctx, details) {
-  const id = sessionID(details);
-  if (!id || !(await sessionBelongsToTUI(ctx, id))) return;
-  const type = details?.type;
-  const data = properties(details);
-  if (["session.created", "session.updated", "session.deleted"].includes(type)) {
-    dispatchSessionHook(type === "session.deleted" ? "session-end" : "session-start", {
-      session_id: id, cwd: cwd(ctx, details), event: type, hook_event_name: type,
-    });
-    return;
-  }
-  if (type === "session.idle" || (type === "session.status" && (data.status?.type || data.status) === "idle")) {
-    dispatchSessionHook("stop", { session_id: id, cwd: cwd(ctx, details), event: type, hook_event_name: "Stop" });
-    return;
-  }
-  if (type === "permission.asked") {
-    const frame = permissionFrame(id, details);
-    const result = await feedPush(frame);
-    if (result?.status !== "resolved" || !result.decision || !ctx.client?.permission?.reply) return;
-    const decision = result.decision.mode === "deny" ? "reject" : result.decision.mode === "always" ? "always" : "once";
-    await ctx.client.permission.reply({ sessionID: id, requestID: frame._opencode_request_id, decision });
-    return;
-  }
-  if (["form.created", "form.updated", "form.asked", "session.form"].includes(type)) {
-    const form = data.form || data;
-    const formID = firstString(form.id, form.formID, form.formId, data.formID, data.formId);
-    if (!formID || !ctx.data?.session?.form?.reply) return;
-    const result = await feedPush({
-      session_id: `opencode-${id}`, _source: "opencode", surface_id: process.env.CMUX_SURFACE_ID,
-      workspace_id: process.env.CMUX_WORKSPACE_ID, hook_event_name: "AskUserQuestion",
-      _opencode_request_id: formID, tool_name: "form", tool_input: form,
-    });
-    if (result?.status === "resolved" && result.decision?.kind === "question") {
-      await ctx.data.session.form.reply({ sessionID: id, formID, answer: result.decision.selections || {} }, ctx.location);
-    }
-  }
-}
-
-export function createCMUXTUIBridge(ctx) {
-  const stop = ctx.data.listen(({ details }) => { void handleEvent(ctx, details); });
-  return () => stop?.();
+  const stop = ctx.data.listen(onEvent);
+  return () => {
+    stop?.();
+    feed.dispose?.();
+    ownership.dispose();
+  };
 }
 
 export default {
   id: "cmux.tui",
-  setup(ctx) { return createCMUXTUIBridge(ctx); },
+  async setup(ctx) { return createCMUXTUIBridge(ctx); },
 };

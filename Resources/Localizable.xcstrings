@@ -87785,6 +87785,256 @@
         }
       }
     },
+    "cli.hooks.error.pluginDirectoryOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تثبيت تكامل الوكيل المحدد لأن مجلد الإضافات مستخدم بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die ausgewählte Agenten-Integration nicht installieren, weil das Plugin-Verzeichnis bereits verwendet wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo instalar la integración del agente seleccionada porque su directorio de plugins ya está en uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu installer l’intégration d’agent sélectionnée, car son dossier de plugins est déjà utilisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインディレクトリがすでに使用されているため、cmux は選択したエージェント統合をインストールできませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플러그인 디렉터리가 이미 사용 중이어서 cmux가 선택한 에이전트 통합을 설치할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安装所选代理集成，因为其插件目录已在使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安裝所選代理整合，因為其外掛程式目錄已在使用中。"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.bundledPluginUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تثبيت تكامل الوكيل المحدد. أعد تثبيت cmux أو شغّل أمر تثبيت hooks مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die ausgewählte Agenten-Integration nicht installieren. Installiere cmux neu oder führe den Hook-Installationsbefehl erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo instalar la integración del agente seleccionada. Reinstala cmux o vuelve a ejecutar el comando de instalación de hooks."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu installer l’intégration d’agent sélectionnée. Réinstallez cmux ou relancez la commande d’installation des hooks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は選択したエージェント統合をインストールできませんでした。cmux を再インストールするか、hooks のインストールコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 선택한 에이전트 통합을 설치하지 못했습니다. cmux를 다시 설치하거나 훅 설치 명령을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安装所选代理集成。请重新安装 cmux，或再次运行 hooks 安装命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安裝所選代理整合。請重新安裝 cmux，或再次執行 hooks 安裝命令。"
+          }
+        }
+      }
+    },
     "cli.hooks.kimi.aborted": {
       "extractionState": "manual",
       "localizations": {

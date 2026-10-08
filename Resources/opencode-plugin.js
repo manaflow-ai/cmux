@@ -9,11 +9,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
-const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
-const createCMUXFeed = async (ctx) => {
+const createCMUXFeed = async (ctx, options = {}) => {
+  const environment = { ...process.env, ...options.environment };
+  const socketPath = environment.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
+  const ownsSession = options.ownsSession || (() => true);
+  const locationForSession = options.locationForSession || (() => ctx?.location);
+  let disposed = false;
   let client = null;
   let buffered = "";
   let telemetrySequence = 0;
@@ -41,12 +45,35 @@ const createCMUXFeed = async (ctx) => {
   // properties. Keep the feed bridge tolerant of those wire-shape changes so
   // completion notifications do not depend on one particular OpenCode build.
   const sessionIdFromProperties = (props = {}) => firstString(
+    props.info && props.info.sessionID,
     props.info && props.info.id,
     props.sessionID,
     props.sessionId,
     props.session_id,
     props.session && props.session.id
   );
+
+  const sessionIdFromEvent = (event) => {
+    const props = eventProperties(event);
+    const info = props.info || props.message || {};
+    const part = props.part || {};
+    const permission = props.permission || {};
+    const sessionEventID = event?.type?.startsWith("session.") ? info.id : null;
+    return firstString(
+      props.sessionID,
+      props.sessionId,
+      props.session_id,
+      info.sessionID,
+      info.sessionId,
+      part.sessionID,
+      part.sessionId,
+      permission.sessionID,
+      permission.sessionId,
+      sessionEventID,
+      event?.sessionID,
+      event?.sessionId,
+    );
+  };
 
   const sessionStatusIsIdle = (status) => {
     if (typeof status === "string") return status.toLowerCase() === "idle";
@@ -119,6 +146,16 @@ const createCMUXFeed = async (ctx) => {
   });
 
   const replyPermission = async ({ sessionId, requestId, reply, message }) => {
+    if (disposed || !(await ownsSession(sessionId))) return;
+    if (options.tui) {
+      await ctx.client.permission.reply({
+        sessionID: sessionId,
+        requestID: requestId,
+        decision: reply,
+        ...(message ? { message } : {}),
+      });
+      return;
+    }
     // OpenCode v2 exposes permission operations on the plugin context and
     // scopes the request by session. Keep the HTTP fallback for SDK builds
     // that do not expose the domain helper yet.
@@ -156,6 +193,15 @@ const createCMUXFeed = async (ctx) => {
   };
 
   const replyForm = async (sessionId, formId, answer, legacyAnswers = null) => {
+    if (disposed || !(await ownsSession(sessionId))) return;
+    if (options.tui) {
+      await ctx.data.session.form.reply({
+        sessionID: sessionId,
+        formID: formId,
+        answer,
+      }, locationForSession(sessionId));
+      return;
+    }
     try {
       if (await callClientMethod(ctx?.form, "reply", { sessionID: sessionId, formID: formId, answer })) return;
     } catch (_) {}
@@ -190,12 +236,21 @@ const createCMUXFeed = async (ctx) => {
   };
 
   const updateSessionPermission = async (sessionId, permission) => {
+    if (disposed || !(await ownsSession(sessionId))) return false;
     if (!sessionId || !permission.length) return true;
     const permissions = permission.map((rule) => ({
       action: rule.permission,
       resource: rule.pattern,
       effect: rule.action === "allow" ? "allow" : rule.action === "deny" ? "deny" : "ask",
     }));
+    if (options.tui) {
+      try {
+        await ctx.client.session.update({ sessionID: sessionId, permissions });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
     try {
       if (await callClientMethod(ctx?.permission, "rules", { sessionID: sessionId, permissions })) return true;
     } catch (_) {}
@@ -219,7 +274,15 @@ const createCMUXFeed = async (ctx) => {
 
   const sendPlanFeedback = async (sessionId, text) => {
     const message = normalizeText(text, 2000);
-    if (!sessionId || !message) return;
+    if (!sessionId || !message || disposed || !(await ownsSession(sessionId))) return;
+    if (options.tui) {
+      try {
+        await ctx.client.session.prompt({ sessionID: sessionId, text: { text: message }, resume: false });
+        return;
+      } catch (_) {}
+      await ctx.client.session.synthetic({ sessionID: sessionId, text: { text: message }, resume: false });
+      return;
+    }
     try {
       if (await callClientMethod(ctx?.session, "prompt", { sessionID: sessionId, text: message })) return;
     } catch (_) {}
@@ -458,7 +521,6 @@ const createCMUXFeed = async (ctx) => {
   const resolvePending = (requestId, value) => {
     if (!requestId || !pending.has(requestId)) return;
     const resolver = pending.get(requestId);
-    pending.delete(requestId);
     resolver(value);
   };
 
@@ -471,7 +533,7 @@ const createCMUXFeed = async (ctx) => {
 
   const connect = () => {
     try {
-      const conn = net.createConnection(SOCKET_PATH);
+      const conn = net.createConnection(socketPath);
       conn.setEncoding("utf8");
       conn.on("data", (chunk) => {
         buffered += chunk;
@@ -527,12 +589,12 @@ const createCMUXFeed = async (ctx) => {
     const state = sessionState(sessionId);
     const context = extra?.context || contextForSession(sessionId);
     const workspaceId =
-      typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
-        ? process.env.CMUX_WORKSPACE_ID.trim()
+      typeof environment.CMUX_WORKSPACE_ID === "string" && environment.CMUX_WORKSPACE_ID.trim()
+        ? environment.CMUX_WORKSPACE_ID.trim()
         : null;
     const surfaceId =
-      typeof process.env.CMUX_SURFACE_ID === "string" && process.env.CMUX_SURFACE_ID.trim()
-        ? process.env.CMUX_SURFACE_ID.trim()
+      typeof environment.CMUX_SURFACE_ID === "string" && environment.CMUX_SURFACE_ID.trim()
+        ? environment.CMUX_SURFACE_ID.trim()
         : null;
     const event = {
       session_id: `opencode-${sessionId}`,
@@ -587,13 +649,21 @@ const createCMUXFeed = async (ctx) => {
 
   const pushBlocking = (event, requestId) => {
     const reply = new Promise((resolve) => {
-      pending.set(requestId, resolve);
-      setTimeout(() => {
+      let timeout;
+      const finish = (value) => {
+        if (!pending.has(requestId)) return;
+        pending.delete(requestId);
+        if (timeout) clearTimeout(timeout);
+        resolve(value);
+      };
+      pending.set(requestId, finish);
+      timeout = setTimeout(() => {
         if (pending.has(requestId)) {
           pending.delete(requestId);
           resolve({ status: "timed_out" });
         }
       }, REPLY_TIMEOUT_MS);
+      timeout.unref?.();
     });
     const wrote = write({
       id: `opencode-${requestId}`,
@@ -619,6 +689,10 @@ const createCMUXFeed = async (ctx) => {
   };
 
   const handleEvent = async (event) => {
+      if (options.tui) {
+        const sid = sessionIdFromEvent(event);
+        if (!sid || !(await ownsSession(sid))) return;
+      }
       const tracked = trackMessage(event);
       if (tracked) {
         pushTelemetry(tracked);
@@ -645,6 +719,24 @@ const createCMUXFeed = async (ctx) => {
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
+          break;
+        }
+        case "session.execution.succeeded":
+        case "session.execution.failed":
+        case "session.execution.interrupted": {
+          const sid = sessionIdFromEvent(event);
+          if (sid) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          break;
+        }
+        case "session.updated": {
+          const sid = sessionIdFromEvent(event);
+          if (!sid) break;
+          if (eventProperties(event).info?.time?.archived) {
+            pushTelemetry(base(sid, { hook_event_name: "SessionEnd" }));
+            sessions.delete(sid);
+          } else {
+            pushTelemetry(base(sid, { hook_event_name: "SessionStart" }));
+          }
           break;
         }
         case "session.idle": {
@@ -816,7 +908,19 @@ const createCMUXFeed = async (ctx) => {
       }
   };
 
-  return { event: async ({ event }) => handleEvent(event?.event || event) };
+  return {
+    event: async ({ event }) => {
+      if (!disposed) await handleEvent(event?.event || event);
+    },
+    dispose() {
+      disposed = true;
+      client?.destroy();
+      client = null;
+      for (const requestId of pending.keys()) resolvePending(requestId, { status: "timed_out" });
+      messageRoles.clear();
+      sessions.clear();
+    },
+  };
 };
 
 export const CMUXFeed = createCMUXFeed;
