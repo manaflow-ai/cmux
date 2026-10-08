@@ -192,11 +192,22 @@ public struct AgentNotificationReconciler: Sendable {
             session.sequence = max(session.sequence, event.sequence)
             sessions[sessionKey] = session
             guard context?.notification != nil else { return .init(.observation) }
-            let identity = Self.key([sessionKey, Self.key(["completion", context?.turnIdentity ?? session.turn])])
+            // A structured idle reminder is a distinct presentation from the
+            // completion that settled the turn. Keep the legacy completion
+            // identity for generic idle observations, but admit one reminder
+            // for the same settled turn so the banner can still be delivered
+            // without reopening lifecycle attention.
+            let identityKind = context?.notification?.category == "idle-reminder"
+                ? "idle-reminder"
+                : "completion"
+            let identity = Self.key([sessionKey, Self.key([identityKind, context?.turnIdentity ?? session.turn])])
             session.delivered[identity] = context?.notification?.correlationKey ?? identity
-            session.completionIdentity = identity
+            if identityKind == "completion" {
+                session.completionIdentity = identity
+            }
             sessions[sessionKey] = session
-            return .init(.accepted, identity: identity)
+            return .init(.accepted, identity: identity,
+                projectsLifecycle: context?.notification?.category != "idle-reminder")
         }
         if draft.kind == .turnStarted, let incomingTurn, incomingTurn == session.turn,
            session.phase == .needsInput || session.phase == .idle { return .init(.stale) }
