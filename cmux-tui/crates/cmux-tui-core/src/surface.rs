@@ -2047,7 +2047,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
@@ -2064,7 +2064,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2077,13 +2077,14 @@ impl Surface {
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         cell_pixels: (u16, u16),
+        seed: &[u8],
     ) -> anyhow::Result<Arc<Surface>> {
         let identity = Some(TabResourceIdentity::terminal(None)?);
         Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
             id,
             opts,
             mux,
-            terminal_id,
+            (terminal_id, seed),
             identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2103,7 +2104,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2179,11 +2180,14 @@ impl Surface {
         )
     }
 
+    /// `launch` is the reserved terminal id, and the VT replay its host
+    /// applies before the child's first byte (a hosted launch with an id
+    /// only; empty: none).
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
+        (terminal_id, seed): (Option<crate::terminal_host::TerminalId>, &[u8]),
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
@@ -2200,16 +2204,14 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let attachment = match terminal_id {
-                Some(terminal_id) => {
-                    crate::terminal_host_runtime::launch_terminal_host_with_identity(
-                        &opts,
-                        &root,
-                        default_colors,
-                        cell_pixels,
-                        initial_kitty_limits,
-                        terminal_id,
-                    )?
-                }
+                Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
+                    &opts,
+                    &root,
+                    (default_colors, cell_pixels, initial_kitty_limits),
+                    terminal_id,
+                    None,
+                    seed,
+                )?,
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
                     &root,
@@ -2234,7 +2236,7 @@ impl Surface {
                 },
             );
         }
-        let _ = terminal_id;
+        let _ = (terminal_id, seed);
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,

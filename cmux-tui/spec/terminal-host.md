@@ -212,6 +212,9 @@ seed:optional blob
 to its own parser before it reads the PTY and never writes to the PTY, as for
 `LaunchAdopt`. An owner sends it when it respawns a terminal whose shell was lost
 with its host (cx-6so.49 L2): the new shell starts below the previous screen.
+It also sends it when Reopen Closed starts a terminal that a close archived
+(ARCHIVE-1): the new shell starts below the archived screen and one line that
+names the program the close stopped.
 A host that predates the field rejects a seeded `Launch`; owners only seed
 hosts they start from their own binary.
 

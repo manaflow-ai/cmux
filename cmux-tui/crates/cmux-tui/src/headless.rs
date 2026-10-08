@@ -43,6 +43,10 @@ where
                 && let Some(mux) = signalled.upgrade()
             {
                 mux.begin_session_shutdown();
+                // Name who stopped this owner (cx-0tgl LA).
+                if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
+                    mux.record_daemon_signal(signal, sender, uid);
+                }
             }
             wake_headless();
         });

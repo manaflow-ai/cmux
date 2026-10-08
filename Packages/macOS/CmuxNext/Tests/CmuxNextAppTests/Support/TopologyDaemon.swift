@@ -5,7 +5,7 @@ import Synchronization
 /// A scripted v1 daemon that keeps a workspace tree and changes it like
 /// cmux-tui for the commands App tests run (`new-tab`, `split`,
 /// `create-workspace`, `create-terminal`, `move-tab-to-new-workspace`,
-/// `rename-workspace`, `close-surface`, `new-conversation-tab` into a workspace).
+/// `move-workspace`, `rename-workspace`, `close-surface`, `new-conversation-tab` into a workspace).
 /// `list-workspaces` reports the current tree, so `DaemonService.reconcile`
 /// mirrors what a command made; a command that changes the tree also sends
 /// `tree-changed`, as cmux-tui does. It starts with one workspace whose one pane
@@ -220,6 +220,19 @@ nonisolated final class TopologyDaemon: Sendable {
                 }
                 guard let moved else { return [#"{"id":\#(id),"ok":false,"error":"no such tab"}"#] }
                 return ok(#"{"surface":\#(surface),"workspace":\#(moved),"key":"\#(key)","undoable":false}"#)
+            case "move-workspace":
+                // Like cmux-tui: `index` is an insertion point counted with
+                // the moved workspace still in place.
+                let key = request["key"]?.stringValue, index = int("index")
+                let moved = state.tree.withLock { tree -> (Int, Int)? in
+                    guard let from = tree.workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+                    let workspace = tree.workspaces.remove(at: from)
+                    tree.workspaces.insert(workspace, at: min(max(index > from ? index - 1 : index, 0), tree.workspaces.count))
+                    tree.revision += 1
+                    return (workspace.id, tree.revision)
+                }
+                guard let (workspace, revision) = moved, let key else { return [#"{"id":\#(id),"ok":false,"error":"no such workspace"}"#] }
+                return ok(#"{"workspace":\#(workspace),"key":"\#(key)","workspace_revision":\#(revision),"replayed":false}"#)
             case "rename-workspace":
                 let key = request["key"]?.stringValue, name = request["name"]?.stringValue
                 let renamed = state.tree.withLock { tree -> (Int, Int)? in
