@@ -57,6 +57,12 @@ export const Close = (p: CvIconProps) => (
   </Svg>
 );
 
+export const Expand = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M9.5 3.5h3v3m0-3L9 7M6.5 12.5h-3v-3m0 3L7 9" />
+  </Svg>
+);
+
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.25 6.25 8 10l3.75-3.75" />

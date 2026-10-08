@@ -243,13 +243,14 @@ fn rb_input_in_service_events_arrives_once_in_order() {
     let mut input = InputChannel::new(Carrier::Datagram, 50_000);
     let down = br#"{"e":"pointer","surface":0,"kind":"down","x":12.0,"y":30.0,"button":0,"buttons":1,"click_count":1,"modifiers":0,"pointer_type":"mouse"}"#;
     let up = br#"{"e":"pointer","surface":0,"kind":"up","x":12.0,"y":30.0,"button":0,"buttons":0,"click_count":1,"modifiers":0,"pointer_type":"mouse"}"#;
-    input.push(RdInput::Service { must_deliver: true, bytes: down.to_vec() });
+    let down_seq = input.push(RdInput::Service { must_deliver: true, bytes: down.to_vec() });
     input.push(RdInput::Service { must_deliver: true, bytes: b"not json".to_vec() });
-    input.push(RdInput::Service { must_deliver: true, bytes: up.to_vec() });
+    let up_seq = input.push(RdInput::Service { must_deliver: true, bytes: up.to_vec() });
     let packet = input.packet(rig.now).expect("an input datagram");
     let first = rig.pump.datagram(&packet, true, rig.now);
     let again = rig.pump.datagram(&packet, true, rig.now);
     assert_eq!(first.input.len(), 2, "two rb events; the bad one is dropped");
+    assert_eq!(first.input_seqs, vec![Some(down_seq), Some(up_seq)], "each event's rd seq");
     assert!(matches!(first.input[0], InputEvent::Pointer { .. }));
     assert!(again.input.is_empty(), "a repeated packet applies nothing");
     assert!(!first.datagrams.is_empty(), "the pump acknowledges input");

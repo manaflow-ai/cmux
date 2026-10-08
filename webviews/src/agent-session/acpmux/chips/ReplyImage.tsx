@@ -12,6 +12,7 @@ import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { mediaKind, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
@@ -80,6 +81,7 @@ export function OpenableImage({ src, alt }: { src: string; alt: string }) {
 /// `fallback` is how the image draws when the pane will not show it (its name as a link or text).
 export function ReplyImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
   const local = localImageSource(src);
+  if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (

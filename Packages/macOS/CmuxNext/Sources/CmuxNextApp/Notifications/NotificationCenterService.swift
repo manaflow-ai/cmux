@@ -63,7 +63,7 @@ final class NotificationCenterService {
         })
         tasks.append(followViewedProgramStatus(store))
         tasks.append(Task { [weak self] in
-            for await count in Observations({ Self.unreadCount(store) }) {
+            for await count in Observations({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
             }
         })
@@ -75,7 +75,7 @@ final class NotificationCenterService {
             for await prefs in Observations({ settings.snapshot.notifications }) {
                 guard let self else { return }
                 if self.preferences != prefs { self.preferences = prefs }
-                self.updateDockBadge(Self.unreadCount(self.services?.daemon.store))
+                self.updateDockBadge(self.currentUnreadCount())
             }
         })
     }

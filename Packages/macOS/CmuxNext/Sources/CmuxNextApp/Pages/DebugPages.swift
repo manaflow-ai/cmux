@@ -6,10 +6,16 @@ import Foundation
 
 // `debug.page` (DEBUG builds): the generic page verb for every React page
 // (plans/cmux-next/react-pages.md), from the Settings lead's `debug.settings_web`.
-// Params: `page` (id, default the first live page), `action`:
+// Params: `page` (id; nil: any page), `instance` (a number from `list` or `state`), `parked`
+// (true: the pool's parked spare). Without `instance` the target is a page that is not the parked
+// spare (its document has no routes, so probes of it saw a failed-read banner no visible page
+// showed), the one in the key window first, else the newest. `action`:
+// - `list`: every live page of the id: instance, parked, window number, claim outcome;
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
 //   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
-//   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock);
+//   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
+//   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
+//   acknowledged / refused / timedOut / loaded, `ms`);
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
@@ -42,14 +48,19 @@ enum DebugPages {
            let services, let cloud = PageFactory(services: services).cloudWebPage() {
             made.append(cloud)
         }
-        guard let page = PageRegistry.pages(id: id).first else {
+        if params["action"]?.stringValue == "list" {
+            return ["pages": .array(PageRegistry.pages(id: id).map { .object(identity($0)) })]
+        }
+        let instance = params["instance"]?.intValue.map { UInt64(max($0, 0)) }
+        guard let page = PageRegistry.probeTarget(id: id, parked: params["parked"]?.boolValue == true,
+                                                  instance: instance) else {
             return ["error": .string("no live page\(id.map { " " + $0 } ?? "")")]
         }
         switch params["action"]?.stringValue ?? "state" {
         case "state":
             var state = await page.debugState()
             if case .object(var members) = state {
-                members["page"] = .string(page.pageID)
+                members.merge(identity(page)) { _, new in new }
                 members["subscriptions"] = .number(Double(page.router.subscriptionCount))
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
@@ -88,6 +99,21 @@ enum DebugPages {
         default:
             return ["error": "unknown action"]
         }
+    }
+
+    /// Which live view a probe read.
+    @MainActor
+    private static func identity(_ page: PageWebView) -> [String: JSONValue] {
+        var members: [String: JSONValue] = [
+            "page": .string(page.pageID),
+            "instance": .number(Double(PageRegistry.instance(of: page))),
+            "parked": .bool(page.isParkedSpare),
+            "window_number": page.window.map { .number(Double($0.windowNumber)) } ?? .null,
+        ]
+        if let claim = page.lastClaim {
+            members["claim"] = ["path": .string(claim.path.rawValue), "ms": .number(claim.milliseconds)]
+        }
+        return members
     }
 }
 #endif

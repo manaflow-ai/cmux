@@ -172,6 +172,27 @@ workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
 workspaces.
+`workspace_group.delete` (and the raw `delete-personal-group`) keeps every
+workspace open and stores the group as one closed-history item with no member
+(`kind: "workspace"`, `member_count: 0`) and `ClosedItemSnapshot.group`
+naming it. `closed.reopen` of that item (also after a restart) forms the group
+again with its id, name, color, icon, pin, collapse, room and place, and puts back each
+member whose personal row still exists and that is still ungrouped; a group
+that exists again is left as it is. Its result names the session's active
+workspace.
+`workspace-group-icon-v1` gives a personal group an icon:
+`workspace_group.update {icon}` sets it to the shared icon string (one emoji
+or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
+it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
+and the raw `list-personal` groups report it (null: no icon, and clients draw
+their default group glyph). Older daemons omit the field.
+`workspace-group-pin-v1` pins (saves) a personal group:
+`workspace_group.update {pinned: true}` pins it and `false` unpins it;
+`WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
+The daemon never removes a group because it is empty, pinned or not; the pin
+tells clients to keep an empty group as a saved group (closing its
+workspaces leaves it collapsed and empty, and opening it restores them)
+instead of hiding it. Older daemons omit the field (not pinned).
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the

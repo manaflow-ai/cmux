@@ -101,11 +101,7 @@ fn state_error(error: anyhow::Error) -> ResourceError {
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+    request.mutation().map_err(resource_operation_error)
 }
 
 fn ensure_session(mux: &Mux, selectors: &ResourceSelectors) -> Result<(), ResourceError> {
@@ -612,7 +608,10 @@ fn personal_change(
             index: index(fields, "index"),
         },
         Op::WorkspaceGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed", "room", "top_index"])?;
+            require_any(
+                fields,
+                &["name", "color", "collapsed", "room", "top_index", "icon", "pinned"],
+            )?;
             PersonalChange::GroupUpdate {
                 group: group(),
                 name: string(fields, "name"),
@@ -622,6 +621,8 @@ fn personal_change(
                 top_index: fields
                     .get("top_index")
                     .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
+                icon: nullable_string(fields, "icon"),
+                pinned: fields.get("pinned").and_then(Value::as_bool),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

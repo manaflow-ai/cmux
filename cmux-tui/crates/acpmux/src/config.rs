@@ -88,8 +88,9 @@ pub struct HarnessProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Profile to move a session onto when this one's account reports a
-    /// usage or rate limit mid-turn. Discovery sets `claude-sr` (the
-    /// subrouter account pool) for `claude` when `sr` is installed.
+    /// usage or rate limit mid-turn. Discovery sets `claude-cr` for
+    /// `claude` only when a CodeRouter route is configured
+    /// (`coderouterClaudeRoute`); never the subrouter pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
@@ -152,7 +153,7 @@ pub struct SessionDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
     /// Profiles to use, in order, when a session asks for this family:
-    /// `["claude-sr", "claude"]` sends `-m claude` to the account pool
+    /// `["claude-cr", "claude"]` sends `-m claude` to the CodeRouter route
     /// first. Absent: the family's only profile, else the profile named
     /// like the family, else the request is refused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -382,7 +383,7 @@ pub struct Config {
     pub default_harness: Option<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
-    /// "policy": "approve-edits", "prefer": ["claude-sr", "claude"]}}`.
+    /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
@@ -416,6 +417,14 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
+    /// Claude Code through a CodeRouter route. When it is set (env
+    /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
+    /// PATH, discovery adds the `claude-cr` profile and `-m claude` prefers
+    /// it. Unset (the default): no CodeRouter profile, and `claude` is the
+    /// user's own login. The binary names no route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coderouter_claude_route: Option<String>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -586,7 +595,8 @@ impl Config {
             Config::default()
         };
         cfg.join_profiles(profiles::load(sources));
-        cfg.join_discovered(discover_harnesses());
+        let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
+        cfg.join_discovered(discover_harnesses(route.as_deref()));
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
@@ -623,37 +633,37 @@ impl Config {
                 cfg.harnesses.insert(name, profile);
             }
         }
-        if cfg.harnesses.contains_key("claude-sr") {
+        // A configured CodeRouter route (`claude-cr`) is the first `claude`
+        // preference and the direct login's fallback. The subrouter pool
+        // (`claude-sr`) stays a profile a user names; discovery never
+        // prefers it or falls back onto it.
+        let route = CODEROUTER_CLAUDE_PROFILE;
+        if cfg.discovered.contains(route) {
             if let Some(c) = cfg.harnesses.get_mut("claude")
                 && c.fallback.is_none()
                 && c.kind == HarnessKind::ClaudeStdio
             {
-                c.fallback = Some("claude-sr".into());
-                cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
+                c.fallback = Some(route.into());
+                cfg.auto_fallback = Some(("claude".into(), route.into()));
             }
-            // `-m claude` goes to the pool first, then the direct login, and
-            // the pool falls back to the direct login. Only when the user
-            // wrote no preference of their own.
-            if cfg.discovered.contains("claude-sr") {
-                // The pool falls back to, and `-m claude` prefers, a direct
-                // login only on acpmux's own adapter, never an ACP `claude`.
-                let has_direct =
-                    cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
-                if let Some(p) = cfg.harnesses.get_mut("claude-sr")
-                    && p.fallback.is_none()
-                    && has_direct
-                {
-                    p.fallback = Some("claude".into());
-                }
-                let entry = cfg.defaults.entry("claude".into()).or_default();
-                if entry.prefer.is_empty() {
-                    entry.prefer = ["claude-sr", "claude"]
-                        .iter()
-                        .filter(|n| has_direct || **n != "claude")
-                        .map(|n| n.to_string())
-                        .collect();
-                    cfg.auto_prefer = Some(entry.prefer.clone());
-                }
+            // The route falls back to, and `-m claude` prefers, a direct
+            // login only on acpmux's own adapter, never an ACP `claude`.
+            let has_direct =
+                cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
+            if let Some(p) = cfg.harnesses.get_mut(route)
+                && p.fallback.is_none()
+                && has_direct
+            {
+                p.fallback = Some("claude".into());
+            }
+            let entry = cfg.defaults.entry("claude".into()).or_default();
+            if entry.prefer.is_empty() {
+                entry.prefer = [route, "claude"]
+                    .iter()
+                    .filter(|n| has_direct || **n != "claude")
+                    .map(|n| n.to_string())
+                    .collect();
+                cfg.auto_prefer = Some(entry.prefer.clone());
             }
         }
     }
@@ -709,161 +719,6 @@ impl Config {
     pub fn web_listener(&self) -> Option<&WebSocketConfig> {
         self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
-}
-
-/// Drop discovered launcher profiles whose binary cannot actually run the
-/// harness: an older subrouter without `claude proxy`, or one whose proxy
-/// setup fails before Claude starts. Runs once at daemon start, so a
-/// `claude` session never fails over into a launcher that dies at once.
-pub fn verify_launchers(cfg: &mut Config) {
-    let servers =
-        dirs::home_dir().map(|home| home.join(".subrouter/codex/servers.json")).unwrap_or_default();
-    let env_route =
-        std::env::var("SUBROUTER_URL").ok().or_else(|| crate::login_env::var("SUBROUTER_URL"));
-    let route = subrouter_route(env_route.as_deref(), &servers);
-    verify_launchers_with(cfg, route);
-}
-
-/// The subrouter server Claude traffic goes to when `sr` has no `claude proxy`:
-/// `SUBROUTER_URL`, else the default server in `sr`'s own list
-/// (`~/.subrouter/codex/servers.json`, read only). Only an http(s) URL counts.
-pub fn subrouter_route(env_url: Option<&str>, servers_json: &std::path::Path) -> Option<String> {
-    let http = |url: &str| {
-        let url = url.trim().trim_end_matches('/');
-        (url.starts_with("http://") || url.starts_with("https://")).then(|| url.to_owned())
-    };
-    if let Some(url) = env_url.and_then(http) {
-        return Some(url);
-    }
-    let value: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(servers_json).ok()?).ok()?;
-    let default = value.get("default")?.as_str()?;
-    value
-        .get("servers")?
-        .as_array()?
-        .iter()
-        .find(|server| server.get("name").and_then(|n| n.as_str()) == Some(default))?
-        .get("url")?
-        .as_str()
-        .and_then(http)
-}
-
-/// `verify_launchers` with the subrouter route given: a proxy launcher that
-/// fails becomes the `claude` profile routed through that server when there
-/// is one and it is acpmux's own adapter (`claude-stdio`), else it is
-/// marked unavailable.
-pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
-    let candidates: Vec<(String, Vec<String>)> = cfg
-        .harnesses
-        .iter()
-        .filter(|(_, p)| {
-            p.argv.get(1).map(String::as_str) == Some("claude")
-                && p.argv.get(2).map(String::as_str) == Some("proxy")
-        })
-        .map(|(n, p)| (n.clone(), p.argv.clone()))
-        .collect();
-    for (name, argv) in candidates {
-        if let Err(reason) = launcher_ok(&argv) {
-            // Only acpmux's own adapter takes over: claude-sr never becomes
-            // an ACP adapter (`claude` imported from ~/.acpx, say).
-            if let Some(url) = &route
-                && let Some(claude) = cfg
-                    .harnesses
-                    .get("claude")
-                    .filter(|c| c.kind == HarnessKind::ClaudeStdio)
-                    .cloned()
-            {
-                tracing::info!(agent = %name, %url, "{reason}; routing Claude through the subrouter server");
-                let mut env = claude.env.clone();
-                env.insert("ANTHROPIC_BASE_URL".into(), url.clone());
-                // The server picks the pooled account and ignores the client token.
-                env.insert("ANTHROPIC_AUTH_TOKEN".into(), "subrouter".into());
-                env.insert("ANTHROPIC_CUSTOM_HEADERS".into(), "X-Subrouter-Agent: claude".into());
-                let previous = cfg.harnesses.get(&name).cloned();
-                cfg.harnesses.insert(
-                    name.clone(),
-                    HarnessProfile {
-                        kind: claude.kind,
-                        argv: claude.argv.clone(),
-                        env,
-                        description: Some(format!("Claude through the subrouter server {url}")),
-                        fallback: None,
-                        family: previous
-                            .as_ref()
-                            .and_then(|p| p.family.clone())
-                            .or(Some("claude".into())),
-                        models: previous.as_ref().map(|p| p.models.clone()).unwrap_or_default(),
-                        model: previous.as_ref().and_then(|p| p.model.clone()),
-                        effort: previous.as_ref().and_then(|p| p.effort.clone()),
-                        policy: previous.as_ref().and_then(|p| p.policy),
-                    },
-                );
-                continue;
-            }
-            tracing::warn!(agent = %name, "launcher unavailable: {reason}");
-            cfg.unavailable.insert(name.clone(), reason);
-            for p in cfg.harnesses.values_mut() {
-                if p.fallback.as_deref() == Some(name.as_str()) {
-                    p.fallback = None;
-                }
-            }
-        }
-    }
-}
-
-fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
-    let mut cmd = std::process::Command::new(&argv[0]);
-    crate::login_env::apply_std(&mut cmd);
-    cmd.args(&argv[1..])
-        .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    scrub_nested_claude_env(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
-    // Woken by the child's exit (SIGCHLD), not a polling tick.
-    use wait_timeout::ChildExt;
-    match child.wait_timeout(std::time::Duration::from_secs(20)) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
-        }
-        Err(e) => return Err(e.to_string()),
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let text =
-        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    // Warnings (a peer that could not be reached) are not failures.
-    let first = text
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("warning:"))
-        .unwrap_or("")
-        .to_owned();
-    if !out.status.success()
-        || first.starts_with("subrouter:")
-        || text.to_lowercase().contains("unknown command")
-    {
-        return Err(format!(
-            "`{} claude proxy --version` failed: {}",
-            argv[0],
-            if first.is_empty() { out.status.to_string() } else { first }
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) fn which(bin: &str) -> Option<String> {
-    let path = crate::login_env::path()?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(bin);
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().into_owned());
-        }
-    }
-    None
 }
 
 fn is_default_kind(k: &HarnessKind) -> bool {
@@ -930,13 +785,21 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
     }
 }
 
+mod launchers;
+#[cfg(test)]
+pub(super) use launchers::launcher_ok;
+pub(crate) use launchers::which;
+pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
-pub use discover::{discover_harnesses, discover_harnesses_from};
+pub use discover::{
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+};
 mod peer;
 pub use peer::PeerConfig;
 mod pool;

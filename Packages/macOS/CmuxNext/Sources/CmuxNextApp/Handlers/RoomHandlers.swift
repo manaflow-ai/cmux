@@ -61,13 +61,14 @@ enum RoomHandlers {
         }
         bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
+            let history = IconHistory.space(context), id = room.id.rawValue
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
+                try history.change(id, from: room.icon, to: icon, origin: invocation.origin)
             } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
-                context.services.iconPicker.pick(current: room.icon, target: "space:\(room.id.rawValue)", at: anchor) { result in
+                context.services.iconPicker.pick(current: room.icon, target: "space:\(id)", at: anchor) { result in
                     switch result {
-                    case .set(let icon): update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
-                    case .clear: update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
+                    case .set(let icon): try? history.change(id, from: room.icon, to: icon, origin: .user)
+                    case .clear: try? history.change(id, from: room.icon, to: nil, origin: .user)
                     case .cancel: break
                     }
                 }
@@ -77,7 +78,7 @@ enum RoomHandlers {
         }
         bind("space.clearIcon") { invocation in
             let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
+            try IconHistory.space(context).change(room.id.rawValue, from: room.icon, to: nil, origin: invocation.origin)
         }
         bind("space.setDefaults") { invocation in
             let room = try context.room(invocation)
