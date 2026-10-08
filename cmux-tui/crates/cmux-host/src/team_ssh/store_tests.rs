@@ -22,8 +22,14 @@ fn apply_writes_the_krl_ca_keys_and_state_that_sshd_reads() {
     let applied = apply(&paths, &snapshot(3, 1), 1_000).expect("apply");
     assert!(applied.krl_changed);
     assert_eq!(read(&paths, KRL_FILE), krl(3));
-    assert_eq!(String::from_utf8(read(&paths, CA_FILE)).expect("utf8"), format!("{}\n", ca_line(1)));
-    assert_eq!(load_state(&paths), Some(TrustState { krl_version: 3, generation: 1, synced_at: 1_000 }));
+    assert_eq!(
+        String::from_utf8(read(&paths, CA_FILE)).expect("utf8"),
+        format!("{}\n", ca_line(1))
+    );
+    assert_eq!(
+        load_state(&paths),
+        Some(TrustState { krl_version: 3, generation: 1, synced_at: 1_000 })
+    );
 }
 
 #[test]

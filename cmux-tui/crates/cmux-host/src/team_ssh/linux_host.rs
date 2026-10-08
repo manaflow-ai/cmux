@@ -70,8 +70,6 @@ impl Host for LinuxHost {
     }
 
     fn end(&self, record: &SessionRecord) -> io::Result<()> {
-        let _ = record; // RED: ending is not implemented yet.
-        return Ok(());
         // Pin the process, then confirm the pinned process is the recorded one.
         let pidfd = PidFd::open(record.pid)?;
         if proc_start_time(record.pid) != Some(record.start_time) {

@@ -85,7 +85,7 @@ pub enum Verdict {
 
 /// The reaper's decision for one record (no side effects).
 pub fn judge(host: &dyn Host, krl: &Path, record: &SessionRecord) -> io::Result<Verdict> {
-    if host.start_time(record.pid).is_none() /* RED: start time not compared */ {
+    if host.start_time(record.pid) != Some(record.start_time) {
         return Ok(Verdict::Forget);
     }
     if !host.comm(record.pid).is_some_and(|c| c.starts_with("sshd")) {

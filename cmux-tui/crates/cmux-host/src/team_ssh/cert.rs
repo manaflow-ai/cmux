@@ -75,7 +75,8 @@ pub fn session_certs(auth_info: &str) -> Result<Vec<SessionCert>, String> {
     let mut certs = Vec::new();
     for line in auth_info.lines() {
         let mut parts = line.split(' ');
-        let (Some("publickey"), Some(kind), Some(body)) = (parts.next(), parts.next(), parts.next())
+        let (Some("publickey"), Some(kind), Some(body)) =
+            (parts.next(), parts.next(), parts.next())
         else {
             continue;
         };
