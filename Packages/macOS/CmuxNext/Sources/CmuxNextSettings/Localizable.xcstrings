@@ -67856,6 +67856,74 @@
         }
       }
     },
+    "settings.computerUse.driver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use Driver"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ドライバー"
+          }
+        }
+      }
+    },
+    "settings.computerUse.driver.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「レガシー」は現在のcmux Computer Useヘルパーを実行します。「アップストリーム」はアップストリームのCua Driverを使った新しいヘルパーを実行し、macOSはその許可を別に求めます。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.driver.legacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レガシー"
+          }
+        }
+      }
+    },
+    "settings.computerUse.driver.upstream": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップストリーム"
+          }
+        }
+      }
+    },
     "settings.group.computerUse": {
       "extractionState": "manual",
       "localizations": {
