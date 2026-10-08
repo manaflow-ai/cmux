@@ -209,6 +209,7 @@ jobs:
           BASE_SHA: ${{ needs.render.outputs.base_sha }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
@@ -218,7 +219,7 @@ jobs:
           bun pr.ts --base "$evidence/runs/base" --head "$evidence/runs/head" --repeat "$evidence/runs/repeat" \
             --base-manifest "$evidence/base.json" --head-manifest "$evidence/head.json" \
             --out "$RUNNER_TEMP/gallery-pr/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" \
-            --artifact-url "$ARTIFACT_URL" --branch "$BRANCH"
+            --artifact-url "$ARTIFACT_URL" --branch "$BRANCH" --feed-url "${FEED_BASE_URL}?pr=${PR}&view=all"
           cp "$evidence/touched.json" "$RUNNER_TEMP/gallery-pr/"
           cp -r "$evidence/gallery" "$RUNNER_TEMP/gallery-pr/gallery"
           cp -r "$evidence/runs/head" "$RUNNER_TEMP/gallery-pr/matrix"
@@ -280,6 +281,7 @@ jobs:
           BASE_SHA: ${{ needs.render.outputs.base_sha }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
         run: |
           set -euo pipefail
           prefix="gallery-${HEAD_SHA:0:11}-"
@@ -295,6 +297,16 @@ jobs:
             bun pr.ts --outcomes "$RUNNER_TEMP/render/diff/outcomes.json" --out "$report" --pr "$PR" \
               --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base" \
               "${branch_args[@]}")
+          python3 - "$report/comment.md" "${FEED_BASE_URL}?pr=${PR}&view=all" <<'PY'
+          from pathlib import Path
+          import sys
+          path, link = Path(sys.argv[1]), sys.argv[2]
+          text = path.read_text()
+          marker = "### Gallery\n"
+          if marker in text and "[Review in feed]" not in text:
+              text = text.replace(marker, f"{marker}\n[Review in feed]({link})\n", 1)
+              path.write_text(text)
+          PY
           upload="$RUNNER_TEMP/upload"
           mkdir -p "$upload"
           while IFS= read -r key; do
