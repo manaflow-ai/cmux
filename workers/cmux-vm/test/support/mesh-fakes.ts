@@ -21,6 +21,8 @@ export interface FakeTunnel {
   readonly routes: ReadonlyArray<string>;
   readonly vpc: string;
   readonly ipv4: string;
+  /** Changes on every key rotation, as the provider's does. */
+  readonly serverPublicKey?: string;
 }
 
 export interface FakeRule {
@@ -45,15 +47,33 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
   const vmNetworks = new Map<string, string>();
-  const state: { mintKey: boolean; ruleCreateStatus: number | null; ruleCreates: number } = { mintKey: false, ruleCreateStatus: null, ruleCreates: 0 };
+  const state: {
+    mintKey: boolean;
+    tunnelCreateStatus: number | null;
+    tunnelDeleteStatus: number | null;
+    ruleCreateStatus: number | null;
+    ruleCreates: number;
+    rotations: number;
+  } = {
+    mintKey: false,
+    tunnelCreateStatus: null,
+    tunnelDeleteStatus: null,
+    ruleCreateStatus: null,
+    ruleCreates: 0,
+    rotations: 0,
+  };
   let hostCounter = 10;
+  /** While set, rule creates wait for this promise (a stalled provider call). */
+  let ruleHold: Promise<void> | null = null;
+  const heldWaiters: Array<() => void> = [];
+  let heldCount = 0;
 
   const tunnelBody = (tunnel: FakeTunnel, privateKey: string) => ({
     id: tunnel.id,
     tunnelId: tunnel.id,
     endpointHost: `tun-${tunnel.id}.beta-vpn.example`,
     endpointPort: 51820,
-    serverPublicKey: "c2VydmVyLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
+    serverPublicKey: tunnel.serverPublicKey ?? "c2VydmVyLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
     clientPublicKey: tunnel.clientPublicKey ?? "bWludGVkLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
     clientAddressV4: "100.64.0.1/32",
     clientAddressV6: "fd00::1/128",
@@ -97,6 +117,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       return json({ id, cidr, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
     }
     const vpcMatch = /^\/v5\/vpcs\/([^/]+)$/u.exec(path);
+    if (vpcMatch !== null && method === "GET") {
+      const found = vpcs.get(decodeURIComponent(vpcMatch[1] ?? ""));
+      return found === undefined ? json({ message: "not found" }, 404) : json({ ...found, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
+    }
     if (vpcMatch !== null && method === "DELETE") {
       const id = decodeURIComponent(vpcMatch[1] ?? "");
       if (!vpcs.has(id)) return json({ message: "not found" }, 404);
@@ -105,9 +129,12 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       return new Response(null, { status: 204 });
     }
     if (path === "/v5/tunnels" && method === "POST") {
+      if (state.tunnelCreateStatus !== null) return json({ message: "injected failure" }, state.tunnelCreateStatus);
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
+      const routesIn = Array.isArray(fields["routes"]) ? fields["routes"] : [];
+      if (!routesIn.includes("fd00:1::/64")) return json({ code: "CONFLICT", message: "network IPv6 range outside the tunnel's routes" }, 409);
       const routes = Array.isArray(fields["routes"]) ? fields["routes"].filter((route): route is string => typeof route === "string") : [];
       const tunnel: FakeTunnel = {
         id: `tun-${crypto.randomUUID()}`,
@@ -121,6 +148,18 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const minted = tunnel.clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
       return json(tunnelBody(tunnel, minted));
     }
+    const rotateMatch = /^\/v5\/tunnels\/([^/]+)\/rotate-key$/u.exec(path);
+    if (rotateMatch !== null && method === "POST") {
+      const id = decodeURIComponent(rotateMatch[1] ?? "");
+      const tunnel = tunnels.get(id);
+      if (tunnel === undefined) return json({ message: "not found" }, 404);
+      const clientPublicKey = typeof fields["clientPublicKey"] === "string" ? fields["clientPublicKey"] : null;
+      state.rotations += 1;
+      const rotated: FakeTunnel = { ...tunnel, clientPublicKey, serverPublicKey: btoa(`rotated-server-key-${String(state.rotations).padStart(13, "0")}`) };
+      tunnels.set(id, rotated);
+      const minted = clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
+      return json(tunnelBody(rotated, minted));
+    }
     const tunnelMatch = /^\/v5\/tunnels\/([^/]+)$/u.exec(path);
     if (tunnelMatch !== null) {
       const id = decodeURIComponent(tunnelMatch[1] ?? "");
@@ -128,6 +167,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       if (tunnel === undefined) return json({ message: "not found" }, 404);
       if (method === "GET") return json(tunnelBody(tunnel, ""));
       if (method === "DELETE") {
+        if (state.tunnelDeleteStatus !== null) return json({ message: "injected failure" }, state.tunnelDeleteStatus);
         tunnels.delete(id);
         // Rules naming a deleted tunnel go with it.
         for (const [ruleId, rule] of rules) if (rule.source["tunnelId"] === id || rule.destination["tunnelId"] === id) rules.delete(ruleId);
@@ -135,6 +175,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       }
     }
     if (path === "/v5/firewall/rules" && method === "POST") {
+      if (ruleHold !== null) {
+        heldCount += 1;
+        for (const wake of heldWaiters.splice(0)) wake();
+        await ruleHold;
+      }
       state.ruleCreates += 1;
       if (state.ruleCreateStatus !== null) return json({ message: "refused" }, state.ruleCreateStatus);
       const source = typeof fields["source"] === "object" && fields["source"] !== null ? Object.fromEntries(Object.entries(fields["source"])) : {};
@@ -180,7 +225,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const layer = (fetch: (request: Request) => Promise<Response>) =>
     Layer.mergeAll(
       store.layer,
-      Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch })),
+      Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch })),
       meshConfigLayer({
         experiment: options.experiment ?? true,
         tenantIds: options.tenants ?? ["team_alpha", "team_bravo"],
@@ -200,11 +245,36 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     mintKeys(on: boolean) {
       state.mintKey = on;
     },
+    /** Tunnel creates answer `status` (null: normal). */
+    failTunnelCreates(status: number | null) {
+      state.tunnelCreateStatus = status;
+    },
+    /** Tunnel deletes answer `status` (null: normal). */
+    failTunnelDeletes(status: number | null) {
+      state.tunnelDeleteStatus = status;
+    },
     /** Rule creates answer `status` (null: normal). */
     failRuleCreates(status: number | null) {
       state.ruleCreateStatus = status;
     },
     ruleCreateCount: () => state.ruleCreates,
+    /** Rule creates stall until the returned function is called. */
+    holdRuleCreates(): () => void {
+      let release = () => {};
+      ruleHold = new Promise<void>((resolve) => {
+        release = () => {
+          ruleHold = null;
+          resolve();
+        };
+      });
+      heldCount = 0;
+      return () => release();
+    },
+    /** Resolves once a rule create is stalled by holdRuleCreates. */
+    ruleCreateHeld(): Promise<void> {
+      if (heldCount > 0) return Promise.resolve();
+      return new Promise<void>((resolve) => heldWaiters.push(resolve));
+    },
   };
 }
 

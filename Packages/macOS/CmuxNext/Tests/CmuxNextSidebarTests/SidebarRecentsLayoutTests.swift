@@ -15,23 +15,13 @@ import Testing
         return earlier
     }
 
-    @Test func theDefaultsListRecentsRightAfterTheWorkspaces() {
-        let middle = SidebarLayoutDocument.defaults.sections(in: .middle, room: nil)
-        #expect(middle.map(\.id) == [SidebarLayoutDocument.workspacesSectionID, recents])
-        #expect(middle.last?.content == .app && middle.last?.contribution == SidebarRecentsView.contribution)
-        // It opens the band under the list, above the footer.
-        #expect(SidebarLayoutDocument.defaults.bands(room: nil).below.map(\.id) == [recents, SidebarLayoutDocument.bottomSectionID])
+    @Test func theDefaultSidebarDoesNotIncludeRecents() {
+        #expect(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.recentsSectionID) == nil)
     }
 
-    @Test func anEarlierDefaultGainsRecentsOnce() throws {
-        for document in [SidebarLayoutDocument.defaults, SidebarLayoutDocument.migrationTarget] {
-            let stored = earlier(document)
-            #expect(stored.layoutMigrationOps == [.sectionAdd(SidebarLayoutDocument.recentsSection, index: 1)])
-            let migrated = stored.layoutMigration
-            #expect(migrated.sections == document.sections)
-            #expect(migrated.revision > stored.revision)
-            #expect(migrated.layoutMigrationOps.isEmpty, "once")
-        }
+    @Test func theChatsProjectionIsOptIn() {
+        #expect(SidebarLayoutDocument.defaults.chatsLayout(enabled: false).section(recents) == nil)
+        #expect(SidebarLayoutDocument.defaults.chatsLayout(enabled: true).section(recents) != nil)
     }
 
     @Test func aChangedLayoutDoesNotGainRecents() throws {
@@ -43,4 +33,5 @@ import Testing
     @Test func noRecentsOnceOffered() {
         #expect(earlier(.defaults).layoutMigrationOps(offeringRecents: false).isEmpty)
     }
+
 }

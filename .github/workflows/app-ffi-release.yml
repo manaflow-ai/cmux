@@ -175,6 +175,125 @@ jobs:
           path: ${{ runner.temp }}/dist/*
           if-no-files-found: error
 
+  # MACOS-CROSS-COMPILE-ON-LINUX shadow, compare-only. Builds the same
+  # CCmuxAppFFI slices on Linux (no Apple SDK; Apple's open-source ld64 from a
+  # pinned cctools-port for the -r prelink) and compares each with the slice
+  # the Mac `build` job produced (scripts/ci/macos-cross.sh). publish never
+  # needs this job, continue-on-error keeps a red comparison out of the run's
+  # conclusion, and it holds no write permission
+  # (tests/test_ci_macos_cross_shadow_jobs.py). It becomes blocking only after
+  # three clean publishes. The report is the job summary and an artifact.
+  macos-cross-shadow:
+    name: macOS cross-compile shadow (Linux, compare only)
+    needs: build
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the parity verdict
+        run: python3 tests/test_ci_macho_parity.py
+
+      - name: Install LLVM 19 and the cctools build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19 llvm-19-dev cmake ninja-build libblocksruntime-dev
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      # Zig's darwin headers and libSystem stub: the Zig the ghostty-next
+      # manifest sets, the one libghostty-vt builds with.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Only the darwin headers and libSystem stub bundled with Zig are used.
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install macOS Rust targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache the pinned cctools-port ld64
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Build cctools-port ld64
+        run: ./scripts/ci/macos-cross.sh cctools
+
+      - name: Download the Mac-built xcframework
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CCmuxAppFFI.xcframework
+          path: ${{ runner.temp }}/macos-cross/mac
+
+      - name: Build on Linux (no Apple SDK)
+        run: |
+          set -euo pipefail
+          mac="$RUNNER_TEMP/macos-cross/mac"
+          (cd "$mac" && sha256sum --check --strict SHA256SUMS && unzip -q CCmuxAppFFI.xcframework.zip)
+          lib="$mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a"
+          ./scripts/ci/macos-cross.sh toolchain "$(./scripts/ci/macos-cross.sh ref-sdk "$lib")"
+          start=$(date +%s)
+          ./scripts/ci/macos-cross.sh ffi
+          echo "LINUX_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Compare with the Mac build
+        run: |
+          set -uo pipefail
+          status=0
+          report="$RUNNER_TEMP/macos-cross-parity.txt"
+          mac="$RUNNER_TEMP/macos-cross/mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64"
+          ./scripts/ci/macos-cross.sh parity-ffi "$mac/libcmux_app_ffi.a" > "$report" 2>&1 || status=1
+          # The headers the app imports come straight from the crates.
+          for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI; do
+            if cmp -s "${h%%:*}" "$mac/Headers/${h##*:}/$(basename "${h%%:*}")"; then
+              echo "PASS header ${h##*:}/$(basename "${h%%:*}")" >> "$report"
+            else
+              echo "FAIL header ${h##*:}/$(basename "${h%%:*}") differs from the crate" >> "$report"; status=1
+            fi
+          done
+          cat "$report"
+          {
+            echo "### macOS cross-compile shadow (app FFI): ${GITHUB_SHA}"
+            echo "Linux build: ${LINUX_BUILD_SECONDS:-?} s."
+            echo '```'
+            cat "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the parity reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-parity-app-ffi
+          path: ${{ runner.temp }}/macos-cross/reports/
+          if-no-files-found: warn
+
   publish:
     name: publish release
     needs: build

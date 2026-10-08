@@ -40,7 +40,10 @@ beforeEach(async () => {
   for (const name of GLOBALS) saved[name] = (globalThis as any)[name];
   for (const name of GLOBALS.slice(0, -1)) (globalThis as any)[name] = (dom.window as any)[name];
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  Object.assign(dom.window.HTMLElement.prototype, { attachEvent: () => undefined, detachEvent: () => undefined });
+  Object.assign(dom.window.HTMLElement.prototype, {
+    attachEvent: () => undefined,
+    detachEvent: () => undefined,
+  });
   host = new MockIconPickerHost();
   await act(async () => {
     picker = mountIconPicker(
@@ -125,7 +128,9 @@ test("the detail bar shows the name and shortcode; Cmd-C copies the selected emo
   await type("tada");
   expect(doc().querySelector(".icon-footer-name")?.textContent).toBe("party popper");
   expect(doc().querySelector(".icon-footer-detail")?.textContent).toBe(":tada:");
-  const copy = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown };
+  const copy = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
+    clipboardData: unknown;
+  };
   const data: Record<string, string> = {};
   copy.clipboardData = { setData: (type: string, value: string) => (data[type] = value) };
   await act(() => {
@@ -136,9 +141,65 @@ test("the detail bar shows the name and shortcode; Cmd-C copies the selected emo
   expect(host.finishes()).toEqual([]);
 });
 
+test("a refused pick is shown and logged, and the next session clears it", async () => {
+  host.refuseFinish = true;
+  const logged: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    await type("cat");
+    await press("Enter");
+    await act(async () => undefined);
+  } finally {
+    console.error = original;
+  }
+  expect(doc().querySelector(".icon-picker-error[role=alert]")?.textContent).toBe(
+    "The icon could not be applied. Try again.",
+  );
+  expect(logged.filter((args) => String(args[0]).startsWith("icon picker:")).length).toBe(1);
+  host.refuseFinish = false;
+  await act(async () => host.open({ id: "s2" }));
+  expect(doc().querySelector(".icon-picker-error")).toBeNull();
+});
+
 test("no results shows the empty state", async () => {
   await type("zzzzqq");
   expect(doc().querySelector(".icon-grid-empty")?.textContent).toBe("No emoji found");
   await press("Enter");
   expect(host.calls.some((call) => call.op === IconPickerOps.finish)).toBe(false);
+});
+
+test("the category bar names each group and jumps the grid to its header", async () => {
+  const bar = doc().querySelector('[role="toolbar"]')!;
+  expect(bar.getAttribute("aria-label")).toBe("Categories");
+  const buttons = [...bar.querySelectorAll<HTMLButtonElement>("button")];
+  expect(buttons.map((button) => button.getAttribute("aria-label"))).toContain("Flags");
+  // One tab stop: the current section's button; arrows move between the others.
+  expect(buttons.filter((button) => button.tabIndex === 0).length).toBe(1);
+  await act(() => buttons.find((button) => button.getAttribute("aria-label") === "Flags")!.click());
+  const flags = picker.store.getSnapshot().layout.sections.find((section) => section.id === "flags")!;
+  expect(doc().querySelector<HTMLElement>(".icon-grid-scroll")!.scrollTop).toBe(flags.top);
+  expect(picker.store.getSnapshot().active).toBe(flags.first);
+  await type("cat");
+  expect(doc().querySelector('[role="toolbar"]')).toBeNull();
+});
+
+test("monochrome and hierarchical symbols are masks in the theme color; multicolor is a host image", async () => {
+  await act(async () => host.open({ id: "s2", tab: "symbol", symbolStyle: "ff0000-dark" }));
+  await type("terminal");
+  const cell = () => doc().querySelector<HTMLElement>(".icon-cell[data-active] .icon-symbol")!;
+  expect(cell().style.maskImage).toContain("__symbol/terminal.png");
+  // The mode menu sits in the search row and saves the choice.
+  await act(() => doc().querySelector<HTMLButtonElement>(".icon-mode-button")!.click());
+  const hierarchical = [...doc().querySelectorAll<HTMLButtonElement>(".icon-mode-menu button")].find(
+    (button) => button.textContent === "Hierarchical",
+  )!;
+  await act(() => hierarchical.click());
+  expect((host.prefs as { symbolMode: string }).symbolMode).toBe("hierarchical");
+  // Hierarchical is a template too: the page tints its layers with the theme foreground.
+  expect(cell().style.maskImage).toContain("__symbol/hierarchical/terminal.png");
+  expect(cell().style.backgroundImage).toBe("");
+  // The mock catalog has no multicolor category: multicolor mode leaves these symbols monochrome.
+  await act(async () => picker.store.setSymbolMode("multicolor"));
+  expect(cell().style.maskImage).toContain("__symbol/terminal.png");
 });

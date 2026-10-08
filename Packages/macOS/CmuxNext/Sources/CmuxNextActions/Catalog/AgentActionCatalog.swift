@@ -25,6 +25,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 return quick
             }(),
             ActionDescriptor(
+                id: "palette.addHarness",
+                title: String(localized: "action.palette.addHarness", defaultValue: "Add Harness…", bundle: .module),
+                keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
+                category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
+                // Opens a chat that walks the user through `cmux harness guide`. Agents and
+                // scripts run that guide (and `cmux harness add|doctor`) directly.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
                 keywords: ["dictation", "dictate", "voice", "speech", "microphone", "mic", "push to talk"],

@@ -265,7 +265,7 @@ final class ScrollPrefetcher {
     static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
-        guard ScrollPrefetcher.enabled else { return }
+        guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
         let y = r.bounds.minY, t = r.clock()
         if !lastY.isNaN, t - lastT > 0.001, t - lastT < 0.25 {
             velocity = 0.5 * velocity + 0.5 * (y - lastY) / CGFloat(t - lastT)

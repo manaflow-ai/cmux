@@ -5,7 +5,7 @@
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::rpc::{Message, method};
+use acpmux::rpc::{Message, RpcError, method};
 use acpmux::server::serve_connection;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -20,6 +20,10 @@ struct Client {
 
 impl Client {
     async fn request(&mut self, m: &str, params: Value) -> Result<Value, String> {
+        self.call(m, params).await.map_err(|e| e.message)
+    }
+
+    async fn call(&mut self, m: &str, params: Value) -> Result<Value, RpcError> {
         self.next += 1;
         let id = self.next;
         self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -32,7 +36,7 @@ impl Client {
                 && rid == id
             {
                 return match error {
-                    Some(e) => Err(e.message),
+                    Some(e) => Err(e),
                     None => Ok(result.unwrap_or(Value::Null)),
                 };
             }
@@ -66,6 +70,7 @@ fn scratch(name: &str) -> (PathBuf, PathBuf, FolderGate) {
             claude_json: root.join("claude.json"),
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
+            agent_home: None,
         },
     };
     (root, folder, gate)
@@ -130,4 +135,25 @@ async fn session_new_starts_a_folder_profile_only_when_trusted_enabled_and_insid
     write(&path, &format!("{text}# edited\n"));
     let e = c.request(method::SESSION_NEW, new_params(&inside)).await.unwrap_err();
     assert!(e.contains("not enabled"), "{e}");
+}
+
+#[tokio::test]
+async fn session_new_refusals_of_a_folder_profile_carry_data_for_the_app() {
+    let (_root, folder, gate) = scratch("data");
+    let mut c = connect(&gate).await;
+    let inside = folder.join("sub");
+    let want = |reason: &str| json!({"reason": reason, "harness": "fakefolder", "folder": folder});
+
+    // The app offers the folder's Trust question for this one...
+    let e = c.call(method::SESSION_NEW, new_params(&inside)).await.unwrap_err();
+    assert_eq!(e.code, -32602, "{e:?}");
+    assert!(e.message.contains("not trusted"), "{}", e.message);
+    assert_eq!(e.data, Some(want("harness.needs_trust")), "{e:?}");
+
+    // ...and its Enable harness sheet for this one. The text stays the same.
+    acpmux::trust::set(&gate.trust, &folder.to_string_lossy(), "trusted").unwrap();
+    let e = c.call(method::SESSION_NEW, new_params(&inside)).await.unwrap_err();
+    assert_eq!(e.code, -32602, "{e:?}");
+    assert!(e.message.contains("cmux harness enable fakefolder"), "{}", e.message);
+    assert_eq!(e.data, Some(want("harness.needs_enable")), "{e:?}");
 }

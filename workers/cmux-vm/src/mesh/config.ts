@@ -27,6 +27,8 @@ export interface MeshBudgets {
   readonly rulesPerResource: number;
   /** ACL applies per mesh per minute (`aclApply.perMeshPerMinute`). */
   readonly aclAppliesPerMinute: number;
+  /** Enrollment codes per mesh per hour (`enrollmentCode.perMeshPerHour`, M2). */
+  readonly enrollmentCodesPerHour: number;
 }
 
 export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
@@ -35,7 +37,11 @@ export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
   rulesPerMesh: 500,
   rulesPerResource: 180,
   aclAppliesPerMinute: 10,
+  enrollmentCodesPerHour: 20,
 };
+
+/** How long an enrollment code stays valid (DESIGN.md section 3). */
+export const ENROLLMENT_CODE_TTL_MS = 10 * 60_000;
 
 /** WireGuard settings every device config carries (measured, DESIGN.md 1.4 Q11 and Q14). */
 export const MESH_MTU = 1280;
@@ -47,6 +53,8 @@ export const MESH_SLOTS = 2048;
 
 export interface MeshConfigService {
   readonly enabledFor: (tenantId: TenantId) => boolean;
+  /** CMUX_VM_MESH_EXPERIMENT itself: off means no mesh route reads anything, even before a tenant is known. */
+  readonly experiment: boolean;
   readonly budgets: MeshBudgets;
 }
 
@@ -62,6 +70,7 @@ export const makeMeshConfig = (input: MeshConfigInput): MeshConfigService => {
   const allowed = new Set(input.tenantIds);
   return {
     enabledFor: (tenantId) => input.experiment && allowed.has(tenantId),
+    experiment: input.experiment,
     budgets: { ...DEFAULT_MESH_BUDGETS, ...input.budgets },
   };
 };

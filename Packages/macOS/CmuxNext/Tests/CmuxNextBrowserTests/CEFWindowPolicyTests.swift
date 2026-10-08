@@ -57,7 +57,7 @@ import Testing
         #expect(decision == .insert(anchor: 9, disposition: .backgroundTab))
     }
 
-    /// "Open Link in Incognito Window", Cmd-Shift-N, windows.create({incognito})
+    /// "Open Link in Incognito Window", windows.create({incognito})
     /// open nothing in Chromium: cmux opens a cmux incognito window (or a
     /// tab of the source's incognito window). A normal tab would keep the
     /// history the user wanted to keep out.

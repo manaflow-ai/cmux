@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextProcessEnvironment
 import GhosttyNextKit
 import os
 import Synchronization
@@ -67,7 +68,12 @@ public final class GhosttyRuntime {
             TerminalTimings.runtimePhase(name, phase.duration(to: now))
             phase = now
         }
-        Self.configureProcessEnvironment()
+        // The app froze the environment in main after preparing it; a
+        // process that skips main (tests) prepares it here. Either way no
+        // write may follow ghostty_init.
+        let environmentGuard = ProcessEnvironmentGuard.process
+        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(environmentGuard: environmentGuard) }
+        environmentGuard.freeze()
         defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
             Self.logger.error("ghostty_init failed; terminal surfaces are disabled")
@@ -307,8 +313,14 @@ public final class GhosttyRuntime {
     /// resources bundled in this app, then an inherited value, then
     /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
     /// and TERM here only matter for `theme =` lookups and local debug PTYs.
-    private static func configureProcessEnvironment() {
-        if let resources = resourcesDirectory() {
+    /// The app calls it in `main` (`CmuxNextApp.prepareLaunchEnvironment`) before any
+    /// thread starts and the environment freeze; `init` calls it only when
+    /// nothing froze the environment (tests). libghostty keeps a slice of
+    /// `environ` from `ghostty_init`, so no write may follow it.
+    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
+        environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
+            guard let resources = resourcesDirectory() else { return }
+            if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
     }

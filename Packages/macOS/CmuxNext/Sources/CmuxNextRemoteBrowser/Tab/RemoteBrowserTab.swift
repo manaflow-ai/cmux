@@ -24,14 +24,15 @@ public final class RemoteBrowserTab: BrowserTab {
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
     @ObservationIgnored public let pane: RemoteBrowserPane
-    @ObservationIgnored private let channel: any RemoteBrowserPageChannel
+    /// Where page input and commands go (the rb session); the tab owns it.
+    @ObservationIgnored public let channel: any RemoteBrowserPageChannel
     /// Key downs the page has not answered yet, by input seq (bounded: the
     /// host answers only unhandled keys, so most entries are never claimed).
     @ObservationIgnored private var sentKeys: [UInt32: NSEvent] = [:]
     @ObservationIgnored private var sentOrder: [UInt32] = []
     private static let sentKeyLimit = 64
 
-    public init(id: BrowserTabID, profile: BrowserProfileID, url: URL, pane: RemoteBrowserPane, channel: any RemoteBrowserPageChannel) {
+    public init(id: BrowserTabID, profile: BrowserProfileID, url: URL?, pane: RemoteBrowserPane, channel: any RemoteBrowserPageChannel) {
         self.id = id
         self.profileID = profile
         self.pane = pane
@@ -89,6 +90,19 @@ public final class RemoteBrowserTab: BrowserTab {
               let characters = event.charactersIgnoringModifiers, characters.count == 1,
               let scalar = characters.lowercased().unicodeScalars.first, ("a"..."z").contains(scalar) else { return nil }
         return BrowserPageKey(character: characters, shift: event.modifierFlags.contains(.shift))
+    }
+
+    /// The host's page facts (`rb.page`): the omnibar, title and back and
+    /// forward buttons follow the remote page.
+    public func applyPage(url: URL?, title: String, loading: Bool, canGoBack: Bool, canGoForward: Bool) {
+        var next = state
+        next.url = url ?? next.url
+        next.title = title.isEmpty ? nil : title
+        next.phase = loading ? .committed : .finished
+        next.canGoBack = canGoBack
+        next.canGoForward = canGoForward
+        guard next != state else { return }
+        state = next
     }
 
     // MARK: BrowserTab

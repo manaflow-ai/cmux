@@ -18,10 +18,14 @@ public struct TerminalGridSize: Codable, Hashable, Sendable {
 
 /// The kind of device behind one attached view.
 public enum TerminalDeviceKind: String, Codable, Hashable, Sendable, CaseIterable {
-    case mac, iphone, ipad, tui, browser, unknown
+    case mac, iphone, ipad, tui, browser, linux, windows, unknown
 
-    /// Phones and tablets defer to a Mac or TUI of the same user.
+    /// Phones and tablets defer to a desktop of the same user.
     public var isHandheld: Bool { self == .iphone || self == .ipad }
+
+    /// A Mac, a TUI, or the desktop app on Linux or Windows: a handheld of
+    /// the same user defers to it.
+    public var isDesktop: Bool { [.mac, .tui, .linux, .windows].contains(self) }
 
     public init(from decoder: any Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)

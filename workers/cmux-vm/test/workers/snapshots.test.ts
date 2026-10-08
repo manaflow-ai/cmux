@@ -145,7 +145,7 @@ describe("create", () => {
 
     expect(upstreamPaths()).toEqual([`POST /v5/vms/${upstreamVmId}/snapshot`]);
     expect(h.upstream.callsTo("POST", /\/snapshot$/).at(0)?.json).toEqual({
-      displayName: `cmux ${TENANT_A} ${String(body["id"])}`,
+      displayName: `cmux-vm-local ${TENANT_A} ${String(body["id"])}`,
       ttlSeconds: 86_400,
       autoDeleteSeconds: 3_600,
     });

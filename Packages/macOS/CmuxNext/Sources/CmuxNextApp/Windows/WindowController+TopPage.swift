@@ -30,6 +30,40 @@ extension WindowController {
         return showTopPage(.home)
     }
 
+    /// The content of the workspace this window names: the shown one, else
+    /// the parked one under a top page (a tab opened behind the page lands
+    /// there).
+    var workspaceContent: WorkspaceContentController? {
+        content ?? parked.last { $0.workspace.id == state.workspaceID }
+    }
+
+    /// Leaves the top page for the window's workspace at once
+    /// (SIDEBAR-SELECTION-ONE-MODEL: one selection, so showing something in
+    /// the workspace selects it). True when a page was left.
+    @discardableResult
+    func leaveTopPage() -> Bool {
+        guard state.page != nil else { return false }
+        state.page = nil
+        services.windows.recordSaver.stateDidChange(state)
+        showWorkspace(requested: state.workspaceID)
+        return true
+    }
+
+    /// Leo (T3 Code ref, 2026-10-07): a full-page destination turns the sidebar's footer into
+    /// Back, which returns the window to its workspace. Home is where you land, not a
+    /// destination, so it keeps the footer.
+    func followTopPageForBack() {
+        sidebar.model.onBack = { [weak self] in self?.leaveTopPage() }
+        root.onContentChange = { [weak self] in self?.syncSidebarBack() }
+        // The window may have restored a page before this ran.
+        syncSidebarBack()
+    }
+
+    private func syncSidebarBack() {
+        let showsBack = shownTopPage.map { $0 != .home } ?? false
+        if sidebar.model.showsBack != showsBack { sidebar.model.showsBack = showsBack }
+    }
+
     /// The top page this window shows, if any.
     var shownTopPage: TopPageRoute? {
         guard let route = state.page, let view = topPages.views[route], root.content === view else { return nil }

@@ -42,6 +42,9 @@ public final class ImportStepModel {
     public private(set) var selectedProfiles: Set<String> = []
     /// What to bring from every selected profile.
     public private(set) var kinds: Set<ImportDataKind> = Set(ImportStepModel.offeredKinds)
+    /// The kinds a caller opened the step on (the cookie import card: cookies
+    /// only); detection then leaves passwords unchecked unless they are among them.
+    @ObservationIgnored private var presetKinds: Set<ImportDataKind>?
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The plan being run, and each started row's count so far (progress
@@ -108,7 +111,7 @@ public final class ImportStepModel {
             guard let self, !Task.isCancelled else { return }
             sources = Self.edgeFirst(found)
             // Checked like the rest the first time it is offered; Import asks before anything is read.
-            if store, !passwordStore { kinds.insert(.passwords) }
+            if store, !passwordStore, presetKinds?.contains(.passwords) ?? true { kinds.insert(.passwords) }
             if !store { kinds.remove(.passwords) }
             passwordStore = store
             // Everything is checked to start with: the common case is "bring it all".
@@ -157,6 +160,15 @@ public final class ImportStepModel {
         if selectedProfiles.remove(profile.id) == nil { selectedProfiles.insert(profile.id) }
     }
 
+    /// Checks only `preset` (the cookie import card opens the step on
+    /// cookies); the person can still check the other kinds. Ignored while
+    /// an import or its consent screen runs.
+    public func preset(kinds preset: Set<ImportDataKind>) {
+        guard canEditSelection || phase == .idle || phase == .detecting else { return }
+        presetKinds = preset
+        kinds = preset.filter { $0 != .passwords || passwordStore }
+    }
+
     public func toggle(_ kind: ImportDataKind) {
         guard canEditSelection, kindChoices.contains(kind) else { return }
         if kinds.remove(kind) == nil { kinds.insert(kind) }
@@ -191,6 +203,9 @@ public final class ImportStepModel {
         }
         return items
     }
+
+    /// Whether a Firefox profile is among them: its key is in the profile, not the Keychain.
+    public var passwordsIncludeFirefox: Bool { passwordProfiles.contains { $0.browser.family == .firefox } }
 
     public var isConfirmingPasswords: Bool { phase == .confirmingPasswords }
 

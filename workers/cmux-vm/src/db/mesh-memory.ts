@@ -4,7 +4,11 @@
  * which runs the real handlers without a database.
  */
 import { Effect, Layer, Option } from "effect";
-import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
+import { TenantId } from "../lib/ids.ts";
+import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
+
+/** A code row as tests may age it (expiresAt is writable here only). */
+export type MemoryEnrollmentCode = Omit<MeshEnrollmentCodeRow, "expiresAt" | "usedAt"> & { expiresAt: Date; usedAt: Date | null; deviceId: string | null };
 
 export function makeMemoryMeshStore() {
   const slots = new Map<number, { readonly tenantId: string; readonly meshId: string; readonly cidr: string }>();
@@ -12,6 +16,8 @@ export function makeMemoryMeshStore() {
   const members: Array<MeshMemberRow & { readonly tenantId: string; detachedAt: Date | null }> = [];
   const acls: Array<MeshAclVersion & { readonly tenantId: string; readonly meshId: string }> = [];
   const rules: Array<MeshRuleRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
+  const signed = new Map<string, Date>();
+  const codes: Array<MemoryEnrollmentCode> = [];
 
   const layer = Layer.succeed(MeshStore, {
     claimSlot: (tenantId, meshId, slot, cidr) =>
@@ -38,9 +44,72 @@ export function makeMemoryMeshStore() {
       Effect.sync(() => Option.fromNullable(devices.find((row) => row.tenantId === tenantId && row.tunnelId === tunnelId && row.deletedAt === null))),
     listDevices: (tenantId, meshId) =>
       Effect.sync(() => devices.filter((row) => row.tenantId === tenantId && row.meshId === meshId && row.deletedAt === null)),
+    findDeviceForSignedRequest: (deviceId) =>
+      Effect.sync(() =>
+        Option.map(Option.fromNullable(devices.find((row) => row.deviceId === deviceId && row.deletedAt === null)), (row) => ({
+          ...row,
+          tenantId: TenantId.make(row.tenantId),
+        })),
+      ),
     markDeviceDeleted: (tenantId, deviceId, at) =>
       Effect.sync(() => {
         for (const row of devices) if (row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null) row.deletedAt = at;
+      }),
+    listDevicesCreatedBy: (tenantId, createdBy) =>
+      Effect.sync(() => devices.filter((row) => row.tenantId === tenantId && row.createdBy === createdBy && row.deletedAt === null)),
+    listTenantsWithDevicesCreatedBy: (createdBy) =>
+      Effect.sync(() => [...new Set(devices.filter((row) => row.createdBy === createdBy && row.deletedAt === null).map((row) => row.tenantId))].sort().map((id) => TenantId.make(id))),
+    updateDeviceKey: (tenantId, deviceId, wgPublicKey, _at) =>
+      Effect.sync(() => {
+        const index = devices.findIndex((row) => row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null);
+        const current = devices[index];
+        if (current === undefined) return false;
+        if (devices.some((row) => row.meshId === current.meshId && row.wgPublicKey === wgPublicKey && row.deletedAt === null && row.deviceId !== deviceId)) return false;
+        devices[index] = { ...current, wgPublicKey };
+        return true;
+      }),
+    claimSignedRequest: (_tenantId, messageSha256, _purpose, expiresAt, now) =>
+      Effect.sync(() => {
+        for (const [hash, expiry] of signed) if (expiry < now) signed.delete(hash);
+        if (signed.has(messageSha256)) return false;
+        signed.set(messageSha256, expiresAt);
+        return true;
+      }),
+    insertEnrollmentCode: (code) => Effect.sync(() => void codes.push({ ...code, usedAt: null, deviceId: null })),
+    enrollmentCodesSince: (tenantId, meshId, since) =>
+      Effect.sync(() => codes.filter((row) => row.tenantId === tenantId && row.meshId === meshId && row.createdAt > since).map((row) => row.createdAt)),
+    findEnrollmentCode: (codeSha256, meshId, now) =>
+      Effect.sync(() =>
+        Option.map(
+          Option.fromNullable(codes.find((row) => row.codeSha256 === codeSha256 && row.meshId === meshId && row.usedAt === null && row.expiresAt > now)),
+          (row): MeshEnrollmentCodeRow => ({ ...row }),
+        ),
+      ),
+    consumeEnrollmentCode: (codeSha256, meshId, now) =>
+      Effect.sync(() => {
+        const row = codes.find((candidate) => candidate.codeSha256 === codeSha256 && candidate.meshId === meshId && candidate.usedAt === null && candidate.expiresAt > now);
+        if (row === undefined) return false;
+        row.usedAt = now;
+        return true;
+      }),
+    recordEnrollmentCodeDevice: (codeSha256, deviceId) =>
+      Effect.sync(() => {
+        for (const row of codes) if (row.codeSha256 === codeSha256) row.deviceId = deviceId;
+      }),
+    burnEnrollmentCode: (codeSha256, now) =>
+      Effect.sync(() => {
+        for (const row of codes) {
+          if (row.codeSha256 !== codeSha256 || row.deviceId !== null) continue;
+          row.usedAt = row.usedAt ?? now;
+          const floor = new Date(Math.max(now.getTime(), row.createdAt.getTime() + 1));
+          if (floor < row.expiresAt) row.expiresAt = floor;
+        }
+      }),
+    restoreEnrollmentCode: (codeSha256, usedAt) =>
+      Effect.sync(() => {
+        for (const row of codes) {
+          if (row.codeSha256 === codeSha256 && row.deviceId === null && row.usedAt !== null && row.usedAt.getTime() === usedAt.getTime()) row.usedAt = null;
+        }
       }),
     attachMember: (tenantId, member) =>
       Effect.sync(() => {
@@ -87,5 +156,14 @@ export function makeMemoryMeshStore() {
       }),
   });
 
-  return { layer, devices, members, acls, rules, slots };
+  return {
+    layer,
+    devices,
+    members,
+    acls,
+    rules,
+    slots,
+    /** The stored enrollment codes (hashes only); tests may move `expiresAt`. */
+    enrollmentCodes: (): ReadonlyArray<MemoryEnrollmentCode> => codes,
+  };
 }

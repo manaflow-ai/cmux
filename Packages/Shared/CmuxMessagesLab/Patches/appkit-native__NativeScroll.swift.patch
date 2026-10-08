@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
-@@ -504,10 +504,9 @@
+@@ -513,10 +513,9 @@
          }
      }
      /// The thumb's right edge (scroller coordinates): the window's right edge minus 2 pt.

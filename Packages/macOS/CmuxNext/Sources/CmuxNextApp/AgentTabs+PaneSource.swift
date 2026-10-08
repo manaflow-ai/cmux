@@ -24,7 +24,9 @@ extension AgentTabStore {
             return (source, MockAgentPaneHost())
         }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let host = AcpmuxHost { paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment) }
+        let computerUse = ComputerUseHelperDaemon.shared
+        let host = AcpmuxHost(resolve: { paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment) },
+                              computerUse: { computerUse.childEnvironment })
         return (source, host)
     }
 

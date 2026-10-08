@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use super::Origin;
-use crate::config::folder_profiles::{self, FolderState};
+use crate::config::folder_profiles::{self, EnableRefusal, FolderState};
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 
@@ -40,19 +40,15 @@ pub(super) async fn handle(hub: &Hub, origin: Origin, params: &Value) -> Result<
         let gate = cfg.folder_gate.as_ref().ok_or_else(|| {
             RpcError::invalid_params("this daemon has no home: folder profiles are off")
         })?;
-        let fp = folder_profiles::load_one(&cfg, gate, &folder, &id).ok_or_else(|| {
-            RpcError::not_found(format!(
-                "{} has no {id}.toml",
-                folder_profiles::profile_dir(&folder).display()
-            ))
-        })?;
-        if let Some(reason) = folder_profiles::refusal(&fp) {
-            return Err(RpcError::invalid_params(reason));
-        }
-        let program = fp.profile.as_ref().and_then(|p| resolve_program(&p.argv[0]));
+        let shown =
+            folder_profiles::prepare_enable(&cfg, gate, &folder, &id).map_err(|e| match e {
+                EnableRefusal::NotFound(m) => RpcError::not_found(m),
+                EnableRefusal::Refused(m) => RpcError::invalid_params(m),
+            })?;
         let Some(sha) = confirm else {
-            return Ok(json!({"prompt": folder_profiles::prompt(&fp, program.as_deref())}));
+            return Ok(json!({"prompt": shown.prompt}));
         };
+        let fp = shown.profile;
         if fp.state == FolderState::Enabled && fp.sha256.as_deref() == Some(sha.as_str()) {
             return Ok(json!({"enabled": fp}));
         }
@@ -62,13 +58,4 @@ pub(super) async fn handle(hub: &Hub, origin: Origin, params: &Value) -> Result<
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
-}
-
-/// The program a spawn runs: an absolute path as is, a bare name on the
-/// login PATH.
-fn resolve_program(program: &str) -> Option<PathBuf> {
-    if program.starts_with('/') {
-        return Some(PathBuf::from(program));
-    }
-    crate::config::which(program).map(PathBuf::from)
 }

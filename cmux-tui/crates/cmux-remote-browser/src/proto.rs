@@ -300,6 +300,10 @@ pub enum Control {
     DialogShow { token: u64, dialog: Dialog },
     #[serde(rename = "rb.dialog.result")]
     DialogResult { token: u64, accept: bool, text: Option<String> },
+    /// The page closed the dialog itself (it navigated away or went away):
+    /// the viewer closes the sheet and sends no answer.
+    #[serde(rename = "rb.dialog.cancel")]
+    DialogCancel { token: u64 },
     #[serde(rename = "rb.file_chooser.show")]
     FileChooserShow {
         token: u64,

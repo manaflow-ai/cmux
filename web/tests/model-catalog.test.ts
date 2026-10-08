@@ -6,14 +6,12 @@ import feed from "./fixtures/model-feed.json";
 import { projectCatalog } from "../services/model-catalog/project";
 import { allowedDocsUrl, MAX_CATALOG_BYTES, validateCatalog } from "../services/model-catalog/schema";
 import { LIVE_CACHE_CONTROL, serveModelCatalog, SNAPSHOT_CACHE_CONTROL } from "../services/model-catalog/serve";
-import {
-  bundledSnapshot,
-  CatalogStore,
-  FAILURE_BACKOFF_MS,
-  MEMORY_RECHECK_MS,
-  REFRESH_AFTER_MS,
-  type CatalogStoreDeps,
-} from "../services/model-catalog/store";
+import { HARNESS_OVERRIDES } from "../services/model-catalog/overrides";
+import { overridesFromRows, seedRows } from "../services/model-catalog/overrideRows";
+import { parseOverrideInput } from "../services/model-catalog/admin";
+import { ingestFeed, memoryCatalogRepo, publishCatalog } from "../services/model-catalog/publish";
+import { bundledSnapshot, CatalogStore, RECHECK_MS } from "../services/model-catalog/store";
+import { seedSql } from "../tools/model-catalog-seed-sql";
 import type { ModelCatalog } from "../services/model-catalog/types";
 import { fetchFeed } from "../services/model-catalog/upstream";
 import { BUNDLED_CATALOG_PATH, SNAPSHOT_PATH } from "../tools/model-catalog-paths";
@@ -196,118 +194,130 @@ describe("the checked-in catalog", () => {
   });
 });
 
-function deps(clock: { now: number }) {
-  const shared: { value?: unknown; writes: number } = { writes: 0 };
-  const calls = { fetches: 0 };
-  let next: (now: Date) => Promise<ModelCatalog> = async () => {
-    throw new Error("models.dev is down");
-  };
-  const value: CatalogStoreDeps = {
-    snapshot: bundledSnapshot(),
-    readShared: async () => shared.value,
-    writeShared: async (catalog) => {
-      shared.writes += 1;
-      shared.value = JSON.parse(JSON.stringify(catalog));
-    },
-    loadLive: async (now) => {
-      calls.fetches += 1;
-      return next(now);
-    },
-    now: () => clock.now,
-  };
-  return { value, shared, calls, setNext: (fn: (now: Date) => Promise<ModelCatalog>) => (next = fn) };
-}
+describe("catalog pipeline", () => {
+  const seeded = () => memoryCatalogRepo(seedRows());
+  const at = (iso: string) => new Date(iso);
+
+  test("a snapshot is stored only when the models.dev content changes", async () => {
+    const repo = seeded();
+    expect((await ingestFeed(repo, feed, at("2026-10-07T00:00:00Z"))).inserted).toBe(true);
+    expect((await ingestFeed(repo, structuredClone(feed), at("2026-10-07T01:00:00Z"))).inserted).toBe(false);
+    const changed = structuredClone(feed) as Record<string, { models: Record<string, Record<string, unknown>> }>;
+    changed.anthropic!.models["claude-opus-5-5"]!.name = "Claude Opus 5.5 (renamed upstream)";
+    expect((await ingestFeed(repo, changed, at("2026-10-07T02:00:00Z"))).inserted).toBe(true);
+    expect(repo.snapshots).toHaveLength(2);
+    // The stored copy keeps only the providers the overrides read.
+    expect(Object.keys(repo.snapshots[0]!.raw as object)).not.toContain("unused");
+  });
+
+  test("a version is published only when the served body changes", async () => {
+    const repo = seeded();
+    expect(await publishCatalog(repo, "cron")).toEqual({ ok: false, error: "no models.dev snapshot yet" });
+    await ingestFeed(repo, feed, at("2026-10-07T00:00:00Z"));
+    const first = await publishCatalog(repo, "cron");
+    expect(first).toMatchObject({ ok: true, published: true });
+    expect(await publishCatalog(repo, "cron")).toMatchObject({ ok: true, published: false });
+    expect(repo.versions).toHaveLength(1);
+    // The seed is overrides.ts: the first version equals the projection of the repo file.
+    expect(repo.versions[0]!.catalog).toEqual(JSON.parse(JSON.stringify(projectCatalog(feed, at("2026-10-07T00:00:00Z")))));
+  });
+
+  test("an override row hides a model, another renames one, and a publish serves both", async () => {
+    const repo = seeded();
+    await ingestFeed(repo, feed, at("2026-10-07T00:00:00Z"));
+    await publishCatalog(repo, "cron");
+    await repo.upsertOverride({ kind: "model", harnessId: "claude", modelId: "claude-opus-4-8", value: { hidden: true }, active: true }, "curator@manaflow.com");
+    await repo.upsertOverride({ kind: "model", harnessId: "claude", modelId: "claude-sonnet-5", value: { name: "Sonnet Five" }, active: true }, "curator@manaflow.com");
+    const result = await publishCatalog(repo, "curator@manaflow.com");
+    expect(result).toMatchObject({ ok: true, published: true });
+    const claude = harness(repo.versions.at(-1)!.catalog as ModelCatalog, "claude");
+    expect(claude.models.map((model) => model.id)).not.toContain("claude-opus-4-8");
+    expect(claude.models.find((model) => model.id === "claude-sonnet-5")?.name).toBe("Sonnet Five");
+    // Deactivating the row brings the model back.
+    await repo.upsertOverride({ kind: "model", harnessId: "claude", modelId: "claude-opus-4-8", value: { hidden: true }, active: false }, "curator@manaflow.com");
+    await publishCatalog(repo, "curator@manaflow.com");
+    expect(harness(repo.versions.at(-1)!.catalog as ModelCatalog, "claude").models.map((model) => model.id)).toContain("claude-opus-4-8");
+  });
+
+  test("an override that breaks the catalog is refused at publish and the served version stays", async () => {
+    const repo = seeded();
+    await ingestFeed(repo, feed, at("2026-10-07T00:00:00Z"));
+    await publishCatalog(repo, "cron");
+    await repo.upsertOverride({ kind: "model", harnessId: "claude", modelId: "claude-sonnet-5", value: { efforts: ["warp"] }, active: true }, "x");
+    expect(await publishCatalog(repo, "x")).toMatchObject({ ok: false });
+    expect(repo.versions).toHaveLength(1);
+  });
+
+  test("the admin input check refuses unknown fields and malformed rows", () => {
+    expect(parseOverrideInput({ kind: "model", harnessId: "claude", modelId: "claude-x", value: { hidden: true } })).toMatchObject({ kind: "model" });
+    for (const bad of [
+      { kind: "model", harnessId: "claude", modelId: "claude-x", value: { command: "rm -rf /" } },
+      { kind: "model", harnessId: "claude", value: { hidden: true } },
+      { kind: "harness", harnessId: "claude", value: { id: "other", name: "x", brand: "x", families: [], modelSource: "catalog", position: 0 } },
+      { kind: "nope", harnessId: "claude", value: {} },
+      { kind: "model", harnessId: "claude", modelId: "claude-x", value: {}, active: "yes" },
+    ]) {
+      expect(parseOverrideInput(bad)).toHaveProperty("error");
+    }
+  });
+
+  test("the rows round-trip to overrides.ts", () => {
+    expect(overridesFromRows(seedRows())).toEqual(JSON.parse(JSON.stringify(HARNESS_OVERRIDES)));
+  });
+
+  test("the migration seeds exactly overrides.ts", () => {
+    const migration = readFileSync(new URL("../db/migrations/20261007120000_model_catalog/migration.sql", import.meta.url), "utf8");
+    expect(migration.endsWith(seedSql())).toBe(true);
+  });
+});
 
 describe("catalog store", () => {
-  const tasks: Promise<unknown>[] = [];
-  const defer = (task: Promise<unknown>) => void tasks.push(task);
-  const settle = async () => {
-    await Promise.all(tasks.splice(0));
+  const published = async () => {
+    const repo = memoryCatalogRepo(seedRows());
+    await ingestFeed(repo, feed, NOW);
+    await publishCatalog(repo, "cron");
+    return repo;
   };
-  const live = async (now: Date) => projectCatalog(feed, now);
 
-  test("serves the snapshot first, then the refreshed copy, without a request waiting for models.dev", async () => {
-    const clock = { now: NOW.getTime() };
-    const harnessDeps = deps(clock);
-    const store = new CatalogStore(harnessDeps.value);
-    harnessDeps.setNext(live);
-    expect((await store.current(defer)).catalog.source).toBe("snapshot");
-    await settle();
-    expect(harnessDeps.calls.fetches).toBe(1);
-    expect(harnessDeps.shared.writes).toBe(1);
-    expect((await store.current(defer)).catalog.source).toBe("live");
-    for (let index = 0; index < 20; index += 1) await store.current(defer);
-    await settle();
-    expect(harnessDeps.calls.fetches).toBe(1);
+  test("serves the newest published version and rechecks once a minute", async () => {
+    const repo = await published();
+    let clock = NOW.getTime();
+    let reads = 0;
+    const counted = { newestVersion: async () => ((reads += 1), repo.newestVersion()) };
+    const store = new CatalogStore(counted, bundledSnapshot(), () => clock);
+    const built = await store.current();
+    expect(built.version).toBe(1);
+    expect(built.etag).toBe(`"${repo.versions[0]!.contentHash}"`);
+    for (let index = 0; index < 10; index += 1) await store.current();
+    expect(reads).toBe(1);
+    clock += RECHECK_MS;
+    await store.current();
+    expect(reads).toBe(2);
   });
 
-  test("a models.dev outage serves the last good build and backs off", async () => {
-    const clock = { now: NOW.getTime() };
-    const harnessDeps = deps(clock);
-    const store = new CatalogStore(harnessDeps.value);
-    harnessDeps.setNext(live);
-    await store.current(defer);
-    await settle();
-    const good = await store.current(defer);
-    expect(good.catalog.source).toBe("live");
-    harnessDeps.setNext(async () => {
-      throw new Error("models.dev is down");
-    });
-    clock.now += REFRESH_AFTER_MS + 1;
-    const during = await store.current(defer);
-    await settle();
-    expect(during.etag).toBe(good.etag);
-    expect(harnessDeps.calls.fetches).toBe(2);
-    for (let index = 0; index < 10; index += 1) await store.current(defer);
-    await settle();
-    expect(harnessDeps.calls.fetches).toBe(2);
-    clock.now += FAILURE_BACKOFF_MS + 1;
-    expect((await store.current(defer)).etag).toBe(good.etag);
-    await settle();
-    expect(harnessDeps.calls.fetches).toBe(3);
-  });
-
-  test("a projection that does not validate is not kept or stored", async () => {
-    const clock = { now: NOW.getTime() };
-    const harnessDeps = deps(clock);
-    const store = new CatalogStore(harnessDeps.value);
-    harnessDeps.setNext(async (now) => ({ ...projectCatalog(feed, now), harnesses: [] }));
-    await store.current(defer);
-    await settle();
-    expect(harnessDeps.shared.writes).toBe(0);
-    expect((await store.current(defer)).catalog.source).toBe("snapshot");
-  });
-
-  test("a new instance uses the shared copy another instance stored", async () => {
-    const clock = { now: NOW.getTime() };
-    const harnessDeps = deps(clock);
-    harnessDeps.shared.value = JSON.parse(JSON.stringify(projectCatalog(feed, NOW)));
-    const store = new CatalogStore(harnessDeps.value);
-    const built = await store.current(defer);
-    await settle();
-    expect(built.catalog.source).toBe("live");
-    expect(harnessDeps.calls.fetches).toBe(0);
-    harnessDeps.shared.value = { schemaVersion: 1, harnesses: 5 };
-    clock.now += MEMORY_RECHECK_MS + 1;
-    expect((await store.current(defer)).etag).toBe(built.etag);
+  test("with no published version or no database it serves the bundled snapshot, then keeps the last good one", async () => {
+    let fail = false;
+    const repo = await published();
+    let clock = NOW.getTime();
+    const empty = new CatalogStore({ newestVersion: async () => undefined }, bundledSnapshot(), () => clock);
+    expect((await empty.current()).catalog.source).toBe("snapshot");
+    const flaky = new CatalogStore(
+      { newestVersion: async () => { if (fail) throw new Error("db down"); return repo.newestVersion(); } },
+      bundledSnapshot(),
+      () => clock,
+    );
+    const good = await flaky.current();
+    fail = true;
+    clock += RECHECK_MS;
+    expect((await flaky.current()).etag).toBe(good.etag);
   });
 });
 
 describe("GET /api/models/v1", () => {
-  const ignore = () => undefined;
-  const offline = (shared?: unknown) =>
-    new CatalogStore({
-      snapshot: bundledSnapshot(),
-      readShared: async () => shared,
-      writeShared: async () => undefined,
-      loadLive: async () => {
-        throw new Error("offline");
-      },
-      now: () => NOW.getTime(),
-    });
+  const snapshotStore = new CatalogStore({ newestVersion: async () => undefined }, bundledSnapshot(), () => NOW.getTime());
 
   test("serves one public JSON body with a content-hash ETag and no cookies", async () => {
-    const response = await serveModelCatalog(new Request("https://cmux.test/api/models/v1"), offline(), ignore);
+    const response = await serveModelCatalog(new Request("https://cmux.test/api/models/v1"), snapshotStore);
     const body = await response.text();
     expect(response.status).toBe(200);
     expect(response.headers.get("etag")).toBe(`"${createHash("sha256").update(body).digest("base64url")}"`);
@@ -320,19 +330,21 @@ describe("GET /api/models/v1", () => {
     expect(JSON.parse(body).schemaVersion).toBe(1);
   });
 
-  test("a live copy is cached longer, and a matching If-None-Match answers 304", async () => {
-    const store = offline(JSON.parse(JSON.stringify(projectCatalog(feed, NOW))));
-    const first = await serveModelCatalog(new Request("https://cmux.test/api/models/v1"), store, ignore);
+  test("a published version is cached longer, and a matching If-None-Match answers 304", async () => {
+    const repo = memoryCatalogRepo(seedRows());
+    await ingestFeed(repo, feed, NOW);
+    await publishCatalog(repo, "cron");
+    const store = new CatalogStore(repo, bundledSnapshot(), () => NOW.getTime());
+    const first = await serveModelCatalog(new Request("https://cmux.test/api/models/v1"), store);
     expect(first.headers.get("cache-control")).toBe(LIVE_CACHE_CONTROL);
+    expect(first.headers.get("x-cmux-catalog-version")).toBe("1");
     const etag = first.headers.get("etag")!;
     const second = await serveModelCatalog(
       new Request("https://cmux.test/api/models/v1", { headers: { "If-None-Match": `"other", ${etag}` } }),
       store,
-      ignore,
     );
     expect(second.status).toBe(304);
     expect(await second.text()).toBe("");
-    expect(second.headers.get("etag")).toBe(etag);
   });
 });
 

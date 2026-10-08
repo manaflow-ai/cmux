@@ -11,7 +11,8 @@ import Testing
         override var fittingSize: NSSize { NSSize(width: 200, height: 48) }
     }
 
-    @Test func theDotsSitAboveTheSettingsBandAndTheCardsAboveTheDots() throws {
+    /// Amendment 3: the dots share the footer band's row; the cards sit on the band.
+    @Test func theDotsShareTheFooterBandAndTheCardsSitAboveIt() throws {
         let model = SidebarModel()
         model.profiles = [SidebarProfile(id: ProfileKey("a"), name: "Default"), SidebarProfile(id: ProfileKey("b"), name: "Work")]
         model.activeProfileID = ProfileKey("a")
@@ -22,11 +23,11 @@ import Testing
         view.layoutSubtreeIfNeeded()
         view.layout()
         let dots = view.profileBar.convert(view.profileBar.bounds, to: view)
-        let band = view.belowFade.frame
+        let band = view.footerRegion.frame
         #expect(!view.profileBar.isHidden)
-        #expect(abs(band.maxY - view.bounds.maxY) < 0.5, "the Settings band is at the bottom")
-        #expect(dots.maxY <= band.minY + 0.5 && dots.height > 0, "the dots sit on the band")
+        #expect(abs(band.maxY - view.bounds.maxY) < 0.5, "the footer band is at the bottom")
+        #expect(dots.minY >= band.minY - 0.5 && dots.maxY <= band.maxY + 0.5 && dots.height > 0, "the dots are in the band's row")
         let stack = cards.convert(cards.bounds, to: view)
-        #expect(stack.height == 48 && stack.maxY <= dots.minY + 0.5, "the cards sit on the dots")
+        #expect(stack.height == 48 && stack.maxY <= band.minY + 0.5, "the cards sit on the band")
     }
 }
