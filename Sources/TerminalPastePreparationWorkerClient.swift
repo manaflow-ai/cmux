@@ -88,6 +88,41 @@ struct TerminalPastePreparationWorkerClient: Sendable {
 #else
     @Sendable
 #endif
+    func prepareFastPath(
+        _ request: TerminalPastePreparationRequest
+    ) async throws -> TerminalPastePreparationResult? {
+        guard let plainTextWorkerPool,
+              case .terminal? = request.destination else {
+            return nil
+        }
+        switch request.mode {
+        case .paste?, .plainText?:
+            break
+        default:
+            return nil
+        }
+
+        let response = try await plainTextWorkerPool.request(
+            JSONEncoder().encode(request)
+        )
+        try Task.checkCancellation()
+        guard response.status == 0 else {
+            // Status 73 means the resident helper cannot safely answer this
+            // request (for example an image or faithful rich-text fallback).
+            // The caller must send it through the isolated full worker lane.
+            return nil
+        }
+        guard let text = String(data: response.payload, encoding: .utf8) else {
+            throw TerminalPastePreparationWorkerError.invalidWorkerResponse
+        }
+        return .terminal(text.isEmpty ? .reject : .insertText(text))
+    }
+
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     func prepare(
         _ request: TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult {

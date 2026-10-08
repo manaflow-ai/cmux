@@ -310,6 +310,9 @@ class GhosttyApp {
                 operation: { request in
                     return try await client.prepare(request)
                 },
+                fastOperation: { request in
+                    try await client.prepareFastPath(request)
+                },
                 cleanup: { result in
                     result.cleanupTransferredTemporaryFiles(
                         using: pasteboardService
