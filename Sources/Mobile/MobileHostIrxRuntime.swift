@@ -228,7 +228,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         admission?.invalidate()
         generationToken = UUID()
         listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
     }
 
     func stopHost() async {
@@ -242,7 +242,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         generationToken = UUID()
         wantsHost = false
         listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
         let token = generationToken
         shutdownTask?.cancel()
         shutdownTask = Task { @MainActor [weak self] in
@@ -360,7 +360,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         lastLoggedControlState = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
         await outgoingDeviceClient?.enforce(nil, releaseAll: true)
         if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
            metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {

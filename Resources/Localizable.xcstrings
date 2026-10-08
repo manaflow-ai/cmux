@@ -641591,6 +641591,42 @@
             "value": "보안 페어링 엔드포인트가 시작을 완료하기 전에 중지되었습니다. 다른 cmux 빌드를 닫고 다시 시도하세요."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigurna krajnja tačka za uparivanje zaustavila se pre završetka pokretanja. Zatvorite druge cmux verzije i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det sikre parringsendepunkt stoppede, før opstarten var fuldført. Luk andre cmux-builds, og prøv igen."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណុចបញ្ចប់ការផ្គូផ្គងដែលមានសុវត្ថិភាពបានឈប់ មុនពេលការចាប់ផ្ដើមបានបញ្ចប់។ បិទការបង្កើត cmux ផ្សេងទៀត ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezpieczny punkt końcowy parowania zatrzymał się przed ukończeniem uruchamiania. Zamknij inne kompilacje cmux i spróbuj ponownie."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลายทางการจับคู่ที่ปลอดภัยหยุดทำงานก่อนเริ่มต้นเสร็จสมบูรณ์ ปิดบิลด์ cmux อื่นแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenli eşleştirme uç noktası başlatma tamamlanmadan durdu. Diğer cmux derlemelerini kapatıp tekrar deneyin."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -641650,6 +641686,42 @@
             "value": "보안 페어링 엔드포인트가 실행 중이지만 이 Mac에 직접 네트워크 주소가 없습니다. Tailscale 또는 네트워크 연결을 확인하세요."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigurna krajnja tačka za uparivanje radi, ali ovaj Mac nema direktnu mrežnu adresu. Proverite Tailscale ili mrežnu vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det sikre parringsendepunkt kører, men denne Mac har ingen direkte netværksadresse. Kontrollér Tailscale eller din netværksforbindelse."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណុចបញ្ចប់ការផ្គូផ្គងដែលមានសុវត្ថិភាពកំពុងដំណើរការ ប៉ុន្តែ Mac នេះមិនមានអាសយដ្ឋានបណ្ដាញផ្ទាល់ទេ។ ពិនិត្យ Tailscale ឬការតភ្ជាប់បណ្ដាញរបស់អ្នក។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezpieczny punkt końcowy parowania działa, ale ten Mac nie ma bezpośredniego adresu sieciowego. Sprawdź Tailscale lub połączenie sieciowe."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลายทางการจับคู่ที่ปลอดภัยกำลังทำงาน แต่ Mac เครื่องนี้ไม่มีที่อยู่เครือข่ายโดยตรง ตรวจสอบ Tailscale หรือการเชื่อมต่อเครือข่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenli eşleştirme uç noktası çalışıyor, ancak bu Mac'in doğrudan ağ adresi yok. Tailscale veya ağ bağlantınızı kontrol edin."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -641707,6 +641779,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "보안 페어링에 사용할 수 있는 릴레이 자격 증명이 없습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigurno uparivanje nema upotrebljive akreditive za relej. Proverite vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikker parring har ingen brugbare relæoplysninger. Kontrollér din forbindelse, og prøv igen."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្គូផ្គងដែលមានសុវត្ថិភាពមិនមានព័ត៌មានសម្គាល់รีឡេដែលអាចប្រើបានទេ។ ពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezpieczne parowanie nie ma użytecznych danych uwierzytelniających przekaźnika. Sprawdź połączenie i spróbuj ponownie."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การจับคู่ที่ปลอดภัยไม่มีข้อมูลรับรองรีเลย์ที่ใช้งานได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenli eşleştirme için kullanılabilir geçiş kimlik bilgileri yok. Bağlantınızı kontrol edip tekrar deneyin."
           }
         },
         "ja": {
@@ -641769,6 +641877,42 @@
             "value": "보안 페어링 실패: %@"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigurno uparivanje nije uspelo: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikker parring mislykkedes: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្គូផ្គងដែលមានសុវត្ថិភាពបានបរាជ័យ៖ %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezpieczne parowanie nie powiodło się: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การจับคู่ที่ปลอดภัยล้มเหลว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenli eşleştirme başarısız oldu: %@"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -641827,6 +641971,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "페어링을 완료할 수 없습니다.\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparivanje nije moglo da se završi.\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parringen kunne ikke fuldføres.\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបញ្ចប់ការផ្គូផ្គងបានទេ។\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się ukończyć parowania.\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจับคู่ให้เสร็จสิ้นได้\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleştirme tamamlanamadı.\n\n%@"
           }
         },
         "ja": {
@@ -641888,6 +642068,42 @@
             "value": "Tailscale 페어링 포트가 잘못되었습니다. 1에서 65535 사이의 포트를 선택하세요."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale port za uparivanje nije važeći. Izaberite port od 1 do 65535."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale-parringsporten er ugyldig. Vælg en port fra 1 til 65535."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ច្រកផ្គូផ្គង Tailscale មិនត្រឹមត្រូវទេ។ ជ្រើសច្រកចាប់ពី 1 ដល់ 65535។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port parowania Tailscale jest nieprawidłowy. Wybierz port od 1 do 65535."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พอร์ตการจับคู่ Tailscale ไม่ถูกต้อง เลือกพอร์ตตั้งแต่ 1 ถึง 65535"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale eşleştirme bağlantı noktası geçersiz. 1 ile 65535 arasında bir bağlantı noktası seçin."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -641946,6 +642162,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "포트 %@에서 Tailscale 페어링 리스너를 시작할 수 없습니다: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće pokrenuti Tailscale slušalac za uparivanje na portu %@: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale-parringslytteren kunne ikke startes på port %@: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើមអ្នកស្តាប់ការផ្គូផ្គង Tailscale នៅច្រក %@ បានទេ៖ %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można uruchomić nasłuchiwania parowania Tailscale na porcie %@: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่มตัวรับฟังการจับคู่ Tailscale ที่พอร์ต %@: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale eşleştirme dinleyicisi %@ bağlantı noktasında başlatılamadı: %@"
           }
         },
         "ja": {

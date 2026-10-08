@@ -327,6 +327,16 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    /// Removes only the Iroh publication while preserving the independent
+    /// legacy Tailscale routes owned by ``MobileHostService``.
+    static func removeIroh() {
+        lock.lock()
+        irohRoute = nil
+        v2DeviceID = nil
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
     static func removeAll() {
         lock.lock()
         legacyRoutes = []
@@ -347,8 +357,9 @@ enum MobileHostPublicStatusCache {
     ///
     /// Ticket minting needs both halves of the *same* publication. Reading
     /// ``snapshot()`` and ``currentV2DeviceID()`` separately can straddle a
-    /// concurrent republish or teardown (the runtime calls ``removeAll()`` on
-    /// every reconcile), which would bind fresh routes to a retired identity.
+    /// concurrent republish or teardown (the runtime clears its Iroh
+    /// publication during reconcile), which would bind fresh routes to a
+    /// retired identity.
     struct PublishedStatus: Sendable {
         var routes: [CmxAttachRoute]
         var v2DeviceID: String?
