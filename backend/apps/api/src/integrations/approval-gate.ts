@@ -11,6 +11,7 @@ import {
   deleteApproval,
   describeRequest,
   endApproval,
+  endForMember,
   expireDue,
   insertApproval,
   MAX_PENDING_PER_CONNECTION,
@@ -203,13 +204,22 @@ export const takeAnswer = (sql: SqlStorage, source: string, params: { request?: 
 export const deliverAnswers = async (
   sql: SqlStorage,
   source: string,
-  items: ReadonlyArray<{ readonly id: number; readonly params: unknown }>,
+  items: ReadonlyArray<{ readonly id: number; readonly op?: string; readonly params: unknown }>,
   run: (row: ApprovalRow) => Promise<ExternalReply | "refused">,
   /** Answer-time checks (membership, team SSO; approval-route.ts answerAdmitted); false ends it denied and runs nothing. */
-  admit?: (row: ApprovalRow, params: unknown) => Promise<boolean>
+  admit?: (row: ApprovalRow, params: unknown) => Promise<boolean>,
+  /** This ConnectionDO's team: a member_left counts only from that team's own TeamDO stream. */
+  team?: string
 ): Promise<Array<number>> => {
   const done: Array<number> = []
   for (const item of items) {
+    if (item.op === "connections.member_left") {
+      const v = (item.params ?? {}) as { team?: unknown; user?: unknown; at?: unknown }
+      if (team !== undefined && v.team === team && source === `team:${team}` && typeof v.user === "string") endForMember(sql, v.user, typeof v.at === "number" ? v.at : Date.now(), Date.now())
+      else console.warn(JSON.stringify({ msg: "member_left ignored", source }))
+      done.push(item.id)
+      continue
+    }
     const outcome = takeAnswer(sql, source, (item.params ?? {}) as Record<string, unknown>, Date.now())
     if (outcome.kind === "settle") settleRunning(sql, outcome.row, Date.now())
     else if (outcome.kind === "run" && admit && !(await admit(outcome.row, item.params))) endApproval(sql, outcome.row.request, "denied", Date.now())
@@ -237,6 +247,9 @@ export const deliverAnswers = async (
   }
   return done
 }
+
+/** Outbox items the ConnectionDO handles itself (DO-local approvals table), not through its engine. */
+export const APPROVAL_ITEM_OPS: ReadonlySet<string> = new Set(["integration.approval.answered", "connections.member_left"])
 
 /** The FeedDO RPC that posts an integration approve request to `user`'s feed (G8); returns the item id. */
 export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<string> => {
