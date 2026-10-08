@@ -24,9 +24,15 @@
 //!   matches processes by name or pattern ([`sessions`]).
 //!
 //! Known limits:
-//! - A revocation ends the sshd process and its logind session scope.
-//!   Processes the user moved out of that scope (`systemd-run --user`, a
-//!   lingering user manager) keep running.
+//! - A revocation ends the sshd process and its logind session scope, turns
+//!   the user's lingering off and, once no live session of that user holds
+//!   an unrevoked certificate, stops that user's `user@<uid>.service` (so
+//!   `systemd-run --user` work ends too). Team users never linger: each
+//!   pass turns lingering off for every user with a principals file. While
+//!   another valid session of the same Linux user is live, work the revoked
+//!   session moved into the shared user manager keeps running until that
+//!   session ends. Work handed to another system service (cron or at jobs,
+//!   a docker daemon the user may reach) is outside these scopes.
 //! - Only Ed25519 and ECDSA user certificates can be recorded; a session
 //!   with another certificate type is refused at session open (the team CA
 //!   is Ed25519 only).

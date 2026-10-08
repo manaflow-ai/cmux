@@ -197,10 +197,10 @@ systemctl reset-failed cmuxt9cnf-sshd-d.service 2>/dev/null || true
 systemd-run --quiet --unit=cmuxt9cnf-sshd-d.service "$SSHD_D" -D -f "$d/sshd_config_d"
 for i in $(seq 50); do [[ -s "$d/sshd-d.pid" ]] && break; sleep 0.1; done
 ssh-keygen -q -s "$d/ca" -I cmuxt-5 -n "$USER_NAME" -z 5 -V +20m "$d/u2.pub"
-out="$("${SSH_BASE[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo in; echo sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true)"
+out="$("${SSH_BASE[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo d-opened sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true)"
 systemctl stop cmuxt9cnf-sshd-d.service
 rm -f "$SSHD_D" /etc/pam.d/sshd-cmuxt9d
-[[ "$out" != *in* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $(tr '\n' ' ' <<< "$out")"
+[[ "$out" != *d-opened* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $(tr '\n' ' ' <<< "$out")"
 
 echo "--- $fails failure(s)"
 [[ "$fails" == 0 ]]

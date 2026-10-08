@@ -13,6 +13,9 @@ struct FakeHost {
     check_fails: bool,
     end_fails: bool,
     ended: RefCell<Vec<u32>>,
+    lingering: RefCell<Vec<String>>,
+    /// Every user-manager action, in order (`linger-off <user>`, `stop <user>`).
+    actions: RefCell<Vec<String>>,
 }
 
 impl Host for FakeHost {
@@ -35,6 +38,23 @@ impl Host for FakeHost {
         self.ended.borrow_mut().push(record.pid);
         Ok(())
     }
+    fn disable_linger(&self, user: &str) -> io::Result<bool> {
+        let mut lingering = self.lingering.borrow_mut();
+        let was = lingering.iter().any(|u| u == user);
+        lingering.retain(|u| u != user);
+        if was {
+            self.actions.borrow_mut().push(format!("linger-off {user}"));
+        }
+        Ok(was)
+    }
+    fn stop_user_manager(&self, user: &str) -> io::Result<bool> {
+        self.actions.borrow_mut().push(format!("stop {user}"));
+        Ok(true)
+    }
+}
+
+fn user_record(pid: u32, user: &str, cert: &str) -> SessionRecord {
+    SessionRecord { user: user.into(), ..record(pid, 500, cert) }
 }
 
 fn record(pid: u32, start_time: u64, cert: &str) -> SessionRecord {
@@ -134,6 +154,84 @@ fn failures_keep_the_record_and_are_reported() {
     let out = reap(&paths, &host);
     assert_eq!((out.ended.len(), out.errors.len()), (0, 1));
     assert_eq!(load_all(&paths).len(), 1);
+}
+
+#[test]
+fn revoking_a_users_last_valid_session_turns_lingering_off_then_stops_its_user_manager() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = Paths::new(dir.path());
+    save(&paths, &user_record(10, "alice", "cert-revoked")).expect("save");
+    save(&paths, &user_record(11, "bob", "cert-ok")).expect("save");
+    let host = FakeHost {
+        procs: BTreeMap::from([(10, (500, "sshd")), (11, (500, "sshd"))]),
+        revoked: vec!["cert-revoked".into()],
+        lingering: RefCell::new(vec!["alice".into(), "bob".into()]),
+        ..FakeHost::default()
+    };
+    let out = reap(&paths, &host);
+    assert_eq!(out.ended, vec![10]);
+    assert_eq!(*host.actions.borrow(), vec!["linger-off alice", "stop alice"]);
+    assert_eq!(out.linger_off, vec!["alice"]);
+    assert_eq!(out.managers_stopped, vec!["alice"]);
+    assert_eq!(*host.lingering.borrow(), vec!["bob"], "bob has no principals file: untouched");
+}
+
+#[test]
+fn a_user_with_another_valid_live_session_keeps_its_user_manager() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = Paths::new(dir.path());
+    save(&paths, &user_record(10, "alice", "cert-revoked")).expect("save");
+    save(&paths, &user_record(11, "alice", "cert-ok")).expect("save");
+    let host = FakeHost {
+        procs: BTreeMap::from([(10, (500, "sshd")), (11, (500, "sshd"))]),
+        revoked: vec!["cert-revoked".into()],
+        lingering: RefCell::new(vec!["alice".into()]),
+        ..FakeHost::default()
+    };
+    let out = reap(&paths, &host);
+    assert_eq!(out.ended, vec![10]);
+    assert_eq!(*host.actions.borrow(), vec!["linger-off alice"], "no stop under a valid session");
+    // The second certificate is revoked later: now the manager stops.
+    let host = FakeHost {
+        procs: BTreeMap::from([(11, (500, "sshd"))]),
+        revoked: vec!["cert-ok".into()],
+        ..FakeHost::default()
+    };
+    let out = reap(&paths, &host);
+    assert_eq!(out.ended, vec![11]);
+    assert_eq!(*host.actions.borrow(), vec!["stop alice"]);
+}
+
+#[test]
+fn an_unchecked_session_of_the_user_keeps_its_user_manager() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = Paths::new(dir.path());
+    save(&paths, &user_record(10, "alice", "cert-revoked")).expect("save");
+    let host = FakeHost {
+        procs: BTreeMap::from([(10, (500, "sshd"))]),
+        check_fails: true,
+        ..FakeHost::default()
+    };
+    let out = reap(&paths, &host);
+    assert!(host.actions.borrow().is_empty(), "{out:?}");
+}
+
+#[test]
+fn every_pass_turns_lingering_off_for_users_with_a_principals_file_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = Paths::new(dir.path());
+    let principals = paths.at(super::PRINCIPALS_DIR);
+    std::fs::create_dir_all(&principals).expect("dir");
+    std::fs::write(principals.join("alice"), "alice\n").expect("write");
+    std::fs::write(principals.join("Not A User"), "x\n").expect("write");
+    let host = FakeHost {
+        lingering: RefCell::new(vec!["alice".into(), "runner".into()]),
+        ..FakeHost::default()
+    };
+    let out = reap(&paths, &host);
+    assert_eq!(out.linger_off, vec!["alice"]);
+    assert!(out.managers_stopped.is_empty(), "no revocation, no stop: logind stops it");
+    assert_eq!(*host.lingering.borrow(), vec!["runner"]);
 }
 
 #[cfg(target_os = "linux")]
