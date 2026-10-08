@@ -1,11 +1,19 @@
 # D2 `bakeoff`: V1 vs V2 vs V3 and the path policy
 
-Status: landed (local) on `feat-cmux-next-ios-d2-bakeoff`, 2026-10-06. Plan: [PLAN.md](PLAN.md) D2.
+Status: local loopback decision recorded; the device and WAN gates remain open. Plan: [PLAN.md](PLAN.md) D2.
 Binding: [a3-link.md](a3-link.md), [b2-webrtc.md](b2-webrtc.md) (V1), [b3-webrtc-wg.md](b3-webrtc-wg.md)
 (V2), [b4-direct.md](b4-direct.md) (V3), [c1-terminal-rpc.md](c1-terminal-rpc.md) section 8 (latency
 telemetry), `transport.md` section 13 (prior WAN measurements). Code: `Packages/Shared/CmuxLinkBench`.
 Raw results: [bakeoff/results](bakeoff/results), reproduced by [bakeoff/run-local.sh](bakeoff/run-local.sh),
 tables by [bakeoff/summarize.py](bakeoff/summarize.py).
+
+Audit note (2026-10-07): the loopback harness and carrier conformance results are evidence for the
+current DEV path policy only. The split Mac/iPhone harness (F2) is not implemented: there is no
+`cmux-link-bench serve` command, no iOS DEV Link bench screen, and no `bakeoff/device/` result set.
+The device pass bars in section 6 therefore remain release gates. V3's loopback `roam` row is also
+synthetic: the direct carrier has no TURN alternate, so forcing `.turn` after a direct TCP drop does
+not model a reachable path. Treat that row as unsupported until the rig has two real direct
+endpoints (or omit it from carrier comparisons).
 
 ## 1. Decision
 
@@ -46,7 +54,7 @@ high-water mark belongs to it. One JSON file per run (schema `cmux-link-bench/1`
 | `bulk` | the same with 64 KiB records (`--bulk-record`) on a `bulk` channel (4 MiB credit) |
 | `raw` | bulk frames on a bare `LinkTransport`, no session: carrier cost alone |
 | `reconnect` | transport drop, then one echo sent at once; fault to echo (retention and resume included) |
-| `roam` | `roam(to: .turn)` (live transports die or move, new ones land on TURN); fault to echo, whether the session reconnected, path after |
+| `roam` | `roam(to: .turn)` for carriers with a TURN alternate (live transports die or move, new ones land on TURN); fault to echo, whether the session reconnected, path after. V3 direct has no valid TURN roam until its rig supplies an alternate direct endpoint. |
 | CPU, memory | process user+system CPU over each throughput window per MiB (both ends in one process); `ru_maxrss` and `phys_footprint` |
 
 Rigs: `v1` (two libwebrtc peers on loopback host candidates, in-memory signaling relay, real ICE,
@@ -182,6 +190,19 @@ no rate limit, 1200 B datagrams):
   commands here). V1 TURN, ICE restart and STUN were not exercised; the roam fault drops the peer
   connection.
 - The in-process V1 rig still shares one process and one SCTP implementation build for both ends.
+
+### 5.1 Result provenance and open carrier work
+
+The post-F1/E1 measurements are under `bakeoff/results/e1/`, while the default
+`python3 bakeoff/summarize.py` command scans only `bakeoff/results/*.json` and therefore prints the
+older pre-F1 V1 rows. The nested E1 directory contains three raw runs but only one full V1 run, so it
+cannot reproduce every three-run row in section 3. Keep each table row tied to an explicit result
+directory, commit, and run count (or add a manifest and make the summarizer consume it) before using
+the numbers as a release comparison.
+
+F3 (continuous V1 RTT sampling and cancellation of a send waiting on a full channel), F7 (direct
+TCP head-of-line control), and F8 (RTT-sized render credit) remain open. They need focused tests and
+WAN/device evidence before the default path policy is promoted beyond DEV dogfood.
 
 ## 6. Re-measure on device
 

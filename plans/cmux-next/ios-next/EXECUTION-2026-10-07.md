@@ -105,6 +105,21 @@ the post-build C8/C12/C16 slices add static and focused contract evidence; the b
 focused Vitest tests and a clean TypeScript typecheck. The next gate is tagged Mac/iPhone pairing
 and D3 runtime evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
+### D2 carrier audit
+
+The local bakeoff records a DEV-only loopback decision. F2 is still absent: `cmux-link-bench` has no
+split `serve` mode, iOS has no Link bench screen, and no device JSON has been captured. The V3 direct
+roam measurement is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path
+that the direct carrier cannot actually provide; it must be omitted or replaced with an alternate
+direct endpoint before it is compared with V1/V2 roaming. F3 (continuous V1 RTT and cancellable full
+channel sends), F7 (direct TCP head-of-line mitigation), and F8 (RTT-sized render credit) remain open.
+
+The post-F1/E1 results are nested in `plans/cmux-next/ios-next/bakeoff/results/e1/`, but the default
+summarizer reads only the top-level result files. The section 3 table therefore is not reproducible
+from its documented command and the nested directory has only one full V1 run. Before relying on the
+comparison for a release choice, add an explicit result manifest or update the summarizer invocation
+and record the exact run count and commit for every row.
+
 ## Dependency graph for this wave
 
 ```mermaid
