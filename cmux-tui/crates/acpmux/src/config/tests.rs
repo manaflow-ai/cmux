@@ -344,13 +344,86 @@ fn explicit_acpmux_config_wins_over_acpx_and_path() {
 fn the_pool_never_falls_back_onto_an_acp_claude() {
     let mut cfg = Config::default();
     cfg.harnesses.insert("claude".into(), prof(HarnessKind::Acp, &["/opt/mine/claude-acp"]));
-    cfg.join_discovered(discover_harnesses_from(None, &on_path(&["sr"])));
+    cfg.join_discovered(discover_harnesses_from(None, &on_path(&["sr", "cr"])));
     assert_eq!(cfg.harnesses["claude-sr"].fallback, None);
-    // With acpmux's own adapter as `claude`, the pool falls back to it.
+    assert_eq!(cfg.harnesses["claude-cr"].fallback, None);
+    // With acpmux's own adapter as `claude`, the CodeRouter route falls back to it.
+    let mut cfg = Config::default();
+    cfg.join_discovered(discover_harnesses_from(None, &on_path(&["claude", "sr", "cr"])));
+    assert_eq!(cfg.harnesses["claude-cr"].fallback.as_deref(), Some("claude"));
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-cr"));
+}
+
+#[test]
+fn coderouter_is_the_default_claude_route_and_the_subrouter_is_only_an_explicit_choice() {
+    // Lawrence 2026-10-08: agent traffic uses CodeRouter (`cr`) with its
+    // Bedrock upstream; the subrouter pool is never picked automatically.
+    let found = discover_harnesses_from(None, &on_path(&["claude", "sr", "cr"]));
+    assert_eq!(found["claude-cr"].kind, HarnessKind::ClaudeStdio);
+    assert_eq!(found["claude-cr"].argv, vec!["/u/bin/cr".to_owned(), "claude-david".into()]);
+    let mut cfg = Config::default();
+    cfg.join_discovered(found);
+    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-cr");
+    assert_eq!(cfg.defaults["claude"].prefer, vec!["claude-cr".to_owned(), "claude".into()]);
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-cr"));
+    // The subrouter stays available by its exact name, and nothing moves onto it.
+    assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
+    assert!(cfg.harnesses.values().all(|p| p.fallback.as_deref() != Some("claude-sr")));
+    // A `coderouter` binary (the long name) serves the same route.
+    let found = discover_harnesses_from(None, &on_path(&["claude", "coderouter"]));
+    assert_eq!(
+        found["claude-cr"].argv,
+        vec!["/u/bin/coderouter".to_owned(), "claude-david".into()]
+    );
+}
+
+#[test]
+fn an_installed_subrouter_alone_never_becomes_the_claude_default() {
     let mut cfg = Config::default();
     cfg.join_discovered(discover_harnesses_from(None, &on_path(&["claude", "sr"])));
-    assert_eq!(cfg.harnesses["claude-sr"].fallback.as_deref(), Some("claude"));
-    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-sr"));
+    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
+    assert_eq!(cfg.harnesses["claude"].fallback, None);
+    assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
+    // Saving writes no generated preference or fallback back to config.json.
+    assert!(cfg.auto_prefer.is_none());
+    assert!(cfg.auto_fallback.is_none());
+}
+
+#[test]
+fn a_coderouter_without_the_bedrock_route_is_unavailable() {
+    let dir = std::env::temp_dir().join(format!("acpmux-cr-launcher-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let old = dir.join("cr-old");
+    write_executable(&old, "#!/bin/sh\necho 'error: unknown command: claude-david' >&2\nexit 2\n");
+    let good = dir.join("cr-good");
+    write_executable(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n");
+    let argv = |p: &std::path::Path| vec![p.to_string_lossy().into_owned(), "claude-david".into()];
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
+    cfg.harnesses.insert("claude-cr".into(), {
+        let mut p = prof(HarnessKind::ClaudeStdio, &[]);
+        p.argv = argv(&old);
+        p
+    });
+    cfg.harnesses.get_mut("claude").unwrap().fallback = Some("claude-cr".into());
+    cfg.defaults.insert(
+        "claude".into(),
+        SessionDefaults { prefer: vec!["claude-cr".into(), "claude".into()], ..Default::default() },
+    );
+    verify_launchers_with(&mut cfg, None);
+    assert!(cfg.unavailable.get("claude-cr").unwrap().contains("unknown command"));
+    assert_eq!(cfg.harnesses["claude"].fallback, None);
+    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
+    // A working `cr claude-david` stays the route.
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude-cr".into(), {
+        let mut p = prof(HarnessKind::ClaudeStdio, &[]);
+        p.argv = argv(&good);
+        p
+    });
+    verify_launchers_with(&mut cfg, None);
+    assert!(!cfg.unavailable.contains_key("claude-cr"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

@@ -306,8 +306,8 @@ fn the_harness_is_one_setting_for_turns_and_the_compactor() {
     use optchat_chief::host::harness_choice;
     assert_eq!(
         harness_choice(None, None, None),
-        ("claude-sr".to_owned(), "claude-sr".to_owned()),
-        "our Claude Code ACP adapter, through the subrouter account pool"
+        ("claude-cr".to_owned(), "claude-cr".to_owned()),
+        "our Claude Code adapter through CodeRouter's Bedrock route (Lawrence 2026-10-08), never the subrouter by default"
     );
     assert_eq!(
         harness_choice(Some("codex"), None, None),
@@ -454,6 +454,31 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let flags = optchat_chief::cli::Flags::default();
     let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
     assert!(child.tags.is_empty(), "{:?}", child.tags);
+}
+
+#[test]
+fn the_default_coderouter_route_is_admitted_and_children_default_to_it() {
+    // `MUX_HARNESS` unset in the test process: the child takes the default.
+    let flags = optchat_chief::cli::Flags::default();
+    if std::env::var_os("MUX_HARNESS").is_none() {
+        let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
+        assert_eq!(child.harness, optchat_chief::host::DEFAULT_HARNESS);
+    }
+    let answer = json!({"harnesses": {
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "claude-david"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+    }});
+    let admitted =
+        optchat_chief::harness_gate::admit(&answer, optchat_chief::host::DEFAULT_HARNESS).unwrap();
+    assert_eq!(admitted.profile, "claude-cr");
+    assert_eq!(admitted.argv0, "/u/bin/cr");
+    // The subrouter still answers when it is asked for by name.
+    assert_eq!(
+        optchat_chief::harness_gate::admit(&answer, "claude-sr")
+            .unwrap()
+            .profile,
+        "claude-sr"
+    );
 }
 
 /// Live check 2026-10-04: acpmux records `turn_end` before it answers the
