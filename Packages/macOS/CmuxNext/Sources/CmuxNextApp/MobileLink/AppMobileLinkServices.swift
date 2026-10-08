@@ -12,6 +12,20 @@ import Foundation
 /// (C14), and the task runner over this Mac's acpmux (C8). Files (C4) and git
 /// (C13) need only the daemon; the runner builds them.
 enum AppMobileLinkServices {
+    /// Installs the Cloud-backed providers before the account observer starts
+    /// the mobile host. Keeping this setup together preserves the startup
+    /// order while keeping the AppServices type below its size budget.
+    @MainActor static func configure(_ services: AppServices, cloud: CloudService,
+                                     apiBaseURL: URL, launch: LaunchIdentity) {
+        services.mobile.link.accountProvider = { name in
+            CloudMobileLinkAccount.make(auth: cloud.auth, apiBaseURL: apiBaseURL, launch: launch, macName: name)
+        }
+        services.mobile.link.servicesProvider = { [weak services] setting in
+            guard let services else { return MobileLinkServices() }
+            return AppMobileLinkServices.make(services, setting: setting)
+        }
+    }
+
     @MainActor static func make(_ services: AppServices, setting: MobileLinkSetting) -> MobileLinkServices {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let acpmux = AcpmuxEnvironment.resolve(tag: services.environment.tag, bundledBinDirectory: bin,
