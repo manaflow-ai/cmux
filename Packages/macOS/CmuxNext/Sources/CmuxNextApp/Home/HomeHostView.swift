@@ -67,13 +67,17 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title) in Observations({ () -> (Bool, Int, String) in
+            for await (isChief, _, title, elsewhere) in Observations({ () -> (Bool, Int, String, Bool) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
-                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "")
+                // A cloud Chief's brain runs on its paired server, never on
+                // this Mac's mux home (2026-10-08: the sidebar wrote codex
+                // here while cmux-lawrence ran claude-sr).
+                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id))
             }) {
                 guard let self else { return }
                 self.isChief = isChief
+                sidebar.setRunsElsewhere(elsewhere)
                 sidebar.setName(title)
                 if !isChief, slide.isOpen { toggleSidebar() }
                 if slide.isOpen { sidebar.refresh() }
