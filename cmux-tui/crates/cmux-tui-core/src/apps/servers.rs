@@ -523,6 +523,7 @@ impl Supervisor {
             })
             .collect();
         server.queued.clear();
+        outs.extend(self.cancel_relay_calls_locked(inner, app));
         outs.extend(self.log_locked(inner, app, "info", format!("server stopping: {reason}")));
         outs
     }
@@ -579,6 +580,17 @@ impl Supervisor {
                 let process = inner.servers[app].process.clone();
                 drop(inner);
                 self.terminal_line(app, &value).iter().for_each(|r| process.send(line(r)));
+                return;
+            }
+            if super::relay::is_relay_line(&value) {
+                let generation = inner.servers[app].generation;
+                match self.relay_line_locked(&mut inner, app, generation, &value) {
+                    Ok(outs) => {
+                        drop(inner);
+                        self.emit(outs);
+                    }
+                    Err(reply) => inner.servers[app].process.send(line(&reply)),
+                }
                 return;
             }
             if value["t"] == "host.request" {
@@ -675,6 +687,7 @@ impl Supervisor {
                 })
                 .collect();
             outs.extend(self.terminal_server_gone_locked(&mut inner, app));
+            outs.extend(self.cancel_relay_calls_locked(&mut inner, app));
             let level = if server.stopping { "info" } else { "error" };
             outs.extend(self.log_locked(
                 &mut inner,

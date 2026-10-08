@@ -85,7 +85,10 @@ fn relay_op(id: &str, op: &str) -> Value {
 
 #[test]
 fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() {
-    let lines = vec![relay_op("r1", "cloud.machine.connect_info"), json!({ "type": "relay.session", "id": "r2" })];
+    let lines = vec![
+        relay_op("r1", "cloud.machine.connect_info"),
+        json!({ "type": "relay.session", "id": "r2" }),
+    ];
     let (f, outs) = setup(&[Probe { dir: "relay", scoped: true, lines }]);
     let rx = credential_provider(&f);
     f.install("cmux/relay");
@@ -93,7 +96,12 @@ fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() 
 
     let call = next_event(&rx, "apps-provider-request");
     assert_eq!(
-        (call["app"].clone(), call["actor"]["kind"].clone(), call["op"].clone(), call["params"].clone()),
+        (
+            call["app"].clone(),
+            call["actor"]["kind"].clone(),
+            call["op"].clone(),
+            call["params"].clone()
+        ),
         (
             json!("cmux/relay"),
             json!("app"),
@@ -102,12 +110,20 @@ fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() 
         )
     );
     let session = next_event(&rx, "apps-provider-request");
-    assert_eq!((session["op"].clone(), session["params"].clone()), (json!("credential.session"), json!({})));
+    assert_eq!(
+        (session["op"].clone(), session["params"].clone()),
+        (json!("credential.session"), json!({}))
+    );
 
     let call_id = call["request_id"].as_u64().unwrap();
     let session_id = session["request_id"].as_u64().unwrap();
     f.supervisor
-        .provider_result(PROVIDER, call_id, true, json!({ "value": { "host": "host_1" }, "revision": "5", "replayed": false }))
+        .provider_result(
+            PROVIDER,
+            call_id,
+            true,
+            json!({ "value": { "host": "host_1" }, "revision": "5", "replayed": false }),
+        )
         .unwrap();
     f.supervisor
         .provider_result(PROVIDER, session_id, true, json!({ "signed_in": true, "team": "team_a" }))
@@ -117,7 +133,10 @@ fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() 
         answers[0],
         json!({ "type": "relay.result", "id": "r1", "ok": true, "value": { "host": "host_1" }, "revision": "5", "replayed": false })
     );
-    assert_eq!(answers[1], json!({ "type": "relay.session", "id": "r2", "signed_in": true, "team": "team_a" }));
+    assert_eq!(
+        answers[1],
+        json!({ "type": "relay.session", "id": "r2", "signed_in": true, "team": "team_a" })
+    );
 }
 
 #[test]
@@ -160,11 +179,24 @@ fn relay_errors_keep_the_contract_shapes() {
         by_id("r1"),
         json!({ "type": "relay.result", "id": "r1", "ok": false, "error": { "code": "cloud.machine.not_found", "message": "no such machine", "retryable": false, "details": { "machine": "vm_1" } } })
     );
-    assert_eq!((by_id("r2")["type"].clone(), by_id("r2")["code"].clone()), (json!("relay.error"), json!("not_signed_in")));
-    assert_eq!((by_id("r3")["type"].clone(), by_id("r3")["code"].clone()), (json!("relay.error"), json!("unavailable")));
+    assert_eq!(
+        (by_id("r2")["type"].clone(), by_id("r2")["code"].clone()),
+        (json!("relay.error"), json!("not_signed_in"))
+    );
+    assert_eq!(
+        (by_id("r3")["type"].clone(), by_id("r3")["code"].clone()),
+        (json!("relay.error"), json!("unavailable"))
+    );
     // A relay.op without an op is refused at once and never reaches the provider.
-    assert_eq!((by_id("r4")["type"].clone(), by_id("r4")["code"].clone()), (json!("relay.error"), json!("validation.invalid")));
-    assert!(rx.recv_timeout(Duration::from_millis(200)).iter().all(|e| e["event"] != "apps-provider-request"));
+    assert_eq!(
+        (by_id("r4")["type"].clone(), by_id("r4")["code"].clone()),
+        (json!("relay.error"), json!("validation.invalid"))
+    );
+    assert!(
+        rx.recv_timeout(Duration::from_millis(200))
+            .iter()
+            .all(|e| e["event"] != "apps-provider-request")
+    );
 }
 
 #[test]
@@ -176,18 +208,32 @@ fn relay_needs_the_scope_and_a_provider() {
     // No provider connected: unavailable at once.
     f.install("cmux/lonely");
     let answer = &frames(&outs[0], 1)[0];
-    assert_eq!((answer["type"].clone(), answer["id"].clone(), answer["code"].clone()), (json!("relay.error"), json!("r1"), json!("unavailable")));
+    assert_eq!(
+        (answer["type"].clone(), answer["id"].clone(), answer["code"].clone()),
+        (json!("relay.error"), json!("r1"), json!("unavailable"))
+    );
     // A server without the scope never reaches the provider.
     let rx = credential_provider(&f);
     f.install("cmux/unscoped");
     let refused = &frames(&outs[1], 1)[0];
-    assert_eq!((refused["type"].clone(), refused["code"].clone()), (json!("relay.error"), json!("apps.scope_missing")));
-    assert!(rx.recv_timeout(Duration::from_millis(200)).iter().all(|e| e["event"] != "apps-provider-request"));
+    assert_eq!(
+        (refused["type"].clone(), refused["code"].clone()),
+        (json!("relay.error"), json!("apps.scope_missing"))
+    );
+    assert!(
+        rx.recv_timeout(Duration::from_millis(200))
+            .iter()
+            .all(|e| e["event"] != "apps-provider-request")
+    );
 }
 
 #[test]
 fn a_stopped_server_cancels_its_relay_calls_and_a_late_answer_goes_nowhere() {
-    let (f, _outs) = setup(&[Probe { dir: "relay", scoped: true, lines: vec![relay_op("r1", "cloud.machine.get")] }]);
+    let (f, _outs) = setup(&[Probe {
+        dir: "relay",
+        scoped: true,
+        lines: vec![relay_op("r1", "cloud.machine.get")],
+    }]);
     let rx = credential_provider(&f);
     f.install("cmux/relay");
     let call = next_event(&rx, "apps-provider-request");
@@ -195,5 +241,8 @@ fn a_stopped_server_cancels_its_relay_calls_and_a_late_answer_goes_nowhere() {
     f.set("rm", "cmux/relay", Origin::User, |o| o.installed = Some(false)).unwrap();
     let cancel = next_event(&rx, "apps-provider-cancel");
     assert_eq!(cancel["request_id"], json!(id));
-    assert_eq!(f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": 1 })).unwrap_err().code, "apps.provider.unknown");
+    assert_eq!(
+        f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": 1 })).unwrap_err().code,
+        "apps.provider.unknown"
+    );
 }
