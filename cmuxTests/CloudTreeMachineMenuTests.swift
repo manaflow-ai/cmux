@@ -1010,7 +1010,7 @@ struct CloudTreeMachineMenuTests {
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             resizeDiskOptionsGiB: [64, 128, 256],
             resizeDiskMaximumGiB: 256,
-            resizeCPUOptions: [2, 4, 8, 16, 32],
+            resizeCPUOptions: [2, 4, 8, 12, 16, 32],
             resizeCPUMaximum: 32,
             resizeMemoryOptionsGiB: [8, 16, 24, 32, 64],
             resizeMemoryMaximumGiB: 64,

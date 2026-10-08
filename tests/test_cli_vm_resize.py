@@ -87,6 +87,10 @@ class VMResizeTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10, check=False,
         )
 
+    def assert_resize_request(self, server: ResizeSocket) -> dict:
+        self.assertEqual([request["method"] for request in server.requests], ["vm.list", "vm.resize"])
+        return server.requests[-1]
+
     def test_help_documents_all_dimensions_without_a_socket(self) -> None:
         with tempfile.TemporaryDirectory(prefix="vm-resize-help-", dir="/tmp") as root:
             for family in ("vm", "cloud"):
@@ -100,9 +104,8 @@ class VMResizeTests(unittest.TestCase):
             with self.subTest(option=option), ResizeSocket({"memory_total_mb": 5120}) as server:
                 result = self.run_cli(server.path, ["vm", "resize", "existing-vm", *option, "--json"])
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(len(server.requests), 1)
-                self.assertEqual(server.requests[0]["method"], "vm.resize")
-                self.assertEqual(server.requests[0]["params"], {"id": "existing-vm", "memory_mb": 5120})
+                request = self.assert_resize_request(server)
+                self.assertEqual(request["params"], {"id": "existing-vm", "memory_mb": 5120})
 
     def test_resize_uses_existing_id_and_prints_confirmed_shape(self) -> None:
         confirmed = {"id": "existing-vm", "cpus": 6, "memory_total_mb": 6144, "disk_total_mb": 69632}
@@ -111,9 +114,8 @@ class VMResizeTests(unittest.TestCase):
                 "vm", "resize", "existing-vm", "--cpu", "4", "--memory", "4G", "--disk", "64GB",
             ])
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(len(server.requests), 1)
-            self.assertEqual(server.requests[0]["method"], "vm.resize")
-            self.assertEqual(server.requests[0]["params"], {
+            request = self.assert_resize_request(server)
+            self.assertEqual(request["params"], {
                 "id": "existing-vm", "cpu": 4, "memory_mb": 4096, "storage_mb": 65536,
             })
             self.assertIn("existing-vm", result.stdout)
@@ -125,8 +127,8 @@ class VMResizeTests(unittest.TestCase):
         with ResizeSocket({"disk_total_mb": 65536}) as server:
             result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--disk", "64G", "--json"])
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(len(server.requests), 1)
-            self.assertEqual(server.requests[0]["params"], {"id": "existing-vm", "storage_mb": 65536})
+            request = self.assert_resize_request(server)
+            self.assertEqual(request["params"], {"id": "existing-vm", "storage_mb": 65536})
 
     def test_json_preserves_provider_confirmation(self) -> None:
         confirmed = {"id": "existing-vm", "state": "running", "cpus": 8, "memory_total_mb": 8192, "disk_total_mb": 69632}
@@ -134,7 +136,7 @@ class VMResizeTests(unittest.TestCase):
             result = self.run_cli(server.path, ["cloud", "resize", "existing-vm", "--disk=64", "--json"])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), confirmed)
-            self.assertEqual(len(server.requests), 1)
+            self.assert_resize_request(server)
 
     def test_invalid_arguments_do_not_send_a_resize_request(self) -> None:
         cases = [
@@ -162,7 +164,7 @@ class VMResizeTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
             self.assertIn("Provider could not resize this VM", result.stderr)
-            self.assertEqual(len(server.requests), 1)
+            self.assert_resize_request(server)
 
 
 if __name__ == "__main__":
