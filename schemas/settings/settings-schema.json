@@ -15113,7 +15113,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "confirm",
+      "default" : "open",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -16188,7 +16188,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "7b79467199bbfe73135801de8ddbdd41617aa991fa3b45794aa0a7342f6ccfd3",
+  "schema_hash" : "b8d52bfeb3eb18651f3ee9cb21ad54dd7a99ba580b614bbd78fe709daa838f87",
   "sections" : [
     {
       "id" : "general",

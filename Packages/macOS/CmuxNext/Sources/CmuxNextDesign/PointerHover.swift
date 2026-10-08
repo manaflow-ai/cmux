@@ -58,8 +58,12 @@ public final class PointerHover: NSObject {
 
     // MARK: Events
 
-    @objc public func mouseEntered(with event: NSEvent) { Self.refresh(in: view?.window) }
-    @objc public func mouseExited(with event: NSEvent) { Self.refresh(in: view?.window) }
+    // AppKit sends a tracking area's owner `mouseEntered:` and `mouseExited:`.
+    // This owner is not an NSResponder, so the selectors must be named: a bare
+    // `@objc` exports `mouseEnteredWith:`, and the first enter raised
+    // NSInvalidArgumentException in `_dispatchMouseEntered:` (cx-2mp6).
+    @objc(mouseEntered:) public func mouseEntered(with event: NSEvent) { Self.refresh(in: view?.window) }
+    @objc(mouseExited:) public func mouseExited(with event: NSEvent) { Self.refresh(in: view?.window) }
 
     /// Recomputes this target only (its eligibility changed).
     public func refresh() { update() }
