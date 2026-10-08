@@ -17,7 +17,7 @@ public struct BenchAcceptingHost: Sendable {
     public let webrtcIdentity: any WebRTCIdentity
     public let wireGuardIdentity: WireGuardPrivateKey
     public let allowedWebRTCDevices: Set<WebRTCPublicKey>
-    public let allowedWireGuardDevices: Set<WireGuardPublicKey>
+    public let allowedWireGuardDevices: [WireGuardPublicKey: String]
     public let webrtcConfiguration: WebRTCConfiguration
     public let wireGuardConfiguration: WireGuardLinkConfiguration
 
@@ -28,7 +28,7 @@ public struct BenchAcceptingHost: Sendable {
         webrtcIdentity: any WebRTCIdentity,
         wireGuardIdentity: WireGuardPrivateKey,
         allowedWebRTCDevices: Set<WebRTCPublicKey>,
-        allowedWireGuardDevices: Set<WireGuardPublicKey>,
+        allowedWireGuardDevices: [WireGuardPublicKey: String],
         webrtcConfiguration: WebRTCConfiguration = .init(),
         wireGuardConfiguration: WireGuardLinkConfiguration = .init()
     ) throws {
@@ -146,10 +146,10 @@ public final class BenchAcceptingAcceptor: LinkAcceptor, @unchecked Sendable {
 }
 
 private struct PinnedWireGuardAuthorizer: WireGuardAuthorizer {
-    let devices: Set<WireGuardPublicKey>
+    let devices: [WireGuardPublicKey: String]
 
     func authorize(peer: WireGuardPublicKey) async -> WireGuardAuthorizedPeer? {
-        guard devices.contains(peer) else { return nil }
-        return WireGuardAuthorizedPeer(installID: peer.base64)
+        guard let installID = devices[peer], !installID.isEmpty else { return nil }
+        return WireGuardAuthorizedPeer(installID: installID)
     }
 }
