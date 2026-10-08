@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { makeAcpAdapter } from "../adapters/acp";
 
 const directory = mkdtempSync(join(import.meta.dir, ".acp-probes-"));
+const originalSetTimeout = globalThis.setTimeout;
 const adapter = makeAcpAdapter({
   id: "fixture-acp-probes", label: "Fixture ACP", adapter: "acp",
   cmd: [process.execPath, join(import.meta.dir, "fake-acp-startup.ts"), directory],
@@ -28,7 +29,35 @@ try {
   const modes = ["reject-initialize", "reject-session", "hang-initialize", "hang-session", "accept"];
   for (const [index, mode] of modes.entries()) {
     writeFileSync(join(directory, "mode"), mode);
-    const results = await Promise.allSettled([adapter.listOptions(directory), adapter.listCommands(directory)]);
+    rmSync(join(directory, "initialize-ready"), { force: true });
+    rmSync(join(directory, "session-ready"), { force: true });
+    let watchdogs: { callback: () => void; delay: number; timer: ReturnType<typeof setTimeout> }[] = [];
+    if (mode.startsWith("hang")) {
+      globalThis.setTimeout = ((callback: TimerHandler, delay?: number, ...args: any[]) => {
+        const timer = originalSetTimeout(callback, delay, ...args) as unknown as ReturnType<typeof setTimeout>;
+        if (delay === 8_000) watchdogs.push({ callback: callback as () => void, delay, timer });
+        return timer;
+      }) as typeof setTimeout;
+    }
+    const probes = Promise.allSettled([adapter.listOptions(directory), adapter.listCommands(directory)]);
+    if (mode.startsWith("hang")) {
+      const stage = mode.slice("hang-".length);
+      const ready = join(directory, `${stage}-ready`);
+      const readyDeadline = Date.now() + 2_000;
+      try {
+        while ((!existsSync(ready) || watchdogs.length < 2) && Date.now() < readyDeadline) await Bun.sleep(10);
+        assert.ok(existsSync(ready), `fixture must consume ${stage} before timing out`);
+        assert.equal(watchdogs.length, 2, "both catalog entrypoints must schedule an 8s watchdog");
+        assert.ok(watchdogs.every((watchdog) => watchdog.delay === 8_000));
+      } finally {
+        globalThis.setTimeout = originalSetTimeout;
+      }
+      for (const watchdog of watchdogs) {
+        clearTimeout(watchdog.timer);
+        watchdog.callback();
+      }
+    }
+    const results = await probes;
     if (mode.startsWith("reject")) {
       for (const result of results) {
         assert.equal(result.status, "rejected");
@@ -49,6 +78,7 @@ try {
   }
   console.log("ACP option/command probes reap rejected, timed-out and successful children: OK");
 } finally {
+  globalThis.setTimeout = originalSetTimeout;
   const children = processes();
   for (const child of children) if (alive(child.pid)) process.kill(child.pid, "SIGKILL");
   const deadline = Date.now() + 2_000;
