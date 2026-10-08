@@ -267,11 +267,11 @@ public final class ControlRouter: Sendable {
         }
     }
 
-    /// `method_not_found`. This app's own CLI only sends methods the app
-    /// has, so an unknown one most often comes from an older `cmux` (the
-    /// classic app's CLI, or a cmux-next CLI from an older build) that a
-    /// shell found first on `PATH`: with a bundled CLI the message says so
-    /// and names it (also as `app_cli_path`). The code stays the same.
+    /// `method_not_found`. An unknown method most often comes from an older
+    /// `cmux` (the classic app's CLI, or a cmux-next CLI from an older build)
+    /// that a shell found first on `PATH`: with a bundled CLI the message
+    /// says so and names it (also as `app_cli_path`), worded so that a typo
+    /// sent by this app's own CLI is not called old. The code stays the same.
     static func methodNotFound(_ method: String, appCLIPath: String?) -> ControlError {
         guard let cli = appCLIPath, !cli.isEmpty else {
             return ControlError(code: "method_not_found",
@@ -281,7 +281,7 @@ public final class ControlRouter: Sendable {
         return ControlError(
             code: "method_not_found",
             message: ControlStrings.format("control.error.unknownMethodOlderCLI",
-                                           "Unknown method %1$@: this cmux CLI is older than this app (or belongs to another cmux app). Use this app's CLI: %2$@",
+                                           "Unknown method %1$@. A cmux CLI that is older than this app (or from another cmux app) sends methods this app does not have; this app's CLI is %2$@",
                                            method, cli),
             data: ["method": .string(method), "app_cli_path": .string(cli)])
     }
