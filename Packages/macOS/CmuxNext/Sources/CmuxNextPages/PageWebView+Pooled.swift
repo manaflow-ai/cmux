@@ -39,9 +39,15 @@ extension PageWebView {
             return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
         }
         let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options)
+        // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
+        host.configuration.userContentController.addUserScript(
+            WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         return PooledHostRecipe(served: served, configuration: host.configuration,
                                 inputReadiness: host.inputReadiness, options: options, owner: owner)
     }
+
+    /// True while the view is the pool's parked spare (hidden, not claimed by any page).
+    public var isParkedSpare: Bool { superview is PageHostParking }
 
     /// Makes a pooled page host without loading its document.
     convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {

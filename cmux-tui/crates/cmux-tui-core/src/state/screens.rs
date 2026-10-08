@@ -83,7 +83,10 @@ pub(crate) enum ScreenChange {
 impl StripRequest {
     /// A raw screen command: a fresh local mutation that never replays.
     pub(crate) fn local_screens(operation: &str) -> Self {
-        Self { mutation: WorkspaceMutation::local("cmux-tui-screens"), ..Self::local(operation) }
+        Self {
+            mutation: WorkspaceMutation::daemon_local("cmux-tui-screens"),
+            ..Self::local(operation)
+        }
     }
 }
 

@@ -92,14 +92,18 @@ fn the_view_is_rendered_before_the_new_messages_are_logged_and_later_messages_wa
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), 2);
-    let view = prompts[1][0]["text"].as_str().unwrap();
+    let view: String = prompts[1][..prompts[1].len() - 1]
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
+    let view = view.as_str();
     assert!(view.starts_with("<chat>\n0+1|user: first\n"), "{view}");
     assert!(view.contains("4+1|talk: answer 0\n</chat>"), "{view}");
     assert!(
         !view.contains("second"),
         "the new messages are not in the view"
     );
-    assert_eq!(prompts[1][1]["text"], "second\n\nthird");
+    assert_eq!(prompts[1].last().unwrap()["text"], "second\n\nthird");
     let log = h.log();
     assert_eq!(
         pairs(&log[5..7]),
@@ -177,7 +181,7 @@ fn a_restart_catches_up_from_the_cursor_and_logs_each_message_once() {
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0][1]["text"], "again");
+    assert_eq!(prompts[0].last().unwrap()["text"], "again");
     let log = h.log();
     assert_eq!(log.iter().filter(|(_, t)| t == "hello").count(), 1);
     assert_eq!(log[5], ("user".to_string(), "again".to_string()));

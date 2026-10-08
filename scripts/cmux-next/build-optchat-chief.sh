@@ -98,7 +98,9 @@ slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
   # A persistent target dir under the crate keeps later fleet builds incremental.
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" CARGO_TARGET_DIR="$crate/target/app" \
+  # An app build never ships the inspector's placeholder page: build.rs fails
+  # when the page was not built (build-web-bundles.sh runs before this).
+  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$crate/target/app" \
     cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
   slice="$crate/target/app/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }

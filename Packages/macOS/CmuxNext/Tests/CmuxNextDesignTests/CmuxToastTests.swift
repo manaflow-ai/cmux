@@ -141,6 +141,54 @@ struct CmuxToastTests {
         #expect(view.actionButton?.accessibilityLabel() == CmuxToastStrings.undo)
         #expect(view.closeButton.accessibilityLabel() == CmuxToastStrings.dismiss)
     }
+
+    /// The message label of a toast shown on the window overlay, after layout.
+    static func shownLabel(_ toast: CmuxToast) -> (label: NSTextField, view: CmuxToastView)? {
+        let window = Self.window()
+        let view = CmuxToastView(toast: toast)
+        CmuxToastOverlayHost().show(view, in: window, slot: 0, windowGone: {})
+        window.contentView?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        func find(_ root: NSView) -> NSTextField? {
+            if let field = root as? NSTextField, field.stringValue == toast.message { return field }
+            return root.subviews.lazy.compactMap(find).first
+        }
+        return find(view).map { ($0, view) }
+    }
+
+    /// nxdog70: the tab icon toast drew only Undo and the close button; the message label
+    /// was laid out zero wide. Every toast (with or without an action, short or wrapping)
+    /// shows its whole message.
+    @Test(arguments: [
+        CmuxToast(id: "icon", message: "Tab Icon Set", action: .undo()),
+        CmuxToast(id: "plain", message: "Copied"),
+        CmuxToast(id: "long", message: String(repeating: "A closed workspace with a long name ", count: 4),
+                  action: .reopen()),
+    ])
+    func everyToastDrawsItsWholeMessage(_ toast: CmuxToast) throws {
+        let (label, view) = try #require(Self.shownLabel(toast))
+        let natural = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width,
+                                                                        height: CGFloat.greatestFiniteMagnitude))
+        let oneLine = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude,
+                                                                        height: CGFloat.greatestFiniteMagnitude))
+        #expect(label.frame.width >= min(oneLine.width, 360) - 1, "the label has room for the message: \(label.frame), intrinsic \(label.intrinsicContentSize), toast \(view.frame)")
+        #expect(label.frame.height >= natural.height - 1, "no wrapped line is cut")
+        #expect(view.frame.width > label.frame.maxX, "the toast contains the label")
+    }
+
+    /// Lawrence (nxdog70): Undo was a heavy filled capsule inside the toast, in oversized type.
+    /// The toast is one material: the action is a text button with no fill at rest, in the
+    /// body size, and the toast stays one compact line high.
+    @Test func theActionIsTextOnTheToastsMaterial() throws {
+        let (label, view) = try #require(Self.shownLabel(CmuxToast(id: "icon", message: "Tab Icon Set", action: .undo())))
+        let action = try #require(view.actionButton)
+        #expect(action.layer?.backgroundColor == nil || action.layer?.backgroundColor?.alpha == 0, "no fill at rest")
+        let font = try #require(action.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        #expect(font.pointSize == Typography.body.pointSize, "the action uses the body size")
+        #expect(label.font?.pointSize == Typography.body.pointSize)
+        #expect(view.frame.height <= label.frame.height + 2 * Metrics.space2 + 10, "one compact line: \(view.frame)")
+        #expect(label.frame.minX < action.frame.minX, "message left, action right")
+    }
 }
 
 @MainActor

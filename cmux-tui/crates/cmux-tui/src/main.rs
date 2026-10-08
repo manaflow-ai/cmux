@@ -72,6 +72,7 @@ mod remote_cli {
         1
     }
 }
+mod owner_start;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -1695,9 +1696,9 @@ fn run_main() {
         client_log::exit(acp::run(args));
     }
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("link") {
+    if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(link::run(&raw_args[1..]));
+        client_log::exit(run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -2103,9 +2104,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    if args.ephemeral && args.state.is_some() {
-        anyhow::bail!("--ephemeral and --state are mutually exclusive");
-    }
+    owner_start::prepare(args.ephemeral, args.state.is_some())?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2156,7 +2155,6 @@ fn run_server(
     ) {
         return start_detached_owner_session(args, config, socket_path);
     }
-
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
         let relays =
@@ -2182,6 +2180,7 @@ fn run_server(
         (Vec::new(), None, None)
     };
 
+    localization::terminal_respawn::install();
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     surface_options.scrollback = config.scrollback_limit_bytes();

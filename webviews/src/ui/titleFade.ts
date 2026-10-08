@@ -8,6 +8,7 @@
 // length, ease-out. Leaving stops it; a title caught mid-scroll springs back with `disappear`.
 // Reduce Motion never starts one (the full title is then in the tooltip). Pure: tested without a DOM.
 import { MOTION_SPRINGS, springPerceivedDuration } from "../files-panel-motion";
+import { bezierAt, type CubicBezier } from "./cubicBezier";
 
 /** MotionMarquee's tunables, in ms and px per second (MotionTunables.swift defaults). */
 export const MOTION_MARQUEE = {
@@ -60,16 +61,35 @@ export function marqueeTiming(travel: number, reducedMotion: boolean): MarqueeTi
 }
 
 /** One marquee pass on `translate` from 0 to -travel and back (the delay is the animation's). */
-export function marqueeKeyframes(travel: number, timing: MarqueeTiming): { keyframes: Keyframe[]; duration: number } {
+export function marqueeKeyframes(
+  travel: number,
+  timing: MarqueeTiming,
+  scrollEasing = "ease-in-out",
+): { keyframes: Keyframe[]; duration: number } {
   const duration = timing.scrollMs + timing.holdMs + timing.backMs;
   const end = `${-travel}px 0`;
   return {
     duration,
     keyframes: [
-      { offset: 0, translate: "0px 0", easing: "ease-in-out" },
+      { offset: 0, translate: "0px 0", easing: scrollEasing },
       { offset: timing.scrollMs / duration, translate: end, easing: "linear" },
       { offset: (timing.scrollMs + timing.holdMs) / duration, translate: end, easing: "ease-out" },
       { offset: 1, translate: "0px 0" },
     ],
   };
+}
+
+/**
+ * A CSS mask for a clipped title: opaque across the title, fading over `lead` at its start and
+ * `fade` at its end (CSS lengths). `curve` maps how far across the end fade (x) to how much is
+ * faded (y); the start mirrors it. Eight stops each make the curve smooth at any fade length.
+ */
+export function titleFadeMask(curve: CubicBezier, lead: string, fade: string): string {
+  const steps = 8;
+  const alpha = (p: number) => Math.round(Math.min(Math.max(1 - bezierAt(curve, p), 0), 1) * 1000) / 1000;
+  const stops: string[] = [];
+  for (let i = 0; i <= steps; i++) stops.push(`rgb(0 0 0 / ${alpha(1 - i / steps)}) calc(${lead} * ${i / steps})`);
+  for (let i = 0; i <= steps; i++)
+    stops.push(`rgb(0 0 0 / ${alpha(i / steps)}) calc(100% - ${fade} * ${1 - i / steps})`);
+  return `linear-gradient(to right, ${stops.join(", ")})`;
 }

@@ -58,6 +58,10 @@ pub struct Config {
     pub http_timeout: Duration,
     /// The view's byte budget.
     pub budget: usize,
+    /// The turns' tool list for the API compactor (spec 4: a compaction
+    /// sends the turns' system prompt and tools, never called, so it reads
+    /// them from the turns' cache entry). None sends no tools.
+    pub tools: Option<serde_json::Value>,
     /// Wait before retrying a failed node.
     pub retry: Duration,
     pub reporter: Reporter,
@@ -84,6 +88,7 @@ impl Default for Config {
             max_tokens: 16_000,
             http_timeout: Duration::from_secs(240),
             budget: VIEW,
+            tools: None,
             retry: RETRY,
             reporter: stderr_reporter(),
             db: None,

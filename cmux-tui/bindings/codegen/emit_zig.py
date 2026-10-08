@@ -208,9 +208,14 @@ class ZigEmitter:
                 f"        if (std.mem.eql(u8, value, {_quote(str(value))})) "
                 f"return .{_identifier(str(value))};"
             )
+        fallback = expression.get("fallback")
         lines.extend(
             [
-                "        return error.UnknownEnumValue;",
+                (
+                    f"        return .{_identifier(str(fallback))};"
+                    if fallback is not None
+                    else "        return error.UnknownEnumValue;"
+                ),
                 "    }",
                 "",
                 "    pub fn toWire(self: @This()) []const u8 {",

@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 public import Foundation
 import UniformTypeIdentifiers
 
@@ -520,6 +521,26 @@ public actor MockHomeSource: HomeSource {
                   var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
             let reaction = Reaction(author: me.id, partIndex: partIndex, kind: kind)
             if !list[index].reactions.contains(reaction) { list[index].reactions.append(reaction) }
+            stored[conversation] = list
+            summary.rev += 1
+            conversations[conversation] = summary
+            publish(.message(list[index], rev: summary.rev))
+            return HomeOpResult(rev: summary.rev)
+        case .answerQuestion(let messageID, let conversation, let partIndex, let answer):
+            guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
+                  var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
+            guard list[index].parts.indices.contains(partIndex), case .question(let question) = list[index].parts[partIndex] else {
+                throw HomeRejection.invalid("invalid_part_index")
+            }
+            let respondent = AgentQuestionAnswer.Respondent(participant: me.id.rawValue, displayName: me.displayName)
+            do {
+                let answered = try question.answering(answer, respondent: respondent, atMs: Int64(Date().timeIntervalSince1970 * 1000))
+                list[index].parts[partIndex] = .question(answered)
+            } catch AgentQuestionAnswer.Problem.notPending {
+                throw HomeRejection.invalid("question_closed")
+            } catch {
+                throw HomeRejection.invalid("invalid_answer")
+            }
             stored[conversation] = list
             summary.rev += 1
             conversations[conversation] = summary

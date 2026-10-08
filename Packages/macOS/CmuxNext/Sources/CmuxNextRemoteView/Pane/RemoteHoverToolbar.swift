@@ -10,6 +10,8 @@ final class RemoteHoverToolbar: NSView {
     var onSelectQuality: ((RemoteQualityPreset) -> Void)?
     var onSelectDisplay: ((Int) -> Void)?
     var onStop: (() -> Void)?
+    /// A per-kind share button: start sharing, or stop an active kind.
+    var onUpstream: ((RemoteUpstreamKind) -> Void)?
 
     static let height: CGFloat = 38
     let surface = Glass.makeOverlayPanel(cornerRadius: RemoteHoverToolbar.height / 2)
@@ -20,14 +22,21 @@ final class RemoteHoverToolbar: NSView {
     private let displayButton = RemoteChromeButton(title: RemoteViewStrings.display(1), symbol: "chevron.down")
     private let qualityButton = RemoteChromeButton(title: RemoteViewStrings.quality(.auto), symbol: "dial.medium")
     private let stopButton = RemoteChromeButton(title: RemoteViewStrings.stop, symbol: "stop.fill")
-    private let dividers = [RemoteChrome.divider(), RemoteChrome.divider()]
+    private let dividers = [RemoteChrome.divider(), RemoteChrome.divider(), RemoteChrome.divider()]
+    private let upstreamButtons: [RemoteUpstreamKind: RemoteChromeButton] = Dictionary(
+        uniqueKeysWithValues: RemoteUpstreamKind.allCases.map { ($0, RemoteChromeButton(title: "", symbol: RemoteUpstreamIndicator.symbol($0))) }
+    )
     private var sessionViews: [NSView] { [dividers[0], toggle, dividers[1], displayButton, qualityButton, stopButton] }
+    private var upstreamViews: [NSView] {
+        [dividers[2]] + RemoteUpstreamKind.allCases.compactMap { upstreamButtons[$0] }
+    }
     private var quality = RemoteQualityPreset.auto
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         let row = RemoteChrome.row(
-            [icon, hostLabel, badge, dividers[0], toggle, dividers[1], displayButton, qualityButton, stopButton],
+            [icon, hostLabel, badge, dividers[0], toggle, dividers[1], displayButton, qualityButton]
+                + upstreamViews + [stopButton],
             spacing: 8, insets: NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 6))
         row.setCustomSpacing(6, after: icon)
         surface.contentView.addSubview(row)
@@ -44,6 +53,9 @@ final class RemoteHoverToolbar: NSView {
         stopButton.onPress = { [weak self] in self?.onStop?() }
         displayButton.onPress = { [weak self] in self?.showDisplayMenu() }
         qualityButton.onPress = { [weak self] in self?.showQualityMenu() }
+        for (kind, button) in upstreamButtons {
+            button.onPress = { [weak self] in self?.onUpstream?(kind) }
+        }
     }
 
     @available(*, unavailable)
@@ -74,6 +86,15 @@ final class RemoteHoverToolbar: NSView {
             button.apply(text: colors.textSecondary, hover: colors.hoverFill)
         }
         stopButton.apply(text: colors.danger, hover: colors.hoverFill)
+        for view in upstreamViews { view.isHidden = !state.showsUpstreamButtons }
+        let upstream = state.upstream
+        for (kind, button) in upstreamButtons {
+            let on = upstream.active.contains(kind) || upstream.requested.contains(kind)
+            button.apply(text: on ? colors.accent : colors.textSecondary, hover: colors.hoverFill, fill: on ? colors.selectionFill : .clear)
+            let label = on ? RemoteViewStrings.stopSharing(kind) : RemoteViewStrings.share(kind)
+            button.setAccessibilityLabel(label)
+            button.toolTip = label
+        }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
     }
 
