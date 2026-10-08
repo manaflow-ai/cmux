@@ -180,5 +180,25 @@ wait_for 5 not lingering && pass "C reap turns lingering off" || fail "C still l
 wait_for 15 not manager_active && pass "C user manager gone" || fail "C user manager still $(systemctl is-active "user@$uid.service")"
 wait_for 5 gone 1 && pass "C no lingering process left" || fail "C processes: $(ps -o pid=,args= -u "$uid" | tr '\n' ';')"
 
+# --- D: no logind session, no login --------------------------------------
+# An sshd started inside an existing login session (this shell, when it is
+# one) gets no logind session from pam_systemd, so nothing would scope the
+# user's processes and a revocation could not end them: session-open must
+# refuse such a session.
+echo "--- D"
+if grep -q '/session-[^/]*\.scope' /proc/self/cgroup; then
+  sed -e "s/^Port .*/Port $((PORT + 1))/" -e "s|^PidFile .*|PidFile $d/sshd-d.pid|" "$d/sshd_config" > "$d/sshd_config_d"
+  "$SSHD" -f "$d/sshd_config_d"
+  for i in $(seq 50); do [[ -s "$d/sshd-d.pid" ]] && break; sleep 0.1; done
+  ssh-keygen -q -s "$d/ca" -I cmuxt-5 -n "$USER_NAME" -z 5 -V +20m "$d/u2.pub"
+  out="$("${SSH[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo in; nohup setsid sleep 9501 >/dev/null 2>&1 &' 2>&1 < /dev/null || true)"
+  kill "$(cat "$d/sshd-d.pid")" 2>/dev/null || true
+  [[ "$out" != *in* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $out"
+  sleep 0.5
+  gone 5 && pass "D nothing started" || fail "D unscoped process running: $(ps -o pid=,args= -u "$uid" | tr '\n' ';')"
+else
+  echo "SKIP D: this shell is not in a login session"
+fi
+
 echo "--- $fails failure(s)"
 [[ "$fails" == 0 ]]
