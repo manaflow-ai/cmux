@@ -135,6 +135,26 @@ import Testing
                 "\(c["name"] ?? "?")")
     }
 
+    /// Seed the same pending-question keys described by a case's state. The shared
+    /// cases keep the question body out of `state`, so construct the minimal daemon
+    /// pending frame from the answer keys in the request before checking it.
+    static func seedQuestions(_ c: [String: Any], _ state: [String: Any], _ options: AcpmuxPermissionOptions) {
+        let params = ((try? JSONSerialization.jsonObject(
+            with: Data((c["text"] as? String ?? "").utf8), options: [.fragmentsAllowed]
+        )) as? [String: Any])?["params"] as? [String: Any]
+        let answers = params?["answers"] as? [String: Any]
+        let keys = answers.map { Array($0.keys) } ?? ["question"]
+        for case let permission as String in state["questions"] as? [Any] ?? [] {
+            let items = keys.map { ["id": $0] }
+            options.observe(["method": "_acpmux/permission_pending",
+                             "params": ["permissionId": permission,
+                                         "request": ["toolCall": ["_meta": ["acpmux": [
+                                             "question": ["items": items]
+                                         ]]]]]],
+                            replyTo: nil)
+        }
+    }
+
     @Test func frames() throws {
         for c in try Self.cases("frames.json") { try Self.checkFrame(c) }
     }
@@ -186,6 +206,7 @@ import Testing
             let sessions = AcpmuxPaneSessions()
             for case let s as String in state["sessions"] as? [Any] ?? [] { sessions.add(s) }
             let options = AcpmuxPermissionOptions()
+            Self.seedQuestions(c, state, options)
             for case let deny as [String] in state["denies"] as? [Any] ?? [] {
                 options.observe(["method": "_acpmux/permission_pending",
                                  "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
