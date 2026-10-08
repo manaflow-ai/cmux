@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, TryLockError};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
@@ -56,7 +56,7 @@ pub struct Options {
     /// contract in `launch.rs`).
     pub lifeline: bool,
     /// The per-launch secret a viewer's rd hello must carry as its token (the first
-    /// lifeline line); `None` serves any local viewer (a host run by hand).
+    /// lifeline line). `main` refuses to start without one; `None` admits nobody.
     pub secret: Option<String>,
 }
 
@@ -713,7 +713,6 @@ fn write_rd(stream: &mut TcpStream, control: &RdControl) -> std::io::Result<()> 
 
 /// One viewer: the rd handshake here, then frames to the UI thread until EOF.
 fn session(mut stream: TcpStream) -> std::io::Result<String> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut buf = vec![0u8; 64 * 1024];
     // The viewer is admitted (its hello carries the secret) before the
     // welcome: a refused viewer never opens the tab or sends input.

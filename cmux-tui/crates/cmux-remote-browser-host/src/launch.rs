@@ -7,8 +7,9 @@
 //! and the host quits. No polling and no process scanning: the pipe is the
 //! signal.
 
-use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::time::{Duration, Instant};
 
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{STREAM_CONTROL, StreamDeframer, encode_stream_frame};
@@ -46,15 +47,18 @@ pub fn read_secret<R: std::io::BufRead>(input: &mut R) -> Option<String> {
     (!secret.is_empty()).then(|| secret.to_string())
 }
 
-/// Whether a viewer may join: with a secret, its rd `hello` must carry it as
-/// the per-launch session token. Checked before the welcome, so a refused
+/// Whether a viewer may join: its rd `hello` must carry the host's
+/// per-launch secret as its session token. A host without a secret admits
+/// nobody (there is no open mode). Checked before the welcome, so a refused
 /// viewer never opens the tab or sends input.
 pub fn authorize(
     secret: Option<&str>,
-    hello: &cmux_rd_proto::control::Control,
+    hello: &Control,
 ) -> Result<(), &'static str> {
-    let Some(secret) = secret else { return Ok(()) };
-    let cmux_rd_proto::control::Control::Hello { token: Some(token), .. } = hello else {
+    let Some(secret) = secret.filter(|secret| !secret.is_empty()) else {
+        return Err("the host has no per-launch secret");
+    };
+    let Control::Hello { token: Some(token), .. } = hello else {
         return Err("the viewer's hello carries no session token");
     };
     // Constant time (subtle), so timing does not leak the secret. A length
@@ -79,42 +83,70 @@ pub enum Admission {
     Refused(String),
 }
 
-/// One viewer's admission on the rd stream carrier: read its first control
-/// frame and check it with [`authorize`] before the host sends a welcome or
-/// opens a tab. A refused viewer gets an rd `refused` and nothing else.
-pub fn admit<S: Read + Write>(stream: &mut S, secret: Option<&str>) -> std::io::Result<Admission> {
+/// How long a viewer has to send its hello, in total (the host serves one
+/// viewer at a time, so a caller that trickles bytes must not hold it).
+pub const HELLO_DEADLINE: Duration = Duration::from_secs(10);
+
+/// One viewer's admission on the rd stream carrier, before the host sends a
+/// welcome or opens a tab:
+/// - the first frame must be an rd control `hello` that passes [`authorize`];
+///   a refused hello gets an rd `refused` and nothing else;
+/// - bytes that are not rd framing (a browser page's HTTP request, through a
+///   no-cors fetch or a DNS-rebound name) close the connection with no reply;
+/// - the hello must arrive within [`HELLO_DEADLINE`].
+pub fn admit(stream: &mut TcpStream, secret: Option<&str>) -> std::io::Result<Admission> {
     admit_within(stream, secret, HELLO_DEADLINE)
 }
 
-/// How long a viewer has to send its hello, in total.
-pub const HELLO_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// [`admit`] with an explicit hello deadline.
-pub fn admit_within<S: Read + Write>(
-    stream: &mut S,
+/// [`admit`] with an explicit hello deadline. Leaves the stream's read
+/// timeout at the time left (the caller sets its own afterwards).
+pub fn admit_within(
+    stream: &mut TcpStream,
     secret: Option<&str>,
-    _deadline: std::time::Duration,
+    deadline: Duration,
 ) -> std::io::Result<Admission> {
+    let until = Instant::now() + deadline;
     let mut deframer = StreamDeframer::default();
-    let mut buf = vec![0u8; 64 * 1024];
-    let hello = loop {
-        if let Ok(Some((kind, payload))) = deframer.next_frame() {
-            if kind == STREAM_CONTROL {
-                break serde_json::from_slice::<Control>(&payload).map_err(std::io::Error::other)?;
-            }
-            continue;
+    let mut buf = vec![0u8; 4 * 1024];
+    let (kind, payload) = loop {
+        match deframer.next_frame() {
+            Ok(Some(frame)) => break frame,
+            Ok(None) => {}
+            Err(_) => return Ok(Admission::Refused("not an rd stream".into())),
         }
-        let n = stream.read(&mut buf)?;
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(Admission::Refused("no hello before the deadline".into()));
+        }
+        stream.set_read_timeout(Some(left))?;
+        let n = match stream.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                return Ok(Admission::Refused("no hello before the deadline".into()));
+            }
+            Err(e) => return Err(e),
+        };
         if n == 0 {
             return Ok(Admission::Refused("left before hello".into()));
         }
         deframer.extend(&buf[..n]);
     };
-    if let Err(reason) = authorize(secret, &hello) {
-        write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
-        return Ok(Admission::Refused(format!("refused: {reason}")));
+    let hello = if kind == STREAM_CONTROL {
+        serde_json::from_slice::<Control>(&payload).ok()
+    } else {
+        None
+    };
+    let checked = match hello {
+        Some(hello) => authorize(secret, &hello).map(|()| hello),
+        None => Err("the first frame is not an rd control message"),
+    };
+    match checked {
+        Ok(hello) => Ok(Admission::Admitted { hello, deframer }),
+        Err(reason) => {
+            write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
+            Ok(Admission::Refused(format!("refused: {reason}")))
+        }
     }
-    Ok(Admission::Admitted { hello, deframer })
 }
 
 /// Writes one rd control frame.
