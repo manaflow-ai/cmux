@@ -15,7 +15,9 @@ struct RemoteSessionPowerObserver {
         ) { _ in
             MainActor.assumeIsolated {
 #if DEBUG
-                cmuxDebugLog("systemPower.willSleep")
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    cmuxDebugLog("systemPower.willSleep")
+                }
 #endif
                 onWillSleep()
             }
@@ -27,7 +29,9 @@ struct RemoteSessionPowerObserver {
         ) { _ in
             MainActor.assumeIsolated {
 #if DEBUG
-                cmuxDebugLog("systemPower.didWake")
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    cmuxDebugLog("systemPower.didWake")
+                }
 #endif
                 onDidWake()
             }

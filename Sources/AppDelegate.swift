@@ -4527,30 +4527,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-#if DEBUG
-    /// Captures the native surface identity and pending input queue at the
-    /// system-power boundary. This is opt-in evidence for the long-lived PTY
-    /// input incident; it does not attempt to recover a surface.
-    private func logTerminalPowerRuntimeState(source: String) {
-        let states = GhosttyApp.terminalSurfaceRegistry
-            .allTerminalSurfacesUnordered()
-            .map { surface in
-                let pending = surface.debugPendingSocketInputForTesting()
-                return "surface=\(surface.id.uuidString.prefix(8)) " +
-                    "pointer=\(String(describing: surface.surface)) " +
-                    "generation=\(surface.runtimeSurfaceGeneration) " +
-                    "live=\(surface.hasLiveSurface ? 1 : 0) " +
-                    "pendingItems=\(pending.items) pendingBytes=\(pending.bytes)"
-            }
-            .joined(separator: " | ")
-        cmuxDebugLog(
-            "systemPower.runtimeState source=\(source) " +
-            "surfaceCount=\(GhosttyApp.terminalSurfaceRegistry.allSurfaces().count) " +
-            (states.isEmpty ? "surfaces=none" : states)
-        )
-    }
-#endif
-
     private func installLifecycleSnapshotObserversIfNeeded() {
         guard !didInstallLifecycleSnapshotObservers else { return }
         didInstallLifecycleSnapshotObservers = true
@@ -4600,18 +4576,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             in: workspaceCenter,
             onWillSleep: { [weak self] in
 #if DEBUG
-                self?.logTerminalPowerRuntimeState(source: "workspace.willSleep")
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    self?.logTerminalPowerRuntimeState(source: "workspace.willSleep")
+                }
 #endif
                 self?.prepareRemoteSessionsForSystemSleep()
             },
             onDidWake: { [weak self] in
 #if DEBUG
-                self?.logTerminalPowerRuntimeState(source: "workspace.didWake.beforeRearm")
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    self?.logTerminalPowerRuntimeState(source: "workspace.didWake.beforeRearm")
+                }
 #endif
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
                 self?.rearmRemoteSessionsAfterSystemWake()
 #if DEBUG
-                self?.logTerminalPowerRuntimeState(source: "workspace.didWake.afterRearm")
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    self?.logTerminalPowerRuntimeState(source: "workspace.didWake.afterRearm")
+                }
 #endif
             }
         )
