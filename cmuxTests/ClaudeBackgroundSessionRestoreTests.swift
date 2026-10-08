@@ -120,13 +120,18 @@ struct ClaudeBackgroundSessionRestoreTests {
     }
 
     /// The panel exactly as cmux NIGHTLY saved it for session 884a7be7.
-    private func hookBinding(_ fixture: Fixture, autoResume: Bool) -> SurfaceResumeBindingSnapshot {
+    private func hookBinding(
+        _ fixture: Fixture,
+        autoResume: Bool,
+        checkpointID: String? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        let checkpointID = checkpointID ?? sessionID
         SurfaceResumeBindingSnapshot(
             name: "Claude Code",
             kind: "claude",
-            command: "claude --resume \(sessionID) --permission-mode auto",
+            command: "claude --resume \(checkpointID) --permission-mode auto",
             cwd: fixture.workingDirectory.path,
-            checkpointId: sessionID,
+            checkpointId: checkpointID,
             source: "agent-hook",
             environment: environment(fixture),
             launchCommand: launchCommand(fixture),
@@ -137,13 +142,18 @@ struct ClaudeBackgroundSessionRestoreTests {
         )
     }
 
-    private func agent(_ fixture: Fixture) -> SessionRestorableAgentSnapshot {
-        SessionRestorableAgentSnapshot(
+    private func agent(
+        _ fixture: Fixture,
+        hadActivePromptTurn: Bool? = nil
+    ) -> SessionRestorableAgentSnapshot {
+        var snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: sessionID,
             workingDirectory: fixture.workingDirectory.path,
             launchCommand: launchCommand(fixture)
         )
+        snapshot.hadActivePromptTurn = hadActivePromptTurn
+        return snapshot
     }
 
     private func viewer(_ fixture: Fixture) -> ClaudeBackgroundSessionViewer {
@@ -225,6 +235,63 @@ struct ClaudeBackgroundSessionRestoreTests {
 
         #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
         #expect(restored.binding?.checkpointId == sessionID)
+    }
+
+    @Test("A normally completed Claude session falls back to native resume")
+    func normallyCompletedSessionUsesNativeResumeFallback() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains("--resume"), Comment(rawValue: input))
+        #expect(input.contains(sessionID), Comment(rawValue: input))
+        #expect(!input.contains(" restore "), Comment(rawValue: input))
+    }
+
+    @Test("A Claude session with an active prompt keeps deferred restore admission")
+    func deferredCompletionKeepsRestoreAdmission() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = true
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains(" restore claude "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A stale or missing Claude binding never synthesizes a resume")
+    func staleOrMissingBindingStaysManual() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let stale = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(
+                fixture,
+                autoResume: true,
+                checkpointID: "stale-claude-session"
+            )
+            terminal.wasAgentRunning = false
+        }
+        #expect(stale.input == nil, Comment(rawValue: stale.input ?? ""))
+
+        let missing = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = nil
+            terminal.wasAgentRunning = false
+        }
+        #expect(missing.input == nil, Comment(rawValue: missing.input ?? ""))
     }
 
     @Test("A stale registry record on a reused PID does not block the resume fallback")
