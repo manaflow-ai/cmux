@@ -5,6 +5,7 @@
 
 nonisolated enum SpaceMenuLabels {
     static var changeIcon: String { text("menu.space.changeIcon", "Change Space Icon…") }
+    static var removeIcon: String { text("menu.space.removeIcon", "Remove Space Icon") }
     static var editThemeColor: String { text("menu.space.editThemeColor", "Edit Theme Color…") }
     static var setBrowserProfile: String { text("menu.space.setBrowserProfile", "Set Browser Profile…") }
     static var newGroup: String { text("menu.space.newGroup", "New Group") }

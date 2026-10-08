@@ -123,7 +123,7 @@ nonisolated extension ActionSurfaceCatalog {
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
         ],
         .minimalMenu: [
-            "space.newWindow", "space.newWorkspace", "space.clearIcon", "space.setDefaults", "browserProfile.clearSpaceDefault",
+            "space.newWindow", "space.newWorkspace", "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
