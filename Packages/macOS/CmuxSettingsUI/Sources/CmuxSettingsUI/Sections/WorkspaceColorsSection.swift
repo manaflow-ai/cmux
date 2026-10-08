@@ -5,17 +5,21 @@ import SwiftUI
 
 /// **Workspace Colors** section — mirrors the legacy in-app section:
 /// indicator-style picker, selection highlight color, notification
-/// badge color, then a per-palette-entry editor and a Reset Palette
-/// action.
+/// badge color, pane attention color, then a per-palette-entry editor
+/// and a Reset Palette action.
 @MainActor
 public struct WorkspaceColorsSection: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
 
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
+    @State private var subtleSelection: DefaultsValueModel<Bool>
+    @State private var brightenInDarkMode: DefaultsValueModel<Bool>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
@@ -54,7 +58,10 @@ public struct WorkspaceColorsSection: View {
         self.errorLog = errorLog
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
+        _subtleSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.subtleSelection))
+        _brightenInDarkMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.brightenInDarkMode))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -76,7 +83,10 @@ public struct WorkspaceColorsSection: View {
         let models: [any SettingObservationStarting] = [
             indicator,
             selectionHex,
+            subtleSelection,
+            brightenInDarkMode,
             badgeHex,
+            paneFlashHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -100,6 +110,34 @@ public struct WorkspaceColorsSection: View {
             }
             SettingsCardDivider()
 
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.subtleSelection"),
+                String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"),
+                subtitle: String(localized: "settings.workspaceColors.subtleSelection.subtitle", defaultValue: "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom Selection Highlight color still uses a solid fill.")
+            ) {
+                Toggle("", isOn: Binding(get: { subtleSelection.current }, set: { subtleSelection.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    // Solid Fill always paints a solid selection.
+                    .disabled(indicator.current == .solidFill)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.brightenInDarkMode"),
+                String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"),
+                subtitle: String(localized: "settings.workspaceColors.brightenInDarkMode.subtitle", defaultValue: "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail.")
+            ) {
+                Toggle("", isOn: Binding(get: { brightenInDarkMode.current }, set: { brightenInDarkMode.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    // Left Rail draws no colored fill and always lightens its rail.
+                    .disabled(indicator.current == .leftRail)
+            }
+            SettingsCardDivider()
+
             colorRow(
                 title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
                 subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar."),
@@ -114,6 +152,16 @@ public struct WorkspaceColorsSection: View {
                 json: "workspaceColors.notificationBadgeColor",
                 resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
                 model: badgeHex
+            )
+            SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                subtitle: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                json: "notifications.paneFlashColor",
+                resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
+                model: paneFlashHex,
+                // Matches the runtime's cmux accent fallback.
+                fallback: cmuxAccent.color
             )
             SettingsCardDivider()
 
@@ -152,7 +200,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color? = nil) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -167,7 +215,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: fallback ?? cmuxAccent.color,
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)
@@ -273,22 +321,5 @@ public struct WorkspaceColorsSection: View {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }
-    }
-
-
-    /// cmux-themed accent color used as the live ColorPicker fallback
-    /// when the selection or notification badge has no custom hex.
-    /// Mirrors the legacy `cmuxAccentColor()` helper (see
-    /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
-    /// swatch matches the rest of the app instead of the system accent.
-    private static func cmuxAccentColor() -> Color {
-        let nsColor = NSColor(name: nil) { appearance in
-            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
-            if bestMatch == .darkAqua {
-                return NSColor(srgbRed: 0, green: 145.0 / 255.0, blue: 1.0, alpha: 1.0)
-            }
-            return NSColor(srgbRed: 0, green: 136.0 / 255.0, blue: 1.0, alpha: 1.0)
-        }
-        return Color(nsColor: nsColor)
     }
 }

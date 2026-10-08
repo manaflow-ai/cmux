@@ -15,17 +15,32 @@ import Foundation
 /// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
 /// reassemble; a String round-trip would replace each split half with U+FFFD.
 struct RemoteTmuxControlStreamParser {
+    static let defaultMaximumCommandBlockBytes = 16_777_216
+
     private let maxBufferedLineBytes: Int
     private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
+
+    /// Bytes received since the last newline, decoded.
+    ///
+    /// Exposed because before control mode an unterminated line is the shape of a prompt: something
+    /// written without a newline because it is waiting to be answered. `feed` only emits a message on
+    /// a newline, so a bare `Passcode: ` otherwise sits here unseen — which is exactly the case a
+    /// transport that authenticates itself produces, and the reason such a stream used to fail with
+    /// nothing to explain it.
+    var unterminatedTail: String { String(decoding: buffer, as: UTF8.self) }
     private var inBlock = false
+    /// Whether control mode has been entered. Entering happens once per stream, so the scan for
+    /// the enter DCS stops after it — searching later lines could match a DCS that is genuinely
+    /// part of a pane's own bytes.
+    private var sawEnter = false
     private var blockNumber = 0
     private var blockLines: [String] = []
     private var blockBufferedBytes = 0
 
     init(
         maxBufferedLineBytes: Int = 1_048_576,
-        maxCommandBlockBytes: Int = 16_777_216
+        maxCommandBlockBytes: Int = Self.defaultMaximumCommandBlockBytes
     ) {
         self.maxBufferedLineBytes = max(1, maxBufferedLineBytes)
         self.maxCommandBlockBytes = max(1, maxCommandBlockBytes)
@@ -33,6 +48,22 @@ struct RemoteTmuxControlStreamParser {
 
     /// The DCS sequence tmux emits to enter control mode: `ESC P 1000 p`.
     private static let enterSequence: [UInt8] = [0x1b, 0x50, 0x31, 0x30, 0x30, 0x30, 0x70]
+
+    /// Index range of the first occurrence of `needle` in `haystack`, or nil.
+    private static func firstRange(of needle: [UInt8], in haystack: [UInt8]) -> Range<Int>? {
+        guard !needle.isEmpty, haystack.count >= needle.count else { return nil }
+        let last = haystack.count - needle.count
+        var start = 0
+        while start <= last {
+            if haystack[start] == needle[0] {
+                var offset = 1
+                while offset < needle.count, haystack[start + offset] == needle[offset] { offset += 1 }
+                if offset == needle.count { return start..<(start + needle.count) }
+            }
+            start += 1
+        }
+        return nil
+    }
 
     /// ASCII bytes of the `%output ` notification prefix (used to detect and parse
     /// `%output` lines from raw bytes, before any String decode).
@@ -65,10 +96,23 @@ struct RemoteTmuxControlStreamParser {
         var bytes = rawBytes
         var prefixMessages: [RemoteTmuxControlMessage] = []
 
-        // Strip a leading enter DCS (it is prepended to the first %begin line).
-        if bytes.starts(with: Self.enterSequence) {
+        // Strip the enter DCS. It usually opens the line, but it does not have to: a transport
+        // that types the command into a login shell (et) leaves the shell's echo and its OSC
+        // title sequences on the same line, with the DCS arriving partway through and no
+        // newline before it. Requiring it at offset 0 means `.enter` is never emitted there,
+        // and since commands are withheld until `.enter`, the mirror waits forever while the
+        // notifications after it parse normally.
+        //
+        // Everything before the DCS is pre-control-mode shell noise by definition — tmux emits
+        // this sequence when it takes over the terminal — so dropping that prefix is right
+        // rather than merely convenient.
+        // Scoped to before control mode is entered and outside a command block: block content is
+        // raw pane bytes (`capture-pane -e`) that can legitimately contain this DCS, and matching
+        // it there would cut the painted pane apart — the same hazard the ST strip below avoids.
+        if !sawEnter, !inBlock, let dcs = Self.firstRange(of: Self.enterSequence, in: bytes) {
+            sawEnter = true
             prefixMessages.append(.enter)
-            bytes.removeFirst(Self.enterSequence.count)
+            bytes.removeFirst(dcs.upperBound)
         }
         // Drop ST (ESC \) DCS-teardown framing — but ONLY on notification lines.
         // Command-block content (e.g. `capture-pane -e` output) is raw terminal
@@ -78,7 +122,8 @@ struct RemoteTmuxControlStreamParser {
         if !inBlock {
             bytes = Self.removingST(bytes)
         }
-        if bytes.isEmpty { return prefixMessages }
+        // Empty command-block rows are pane content; only empty notifications vanish.
+        if bytes.isEmpty, !inBlock { return prefixMessages }
 
         // `%output` is the only notification whose payload carries raw, possibly
         // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a
@@ -206,9 +251,19 @@ struct RemoteTmuxControlStreamParser {
             return .sessionRenamed(sessionId: nil, name: Self.fieldsFrom(line, 1), idBearingName: nil)
         }
         if line == "%sessions-changed" { return .sessionsChanged }
+        if line == "%client-detached" || line.hasPrefix("%client-detached ") {
+            guard let client = Self.field(line, 1), !client.isEmpty else {
+                return .unparsed(line)
+            }
+            return .clientDetached(client: client)
+        }
         if line.hasPrefix("%window-add ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             return .windowAdd(windowId: id)
+        }
+        if line.hasPrefix("%unlinked-window-add ") {
+            guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
+            return .unlinkedWindowAdd(windowId: id)
         }
         if line.hasPrefix("%window-close ") || line.hasPrefix("%unlinked-window-close ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
@@ -218,6 +273,10 @@ struct RemoteTmuxControlStreamParser {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             let name = Self.fieldsFrom(line, 2)
             return .windowRenamed(windowId: id, name: name)
+        }
+        if line.hasPrefix("%unlinked-window-renamed ") {
+            guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
+            return .unlinkedWindowRenamed(windowId: id, name: Self.fieldsFrom(line, 2))
         }
         if line.hasPrefix("%layout-change ") {
             guard let id = Self.fieldId(line, 1, sigil: "@"),

@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxSettingsUI",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -14,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSettings"),
     ],
@@ -21,13 +23,23 @@ let package = Package(
         .target(
             name: "CmuxSettingsUI",
             dependencies: [
+                "CMUXMobileCore",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+            ],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/CustomSidebars"),
+                .copy("Resources/CustomSidebarTemplatePreviews"),
             ]
         ),
         .testTarget(
             name: "CmuxSettingsUITests",
-            dependencies: ["CmuxSettingsUI"]
+            dependencies: [
+                "CmuxSettingsUI",
+                "CmuxSettings",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ]
         ),
     ]
 )

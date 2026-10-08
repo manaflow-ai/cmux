@@ -193,6 +193,8 @@ extension ControlCommandCoordinator {
             return "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
         case .failed:
             return "ERROR: Failed to create pane"
+        case .noSpace:
+            return "ERROR: No space for new pane"
         }
     }
 
@@ -246,14 +248,19 @@ extension ControlCommandCoordinator {
             return "ERROR: TabManager not available"
         }
 
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch sidebarContext?.controlSidebarCloseSurface(surfaceArg: trimmed.isEmpty ? nil : trimmed) ?? .noTabSelected {
+        let parts = args.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let force = parts.contains("--force")
+        let surfaceParts = parts.filter { $0 != "--force" }
+        let trimmed = surfaceParts.joined(separator: " ")
+        switch sidebarContext?.controlSidebarCloseSurface(surfaceArg: trimmed.isEmpty ? nil : trimmed, force: force) ?? .noTabSelected {
         case .noTabSelected, .closeFailed:
-            return "ERROR: Failed to close surface"
+            return "ERROR: \(sidebarContext?.controlSidebarCloseStrings().failed ?? "Failed to close surface")"
         case .surfaceNotFound:
             return "ERROR: Surface not found"
         case .lastSurface:
             return "ERROR: Cannot close the last surface"
+        case .confirmationRequired:
+            return "ERROR: \(sidebarContext?.controlSidebarCloseStrings().confirmationRequired ?? "Surface has a running process; retry with --force")"
         case .closed:
             return "OK"
         }
@@ -267,7 +274,7 @@ extension ControlCommandCoordinator {
         guard trimmed.isEmpty else {
             return "ERROR: Usage: reload_config"
         }
-        sidebarContext?.controlSidebarReloadConfig()
+        sidebarContext?.controlSidebarReloadConfig(completion: {})
         return "OK Reloaded config"
     }
 

@@ -1,6 +1,9 @@
+import CmuxSurfaceCatalogModel
 import CoreGraphics
+import CmuxBrowser
 import CmuxCore
 import Foundation
+import CmuxPanes
 import Bonsplit
 import CmuxWorkspaces
 #if canImport(CryptoKit)
@@ -16,17 +19,20 @@ enum SessionSnapshotSchema {
 
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
-    // Keep the default equal to the minimum so a fresh sidebar starts at the
-    // minimum width. The titlebar title tracks the sidebar's actual width only
-    // when it is wider than the minimum, so a default above the minimum would make
-    // the folder/title shift when toggling the sidebar at the default width.
+    // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
+    // The titlebar title tracks the sidebar's actual width only when it is wider than the
+    // minimum, so a default above the minimum would make the folder/title shift when toggling the sidebar at the default width.
     static let defaultSidebarWidth: Double = 240
     static let defaultMinimumSidebarWidth: Double = 240
     static let minimumSidebarWidth: Double = 240
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
-    static let minimumWindowHeight: Double = 200
+    // Below ~400pt the chrome cannot lay out without overlap: the sidebar
+    // footer (account/help/update pill) collides with workspace rows and the
+    // update pill clips at the window edge. User resizes stop here via
+    // minSize/contentMinSize; programmatic paths via CmuxMainWindow.setFrame.
+    static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -36,8 +42,9 @@ enum SessionPersistencePolicy {
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
-        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
-        guard let candidate, candidate.isFinite else { return fallback }
+        guard let candidate, candidate.isFinite else {
+            return min(resolvedMinimum, maximumSidebarWidth)
+        }
         return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
     }
 
@@ -73,9 +80,10 @@ enum SessionPersistencePolicy {
         return String(text[safeStart...])
     }
 
-    /// If truncation starts in the middle of an ANSI CSI escape sequence, advance
-    /// to the first printable character after that sequence to avoid replaying
-    /// malformed control bytes.
+    /// If truncation starts in the middle of an ANSI control sequence, advance
+    /// past its terminator so replay never begins with a partial escape payload.
+    private static let maxAnsiStringSequenceScanCharacters = 1_024
+
     private static func ansiSafeTruncationStart(in text: String, initialStart: String.Index) -> String.Index {
         guard initialStart > text.startIndex else { return initialStart }
         let escape = "\u{001B}"
@@ -83,24 +91,61 @@ enum SessionPersistencePolicy {
         guard let lastEscape = text[..<initialStart].lastIndex(of: Character(escape)) else {
             return initialStart
         }
-        let csiMarker = text.index(after: lastEscape)
-        guard csiMarker < text.endIndex, text[csiMarker] == "[" else {
-            return initialStart
-        }
+        let marker = text.index(after: lastEscape)
+        guard marker < text.endIndex else { return initialStart }
 
-        // If a final CSI byte exists before the truncation boundary, we are not
-        // inside a partial sequence.
-        if csiFinalByteIndex(in: text, from: csiMarker, upperBound: initialStart) != nil {
-            return initialStart
-        }
+        switch text[marker] {
+        case "[":
+            // If a final CSI byte exists before the truncation boundary, we are
+            // not inside a partial sequence.
+            if csiFinalByteIndex(in: text, from: marker, upperBound: initialStart) != nil {
+                return initialStart
+            }
+            guard let final = csiFinalByteIndex(
+                in: text,
+                from: marker,
+                upperBound: text.endIndex
+            ) else {
+                return initialStart
+            }
+            let next = text.index(after: final)
+            return next < text.endIndex ? next : text.endIndex
 
-        // We are inside a CSI sequence. Skip to the first character after the
-        // sequence terminator if it exists.
-        guard let final = csiFinalByteIndex(in: text, from: csiMarker, upperBound: text.endIndex) else {
+        case "]", "P", "X", "_", "^":
+            let allowsBEL = text[marker] == "]"
+            if allowsBEL,
+               hasRecentBELTerminator(
+                   in: text,
+                   after: marker,
+                   before: initialStart
+               ) {
+                return initialStart
+            }
+            if allowsBEL,
+               ansiStringSequenceEnd(
+                   in: text,
+                   from: text.index(after: marker),
+                   upperBound: initialStart,
+                   allowsBEL: true
+               ) != nil {
+                return initialStart
+            }
+            return ansiStringSequenceEnd(
+                in: text,
+                from: initialStart,
+                upperBound: text.endIndex,
+                allowsBEL: allowsBEL
+            ) ?? initialStart
+
+        case "\\":
+            // The cut itself can land on the second byte of an ST terminator.
+            guard marker == initialStart else { return initialStart }
+            let next = text.index(after: marker)
+            return next < text.endIndex ? next : text.endIndex
+
+        default:
             return initialStart
         }
-        let next = text.index(after: final)
-        return next < text.endIndex ? next : text.endIndex
     }
 
     private static func csiFinalByteIndex(
@@ -121,12 +166,54 @@ enum SessionPersistencePolicy {
         }
         return nil
     }
+
+    private static func hasRecentBELTerminator(
+        in text: String,
+        after marker: String.Index,
+        before boundary: String.Index
+    ) -> Bool {
+        var index = marker
+        while index < boundary {
+            if text[index] == "\u{0007}" {
+                return true
+            }
+            index = text.index(after: index)
+        }
+        return false
+    }
+
+    private static func ansiStringSequenceEnd(
+        in text: String,
+        from start: String.Index,
+        upperBound: String.Index,
+        allowsBEL: Bool
+    ) -> String.Index? {
+        var index = start
+        var scanned = 0
+        while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
+            if allowsBEL, text[index] == "\u{0007}" {
+                return text.index(after: index)
+            }
+            if text[index] == "\u{001B}" {
+                let next = text.index(after: index)
+                if next < upperBound, text[next] == "\\" {
+                    return text.index(after: next)
+                }
+            }
+            index = text.index(after: index)
+            scanned += 1
+        }
+        return nil
+    }
 }
 
 enum SessionRestorePolicy {
     static func isRunningUnderAutomatedTests(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
+        if environment["CMUX_TEST_PROCESS"] == "1" {
+            return true
+        }
         if environment["CMUX_UI_TEST_MODE"] == "1" {
             return true
         }
@@ -205,10 +292,10 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 
     init(selection: SidebarSelection) {
         switch selection {
-        case .tabs:
+        case .tabs, .notifications:
+            // Notifications moved from a window-level overlay to a pane tab.
+            // Never persist the retired overlay selection.
             self = .tabs
-        case .notifications:
-            self = .notifications
         }
     }
 
@@ -217,7 +304,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
         case .tabs:
             return .tabs
         case .notifications:
-            return .notifications
+            // Migrate snapshots written by builds that used the overlay.
+            return .tabs
         }
     }
 }
@@ -259,19 +347,12 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
     case auto
 }
 
-nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
-        case name
-        case kind
-        case command
-        case cwd
-        case checkpointId
-        case source
-        case environment
-        case autoResume
-        case approvalPolicy
-        case approvalRecordId
-        case updatedAt
+        case name, kind, command, cwd, checkpointId, source
+        case environment, autoResume, approvalPolicy, approvalRecordId
+        case launchCommand, permissionMode, launchFlavor, updatedAt
+        case resumeEvidenceProvenance
     }
 
     var name: String?
@@ -281,9 +362,15 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var checkpointId: String?
     var source: String?
     var environment: [String: String]?
+    var launchCommand: AgentLaunchCommandSnapshot?
+    var permissionMode: String?
     var autoResume: Bool?
+    /// Verified Codex hook provenance carried into the app-owned atomic gate.
+    /// Non-Codex and legacy bindings leave this unset.
+    var resumeEvidenceProvenance: String?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
+    var launchFlavor: SurfaceResumeLaunchFlavor
     var updatedAt: TimeInterval
 
     init(
@@ -294,9 +381,13 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         checkpointId: String? = nil,
         source: String? = nil,
         environment: [String: String]? = nil,
+        launchCommand: AgentLaunchCommandSnapshot? = nil,
+        permissionMode: String? = nil,
         autoResume: Bool? = nil,
+        resumeEvidenceProvenance: String? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
+        launchFlavor: SurfaceResumeLaunchFlavor = .local,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
@@ -313,14 +404,23 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.checkpointId = Self.normalized(checkpointId)
         self.source = normalizedSource
         self.environment = Self.normalizedEnvironment(environment)
+        self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
+        self.permissionMode = Self.normalized(permissionMode)
         self.autoResume = autoResume
+        let retainsCodexEvidence = normalizedSource?.lowercased() == "agent-hook"
+            && normalizedKind?.lowercased() == "codex"
+        self.resumeEvidenceProvenance = retainsCodexEvidence
+            ? Self.normalized(resumeEvidenceProvenance)
+            : nil
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
+        self.launchFlavor = launchFlavor
         self.updatedAt = updatedAt
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedLaunchFlavor = try container.decodeIfPresent(SurfaceResumeLaunchFlavor.self, forKey: .launchFlavor)
         self.init(
             name: try container.decodeIfPresent(String.self, forKey: .name),
             kind: try container.decodeIfPresent(String.self, forKey: .kind),
@@ -329,9 +429,16 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             checkpointId: try container.decodeIfPresent(String.self, forKey: .checkpointId),
             source: try container.decodeIfPresent(String.self, forKey: .source),
             environment: try container.decodeIfPresent([String: String].self, forKey: .environment),
+            launchCommand: try container.decodeIfPresent(
+                AgentLaunchCommandSnapshot.self,
+                forKey: .launchCommand
+            ),
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
+            resumeEvidenceProvenance: try container.decodeIfPresent(String.self, forKey: .resumeEvidenceProvenance),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
+            launchFlavor: decodedLaunchFlavor ?? .local,
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
@@ -339,6 +446,14 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     var isProcessDetected: Bool {
         source == "process-detected"
+    }
+
+    /// Plain interactive SSH bindings are intentionally durable across a
+    /// restore pass.  Their process is expected to be absent while the new
+    /// local PTY is starting, so a transiently empty process scan must not
+    /// erase the command before the next autosave can observe it again.
+    var isPlainSSHProcessDetectedBinding: Bool {
+        isProcessDetected && kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ssh"
     }
 
     var isAgentHookBinding: Bool {
@@ -349,8 +464,51 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "cli"
     }
 
+    /// Source for bindings restored from an untrusted session file
+    /// (`cmux restore-session --from <path>`).
+    static let untrustedSessionImportSource = "session-import"
+
+    /// A binding restored from an untrusted session file. It is kept for
+    /// manual `cmux restore --surface` only: the approval store never matches
+    /// it against approved prefixes and never records an approval for it.
+    var isUntrustedSessionImportBinding: Bool {
+        source == Self.untrustedSessionImportSource
+    }
+
+    /// Marks this binding as coming from an untrusted session file, with no
+    /// automatic resume and no stored approval.
+    func markingUntrustedSessionImport() -> Self {
+        var marked = self
+        marked.source = Self.untrustedSessionImportSource
+        return marked.forcingManualRestore()
+    }
+
+    /// This binding with automatic resume and any stored approval removed.
+    func forcingManualRestore() -> Self {
+        var manual = self
+        manual.autoResume = false
+        manual.approvalPolicy = .manual
+        manual.approvalRecordId = nil
+        manual.resumeEvidenceProvenance = nil
+        return manual
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
+    }
+
+    /// Keeps an uncertain binding available for manual continuation without
+    /// allowing a stale process observation to launch on the next restore.
+    func disablingAutomaticResume() -> Self {
+        guard autoResume == true else { return self }
+        var disabled = self
+        disabled.autoResume = false
+        disabled.approvalPolicy = .manual
+        return disabled
+    }
+
+    var usesLocalRestoreVerb: Bool {
+        launchFlavor == .local
     }
 
     func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
@@ -360,28 +518,19 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
         guard isAgentHookBinding else { return self }
         let normalizedCwd = Self.normalized(workingDirectory)
-        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+        var retargeted = self
+        retargeted.command = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: command,
             previousWorkingDirectory: cwd,
             workingDirectory: normalizedCwd
         )
-        return SurfaceResumeBindingSnapshot(
-            name: name,
-            kind: kind,
-            command: retargetedCommand,
-            cwd: normalizedCwd,
-            checkpointId: checkpointId,
-            source: source,
-            environment: environment,
-            autoResume: autoResume,
-            approvalPolicy: approvalPolicy,
-            approvalRecordId: approvalRecordId,
-            updatedAt: updatedAt
-        )
+        retargeted.cwd = normalizedCwd
+        if var launchCommand = retargeted.launchCommand {
+            launchCommand.workingDirectory = normalizedCwd
+            retargeted.launchCommand = launchCommand
+        }
+        return retargeted
     }
-
-    static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
-
     var startupInput: String? {
         inlineStartupInput
     }
@@ -390,44 +539,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
-    func startupInputWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
-    ) -> String? {
-        guard let inlineInput = inlineStartupInput else { return nil }
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
-        }
-        guard allowLauncherScript else { return inlineInput }
-        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-            inlineInput: inlineInput,
-            binding: self,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        ) else {
-            return nil
-        }
-
-        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
-    }
-
-    func startupCommandWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> String? {
-        guard let inlineInput = inlineStartupInput,
-              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-                  inlineInput: inlineInput,
-                  binding: self,
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
-              ) else {
-            return nil
-        }
-        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
+    func restoreStartupInput() -> String? {
+        restoreStartupInput(repairPortableAgentExecutable: true)
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -447,6 +560,16 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func normalizedLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?
+    ) -> AgentLaunchCommandSnapshot? {
+        guard var launchCommand else { return nil }
+        launchCommand.workingDirectory = normalized(launchCommand.workingDirectory)
+        launchCommand.verificationHome = normalized(launchCommand.verificationHome)
+        launchCommand.environment = normalizedEnvironment(launchCommand.environment)
+        return launchCommand
     }
 
     private static func isSafeEnvironmentValue(_ value: String) -> Bool {
@@ -482,7 +605,7 @@ extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
     }
 }
 
-nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
+struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     var version: Int
     var id: String
     var name: String?
@@ -531,7 +654,12 @@ nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable
     }
 
     func matches(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
-        guard !commandPrefix.isEmpty,
+        // Remote approvals require a follow-up location-scoped record design that
+        // persists and signs an execution-location field. Bindings from an
+        // untrusted session file never match an approval.
+        guard !binding.isUntrustedSessionImportBinding,
+              binding.launchFlavor == .local,
+              !commandPrefix.isEmpty,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command),
               tokens.count >= commandPrefix.count,
               Array(tokens.prefix(commandPrefix.count)) == commandPrefix else {
@@ -543,10 +671,12 @@ nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable
             }
         }
         let bindingEnvironment = binding.environment ?? [:]
-        guard let environment, !environment.isEmpty else {
-            return bindingEnvironment.isEmpty
+        if let environment, !environment.isEmpty {
+            guard bindingEnvironment == environment else { return false }
+        } else {
+            guard bindingEnvironment.isEmpty else { return false }
         }
-        return bindingEnvironment == environment
+        return SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command)
     }
 
     func signingPayloadData() -> Data {
@@ -629,45 +759,135 @@ nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable
 
 enum SurfaceResumeCommandCanonicalizer {
     static func tokens(from command: String) -> [String]? {
-        let scalars = Array(command.unicodeScalars)
-        var tokens: [String] = []
+        tokensWithRawSlices(from: command)?.map(\.token)
+    }
+
+    static func tokensWithRawSlices(
+        from command: String
+    ) -> [(token: String, raw: Substring)]? {
+        let scalars = command.unicodeScalars
+        var tokens: [(token: String, raw: Substring)] = []
         var token = String.UnicodeScalarView()
-        var index = 0
+        var rawStart: String.Index?
+        var index = scalars.startIndex
         var quote: UnicodeScalar?
 
-        func flushToken() {
-            guard !token.isEmpty else { return }
-            tokens.append(String(token))
-            token.removeAll(keepingCapacity: true)
+        func flushToken(endingAt endIndex: String.Index) {
+            defer {
+                token.removeAll(keepingCapacity: true)
+                rawStart = nil
+            }
+            guard !token.isEmpty, let rawStart else { return }
+            tokens.append((
+                token: String(token),
+                raw: command[rawStart..<endIndex]
+            ))
         }
 
-        while index < scalars.count {
+        while index < scalars.endIndex {
             let scalar = scalars[index]
             if let activeQuote = quote {
                 if scalar == activeQuote {
                     quote = nil
-                } else if activeQuote == "\"", scalar == "\\", index + 1 < scalars.count {
-                    index += 1
+                } else if activeQuote == "\"", scalar == "\\" {
+                    let nextIndex = scalars.index(after: index)
+                    guard nextIndex < scalars.endIndex else {
+                        index = nextIndex
+                        continue
+                    }
+                    index = nextIndex
                     token.append(scalars[index])
                 } else {
                     token.append(scalar)
                 }
             } else if scalar == "'" || scalar == "\"" {
+                rawStart = rawStart ?? index
                 quote = scalar
             } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                flushToken()
-            } else if scalar == "\\", index + 1 < scalars.count {
-                index += 1
+                flushToken(endingAt: index)
+            } else if scalar == "\\" {
+                rawStart = rawStart ?? index
+                let nextIndex = scalars.index(after: index)
+                guard nextIndex < scalars.endIndex else {
+                    token.append(scalar)
+                    index = nextIndex
+                    continue
+                }
+                index = nextIndex
                 token.append(scalars[index])
             } else {
+                rawStart = rawStart ?? index
                 token.append(scalar)
             }
-            index += 1
+            index = scalars.index(after: index)
         }
 
         guard quote == nil else { return nil }
-        flushToken()
+        flushToken(endingAt: scalars.endIndex)
         return tokens.isEmpty ? nil : tokens
+    }
+
+    static func isShellExpansionSafeCommand(_ command: String) -> Bool {
+        tokensWithRawSlices(from: command) != nil &&
+            !containsUnsafeShellControl(command[...])
+    }
+
+    static func generalizedApprovalPrefix(forCommand command: String) -> [String]? {
+        guard isShellExpansionSafeCommand(command),
+              let tokens = tokens(from: command) else {
+            return nil
+        }
+
+        var prefix: [String] = []
+        var index = tokens.startIndex
+
+        while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
+            prefix.append(tokens[index])
+            index = tokens.index(after: index)
+        }
+
+        if index < tokens.endIndex, tokens[index] == "env" || tokens[index] == "/usr/bin/env" {
+            prefix.append(tokens[index])
+            index = tokens.index(after: index)
+            while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
+                prefix.append(tokens[index])
+                index = tokens.index(after: index)
+            }
+        }
+
+        guard index < tokens.endIndex else {
+            return nil
+        }
+        let commandToken = tokens[index]
+        // `env` flags (e.g. `env -i`) or a nested `env` would make the wrapper
+        // itself the scoped command, so the generalized prefix would match
+        // arbitrary commands; fail closed instead.
+        guard !commandToken.hasPrefix("-"),
+              commandToken != "env",
+              commandToken != "/usr/bin/env" else {
+            return nil
+        }
+        prefix.append(commandToken)
+        index = tokens.index(after: index)
+
+        while index < tokens.endIndex {
+            let token = tokens[index]
+            guard token.hasPrefix("-") || token == "resume" else {
+                break
+            }
+            prefix.append(token)
+            index = tokens.index(after: index)
+        }
+
+        // The generalized scope may only leave the session id itself
+        // unmatched. Arguments after the session id (`codex resume <id>
+        // --yolo`) would be dropped from the scope and prefix matching would
+        // re-authorize a different session with different options, so fail
+        // closed instead of widening the policy.
+        guard tokens.count == prefix.count + 1 else {
+            return nil
+        }
+        return prefix
     }
 
     static func normalizedCWD(_ rawValue: String?) -> String? {
@@ -687,6 +907,95 @@ enum SurfaceResumeCommandCanonicalizer {
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    private static func isEnvironmentAssignment(_ token: String) -> Bool {
+        guard let equalsIndex = token.firstIndex(of: "=") else {
+            return false
+        }
+        let nameScalars = token[..<equalsIndex].unicodeScalars
+        guard let firstScalar = nameScalars.first,
+              isEnvironmentNameStart(firstScalar) else {
+            return false
+        }
+        return nameScalars.dropFirst().allSatisfy(isEnvironmentNameContinuation)
+    }
+
+    private static func containsUnsafeShellControl(_ raw: Substring) -> Bool {
+        let scalars = raw.unicodeScalars
+        var index = scalars.startIndex
+        var quote: UnicodeScalar?
+        var isAtTokenStart = true
+
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            if quote == "'" {
+                if scalar == "'" {
+                    quote = nil
+                }
+                index = scalars.index(after: index)
+                continue
+            }
+            if quote == "\"" {
+                if scalar == "\\" {
+                    let nextIndex = scalars.index(after: index)
+                    index = nextIndex < scalars.endIndex
+                        ? scalars.index(after: nextIndex)
+                        : nextIndex
+                    continue
+                }
+                if scalar == "\"" {
+                    quote = nil
+                } else if scalar == "$" || scalar == "`" || scalar == "!" ||
+                            scalar == "\n" || scalar == "\r" {
+                    return true
+                }
+                index = scalars.index(after: index)
+                continue
+            }
+            if scalar == "\\" {
+                isAtTokenStart = false
+                let nextIndex = scalars.index(after: index)
+                index = nextIndex < scalars.endIndex
+                    ? scalars.index(after: nextIndex)
+                    : nextIndex
+                continue
+            }
+            if scalar == "'" {
+                isAtTokenStart = false
+                quote = scalar
+            } else if scalar == "\"" {
+                isAtTokenStart = false
+                quote = scalar
+            } else if scalar == "$" || scalar == "`" || scalar == "!" ||
+                        scalar == "\n" || scalar == "\r" {
+                return true
+            } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                isAtTokenStart = true
+            } else if scalar == "*" || scalar == "?" || scalar == "[" ||
+                        scalar == "{" || scalar == "}" {
+                return true
+            } else if isAtTokenStart && (scalar == "~" || scalar == "=") {
+                return true
+            } else if scalar == ";" || scalar == "|" || scalar == "&" ||
+                      scalar == "<" || scalar == ">" || scalar == "(" || scalar == ")" {
+                return true
+            } else {
+                isAtTokenStart = false
+            }
+            index = scalars.index(after: index)
+        }
+        return false
+    }
+
+    private static func isEnvironmentNameStart(_ scalar: UnicodeScalar) -> Bool {
+        scalar == "_" ||
+            (scalar.value >= 65 && scalar.value <= 90) ||
+            (scalar.value >= 97 && scalar.value <= 122)
+    }
+
+    private static func isEnvironmentNameContinuation(_ scalar: UnicodeScalar) -> Bool {
+        isEnvironmentNameStart(scalar) ||
+            (scalar.value >= 48 && scalar.value <= 57)
+    }
 }
 
 enum SurfaceResumeApprovalSignature {
@@ -709,6 +1018,14 @@ enum SurfaceResumeApprovalStore {
     private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
+    private static let signingSecretCache = SurfaceResumeApprovalSigningSecretCache(
+        loader: {
+            SurfaceResumeApprovalStore.loadOrCreateSigningSecret(fileManager: .default)
+        },
+        schedule: { job in
+            SurfaceResumeApprovalSigningSecretCache.utilityTask(job)
+        }
+    )
 
     struct StoredFile: Codable {
         var version: Int
@@ -795,98 +1112,16 @@ enum SurfaceResumeApprovalStore {
         return (try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data)) ?? []
     }
 
-    static func validRecords(
-        fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default,
-        signingSecret: Data? = nil
-    ) -> [SurfaceResumeApprovalRecord] {
-        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
-        guard let signingSecret else { return [] }
-        return loadRecords(fileURL: fileURL, fileManager: fileManager)
-            .filter { $0.hasValidSignature(secret: signingSecret) }
-    }
-
-    static func matchingRecord(
-        for binding: SurfaceResumeBindingSnapshot,
-        fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default,
-        signingSecret: Data? = nil
-    ) -> SurfaceResumeApprovalRecord? {
-        validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
-            .filter { $0.matches(binding) }
-            .sorted { lhs, rhs in
-                if lhs.commandPrefix.count != rhs.commandPrefix.count {
-                    return lhs.commandPrefix.count > rhs.commandPrefix.count
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
-            .first
-    }
-
-    static func applyingStoredApproval(
-        to binding: SurfaceResumeBindingSnapshot,
-        fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default,
-        signingSecret: Data? = nil
-    ) -> SurfaceResumeBindingSnapshot {
-        if binding.isProcessDetected {
-            var trustedBinding = binding
-            trustedBinding.autoResume = true
-            trustedBinding.approvalPolicy = .auto
-            trustedBinding.approvalRecordId = nil
-            return trustedBinding
-        }
-
-        if binding.isAgentHookBinding {
-            var trustedBinding = binding
-            trustedBinding.autoResume = binding.autoResume == true
-            trustedBinding.approvalPolicy = trustedBinding.autoResume == true ? .auto : .manual
-            trustedBinding.approvalRecordId = nil
-            return trustedBinding
-        }
-
-        var effective = binding
-        guard let record = matchingRecord(
-            for: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        ) else {
-            effective.autoResume = false
-            effective.approvalPolicy = .manual
-            effective.approvalRecordId = nil
-            return effective
-        }
-
-        effective.approvalPolicy = record.policy
-        effective.approvalRecordId = record.id
-        effective.autoResume = record.policy == .auto
-        return effective
-    }
-
     static func shouldPromptForProposal(
         binding: SurfaceResumeBindingSnapshot,
         existingRecord: SurfaceResumeApprovalRecord?,
         isMainThread: Bool,
         isRunningTests: Bool
     ) -> Bool {
-        guard isMainThread else {
+        guard isMainThread, !isRunningTests else {
             return false
         }
-        guard !isRunningTests else {
-            return false
-        }
-        guard !binding.isCLIBinding else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
-            return false
-        }
-        guard let existingRecord else { return true }
-        return existingRecord.policy == .prompt
+        return proposalNeedsApproval(binding: binding, existingRecord: existingRecord)
     }
 
     static func applyingPromptlessCLIManualApprovalIfNeeded(
@@ -908,12 +1143,7 @@ enum SurfaceResumeApprovalStore {
         ) else {
             return nil
         }
-        var effectiveBinding = applyingStoredApproval(
-            to: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        )
+        var effectiveBinding = binding
         effectiveBinding.approvalPolicy = record.policy
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto
@@ -929,8 +1159,19 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
-        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
-        guard let signingSecret,
+        // A binding from an untrusted session file never gets an approval record.
+        guard !binding.isUntrustedSessionImportBinding else {
+            return nil
+        }
+        // Location-scoped signed records are the follow-up if remote approvals are wanted.
+        guard binding.launchFlavor == .local else {
+            return nil
+        }
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
+            return nil
+        }
+        let resolution = signingSecretResolution(explicit: signingSecret, fileManager: fileManager)
+        guard case let .ready(signingSecret?) = resolution,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) else {
             return nil
         }
@@ -939,14 +1180,12 @@ enum SurfaceResumeApprovalStore {
             return nil
         }
         let now = Date().timeIntervalSince1970
-        let existing = matchingRecord(
-            for: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        )
+        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
+        let validRecords = records.filter { $0.hasValidSignature(secret: signingSecret) }
+        let matchingRecords = validRecords.filter { $0.matches(binding) }
+        let existingWithSamePrefix = matchingRecords.first { $0.commandPrefix == prefix }
         let record = SurfaceResumeApprovalRecord(
-            id: existing?.id ?? UUID().uuidString.lowercased(),
+            id: existingWithSamePrefix?.id ?? UUID().uuidString.lowercased(),
             name: binding.name,
             commandPrefix: prefix,
             cwd: binding.cwd,
@@ -954,12 +1193,30 @@ enum SurfaceResumeApprovalStore {
             environmentKeys: Array((binding.environment ?? [:]).keys),
             source: binding.source,
             policy: policy,
-            createdAt: existing?.createdAt ?? now,
+            createdAt: existingWithSamePrefix?.createdAt ?? now,
             updatedAt: now,
-            lastUsedAt: existing?.lastUsedAt,
+            lastUsedAt: existingWithSamePrefix?.lastUsedAt,
             signature: nil
         ).signed(secret: signingSecret)
-        writeReplacing(record: record, fileURL: fileURL, fileManager: fileManager)
+        let subsumedRecordIds = Set(
+            validRecords
+                .filter {
+                    $0.commandPrefix.count > prefix.count &&
+                        $0.commandPrefix.starts(with: prefix) &&
+                        $0.cwd == record.cwd &&
+                        $0.environment == record.environment
+                }
+                .map(\.id)
+        )
+        records.removeAll { subsumedRecordIds.contains($0.id) }
+        if let index = records.firstIndex(where: { $0.id == record.id }) {
+            records[index] = record
+        } else {
+            records.append(record)
+        }
+        guard write(records: records, fileURL: fileURL, fileManager: fileManager) else {
+            return nil
+        }
         return record
     }
 
@@ -972,8 +1229,8 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> Bool {
-        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
-        guard let signingSecret else { return false }
+        let resolution = signingSecretResolution(explicit: signingSecret, fileManager: fileManager)
+        guard case let .ready(signingSecret?) = resolution else { return false }
         var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
         guard let index = records.firstIndex(where: { $0.id == recordId }) else { return false }
         var record = records[index]
@@ -1014,18 +1271,48 @@ enum SurfaceResumeApprovalStore {
         return true
     }
 
-    static func isValid(_ record: SurfaceResumeApprovalRecord, signingSecret: Data? = defaultSigningSecret()) -> Bool {
-        guard let signingSecret else { return false }
-        return record.hasValidSignature(secret: signingSecret)
+    static func defaultSigningSecret(
+        fileManager: FileManager = .default
+    ) -> SurfaceResumeApprovalSigningSecretResolution {
+        if let data = environmentSigningSecret() {
+            return .ready(data)
+        }
+        if fileManager === FileManager.default {
+            return signingSecretCache.value(isMainThread: Thread.isMainThread)
+        }
+        guard !Thread.isMainThread else { return .ready(nil) }
+        return .ready(loadOrCreateSigningSecret(fileManager: fileManager))
     }
 
-    static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
-        let env = ProcessInfo.processInfo.environment
-        if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
-           let data = Data(base64Encoded: encoded),
-           !data.isEmpty {
-            return data
+    /// Starts the one-time Keychain/file lookup early while preserving the
+    /// nonblocking contract for the app's main thread.
+    static func preloadSigningSecret() {
+        guard environmentSigningSecret() == nil else { return }
+        signingSecretCache.preload { _ in }
+    }
+
+    static var signingSecretIsReady: Bool {
+        environmentSigningSecret() != nil || signingSecretCache.isReady
+    }
+
+    static func whenSigningSecretReady(_ action: @escaping @Sendable () -> Void) {
+        guard environmentSigningSecret() == nil else {
+            action()
+            return
         }
+        signingSecretCache.preload { _ in action() }
+    }
+
+    private static func environmentSigningSecret() -> Data? {
+        guard let encoded = ProcessInfo.processInfo.environment["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
+              let data = Data(base64Encoded: encoded),
+              !data.isEmpty else {
+            return nil
+        }
+        return data
+    }
+
+    private static func loadOrCreateSigningSecret(fileManager: FileManager) -> Data? {
         if let data = keychainSecret(), !data.isEmpty {
             return data
         }
@@ -1034,20 +1321,6 @@ enum SurfaceResumeApprovalStore {
             return generated
         }
         return fileBackedSecret(fileManager: fileManager, generated: generated)
-    }
-
-    private static func writeReplacing(
-        record: SurfaceResumeApprovalRecord,
-        fileURL: URL,
-        fileManager: FileManager
-    ) {
-        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
-        if let index = records.firstIndex(where: { $0.id == record.id }) {
-            records[index] = record
-        } else {
-            records.append(record)
-        }
-        _ = write(records: records, fileURL: fileURL, fileManager: fileManager)
     }
 
     @discardableResult
@@ -1271,150 +1544,61 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
-nonisolated enum TerminalStartupReturnShellScript {
-    private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
-    private static let zshIntegrationReentryLines = [
-        #"if [[ "${_cmux_resume_shell:t}" == "zsh" ]]; then"#,
-        #"  _cmux_resume_zdotdir_is_integration() { [[ -n "${1:-}" && ( "$1" == "${CMUX_SHELL_INTEGRATION_DIR:-}" || "$1" == */Contents/Resources/shell-integration ) ]]; }"#,
-        #"  if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
-        #"    if [[ -n "${ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then export CMUX_ZSH_ZDOTDIR="$ZDOTDIR"; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then unset CMUX_ZSH_ZDOTDIR; fi; export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
-        #"  else"#,
-        #"    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"; unset GHOSTTY_ZSH_ZDOTDIR; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"; unset CMUX_ZSH_ZDOTDIR; elif [[ -n "${ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then unset ZDOTDIR; unset CMUX_ZSH_ZDOTDIR; fi"#,
-        #"  fi; unfunction _cmux_resume_zdotdir_is_integration 2>/dev/null || true"#,
-        #"fi"#,
-    ]
-
-    static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
-        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        var lines = [shellLine] + zshIntegrationReentryLines + [
-            #"case "${_cmux_resume_shell:t}" in"#,
-            #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
-            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
-            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
-            #"esac"#,
-        ] + zshIntegrationReentryLines
-        // The resume command's `cd` runs inside the child shell above, so after the resumed agent
-        // exits the outer login shell would otherwise land in this script's launch cwd (the surface
-        // default), not the session's directory. Return the outer shell to the session's working
-        // directory so killing a resumed agent leaves you where the session lived.
-        if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-            lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
-        }
-        lines.append(#"exec -l "$_cmux_resume_shell""#)
-        return lines
-    }
-}
-
-enum SurfaceResumeBindingScriptStore {
-    private static let directoryName = "cmux-surface-resume"
-    private static let scriptTTL: TimeInterval = 24 * 60 * 60
-
-    static func writeLauncherScript(
-        inlineInput: String,
-        binding: SurfaceResumeBindingSnapshot,
-        fileManager: FileManager,
-        temporaryDirectory: URL,
-        returnToLoginShell: Bool = false
-    ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
-
-            let prefix = safeFilenamePrefix(binding: binding)
-            let scriptURL = directoryURL.appendingPathComponent(
-                "\(prefix)-\(UUID().uuidString).zsh",
-                isDirectory: false
-            )
-            var lines = [
-                "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true"
-            ]
-            if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: inlineInput,
-                    workingDirectory: binding.cwd
-                ))
-            } else {
-                lines.append(inlineInput)
-            }
-            let contents = lines.joined(separator: "\n") + "\n"
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-            return scriptURL
-        } catch {
-            return nil
-        }
-    }
-
-    private static func safeFilenamePrefix(binding: SurfaceResumeBindingSnapshot) -> String {
-        let rawPrefix = binding.kind ?? binding.source ?? "surface-resume"
-        let safePrefix = rawPrefix
-            .prefix(24)
-            .map { character -> Character in
-                character.isLetter || character.isNumber || character == "-" ? character : "_"
-            }
-        return safePrefix.isEmpty ? "surface-resume" : String(safePrefix)
-    }
-
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
-        guard let scriptURLs = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
-        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
-            guard let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let modifiedAt = values.contentModificationDate,
-                  modifiedAt < cutoff else {
-                continue
-            }
-            try? fileManager.removeItem(at: scriptURL)
-        }
-    }
-}
-
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
+    /// Explicit, unscaled surface font override. Nil follows the current config.
+    var fontSize: Float?
+    /// In-flight workspace font requests already represented by `fontSize`.
+    /// Close-history restores preserve these tokens to avoid replaying a
+    /// projected request while its coordinator still owns the request.
+    var fontSizeChangeTokens: [UUID]?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    /// Agent-hook identity kept separately when a process-detected binding is
+    /// the effective terminal resume target.
+    var managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// Whether the terminal has received user input. Nil means unknown in older snapshots.
+    var hasReceivedExplicitInput: Bool?
 
     init(
         workingDirectory: String? = nil,
+        fontSize: Float? = nil,
+        fontSizeChangeTokens: [UUID]? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        hasReceivedExplicitInput: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
+        self.fontSize = fontSize
+        self.fontSizeChangeTokens = fontSizeChangeTokens
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.managedAgentResumeBinding = managedAgentResumeBinding
         self.textBoxDraft = textBoxDraft
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.hasReceivedExplicitInput = hasReceivedExplicitInput
     }
 }
 
@@ -1509,92 +1693,17 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
     var cleanupLocalPathWhenDisposed: Bool
 }
 
-struct SessionBrowserPanelSnapshot: Codable, Sendable {
-    var urlString: String?
-    var profileID: UUID?
-    var shouldRenderWebView: Bool
-    var pageZoom: Double
-    var developerToolsVisible: Bool
-    var isMuted: Bool
-    var omnibarVisible: Bool? = nil
-    var backHistoryURLStrings: [String]?
-    var forwardHistoryURLStrings: [String]?
-    /// True when the surface is a transparent internal cmux UI (e.g. the diff
-    /// viewer). Restored so the surface comes back transparent, not opaque.
-    var transparentBackground: Bool? = nil
-    /// Diff viewer token + request path, when this browser surface hosts a diff
-    /// viewer. Restored by re-registering the token with the app-owned
-    /// `CmuxDiffViewerURLSchemeHandler` and navigating via the custom scheme,
-    /// independent of the (possibly-dead) local HTTP server.
-    var diffViewerToken: String? = nil
-    var diffViewerRequestPath: String? = nil
-
-    init(
-        urlString: String?,
-        profileID: UUID?,
-        shouldRenderWebView: Bool,
-        pageZoom: Double,
-        developerToolsVisible: Bool,
-        isMuted: Bool = false,
-        omnibarVisible: Bool? = nil,
-        backHistoryURLStrings: [String]?,
-        forwardHistoryURLStrings: [String]?,
-        transparentBackground: Bool? = nil,
-        diffViewerToken: String? = nil,
-        diffViewerRequestPath: String? = nil
-    ) {
-        self.urlString = urlString
-        self.profileID = profileID
-        self.shouldRenderWebView = shouldRenderWebView
-        self.pageZoom = pageZoom
-        self.developerToolsVisible = developerToolsVisible
-        self.isMuted = isMuted
-        self.omnibarVisible = omnibarVisible
-        self.backHistoryURLStrings = backHistoryURLStrings
-        self.forwardHistoryURLStrings = forwardHistoryURLStrings
-        self.transparentBackground = transparentBackground
-        self.diffViewerToken = diffViewerToken
-        self.diffViewerRequestPath = diffViewerRequestPath
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case urlString
-        case profileID
-        case shouldRenderWebView
-        case pageZoom
-        case developerToolsVisible
-        case isMuted
-        case omnibarVisible
-        case backHistoryURLStrings
-        case forwardHistoryURLStrings
-        case transparentBackground
-        case diffViewerToken
-        case diffViewerRequestPath
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
-        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
-        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
-        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
-        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
-        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
-        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
-        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
-        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
-        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
-        diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
-        diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
-    }
-}
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
+/// Marker for a workspace todo pane; the pane has no content of its own (the checklist
+/// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
+struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
+/// Marker for the global notifications pane; its feed lives in the notification store.
+struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1625,6 +1734,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil
@@ -1642,83 +1755,22 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
+    var simulator: SessionSimulatorPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
+    var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
 }
-
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
-enum SessionSplitOrientation: String, Codable, Sendable {
-    case horizontal
-    case vertical
-
-    init(_ orientation: SplitOrientation) {
-        switch orientation {
-        case .horizontal:
-            self = .horizontal
-        case .vertical:
-            self = .vertical
-        }
-    }
-
-    var splitOrientation: SplitOrientation {
-        switch self {
-        case .horizontal:
-            return .horizontal
-        case .vertical:
-            return .vertical
-        }
-    }
-}
-
-struct SessionPaneLayoutSnapshot: Codable, Sendable {
-    var panelIds: [UUID]
-    var selectedPanelId: UUID?
-    var isFullWidthTabMode: Bool? = nil
-}
-
-struct SessionSplitLayoutSnapshot: Codable, Sendable {
-    var orientation: SessionSplitOrientation
-    var dividerPosition: Double
-    var first: SessionWorkspaceLayoutSnapshot
-    var second: SessionWorkspaceLayoutSnapshot
-}
-
-indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
-    case pane(SessionPaneLayoutSnapshot)
-    case split(SessionSplitLayoutSnapshot)
-
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case pane
-        case split
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "pane":
-            self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
-        case "split":
-            self = .split(try container.decode(SessionSplitLayoutSnapshot.self, forKey: .split))
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unsupported layout node type: \(type)")
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .pane(let pane):
-            try container.encode("pane", forKey: .type)
-            try container.encode(pane, forKey: .pane)
-        case .split(let split):
-            try container.encode("split", forKey: .type)
-            try container.encode(split, forKey: .split)
-        }
-    }
-}
+// The pane layout value types and Bonsplit codec live in CmuxPanes so the
+// reusable topology boundary is independent of the app's session models. Keep
+// these module-local aliases for persisted-session source compatibility.
+typealias SessionSplitOrientation = CmuxPanes.SessionSplitOrientation
+typealias SessionPaneLayoutSnapshot = CmuxPanes.SessionPaneLayoutSnapshot
+typealias SessionSplitLayoutSnapshot = CmuxPanes.SessionSplitLayoutSnapshot
+typealias SessionWorkspaceLayoutSnapshot = CmuxPanes.SessionWorkspaceLayoutSnapshot
+typealias SessionSplitContainerLayoutCodec = CmuxPanes.SessionSplitContainerLayoutCodec
 
 /// One canvas pane's persisted geometry, ordered back-to-front so restore
 /// reproduces the z-order.
@@ -1736,19 +1788,45 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
     var selectedPanelId: UUID? = nil
 }
 
+/// A cloud machine bound to a workspace through the cmux-tui remote daemon, persisted so a
+/// restored `vm:<id>` workspace stays that machine's workspace (`workspace(forCloudVMID:)`,
+/// the sidebar cloud button's Base reuse, `vm.terminal_open` targeting). Only the binding is
+/// persisted: the pane's link is a process and is not replayed on restore.
+struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
+    var vmID: String
+    var isBase: Bool
+    /// The machine's cmux-tui workspace this local workspace stands for; absent in
+    /// legacy snapshots and for machine-only bindings (`vm shell`).
+    var remoteWorkspaceID: String? = nil
+    /// The team that owns the machine. Absent in snapshots written before
+    /// multi-team Cloud; restore then adopts the selected team.
+    var teamID: String? = nil
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
-    /// Restore uses this to remap closed-panel history onto the new workspace IDs;
-    /// legacy or externally-created snapshots can leave it nil.
+    /// Restore reuses this identity when it is present and non-colliding; legacy,
+    /// externally-created, or duplicate snapshots can leave it nil or force a fresh ID.
     var workspaceId: UUID? = nil
     var stableId: UUID? = nil
+    var taskCreateOperationID: UUID? = nil
     var processTitle: String
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var customDescription: String?
     var customColor: String?
+    var customizationDirectory: String? = nil
+    var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
+    /// Whether notification side effects are muted for this workspace. The
+    /// optional form keeps manifests written before per-workspace mute support
+    /// backwards-compatible; missing values restore as `false`.
+    var isMuted: Bool? = nil
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
@@ -1757,8 +1835,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
-    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
-    /// (treated as splits).
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots (treated as splits).
     var layoutMode: String? = nil
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.
@@ -1769,42 +1846,83 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
-    /// User-defined per-workspace environment variables (issue #5995). Optional
-    /// with a `nil` default so manifests written before this field decode cleanly.
+    /// cmux-tui cloud machine binding; absent in manifests written before the Cloud tree and for
+    /// workspaces that are not cloud machines.
+    var cloudVM: SessionCloudVMBindingSnapshot? = nil
+    /// Remote surfaces this workspace's panes projected (`SurfaceCatalog`); absent for
+    /// workspaces that only ever showed local panes, so older manifests decode unchanged.
+    var surfaceProjections: [SurfaceProjectionRecord]? = nil
+    /// The team that owns each Cloud machine this workspace shows, by machine
+    /// id. Restore reconnects those panes with that team even when another
+    /// team is selected. Absent in manifests written before multi-team Cloud.
+    var cloudMachineTeams: [String: String]? = nil
+    /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
+    /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
+    /// (the `groupId` back-compat pattern); bridging to/from live `WorkspaceTodoState` lives in `SessionPersistence+Todos.swift`.
+    var taskStatusOverride: String? = nil
+    var taskStatusInferredAtOverride: String? = nil
+    /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
+    var taskStatusHidden: Bool? = nil
+    var checklist: [SessionChecklistItemSnapshot]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
+}
+extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
+
+extension SessionPanelSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
 }
 
-extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
+extension SessionWorkspaceSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. Only meaningful within
-    /// a single app run; on restore, each workspace gets a fresh UUID. The
-    /// loader prefers `anchorMemberIndex` (restore-stable) and treats this
-    /// field as a hint for in-process round-trips.
+    /// The group's anchor identity (the group header). For an empty pinned
+    /// group this is a stable placeholder rather than a live workspace. The
+    /// loader prefers `anchorMemberIndex` (restore-stable) for live groups and
+    /// treats this field as a hint when duplicate/corrupt snapshots force a
+    /// workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil
-    /// 0-based index of the anchor among the group's members in tab order.
-    /// Restore-stable: tab order is preserved across restore, so the same
-    /// index resolves to the same logical anchor even though workspace UUIDs
-    /// change. Older snapshots that omit this field fall back to "first
-    /// member by tab order".
+    /// 0-based index of the anchor among the group's members in tab order. Restore-stable:
+    /// tab order is preserved across restore, so the same index resolves to the same
+    /// logical anchor even when a workspace UUID cannot be reused. Older snapshots
+    /// that omit this field fall back to "first member by tab order".
     var anchorMemberIndex: Int? = nil
+    /// `true` when the group intentionally has no live workspace anchor.
+    /// Optional for snapshots written before pinned empty groups were supported.
+    var anchorIsEmpty: Bool? = nil
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil
+    /// Optional caller-owned identity for idempotent group creation.
+    var externalID: String? = nil
+    /// Raw ``WorkspaceGroupAnchorProvenance`` value; absent in older snapshots.
+    var anchorWorkspaceProvenance: String? = nil
 }
 
 extension SessionWorkspaceSnapshot {
     var hasRestorablePanels: Bool {
-        !panels.isEmpty
+        !panels.isEmpty || dock != nil
     }
 }
 
 extension SessionWindowSnapshot {
     var hasRestorablePanels: Bool {
-        tabManager.workspaces.contains { $0.hasRestorablePanels }
+        dock != nil || tabManager.workspaces.contains { $0.hasRestorablePanels }
     }
 }
 
@@ -1823,25 +1941,57 @@ struct SessionWindowSnapshot: Codable, Sendable {
     /// Per-display-configuration remembered frames (LRU ring). Optional and
     /// additive so older persisted snapshots decode unchanged.
     var configFrames: [SessionConfigFrameEntry]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var windows: [SessionWindowSnapshot]
+    /// Set when this save captured terminal scrollback (quit, power-off, update
+    /// relaunch); nil for the 8 s autosave. Lets crash restore tell a deliberately
+    /// empty scrollback from one that was never captured. Additive; older files decode as nil.
+    var scrollbackCapturedAt: TimeInterval? = nil
 }
 
 extension AppSessionSnapshot: SessionSnapshotRepresenting {
-    /// Whether the snapshot carries at least one window. The `CmuxSession`
-    /// repository treats an empty-window snapshot as unusable (empty states
-    /// remove the file instead of writing it), matching the legacy
-    /// `!snapshot.windows.isEmpty` usability check.
+    /// Whether the snapshot carries at least one window. The `CmuxSession` repository
+    /// treats an empty-window snapshot as unusable (empty states remove the file instead
+    /// of writing it), matching the legacy `!snapshot.windows.isEmpty` usability check.
     var hasWindows: Bool { !windows.isEmpty }
+
+    var richness: SessionSnapshotRichness {
+        let workspaces = windows.flatMap(\.tabManager.workspaces)
+        return SessionSnapshotRichness(
+            workspaces: workspaces.count,
+            panels: workspaces.reduce(0) { $0 + $1.panels.count }
+        )
+    }
+
+    /// Hash of the window, workspace, and panel identities plus each
+    /// terminal's agent session, used by the overwrite guard to tell a user
+    /// change (a new workspace, a started agent) from autosave churn.
+    var structureSignature: Int {
+        var hasher = Hasher()
+        for window in windows {
+            hasher.combine(window.windowId)
+            for workspace in window.tabManager.workspaces {
+                hasher.combine(workspace.workspaceId)
+                for panel in workspace.panels {
+                    hasher.combine(panel.id)
+                    hasher.combine(panel.terminal?.agent?.sessionId)
+                    hasher.combine(panel.terminal?.resumeBinding != nil)
+                }
+            }
+        }
+        return hasher.finalize()
+    }
 }
 
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
+    static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
+    static let staleReplayLifetime: TimeInterval = 60 * 60
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
     nonisolated static func replayEnvironment(
@@ -1861,18 +2011,106 @@ enum SessionScrollbackReplayStore {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
     }
+
+    nonisolated static func sweepStaleReplayFiles(
+        olderThan cutoff: Date,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) {
+        let fileManager = FileManager.default
+        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        guard let directoryValues = try? directory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ),
+        directoryValues.isDirectory == true,
+        directoryValues.isSymbolicLink != true else {
+            return
+        }
+
+        // Existing replay directories may predate the private-permission write path.
+        // Harden the directory before reading retained entries.
+        try? fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+
+        guard let fileURLs = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [
+                .contentModificationDateKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for fileURL in fileURLs where fileURL.pathExtension == "txt" {
+            guard let values = try? fileURL.resourceValues(
+                forKeys: [
+                    .contentModificationDateKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ]
+            ),
+            values.isRegularFile == true,
+            values.isSymbolicLink != true else {
+                continue
+            }
+
+            // Fresh legacy replay files survive the sweep, but must not retain
+            // pre-upgrade world/group-readable permissions.
+            try? fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
+
+            guard let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
+                continue
+            }
+            try? fileManager.removeItem(at: fileURL)
+        }
+    }
+    nonisolated static func startBoundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
+    }
+    nonisolated static func endBoundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/end"
+    }
     nonisolated private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
-        // Restored history must not reconfigure the live terminal's colors: the
-        // active theme owns the default foreground/background (and palette), so
-        // default-colored cells track it. The captured scrollback bakes the
-        // capture-time theme via terminal-color OSC sequences (e.g. OSC 10/11),
-        // which would otherwise survive a theme change as white-on-white output
-        // (issue #5165). Strip them before replay.
+        // Restored history must not reconfigure the live terminal's colors: the active theme
+        // owns the default foreground/background (and palette), so default-colored cells track
+        // it. The captured scrollback bakes the capture-time theme via terminal-color OSC
+        // sequences (e.g. OSC 10/11), which would otherwise survive a theme change as
+        // white-on-white output (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        return ansiSafeReplayText(truncated)
+        return ansiSafeReplayText(endingOnFreshLine(truncated))
+    }
+    /// Captured scrollback usually stops at the old prompt with no trailing
+    /// newline. Replayed as is, the new shell's first prompt would start mid-line
+    /// (zsh marks that with a highlighted `%`), so end the replay on a fresh line.
+    /// Trailing CSI sequences (such as an SGR reset after the last newline) do
+    /// not move the cursor to a new line and are skipped when checking.
+    nonisolated private static func endingOnFreshLine(_ text: String) -> String {
+        let bytes = Array(text.utf8)
+        var end = bytes.count
+        while end > 0 {
+            let last = bytes[end - 1]
+            if last == 0x0A { return text } // \n
+            // Otherwise the text must end with `ESC [ <params> <final>` to keep looking.
+            guard (0x40...0x7E).contains(last) else { break }
+            var index = end - 2
+            while index >= 0, (0x20...0x3F).contains(bytes[index]) {
+                index -= 1
+            }
+            guard index >= 1, bytes[index] == 0x5B, bytes[index - 1] == 0x1B else { break }
+            end = index - 1
+        }
+        return text + "\r\n"
     }
     /// Preserve ANSI color state safely across replay boundaries.
     nonisolated private static func ansiSafeReplayText(_ text: String) -> String {
@@ -1886,19 +2124,15 @@ enum SessionScrollbackReplayStore {
         }
         return output
     }
-
     /// Removes terminal-color OSC sequences (palette entries and the dynamic
-    /// foreground/background/cursor/highlight colors plus their resets) from
-    /// captured scrollback so the restored history does not reconfigure the live
-    /// terminal's colors.
-    ///
-    /// Ghostty's `write_screen_file:copy,vt` export bakes the capture-time theme
-    /// by prepending `OSC 10` / `OSC 11` (and resolving palette entries). Replaying
-    /// those into a freshly launched terminal would override the active theme's
-    /// default colors, so restored default-colored cells would keep the old theme
-    /// (white-on-white after a theme change — issue #5165). Explicit per-cell SGR
-    /// colors and every non-color escape sequence (titles, hyperlinks, prompt
-    /// marks, …) are preserved verbatim.
+    /// foreground/background/cursor/highlight colors plus their resets) from captured
+    /// scrollback so the restored history does not reconfigure the live terminal's colors.
+    /// Ghostty's `write_screen_file:copy,vt` export bakes the capture-time theme by
+    /// prepending `OSC 10` / `OSC 11` (and resolving palette entries). Replaying those into
+    /// a freshly launched terminal would override the active theme's default colors, so
+    /// restored default-colored cells would keep the old theme (white-on-white after a theme
+    /// change — issue #5165). Explicit per-cell SGR colors and every non-color escape
+    /// sequence (titles, hyperlinks, prompt marks, …) are preserved verbatim.
     nonisolated private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
         let escByte: UInt8 = 0x1B
         let oscIntroducer: UInt8 = 0x5D // ]
@@ -1906,10 +2140,8 @@ enum SessionScrollbackReplayStore {
         let backslash: UInt8 = 0x5C
         let zero: UInt8 = 0x30
         let nine: UInt8 = 0x39
-
         let bytes = Array(text.utf8)
         guard bytes.contains(escByte) else { return text }
-
         var output = [UInt8]()
         output.reserveCapacity(bytes.count)
         let count = bytes.count
@@ -1923,7 +2155,6 @@ enum SessionScrollbackReplayStore {
                 index += 1
                 continue
             }
-
             // Parse the OSC numeric command (Ps) following `ESC ]`.
             var cursor = index + 2
             var code = 0
@@ -1934,7 +2165,6 @@ enum SessionScrollbackReplayStore {
                 cursor += 1
                 if code > 100_000 { break } // overflow guard for malformed input
             }
-
             guard sawDigit, isTerminalColorOSCCode(code) else {
                 // Not a terminal-color OSC; emit `ESC` and resume scanning so the
                 // rest of the preserved sequence is copied verbatim.
@@ -1942,7 +2172,6 @@ enum SessionScrollbackReplayStore {
                 index += 1
                 continue
             }
-
             // Consume through the OSC terminator (BEL or `ESC \` / ST). A truncated
             // (unterminated) color OSC at the end of the buffer is dropped as well.
             var end = cursor
@@ -1962,7 +2191,6 @@ enum SessionScrollbackReplayStore {
             }
             index = terminated ? end : count
         }
-
         return String(decoding: output, as: UTF8.self)
     }
 
@@ -1979,18 +2207,27 @@ enum SessionScrollbackReplayStore {
     }
     nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
+        let fileManager = FileManager.default
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
 
         do {
-            try FileManager.default.createDirectory(
+            try fileManager.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
-                attributes: nil
+                attributes: [.posixPermissions: 0o700]
+            )
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: directory.path
             )
             let fileURL = directory
                 .appendingPathComponent(UUID().uuidString, isDirectory: false)
                 .appendingPathExtension("txt")
             try data.write(to: fileURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
             return fileURL
         } catch {
             return nil

@@ -74,8 +74,18 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID? {
+        guard let workspace = tabManager?.selectedWorkspace else { return nil }
+        WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+        return workspace.id
+    }
+
     func controlDebugShowProWelcomeChecklist() {
         ProWelcomeChecklistPresenter.present()
+    }
+
+    func controlDebugShowNativePricing() {
+        ProUpgradePresenter.presentNativePricingPreview()
     }
 
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
@@ -108,13 +118,31 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugResetFlashCounts() -> String { resetFlashCounts() }
 
+    func controlDebugBrowserDiscard(arguments: String) -> String {
+        let parts = arguments.split(separator: " ").map(String.init)
+        guard let raw = parts.first, let id = UUID(uuidString: raw) else {
+            return "ERROR: usage: browser_discard <surface-uuid> [force]"
+        }
+        let force = parts.dropFirst().contains("force")
+        var result = "ERROR: Browser surface not found"
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            for context in app.mainWindowContexts.values {
+                for workspace in context.tabManager.tabs {
+                    guard let panel = workspace.panels[id] as? BrowserPanel else { continue }
+                    result = panel.debugDiscardForTesting(force: force)
+                    return
+                }
+            }
+        }
+        return result
+    }
+
     func controlDebugPanelSnapshot(arguments: String) -> String { panelSnapshot(arguments) }
 
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String {
         panelSnapshotReset(surfaceArgument)
     }
-
-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
 
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
@@ -430,6 +458,10 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugPortalStats() -> JSONValue? {
         JSONValue(foundationObject: TerminalWindowPortalRegistry.debugPortalStats())
+    }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        JSONValue(foundationObject: remoteTmuxSizingSettlementPayload())
     }
 #endif
 }

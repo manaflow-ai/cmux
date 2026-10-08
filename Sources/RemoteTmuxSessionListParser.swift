@@ -43,12 +43,15 @@ enum RemoteTmuxSessionListParser {
     /// - Returns: one ``RemoteTmuxSession`` per well-formed line, in input order.
     static func parse(_ output: String) -> [RemoteTmuxSession] {
         var sessions: [RemoteTmuxSession] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            var line = String(rawLine)
-            if line.last == "\r" {
-                line.removeLast()
-            }
-            if line.isEmpty { continue }
+        // Swift treats CRLF as one Character, so `split(separator: "\n")` finds no
+        // separator in a CRLF listing and `line.last == "\r"` never matches either:
+        // the last Character of `…crlf\r\n` is `"\r\n"`. The whole listing then parses
+        // as one session whose name swallows the rest. A remote running the command
+        // under a pty sends CRLF, because ONLCR rewrites every `\n`. `isNewline`
+        // matches `\n`, `\r` and CRLF, and empty subsequences are omitted, so blank
+        // lines drop out. The sibling parser in RemoteTmuxVersion.swift already does this.
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = String(rawLine)
             // Unbounded split: the first four fields are id/windows/attached/
             // created, and the name (which may itself contain `:`) is reassembled
             // from the remainder below via `fields[4...].joined`, so a name with
@@ -75,5 +78,27 @@ enum RemoteTmuxSessionListParser {
             )
         }
         return sessions
+    }
+
+    /// Splits raw `tmux …list… -F` output (delimited with ``fieldDelimiter``) into
+    /// rows of exactly `fieldCount` fields, rejoining any trailing free-text field.
+    ///
+    /// Splits on any newline via `Character.isNewline`, which matches `\n`, `\r`,
+    /// AND the `\r\n` grapheme cluster (a plain `split(separator: "\n")` misses
+    /// `\r\n`, leaving a stray `\r` on the last field of CRLF output).
+    static func splitRows(_ output: String, fieldCount: Int) -> [[String]] {
+        precondition(fieldCount >= 1)
+        return output.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .compactMap { rawLine in
+                let line = String(rawLine)
+                if line.isEmpty { return nil }
+                let fields = line.components(separatedBy: fieldDelimiter)
+                guard fields.count >= fieldCount else { return nil }
+                // Keep the first fieldCount-1 fields verbatim; rejoin the rest as the
+                // trailing free-text field.
+                var row = Array(fields[0..<(fieldCount - 1)])
+                row.append(fields[(fieldCount - 1)...].joined(separator: fieldDelimiter))
+                return row
+            }
     }
 }

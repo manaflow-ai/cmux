@@ -30,7 +30,27 @@ extension TerminalController: ControlMobileHostContext {
     }
 
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceList(params: foundationParams(params)))
+        let workspaceResult = bridgeMobileResult(
+            v2MobileWorkspaceList(params: foundationParams(params))
+        )
+        guard case let .ok(.object(workspacePayload)) = workspaceResult else {
+            return workspaceResult
+        }
+        // The v2 method carries the host identity and capabilities alongside
+        // the workspace snapshot, removing one relay round trip for startup.
+        // Read the published v2 cache directly. `v2MobileHostStatus` has a
+        // legacy physical-device fallback for its standalone response, which
+        // must never be embedded in a v2 workspace snapshot.
+        guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ),
+        let hostStatusValue = JSONValue(foundationObject: hostStatusPayload),
+        case let .object(hostStatusObject) = hostStatusValue else {
+            return workspaceResult
+        }
+        var combined = workspacePayload
+        combined["host_status"] = .object(hostStatusObject)
+        return .ok(.object(combined))
     }
 
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult {
@@ -57,8 +77,38 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalMouse(params: foundationParams(params)))
     }
 
-    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
+    func controlMobileTerminalPaste(params: [String: JSONValue]) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileTerminalPaste(params: foundationParams(params)))
+    }
+
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        bridgeMobileResult(
+            v2MobileTaskAttachmentUpload(params: foundationParams(params))
+        )
+    }
+
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(
+            await v2MobileTaskModelsList(params: foundationParams(params))
+        )
+    }
+
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatSend(params: params))
+    }
+
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatInterrupt(params: params))
     }
 
     func controlMobileChatSessionsDump() -> ControlCallResult {
@@ -69,7 +119,9 @@ extension TerminalController: ControlMobileHostContext {
     /// typed params. This is the exact inverse of the dispatcher's
     /// `request.params.mapValues { $0.foundationObject }`, so the legacy body
     /// receives the identical Foundation dictionary it always did.
-    private func foundationParams(_ params: [String: JSONValue]) -> [String: Any] {
+    private nonisolated func foundationParams(
+        _ params: [String: JSONValue]
+    ) -> [String: Any] {
         params.mapValues(\.foundationObject)
     }
 
@@ -77,7 +129,9 @@ extension TerminalController: ControlMobileHostContext {
     /// `ControlCallResult`. The mobile bodies only build valid-JSON payloads, so
     /// the bridge never fails; the empty-object / `nil` fallbacks keep the
     /// conversion total.
-    private func bridgeMobileResult(_ result: V2CallResult) -> ControlCallResult {
+    private nonisolated func bridgeMobileResult(
+        _ result: V2CallResult
+    ) -> ControlCallResult {
         switch result {
         case let .ok(payload):
             return .ok(JSONValue(foundationObject: payload) ?? .object([:]))

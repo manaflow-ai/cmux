@@ -15,6 +15,8 @@ public struct ControlPaneSurfacesSnapshot: Sendable, Equatable {
     public let windowID: UUID?
     /// The surfaces in the pane, in tab order.
     public let surfaces: [ControlPaneSurfaceSummary]
+    /// The Dock container scope for a Dock-hosted pane, else `nil`.
+    public let dockScopeRawValue: String?
 
     /// Creates a pane-surfaces snapshot.
     ///
@@ -23,15 +25,18 @@ public struct ControlPaneSurfacesSnapshot: Sendable, Equatable {
     ///   - paneID: The pane the surfaces belong to.
     ///   - windowID: The window the workspace belongs to, if resolved.
     ///   - surfaces: The surfaces in the pane, in order.
+    ///   - dockScopeRawValue: The Dock scope for a Dock-hosted pane.
     public init(
         workspaceID: UUID,
         paneID: UUID,
         windowID: UUID?,
-        surfaces: [ControlPaneSurfaceSummary]
+        surfaces: [ControlPaneSurfaceSummary],
+        dockScopeRawValue: String? = nil
     ) {
         self.workspaceID = workspaceID
         self.paneID = paneID
         self.windowID = windowID
         self.surfaces = surfaces
+        self.dockScopeRawValue = dockScopeRawValue
     }
 }

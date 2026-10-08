@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/ci/build_metrics.py"
+
+spec = importlib.util.spec_from_file_location("build_metrics", SCRIPT)
+build_metrics = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(build_metrics)
+
+
+SAMPLE = """SwiftDriver Bonsplit normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Bonsplit' from project 'Bonsplit')
+Cache hit
+
+Cache miss
+SwiftCompile normal arm64 Compiling\\ Foo.swift /repo/Sources/Foo.swift (in target 'cmux' from project 'cmux')
+Cache miss
+
+SwiftCompile normal arm64 Compiling\\ Bar.swift /repo/Sources/Bar.swift (in target 'cmux' from project 'cmux')
+SwiftEmitModule normal arm64 Emitting\\ module\\ for\\ cmux (in target 'cmux' from project 'cmux')
+
+CodeSign /tmp/cmux.app (in target 'cmux' from project 'cmux')
+
+Build Timing Summary
+CompileSwiftSources (8 tasks) | 12.500 seconds
+Ld (1 task) | 2.250 seconds
+** BUILD SUCCEEDED **
+"""
+
+XCODE_26_6 = """note: 7 hits / 10 cacheable tasks (70%)
+Build Timing Summary
+SwiftCompile (8 tasks) | 12.500 seconds
+SwiftDriver (1 task) | 2.000 seconds
+Ld (1 task) | 2.250 seconds
+** BUILD SUCCEEDED **
+"""
+
+XCODE_26_6_REMARKS = """note: cache key query hit
+note: cache hit
+note: local cache found for key abc
+note: replayed cache hit
+note: cache key query miss
+"""
+
+XCODE_26_6_COMPACT = """note: 0/316 cacheable tasks
+Build Timing Summary
+SwiftCompile (1 task) | 1.000 seconds
+** BUILD SUCCEEDED **
+"""
+
+FLEET_CACHE_LOG = """COMPILATION_CACHE_ENABLE_PLUGIN = YES
+COMPILATION_CACHE_REMOTE_SERVICE_PATH = /Users/Shared/cmux-build-fleet/xcode/fleet-cas.sock
+Build Timing Summary
+CompileSwiftSources (2 tasks) | 3.000 seconds
+Ld (1 task) | 0.500 seconds
+** BUILD SUCCEEDED **
+"""
+
+
+class BuildMetricsTests(unittest.TestCase):
+    def test_parse_log_attributes_cache_and_swift_work(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cmux-build.log"
+            path.write_text(SAMPLE)
+            parsed = build_metrics.parse_log(path)
+
+        self.assertEqual(parsed["cache_hits"], 1)
+        self.assertEqual(parsed["cache_misses"], 2)
+        self.assertEqual(parsed["cacheable_tasks"], 3)
+        self.assertEqual(parsed["swift_compile_events"], 2)
+        self.assertEqual(parsed["swift_emit_module_events"], 1)
+        self.assertEqual(parsed["targets"]["Bonsplit"]["cache_hits"], 1)
+        self.assertEqual(parsed["targets"]["cmux"]["cache_misses"], 2)
+        self.assertEqual(parsed["targets"]["cmux"]["swift_compile_events"], 2)
+        self.assertEqual(
+            parsed["timing_summary_seconds"],
+            {"CompileSwiftSources": 12.5, "Ld": 2.25},
+        )
+
+    def test_xcode_26_6_summary_sets_cacheable_tasks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cmux-build.log"
+            path.write_text(XCODE_26_6)
+            parsed = build_metrics.parse_log(path)
+        self.assertEqual((parsed["cache_hits"], parsed["cache_misses"], parsed["cacheable_tasks"]), (7, 3, 10))
+
+    def test_xcode_26_6_remarks_count_hits_and_misses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cmux-build.log"
+            path.write_text(XCODE_26_6_REMARKS)
+            parsed = build_metrics.parse_log(path)
+        self.assertEqual((parsed["cache_hits"], parsed["cache_misses"], parsed["cacheable_tasks"]), (4, 1, 5))
+
+    def test_xcode_26_6_compact_summary_sets_all_tasks_as_misses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cmux-build.log"
+            path.write_text(XCODE_26_6_COMPACT)
+            parsed = build_metrics.parse_log(path)
+        self.assertEqual((parsed["cache_hits"], parsed["cache_misses"], parsed["cacheable_tasks"]), (0, 316, 316))
+
+    def test_aggregate_orders_hot_targets_first(self):
+        schemes = [
+            {
+                "cache_hits": 2,
+                "cache_misses": 3,
+                "cacheable_tasks": 5,
+                "swift_compile_events": 4,
+                "swift_emit_module_events": 1,
+                "timing_summary_seconds": {"CompileSwiftSources": 5.0},
+                "targets": {
+                    "Small": {
+                        "cache_hits": 2,
+                        "cache_misses": 0,
+                        "swift_compile_events": 1,
+                        "swift_emit_module_events": 0,
+                    },
+                    "cmux": {
+                        "cache_hits": 0,
+                        "cache_misses": 3,
+                        "swift_compile_events": 3,
+                        "swift_emit_module_events": 1,
+                    },
+                },
+            },
+            {
+                "cache_hits": 1,
+                "cache_misses": 1,
+                "cacheable_tasks": 2,
+                "swift_compile_events": 2,
+                "swift_emit_module_events": 0,
+                "timing_summary_seconds": {"CompileSwiftSources": 2.0},
+                "targets": {
+                    "cmux": {
+                        "cache_hits": 1,
+                        "cache_misses": 1,
+                        "swift_compile_events": 2,
+                        "swift_emit_module_events": 0,
+                    }
+                },
+            },
+        ]
+        aggregate = build_metrics.aggregate(schemes)
+        self.assertEqual(aggregate["cache_hits"], 3)
+        self.assertEqual(aggregate["cache_misses"], 4)
+        self.assertEqual(aggregate["cacheable_tasks"], 7)
+        self.assertEqual(aggregate["timing_summary_seconds"]["CompileSwiftSources"], 7.0)
+        self.assertEqual(next(iter(aggregate["targets"])), "cmux")
+        self.assertEqual(aggregate["targets"]["cmux"]["swift_compile_events"], 5)
+
+    def test_ci_wires_advisory_receipt_and_timing_summary(self):
+        compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text()
+        workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        self.assertIn("-showBuildTimingSummary", compile_script)
+        self.assertIn("python3 scripts/ci/build_metrics.py", workflow)
+        self.assertIn("xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}", workflow)
+        self.assertIn("steps.hosted-compile.outcome != 'skipped'", workflow)
+        self.assertIn("--compile-outcome \"$HOSTED_COMPILE_OUTCOME\"", workflow)
+        self.assertIn("--host-telemetry \"$RUNNER_TEMP/glaeda-compile-telemetry.json\"", workflow)
+        self.assertIn("SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance }}", workflow)
+        self.assertNotIn(
+            "SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance || steps.prefer-seed.outputs.seed_distance }}",
+            workflow,
+        )
+        self.assertIn("steps.build-metrics.outcome == 'success'", workflow)
+        self.assertIn("continue-on-error: true", workflow)
+
+    def test_receipt_discovers_logs_and_activity_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory)
+            (derived / "cmux-build.log").write_text(SAMPLE)
+            activity = derived / "Logs" / "Build"
+            activity.mkdir(parents=True)
+            (activity / "one.xcactivitylog").write_bytes(b"abc")
+
+            receipt = build_metrics.build_receipt(
+                derived,
+                42.5,
+                compile_outcome="failure",
+            )
+
+        self.assertEqual(receipt["schema_version"], 1)
+        self.assertEqual(receipt["compile_wall_seconds"], 42.5)
+        self.assertEqual(receipt["compile_outcome"], "failure")
+        self.assertEqual(receipt["compiler_cache"]["cacheable_tasks"], 3)
+        self.assertEqual(receipt["compiler_cache"]["compile_seconds"], 12.5)
+        self.assertEqual(receipt["compiler_cache"]["link_seconds"], 2.25)
+        self.assertEqual(receipt["compiler_cache"]["compile_wall_seconds"], 42.5)
+        self.assertEqual(receipt["compiler_cache"]["cache_backend"], "local")
+        self.assertEqual(receipt["derived_data_log_count"], 1)
+        self.assertEqual(receipt["activity_logs"], [{"name": "one.xcactivitylog", "bytes": 3}])
+        json.dumps(receipt)
+
+    def test_receipt_identifies_fleet_cache_backend_without_emitting_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory)
+            (derived / "cmux-build.log").write_text(FLEET_CACHE_LOG)
+
+            receipt = build_metrics.build_receipt(derived, 9.25, compile_outcome="success")
+
+        self.assertEqual(receipt["compiler_cache"]["cache_backend"], "fleet")
+        self.assertEqual(receipt["compiler_cache"]["compile_wall_seconds"], 9.25)
+        self.assertNotIn("fleet-cas.sock", json.dumps(receipt["compiler_cache"]))
+
+    def test_host_sidecar_carries_wall_time_and_backend(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            derived = root / "derived"
+            derived.mkdir()
+            (derived / "cmux-build.log").write_text(FLEET_CACHE_LOG)
+            output = root / "receipt.json"
+            host = root / "host.json"
+            env = {**os.environ, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(derived),
+                    "--output",
+                    str(output),
+                    "--compile-seconds",
+                    "9.25",
+                    "--compile-outcome",
+                    "success",
+                    "--host-telemetry",
+                    str(host),
+                ],
+                check=True,
+                env=env,
+            )
+            sidecar = json.loads(host.read_text())
+
+        self.assertEqual(sidecar["compile_wall_seconds"], 9.25)
+        self.assertEqual(sidecar["cache_backend"], "fleet")
+        self.assertEqual(sidecar["run_id"], "123")
+        self.assertEqual(sidecar["run_attempt"], "2")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,19 +1,25 @@
 import Sentry
 import Testing
 
-import CmuxMobileAnalytics
+import CMUXMobileCore
 @testable import CmuxMobileCrashReporting
 
 private struct FixedConsent: AnalyticsConsentProviding {
     let isTelemetryEnabled: Bool
 }
 
+#if os(iOS)
+import UIKit
+
+private final class ReplayMaskProbeView: UIView {}
+#endif
+
 @Suite struct MobileCrashReporterTests {
     @Test func consentDisabledDoesNotStart() {
         var startCount = 0
         var crashCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
@@ -29,25 +35,49 @@ private struct FixedConsent: AnalyticsConsentProviding {
 
     @Test func consentEnabledStartsExactlyOnce() {
         var startCount = 0
+        var capturedOptions: Options?
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
-            start: { _ in startCount += 1 },
+            start: {
+                capturedOptions = $0
+                startCount += 1
+            },
             close: {},
             purgeCache: {},
             crash: {}
         )
 
         #expect(startCount == 1)
+        #expect(capturedOptions?.urlSession != nil)
+        #expect(capturedOptions?.shutdownTimeInterval == 0)
+    }
+
+    @Test func localePreparationPrecedesSentryStartup() {
+        var sequence: [String] = []
+
+        MobileCrashReporter().startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            prepareLocale: { sequence.append("locale") },
+            start: { _ in sequence.append("sentry") },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(sequence == ["locale", "sentry"])
     }
 
     @Test func optionsFactoryMatchesMobileContract() {
-        let options = MobileCrashReporter.makeOptions()
+        let options = MobileCrashReporter().makeOptions()
 
-        #expect(options.dsn == "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416")
+        #expect(options.dsn == "https://834d19a3077c4adbff534dca1e93de4f@o4507547940749312.ingest.us.sentry.io/4510604800491520")
         #expect(options.tracesSampleRate?.doubleValue == 0.0)
         #expect(options.sendDefaultPii == false)
         #expect(options.attachStacktrace == true)
@@ -60,7 +90,23 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableNetworkBreadcrumbs == false)
         #expect(options.enableAutoBreadcrumbTracking == false)
         #expect(options.tracePropagationTargets.isEmpty)
-        #expect(options.enableAutoSessionTracking == false)
+        // Replay needs Sentry's session lifecycle to create its rolling error
+        // buffer and apply the configured session sample rate.
+        #expect(options.enableAutoSessionTracking == true)
+        #expect(options.enableLogs == false)
+        #expect(options.beforeBreadcrumb != nil)
+        #if os(iOS)
+        #expect(options.sessionReplay.onErrorSampleRate == 0.0)
+        #expect(options.sessionReplay.sessionSampleRate == 0.0)
+        #expect(options.sessionReplay.quality == .low)
+        // On-device masking is the privacy boundary: text/image defaults must
+        // stay on, and CALayer-only fast rendering (which can skip views
+        // instead of drawing their mask blocks) must stay off.
+        #expect(options.sessionReplay.maskAllText == true)
+        #expect(options.sessionReplay.maskAllImages == true)
+        #expect(options.sessionReplay.enableFastViewRendering == false)
+        #expect(options.sessionReplay.maskedViewClasses.isEmpty)
+        #endif
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
         #expect(options.enableMetricKitRawPayload == false)
@@ -74,11 +120,76 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #endif
     }
 
+    #if os(iOS)
+    @Test func replayMaskedViewClassesPropagateIntoStartedOptions() {
+        var captured: Options?
+
+        MobileCrashReporter().startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            replayMaskedViewClasses: [ReplayMaskProbeView.self],
+            start: { captured = $0 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(captured?.sessionReplay.maskedViewClasses.count == 1)
+        #expect(captured?.sessionReplay.maskedViewClasses.first == ReplayMaskProbeView.self)
+    }
+
+    @Test func replayForceSessionEnvironmentOverridesSampleRateOnlyInDebug() {
+        let forced = MobileCrashReporter().makeOptions(
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"],
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+        )
+        let normal = MobileCrashReporter().makeOptions(
+            environment: [:],
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+        )
+
+        #if DEBUG
+        #expect(forced.sessionReplay.sessionSampleRate == 0.0)
+        #else
+        #expect(forced.sessionReplay.sessionSampleRate == 0.0)
+        #endif
+        #expect(normal.sessionReplay.sessionSampleRate == 0.0)
+        #expect(forced.sessionReplay.onErrorSampleRate == 0.0)
+    }
+
+    @Test func replayStaysDisabledWithoutRequiredMaskClasses() {
+        let missing = MobileCrashReporter().makeOptions(
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"]
+        )
+        let empty = MobileCrashReporter().makeOptions(
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"],
+            replayMaskedViewClasses: []
+        )
+
+        for options in [missing, empty] {
+            #expect(options.sessionReplay.sessionSampleRate == 0.0)
+            #expect(options.sessionReplay.onErrorSampleRate == 0.0)
+            #expect(options.sessionReplay.maskedViewClasses.isEmpty)
+        }
+    }
+
+    @Test func replayStaysDisabledWithIncompleteMaskClasses() {
+        let incomplete = MobileCrashReporter().makeOptions(
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+        )
+
+        #expect(incomplete.sessionReplay.sessionSampleRate == 0.0)
+        #expect(incomplete.sessionReplay.onErrorSampleRate == 0.0)
+    }
+    #endif
+
     @Test func debugCrashArgumentTriggersInjectedCrashAfterStart() {
         var didStart = false
         var crashCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
@@ -102,7 +213,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     @Test func debugCrashArgumentAbsentDoesNotCrash() {
         var crashCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
@@ -126,7 +237,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     func testRunEnvironmentDoesNotStart(environment: [String: String]) {
         var startCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: environment,
@@ -143,7 +254,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     @Test func nonTestEnvironmentStarts() {
         var startCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: ["PATH": "/usr/bin", "HOME": "/var/mobile"],
@@ -158,71 +269,168 @@ private struct FixedConsent: AnalyticsConsentProviding {
     }
 
     @Test func consentDisabledAtLaunchPurgesCache() {
-        final class Counter: @unchecked Sendable { var purges = 0 }
-        let counter = Counter()
+        let counter = CrashTestCounter()
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux"],
             environment: [:],
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in Issue.record("must not start") },
-            purgeCache: { counter.purges += 1 },
+            purgeCache: { counter.increment() },
             crash: {}
         )
 
-        #expect(counter.purges == 1)
+        #expect(counter.value == 1)
     }
 
     @Test func midSessionRevocationClosesSDKAndPurgesOnce() {
-        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
-            var enabled = true
-            var isTelemetryEnabled: Bool { enabled }
-        }
-        final class Recorder: @unchecked Sendable {
-            var sequence: [String] = []
-        }
-        let consent = ToggleConsent()
-        let recorder = Recorder()
+        let consent = CrashTestToggleConsent(enabled: true)
+        let recorder = CrashTestSequenceRecorder()
+        let revoked = DispatchSemaphore(value: 0)
         let center = NotificationCenter()
+        let reporter = MobileCrashReporter(
+            transportSessionController: CrashTestTransportController(recorder: recorder)
+        )
 
-        MobileCrashReporter.startIfEnabled(
+        reporter.startIfEnabled(
             consent: consent,
             arguments: ["cmux"],
             environment: [:],
             notificationCenter: center,
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in },
-            close: { recorder.sequence.append("close") },
-            purgeCache: { recorder.sequence.append("purge") },
+            close: {
+                recorder.append("close")
+                revoked.signal()
+            },
+            purgeCache: { recorder.append("purge") },
             crash: {}
         )
+        #expect(recorder.sequence == ["transport-start"])
+        recorder.removeAll()
 
         // Consent still on: defaults churn must not close the SDK.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(recorder.sequence.isEmpty)
-
         consent.enabled = false
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        // Purge precedes close so close's network flush cannot upload
-        // persisted opted-out data; the trailing purge removes anything the
-        // flush persisted.
-        #expect(recorder.sequence == ["purge", "close", "purge"])
+        #expect(revoked.wait(timeout: .now() + 1) == .success)
+        // Transport cancellation precedes close so close's mandatory flush
+        // cannot upload queued or in-flight envelopes.
+        #expect(recorder.sequence == ["transport-cancel", "purge", "close", "purge"])
 
-        // The watcher disarms after firing; further churn is a no-op.
+    }
+
+    @Test func launchReconcilesConsentRevokedWhileCrashSDKStarts() {
+        let consent = CrashTestToggleConsent(enabled: true)
+        let revoked = DispatchSemaphore(value: 0)
+        let center = NotificationCenter()
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            notificationCenter: center,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { _ in
+                consent.setEnabled(false)
+                center.post(name: UserDefaults.didChangeNotification, object: nil)
+            },
+            close: { revoked.signal() },
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(revoked.wait(timeout: .now() + 1) == .success)
+    }
+
+    @Test func midSessionOptInStartsSDKWithoutRelaunch() {
+        let consent = CrashTestToggleConsent(enabled: false)
+        let counter = CrashTestCounter()
+        let revoked = DispatchSemaphore(value: 0)
+        let center = NotificationCenter()
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            notificationCenter: center,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { _ in counter.increment() },
+            close: { revoked.signal() },
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(counter.value == 0)
+        consent.enabled = true
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(recorder.sequence == ["purge", "close", "purge"])
+        counter.waitForValue(1)
+        #expect(counter.value == 1)
+
+        // Unrelated defaults churn must not reinitialize a running SDK.
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        consent.enabled = false
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(revoked.wait(timeout: .now() + 1) == .success)
+        #expect(counter.value == 1)
+    }
+
+    @Test func concurrentConsentTransitionsKeepSDKActionsInConsentOrder() {
+        let consent = CrashTestToggleConsent(enabled: false)
+        let recorder = CrashTestSequenceRecorder()
+        let center = NotificationCenter()
+        let enableEntered = DispatchSemaphore(value: 0)
+        let allowEnableToFinish = DispatchSemaphore(value: 0)
+        let enableFinished = DispatchSemaphore(value: 0)
+        let revokeAttempted = DispatchSemaphore(value: 0)
+        let revokeFinished = DispatchSemaphore(value: 0)
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            notificationCenter: center,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { _ in
+                enableEntered.signal()
+                allowEnableToFinish.wait()
+                recorder.append("enable")
+            },
+            close: { recorder.append("revoke") },
+            purgeCache: {},
+            crash: {}
+        )
+
+        consent.setEnabled(true)
+        DispatchQueue.global().async {
+            center.post(name: UserDefaults.didChangeNotification, object: nil)
+            enableFinished.signal()
+        }
+        #expect(enableEntered.wait(timeout: .now() + 1) == .success)
+
+        consent.setEnabled(false)
+        DispatchQueue.global().async {
+            revokeAttempted.signal()
+            center.post(name: UserDefaults.didChangeNotification, object: nil)
+            revokeFinished.signal()
+        }
+        #expect(revokeAttempted.wait(timeout: .now() + 1) == .success)
+        // Notification delivery must not wait for Sentry lifecycle work.
+        #expect(revokeFinished.wait(timeout: .now() + 1) == .success)
+        #expect(recorder.sequence.isEmpty)
+
+        allowEnableToFinish.signal()
+        #expect(enableFinished.wait(timeout: .now() + 1) == .success)
+        recorder.waitForCount(2)
+        #expect(recorder.sequence == ["enable", "revoke"])
     }
 
     @Test func beforeSendDropsEventsWhenConsentRevokedMidSession() throws {
-        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
-            var enabled = true
-            var isTelemetryEnabled: Bool { enabled }
-        }
-        let consent = ToggleConsent()
+        let consent = CrashTestToggleConsent(enabled: true)
         var captured: Options?
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: consent,
             arguments: ["cmux"],
             environment: [:],
@@ -237,5 +445,60 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(beforeSend(Event()) != nil)
         consent.enabled = false
         #expect(beforeSend(Event()) == nil)
+    }
+
+    @Test func beforeSendScrubsEventsThatPassConsent() throws {
+        let consent = CrashTestToggleConsent(enabled: true)
+        var captured: Options?
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { captured = $0 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        let beforeSend = try #require(captured?.beforeSend)
+        let event = Event()
+        event.message = SentryMessage(formatted: "dial from /Users/dev/dev failed")
+        let scrubbed = try #require(beforeSend(event))
+        #expect(scrubbed.message?.formatted == "dial from /Users/<redacted>/dev failed")
+    }
+
+    @Test func beforeSendLogGatesOnConsentAndScrubs() throws {
+        let consent = CrashTestToggleConsent(enabled: true)
+        var captured: Options?
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { captured = $0 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        let beforeSendLog = try #require(captured?.beforeSendLog)
+        let log = SentryLog(level: .info, body: "retry from /Users/dev/dev")
+        let scrubbed = try #require(beforeSendLog(log))
+        #expect(scrubbed.body == "retry from /Users/<redacted>/dev")
+
+        consent.enabled = false
+        #expect(beforeSendLog(SentryLog(level: .info, body: "x")) == nil)
+    }
+
+    @Test func breadcrumbHookScrubsData() throws {
+        let options = MobileCrashReporter().makeOptions()
+        let beforeBreadcrumb = try #require(options.beforeBreadcrumb)
+        let crumb = Breadcrumb(level: .info, category: "transport")
+        crumb.message = "token=abcdef0123456789zz"
+        let scrubbed = try #require(beforeBreadcrumb(crumb))
+        #expect(scrubbed.message == "token=<redacted-secret>")
     }
 }

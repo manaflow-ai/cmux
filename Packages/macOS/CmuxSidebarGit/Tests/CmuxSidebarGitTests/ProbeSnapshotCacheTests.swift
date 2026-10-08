@@ -21,18 +21,8 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if predicate() {
-                return true
-            }
-            await Task.yield()
-        }
-        return predicate()
-    }
-
     @Test(.timeLimit(.minutes(1)))
-    func fallbackRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
+    func explicitRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
@@ -48,7 +38,7 @@ import CmuxGit
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
-            reason: "fallbackTimer"
+            reason: "manualRefresh"
         )
         await clock.waitForSleeper()
         await clock.resumeNext()

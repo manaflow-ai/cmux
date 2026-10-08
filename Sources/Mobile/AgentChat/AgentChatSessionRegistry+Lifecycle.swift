@@ -1,5 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxFoundation
+import CmuxMobileHost
 import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
@@ -7,7 +9,7 @@ import Foundation
 /// comes from the agent's own argv, environment, or open transcript file, so a
 /// session launched through any indirection (a subrouter, a wrapper) is still
 /// found.
-nonisolated struct ObservedAgentSession: Sendable {
+struct ObservedAgentSession: Sendable {
     let sessionID: String
     let agentKind: ChatAgentKind
     let surfaceID: String
@@ -60,6 +62,13 @@ extension AgentChatSessionRegistry {
     /// Strips an agent-name prefix from prefixed workstream ids
     /// (`claude-<uuid>`); raw hook ids pass through.
     static func normalizedSessionID(_ id: String, source: String) -> String {
+        // Feed ingress uses a lossless v1 envelope so agent/session boundaries
+        // cannot be confused by hyphens. Decode it before the chat registry
+        // indexes records or consults the agent-owned hook store.
+        if let identifier = FeedWorkstreamIdentifier(rawValue: id),
+           identifier.agentID == source {
+            return identifier.sessionID
+        }
         let prefix = "\(source)-"
         if id.hasPrefix(prefix) {
             return String(id.dropFirst(prefix.count))
@@ -74,10 +83,23 @@ extension AgentChatSessionRegistry {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
             return .ended
         }
+        // Claude emits AskUserQuestion and ExitPlanMode through PreToolUse.
+        // Feed telemetry for that hook arrives before the dedicated journal
+        // event, so treating every PreToolUse as working briefly overwrites
+        // the blocking state and leaves the sidebar waiting for Claude's
+        // delayed idle notification. Preserve the needs-input state at the
+        // first hook hop; PermissionRequest/Notification still converge on
+        // the same state in permission modes that emit them.
+        if event.source == "claude",
+           event.hookEventName == .preToolUse,
+           let toolName = event.toolName,
+           toolName == "AskUserQuestion" || toolName == "ExitPlanMode" {
+            return .needsInput(since: event.receivedAt)
+        }
         switch event.hookEventName {
         case .sessionStart:
             return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
+        case .userPromptSubmit, .preToolUse, .postToolUse, .postToolUseFailure, .todoWrite:
             if case .working = previous { return previous }
             return .working(since: event.receivedAt)
         case .preCompact, .postCompact:
@@ -90,7 +112,7 @@ extension AgentChatSessionRegistry {
         case .stop:
             return .idle
         case .subagentStart, .subagentStop:
-            // Task subagent lifecycle says nothing about the parent
+            // Subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
             return previous
         case .sessionEnd:

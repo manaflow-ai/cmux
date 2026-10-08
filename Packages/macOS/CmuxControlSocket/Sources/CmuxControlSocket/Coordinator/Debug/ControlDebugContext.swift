@@ -57,9 +57,19 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
+    /// Requests the selected workspace's checklist add field for
+    /// `debug.workspace_todo.checklist_add_field`.
+    ///
+    /// - Returns: The selected workspace id, or `nil` when no workspace is
+    ///   selected.
+    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID?
+
     /// Shows the Pro welcome checklist window for
     /// `debug.pro_welcome_checklist.show`.
     func controlDebugShowProWelcomeChecklist()
+
+    /// Shows the native pricing screen for `debug.native_pricing.show`.
+    func controlDebugShowNativePricing()
 
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
@@ -122,6 +132,15 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response (`"OK <n>"` or an `ERROR:` line).
     func controlDebugFlashCount(surfaceArgument: String) -> String
 
+    /// Runs the v1 `browser_discard` test command: unloads a browser tab's
+    /// page the way cmux hibernates hidden tabs to save memory.
+    ///
+    /// - Parameter arguments: `"<surface-uuid>[ force]"`. Without `force` the
+    ///   discard respects every blocker (visible, loading, driven by a REPL
+    ///   session, ...); with it the page is unloaded anyway.
+    /// - Returns: `"OK discarded"` or an `ERROR:` line naming the blockers.
+    func controlDebugBrowserDiscard(arguments: String) -> String
+
     /// Runs the shared v1 `reset_flash_counts` body for `debug.flash.reset`.
     ///
     /// - Returns: The raw v1 response.
@@ -139,12 +158,6 @@ public protocol ControlDebugContext: AnyObject {
     /// - Parameter surfaceArgument: The surface id/index argument.
     /// - Returns: The raw v1 response.
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String
-
-    /// Runs the shared v1 `screenshot` body for `debug.window.screenshot`.
-    ///
-    /// - Parameter label: The optional screenshot label (may be empty).
-    /// - Returns: The raw v1 response (`"OK <id> <path>"` or an `ERROR:` line).
-    func controlDebugCaptureScreenshot(label: String) -> String
 
     /// Shows the canvas Command+scroll discovery hint for
     /// `debug.canvas.command_scroll_hint`.
@@ -308,5 +321,8 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The stats payload (`nil` only if the counter dictionary ever
     ///   failed to bridge to JSON, which its `String`/`Int` leaves preclude).
     func controlDebugPortalStats() -> JSONValue?
+
+    /// Snapshots exact-span settlement for every visible mirrored tmux window.
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue?
 #endif
 }

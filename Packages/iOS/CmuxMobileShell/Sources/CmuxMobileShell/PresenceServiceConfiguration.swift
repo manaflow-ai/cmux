@@ -24,9 +24,10 @@ extension PresenceClient {
     /// subscribes to the same presence service stable Macs heartbeat to.
     public static let productionServiceURL = "https://presence.cmux.dev"
 
-    /// The presence service base URL for this process. Override precedence: env,
-    /// then UserDefaults, then the baked Info.plist value, then the build default
-    /// (dev worker on Debug, production worker on Release). Never `nil` now — the
+    /// The presence service base URL for this process. Release builds and the
+    /// production auth channel always use the production worker. Otherwise the
+    /// override precedence is env, then UserDefaults, then the baked Info.plist
+    /// value, then the build default (the dev worker). Never `nil` now — the
     /// phone always has a presence service to subscribe to; whether a given Mac
     /// shows up depends on that Mac heartbeating (mobile enabled) to the same one.
     ///
@@ -34,9 +35,27 @@ extension PresenceClient {
     /// one (`isDevelopmentAuthChannel`), not just the build config: each worker
     /// verifies its own Stack project's tokens, so a Debug build resolved to
     /// production auth (`ios/scripts/reload.sh --prod-auth`, issue 7145) must
-    /// subscribe to the production worker or no release Mac could ever appear
-    /// in Computers. The worker URLs live only here — build scripts bake no
-    /// copy — so they cannot drift from the runtime.
+    /// subscribe to the production worker so its token is accepted. The build
+    /// compatibility policy separately filters Mac instances. The worker URLs
+    /// live only here, so build scripts cannot drift from the runtime.
+    /// DEV affordance: persist a launch-environment override into the
+    /// UserDefaults override. A physical-device app launched ONCE through
+    /// `devicectl` with `DEVICECTL_CHILD_CMUX_PRESENCE_BASE_URL` keeps
+    /// resolving that worker on every later cold launch — including push
+    /// wakes, which carry no shell environment. Call it DEBUG-only from the
+    /// composition root; the tagged bundle id scopes the persisted value to
+    /// that one dev build.
+    public static func persistEnvironmentOverrideIfPresent(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) {
+        guard let raw = environment[serviceURLEnvKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty else { return }
+        guard defaults.string(forKey: serviceURLDefaultsKey) != raw else { return }
+        defaults.set(raw, forKey: serviceURLDefaultsKey)
+    }
+
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
@@ -44,6 +63,12 @@ extension PresenceClient {
         isDebugBuild: Bool = PresenceClient.isDebugBuild,
         isDevelopmentAuthChannel: Bool? = nil
     ) -> String? {
+        // Release and production-auth builds must use the production worker
+        // before consulting any stale environment, defaults, or baked value.
+        // This protects already-installed artifacts from staging injection.
+        if !isDebugBuild || isDevelopmentAuthChannel == false {
+            return productionServiceURL
+        }
         let override = environment[serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: serviceURLDefaultsKey)?

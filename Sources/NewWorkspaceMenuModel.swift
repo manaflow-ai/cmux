@@ -19,7 +19,6 @@ struct NewWorkspaceMenuModel: Equatable {
 
     enum Section: Equatable {
         case create([CreateRow])
-        case cloud
         case layouts([LayoutRow])
         case templates([String])
         case management(ManagementSection)
@@ -30,12 +29,10 @@ struct NewWorkspaceMenuModel: Equatable {
     static func build(
         newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem],
         agentChatAction: CmuxResolvedConfigAction?,
-        cloudSectionEnabled: Bool,
         templateNames: [String],
         loadedActions: [CmuxResolvedConfigAction],
         newWorkspaceActionID: String?,
-        deletable: (CmuxResolvedConfigAction) -> Bool,
-        sectionOrder: CmuxNewWorkspaceMenuSectionOrder
+        deletable: (CmuxResolvedConfigAction) -> Bool
     ) -> NewWorkspaceMenuModel {
         var createRows: [CreateRow] = []
         var layoutRows: [LayoutRow] = []
@@ -102,19 +99,9 @@ struct NewWorkspaceMenuModel: Equatable {
 
         var sections: [Section] = []
         let createSection: Section? = createRows.isEmpty ? nil : .create(createRows)
-        let cloudSection: Section? = cloudSectionEnabled ? .cloud : nil
         let layoutsSection: Section? = layoutRows.isEmpty ? nil : .layouts(layoutRows)
 
-        // Layout rows come from `ui.newWorkspace.contextMenu`, so they belong
-        // to the custom side of the `menuSectionOrder` contract: with
-        // `customFirst` the whole custom block (create actions, then the
-        // labeled Layouts section) stays above the built-in Cloud VM section.
-        switch sectionOrder {
-        case .customFirst:
-            sections.append(contentsOf: [createSection, layoutsSection, cloudSection].compactMap { $0 })
-        case .cloudFirst:
-            sections.append(contentsOf: [cloudSection, createSection, layoutsSection].compactMap { $0 })
-        }
+        sections.append(contentsOf: [createSection, layoutsSection].compactMap { $0 })
         if !templateNames.isEmpty {
             sections.append(.templates(templateNames))
         }

@@ -50,6 +50,7 @@ struct ShortcutListRowView: View, Equatable {
                         onBareKeyRejected: actions.onBareKeyRejected
                     )
                     .frame(width: 160)
+                    .accessibilityIdentifier(snapshot.recorderAccessibilityIdentifier)
 
                     Button {
                         actions.onClearOrRestore()

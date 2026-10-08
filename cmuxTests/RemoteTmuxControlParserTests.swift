@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -144,6 +145,16 @@ import Testing
     @Test func sessionChangedKeepsMultiWordName() {
         let messages = parse("%session-changed $1 my session name\r\n")
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
+    }
+
+    @Test func clientDetachedPreservesClientName() {
+        let messages = parse("%client-detached /dev/pts/22\r\n")
+        #expect(messages == [.clientDetached(client: "/dev/pts/22")])
+    }
+
+    @Test func bareClientDetachedIsUnparsed() {
+        let messages = parse("%client-detached\r\n")
+        #expect(messages == [.unparsed("%client-detached")])
     }
 
     @Test func sessionRenamedParsesToDistinctMessage() {
@@ -303,24 +314,6 @@ import Testing
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
     }
 
-    @Test func singlePaneDisplaySeedsOnlySinglePaneWindows() throws {
-        let singlePane = RemoteTmuxWindow(
-            id: 1,
-            width: 80,
-            height: 24,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1"))
-        )
-        let multiPane = RemoteTmuxWindow(
-            id: 2,
-            width: 120,
-            height: 40,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"))
-        )
-
-        #expect(RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: singlePane))
-        #expect(!RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: multiPane))
-    }
-
     // MARK: - Reconnect: session-gone classification
 
     @Test func stderrSessionGoneIsDetected() {
@@ -423,6 +416,40 @@ import Testing
         // Trailing junk after a valid node fails (cursor must reach the end).
         #expect(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1xyz") == nil)
     }
+
+    /// The enter DCS is recognised partway through a line, because a transport that types the
+    /// command into a login shell (et) leaves that shell's echo and OSC title sequences ahead of
+    /// it with no newline between. Requiring offset 0 meant `.enter` never fired on a real et
+    /// stream, and commands are withheld until `.enter`.
+    @Test func enterIsFoundWhenShellEchoPrecedesTheDCS() {
+        let messages = parse("\u{1B}]0;ejc3@host\u{07}exec tmux -CC attach\u{1B}P1000p%begin 1 1 0\r\n")
+        #expect(messages.contains { if case .enter = $0 { return true }; return false })
+    }
+
+    /// But only before control mode is entered, and never inside a command block: block content is
+    /// raw pane bytes from `capture-pane -e`, which can contain this DCS legitimately. Treating
+    /// that as a second enter would also cut the captured pane apart at the match.
+    @Test func aDCSInsideBlockContentIsNotASecondEnter() {
+        let enter = "\u{1b}P1000p"
+        let messages = parse(
+            enter + "%begin 1700000000 1 0\r\n"
+            + "ok\r\n"
+            + "%end 1700000000 1 0\r\n"
+            + "%begin 1700000000 2 0\r\n"
+            + "pane painted \u{1b}P1000p still the same pane\r\n"
+            + "%end 1700000000 2 0\r\n"
+        )
+        let enters = messages.filter { if case .enter = $0 { return true }; return false }
+        #expect(enters.count == 1, "expected exactly one .enter, saw \(enters.count)")
+        // The captured pane's bytes survive whole rather than being cut at the embedded DCS.
+        #expect(messages.contains(
+            .commandResult(
+                commandNumber: 2,
+                lines: ["pane painted \u{1b}P1000p still the same pane"],
+                isError: false
+            )
+        ))
+    }
 }
 
 /// Behavior tests for the per-pane foreground classification
@@ -503,6 +530,16 @@ import Testing
                 == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
         )
     }
+
+    /// The host-wide session digest names no pane. A pane target reports only while that pane
+    /// exists, and on a server that has been up for a while pane 0 is long gone: measured on
+    /// tmux 3.7b, a `%0` subscription there stays silent when a session is created or renamed.
+    @Test @MainActor func sessionDigestSubscribesOnTheAttachedSessionNotAPane() {
+        #expect(
+            RemoteTmuxControlConnection.sessionDigestSubscriptionCommand
+                == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name},}'"
+        )
+    }
 }
 
 /// Close-time activity queries: the wire commands (same quoting constraint as
@@ -556,4 +593,5 @@ import Testing
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
     }
+
 }

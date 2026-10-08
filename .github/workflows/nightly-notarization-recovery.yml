@@ -1,0 +1,95 @@
+name: Nightly notarization recovery
+
+on:
+  workflow_run:
+    workflows:
+      - Nightly macOS build
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed Nightly macOS build run ID to recover
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  # Keep the workflow_run display name tied to the source file that owns it.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
+
+jobs:
+  recover:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    environment: release
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    env:
+      SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
+      SOURCE_RUN_SHA: ${{ github.event_name == 'workflow_dispatch' && 'manual-dispatch' || github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout recovery tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pending notarization artifacts
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          pattern: cmux-nightly-notarization-recovery-*
+          path: recovery-inputs
+          merge-multiple: false
+
+      - name: Inventory recovery artifacts
+        id: inventory
+        run: |
+          set -euo pipefail
+          count=0
+          if [ -d recovery-inputs ]; then
+            count="$(find recovery-inputs -type f -name '*.notarization.state' -print | wc -l | tr -d ' ')"
+          fi
+          echo "states=$count" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Nightly notarization recovery"
+            echo "Source run: ${SOURCE_RUN_ID}"
+            echo "Source SHA: ${SOURCE_RUN_SHA}"
+            echo "Recovery state files: ${count}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" = 0 ]; then
+            echo "No pending notarization artifacts were attached to source run ${SOURCE_RUN_ID}; nothing to recover."
+          fi
+
+      - name: Wait for and staple exact notarized DMGs
+        if: steps.inventory.outputs.states != '0'
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/recover-nightly-notarization.sh recovery-inputs
+
+      - name: Upload recovery result and wait/log evidence
+        if: always() && steps.inventory.outputs.states != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-notarization-recovered-${{ env.SOURCE_RUN_ID }}
+          path: recovery-inputs
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,6 +1,69 @@
+import CmuxRemoteSession
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// The fields appended to pane-rect replies and title subscriptions.
+    nonisolated static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
+        + "#{host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{host_short}"
+
+    /// The complete pane-rect format, with the variable-width header followed
+    /// by fixed-width pane-title metadata.
+    nonisolated static let paneRectsFormat = "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
+        + " #{pane_active} #{pane-border-status} :#{T:pane-border-format}"
+        + "\(RemoteTmuxPaneTitleMetadata.fieldSeparator)\(paneTitleMetadataFormat)"
+
+    /// Updates one pane's raw title metadata and reports whether it changed.
+    @discardableResult
+    func updatePaneTitleMetadata(paneId: Int, wireValue: String) -> Bool {
+        let next = RemoteTmuxPaneTitleMetadata(wireValue: wireValue)
+        guard paneTitleMetadataByPane[paneId] != next else { return false }
+        paneTitleMetadataByPane[paneId] = next
+        paneTitleMetadataRevision &+= 1
+        paneTitleMetadataLiveRevisionByPane[paneId] = paneTitleMetadataRevision
+        return true
+    }
+
+    /// The exact `refresh-client -B` line for a pane's raw title metadata.
+    nonisolated static func paneTitleSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(paneTitleMetadataFormat)\""
+    }
+
+    /// Subscribes to raw pane-title changes, including OSC title updates.
+    func subscribePaneTitle(paneId: Int) {
+        send(Self.paneTitleSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes the raw pane-title subscription for a pane.
+    func unsubscribePaneTitle(paneId: Int) {
+        send("refresh-client -B \(Self.paneTitleSubscriptionPrefix)\(paneId)")
+    }
+
+    /// Host-wide session digest subscription used only by the shared view stream.
+    /// The value changes on create/kill/rename even when no window event fires,
+    /// giving the multiplexer an event-driven reconcile source instead of polling.
+    static let sessionDigestSubscriptionName = "cmux_sessions"
+
+    ///
+    /// The target is empty, which subscribes on the attached session. A pane target only reports
+    /// while that pane exists, and pane ids are never reused: measured on tmux 3.7b, a `%0`
+    /// subscription on a server whose first pane is gone reports nothing for a session created
+    /// or renamed, while the empty target reports both.
+    static var sessionDigestSubscriptionCommand: String {
+        "refresh-client -B '\(sessionDigestSubscriptionName)::#{S:#{session_id}=#{session_name},}'"
+    }
+
+    func subscribeSessionDigest() {
+        guard isSharedViewStream, !sessionDigestSubscribed else { return }
+        sessionDigestSubscribed = true
+        send(Self.sessionDigestSubscriptionCommand)
+    }
+
+    func unsubscribeSessionDigest() {
+        guard sessionDigestSubscribed else { return }
+        sessionDigestSubscribed = false
+        send("refresh-client -B \(Self.sessionDigestSubscriptionName)")
+    }
+
     /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
     /// (see ``headerSubscriptionPrefix``). The pane-rects fetch seeds the
     /// initial label; this keeps it current between layout events. Quoting is
@@ -10,7 +73,10 @@ extension RemoteTmuxControlConnection {
     }
 
     func unsubscribePaneHeader(paneId: Int) {
-        send("refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)")
+        send(
+            "refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)"
+                + " -B \(Self.paneTitleSubscriptionPrefix)\(paneId)"
+        )
     }
 
     /// Format for close-time activity queries: the pane id (for cache refresh and
@@ -125,11 +191,53 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
+    /// All four live subscriptions (reflow, cwd, header, title) for a pane in ONE
+    /// `refresh-client`. tmux accepts multiple `-B` directives per command,
+    /// so this is exactly equivalent to four separate sends but costs
+    /// one FIFO slot instead of four. Under rapid pane churn the per-pane
+    /// subscription sends dominate the command stream, and collapsing 4→1
+    /// keeps the FIFO from backing up faster than tmux drains it.
+    func subscribePaneAll(paneId: Int) {
+        send(
+            "refresh-client"
+                + " -B \"\(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
+                + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
+                + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+                + " -B \"\(Self.paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(Self.paneTitleMetadataFormat)\""
+        )
+    }
+
 
     /// Removes the live reflow-classification subscription for `paneId` (issued once
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneReflow(paneId: Int) {
         send("refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId)")
+    }
+
+
+    /// The exact `refresh-client -B` line that subscribes `windowId`'s
+    /// `pane-border-status`. Same load-bearing quoting as
+    /// ``panePathSubscriptionCommand(paneId:)``.
+    static func windowBorderStatusSubscriptionCommand(windowId: Int) -> String {
+        "refresh-client -B \"\(borderStatusSubscriptionPrefix)\(windowId):@\(windowId):#{pane-border-status}\""
+    }
+
+
+    /// Subscribes to live `pane-border-status` changes for `windowId` — the only
+    /// layout input tmux mutates silently. See
+    /// ``RemoteTmuxControlConnection/borderStatusSubscriptionPrefix`` for why a
+    /// subscription is the only event-driven way to see it.
+    func subscribeWindowBorderStatus(windowId: Int) {
+        send(Self.windowBorderStatusSubscriptionCommand(windowId: windowId))
+    }
+
+
+    /// Removes `windowId`'s `pane-border-status` subscription (issued once the
+    /// window is gone), mirroring ``unsubscribePanePath(paneId:)``.
+    func unsubscribeWindowBorderStatus(windowId: Int) {
+        send("refresh-client -B \(Self.borderStatusSubscriptionPrefix)\(windowId)")
+        borderStatusByWindow.removeValue(forKey: windowId)
     }
 
 
@@ -205,9 +313,70 @@ extension RemoteTmuxControlConnection {
     /// becomes unusable (reconnect begins, deliberate stop, genuine `%exit`), so
     /// a pending close decision falls back to the cached classification.
     func failPendingActivityQueries() {
-        guard !activityQueryCompletions.isEmpty else { return }
-        let completions = Array(activityQueryCompletions.values)
-        activityQueryCompletions.removeAll()
-        for completion in completions { completion(nil) }
+        if !activityQueryCompletions.isEmpty {
+            let completions = Array(activityQueryCompletions.values)
+            activityQueryCompletions.removeAll()
+            for completion in completions { completion(nil) }
+        }
+        // Raw-line queries share the stream's fate: fail them here too so a
+        // coordinator awaiting a reorder/quit verification never hangs on reset.
+        if !rawQueryCompletions.isEmpty || !rawQueryTimeoutTasks.isEmpty {
+            for task in rawQueryTimeoutTasks.values { task.cancel() }
+            rawQueryTimeoutTasks.removeAll()
+            let completions = Array(rawQueryCompletions.values)
+            rawQueryCompletions.removeAll()
+            for completion in completions { completion(.unanswered) }
+        }
+    }
+
+    /// Sends `command` and awaits its `%end` reply lines, giving up after `timeout`
+    /// seconds instead of awaiting forever. Only callers that pass
+    /// `reconnectOnTimeout` drop and re-establish the control stream on timeout;
+    /// others just resolve this one query so a slow quit/new-workspace command does
+    /// not flap an otherwise healthy stream.
+    ///
+    /// A `%error` reply is reported as `.error`, separately from `.unanswered`. The
+    /// two say opposite things about the stream: the server that answers `%error`
+    /// is talking to us, so retrying and then reconnecting on its account throws
+    /// away a healthy stream over one rejected command.
+    func queryOutcomeWithTimeout(
+        _ command: String,
+        timeout: Double,
+        reconnectOnTimeout: Bool = false
+    ) async -> RemoteTmuxRawQueryOutcome {
+        await withCheckedContinuation { (continuation: CheckedContinuation<RemoteTmuxRawQueryOutcome, Never>) in
+            guard connectionState == .connected else {
+                continuation.resume(returning: .unanswered)
+                return
+            }
+            let token = UUID()
+            rawQueryCompletions[token] = { outcome in
+                continuation.resume(returning: outcome)
+            }
+            guard sendInternal(command, kind: .rawQuery(token)) else {
+                rawQueryCompletions.removeValue(forKey: token)?(.unanswered)
+                return
+            }
+            rawQueryTimeoutTasks[token] = Task { @MainActor [weak self] in
+                await RemoteTmuxRetryDelay.wait(milliseconds: Int(max(0, timeout) * 1_000))
+                guard !Task.isCancelled, let self,
+                      let completion = self.rawQueryCompletions.removeValue(forKey: token) else { return }
+                self.rawQueryTimeoutTasks.removeValue(forKey: token)
+                if reconnectOnTimeout { self.beginReconnecting() }
+                completion(.unanswered)
+            }
+        }
+    }
+
+    /// ``queryOutcomeWithTimeout(_:timeout:reconnectOnTimeout:)`` for callers that
+    /// treat a rejected command and an unanswered one the same way.
+    func queryWithTimeout(
+        _ command: String,
+        timeout: Double,
+        reconnectOnTimeout: Bool = false
+    ) async -> [String]? {
+        await queryOutcomeWithTimeout(
+            command, timeout: timeout, reconnectOnTimeout: reconnectOnTimeout
+        ).lines
     }
 }

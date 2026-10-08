@@ -21,6 +21,21 @@ extension WorkspaceRemoteConfiguration {
         filteredSSHOptions(options, droppingKeys: transientControlSocketKeys)
     }
 
+    /// The durable options a cmux-tui SSH carrier restores with: the durable
+    /// subset plus the cmux-owned `ControlPath` its open used. `cmux ssh` keys
+    /// that master by the route `ssh -G` resolved, which the app cannot
+    /// recompute, and the batch-mode carrier can only log in on a
+    /// password-only host through it. A path outside cmux's private socket
+    /// directory stays dropped, as do `ControlMaster`/`ControlPersist`, which
+    /// cmux's sharing defaults restore.
+    public static func restorableCarrierSSHOptions(_ options: [String]) -> [String] {
+        let durable = durableSSHOptions(options)
+        guard let controlPath = SSHConnectionSharingOptions().cmuxOwnedControlPath(in: trimmedSSHOptions(options)) else {
+            return durable
+        }
+        return durable + ["ControlPath=\(controlPath)"]
+    }
+
     /// Options propagated to a forked workspace (same as the durable subset).
     public static func forkedWorkspaceSSHOptions(_ options: [String]) -> [String] {
         durableSSHOptions(options)
@@ -54,7 +69,7 @@ extension WorkspaceRemoteConfiguration {
         guard let slot = normalizedOptionalValue(value),
               slot != ".",
               slot != "..",
-              slot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+              slot.range(of: "^[A-Za-z0-9._-]{1,128}\\z", options: .regularExpression) != nil else {
             return nil
         }
         return slot

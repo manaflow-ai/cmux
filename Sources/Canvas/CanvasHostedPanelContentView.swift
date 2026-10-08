@@ -1,6 +1,7 @@
 import SwiftUI
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxSettingsUI
 
 /// SwiftUI fallback content for canvas panes whose panel kind is not yet
 /// direct-hosted (browser, markdown, file preview, agent session, ...).
@@ -9,25 +10,30 @@ import CmuxAppKitSupportUI
 /// known v1 caveat is that window-portal content inside these views clips by
 /// resizing at the viewport edge instead of cropping.
 struct CanvasHostedPanelContentView: View {
+    @Bindable var presentation: CanvasHostedPanelPresentation
     let panel: any Panel
     let workspaceId: UUID
     let paneId: PaneID
-    let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    let settingsRuntime: SettingsRuntime?
+    let browserDataImportCoordinator: BrowserDataImportCoordinator?
     let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
+    let onRequestDeferredBrowserMaterialization: () -> Void
 
     var body: some View {
         PanelContentView(
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: isFocused,
+            isFocused: presentation.isFocused,
             isSelectedInPane: true,
             isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: presentation.allowsPointerInput,
+            pointerEntryEventFilter: presentation.acceptsPointerEntryEvent,
             portalPriority: portalPriority,
             isSplit: false,
             appearance: appearance,
@@ -39,8 +45,12 @@ struct CanvasHostedPanelContentView: View {
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: onRequestDeferredBrowserMaterialization
         )
+        .environment(\.settingsRuntime, settingsRuntime)
+        .environment(browserDataImportCoordinator)
+        .environment(\.workspaceAttentionColor, presentation.workspaceAttentionColor)
         // Window-portal content (webviews) floats above the pane's layer
         // border; this inset keeps the focus ring visible around it.
         .padding(.horizontal, 2)

@@ -14,6 +14,7 @@ struct NotificationPopoverRow: View, Equatable {
     let onToggleRead: () -> Void
 
     @State private var isHovering: Bool = false
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     private static let rowHeight: CGFloat = 56
 
@@ -74,6 +75,9 @@ struct NotificationPopoverRow: View, Equatable {
                 Button(String(localized: "notifications.open", defaultValue: "Open")) {
                     onOpen()
                 }
+                Button(String(localized: "notifications.copy", defaultValue: "Copy")) {
+                    TerminalNotificationClipboard.copy(notification, workspaceTitle: workspaceTitle)
+                }
                 if notification.isRead {
                     Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
                         onToggleRead()
@@ -93,7 +97,7 @@ struct NotificationPopoverRow: View, Equatable {
     private var rowContent: some View {
         HStack(spacing: 0) {
             Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                .fill(notification.isRead ? Color.clear : cmuxAccent.color)
                 .frame(width: 2.5)
                 .padding(.vertical, 6)
 
@@ -151,8 +155,7 @@ struct NotificationPopoverRow: View, Equatable {
             ZStack {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
-                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
-                    .foregroundColor(.primary.opacity(0.7))
+                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold, tint: .primary.opacity(0.7))
             }
             .frame(width: 20, height: 20)
         }

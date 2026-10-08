@@ -1,5 +1,16 @@
+import CmuxRemoteSession
 import Bonsplit
 import Foundation
+
+extension SplitOrientation {
+    var remoteTmuxOrientation: RemoteTmuxSplitOrientation {
+        self == .horizontal ? .horizontal : .vertical
+    }
+
+    var treeName: String {
+        self == .horizontal ? "horizontal" : "vertical"
+    }
+}
 
 extension RemoteTmuxWindowMirror {
     func clientGrid(contentSize: CGSize) -> (columns: Int, rows: Int)? {
@@ -18,8 +29,19 @@ extension RemoteTmuxWindowMirror {
                 width: CGFloat(geometry.surfacePadWidthPx) / geometry.scale,
                 height: CGFloat(geometry.surfacePadHeightPx) / geometry.scale
             ),
-            tabBarHeight: appearance.tabBarHeight,
-            dividerThickness: appearance.dividerThickness
+            // Charge the tab bar only when it is drawn. A mirror pane holds exactly one tab, so
+            // that is what the visibility rule is asked about; a hidden bar that still cost its
+            // height would leave the claim short by one bar per pane and strand a strip of the
+            // container that nothing renders into.
+            tabBarHeight: bonsplitController.configuration.tabBarVisibility.showsTabBar(tabCount: 1)
+                ? appearance.tabBarHeight
+                : 0,
+            dividerThickness: appearance.dividerThickness,
+            paneTitleRowHeight: tmuxTitleRowPlacement != nil
+                ? CGFloat(geometry.cellHeightPx) / geometry.scale
+                : 0,
+            minimumPaneExtent: RemoteTmuxNativeLayoutMetrics.bonsplitMinimumPaneExtent,
+            paneTitleRowPaneIDs: tmuxTitleRowPlacement?.paneIDs(in: renderedLayout) ?? []
         )
     }
 
@@ -54,6 +76,25 @@ extension RemoteTmuxWindowMirror {
         )
     }
 
+    nonisolated static func surfaceTitle(
+        windowTitle: String,
+        paneIndex: Int,
+        paneTitleMetadata: RemoteTmuxPaneTitleMetadata?
+    ) -> String {
+        paneTitleMetadata?.intentionalTitle
+            ?? windowPaneTitle(windowTitle, paneIndex: paneIndex)
+    }
+
+    /// Copies one changed pane's title metadata and refreshes only its tab.
+    func updatePaneTitleMetadata(_ paneId: Int) {
+        guard paneIndexByPaneId[paneId] != nil else { return }
+        let metadata = connection?.paneTitleMetadataByPane[paneId]
+        if paneTitleMetadataByPane[paneId] != metadata {
+            paneTitleMetadataByPane[paneId] = metadata
+        }
+        updatePaneTitle(paneId)
+    }
+
     nonisolated static func dividerFraction(
         first: RemoteTmuxLayoutNode,
         rest: [RemoteTmuxLayoutNode],
@@ -73,7 +114,7 @@ extension RemoteTmuxWindowMirror {
         nativeLayoutMetrics()?.dividerFraction(
             first: first,
             rest: rest,
-            orientation: orientation
+            orientation: orientation.remoteTmuxOrientation
         ) ?? Self.dividerFraction(
             first: first,
             rest: rest,

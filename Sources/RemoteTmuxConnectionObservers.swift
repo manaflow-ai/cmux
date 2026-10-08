@@ -15,29 +15,35 @@ final class RemoteTmuxConnectionObservers {
     typealias Token = UUID
 
     private var paneOutputObservers: [Token: (_ paneId: Int, _ data: Data) -> Void] = [:]
+    private var paneSeedObservers: [Token: (_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void] = [:]
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var paneReflowObservers: [Token: (_ paneId: Int, _ noReflow: Bool) -> Void] = [:]
+    private var paneTitleObservers: [Token: (_ paneId: Int) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
+    private var reconnectReadyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
     private var stateObservers: [Token: (RemoteTmuxControlConnection.ConnectionState) -> Void] = [:]
+    private var authRequiredObservers: [Token: ([String]) -> Bool] = [:]
 
     /// Registers a consumer's callbacks and returns a token to deregister them.
     ///
-    /// Multiple consumers (e.g. a mirrored workspace and a single-pane display
-    /// tab) can observe the same shared connection concurrently; every callback
+    /// Multiple mirrored workspaces can observe the same shared connection
+    /// concurrently; every callback
     /// fires for every event. Pass the returned token to ``remove(_:)`` when the
     /// consumer goes away.
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
+    ///   - onPaneSeed: receives an authoritative snapshot and its ordered live cutover.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes.
     ///   - onPaneReflow: receives a pane's reflow classification (`true` =
     ///     suppress reflow on resize, for alt-screen / inline-TUI panes like
     ///     claude; `false` = a plain shell whose primary-screen scrollback may
     ///     reflow), both the initial value and live changes.
+    ///   - onPaneTitleChanged: fires when one pane's deliberate tmux title changes.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -45,45 +51,70 @@ final class RemoteTmuxConnectionObservers {
     ///     `%session-changed` or `%session-renamed`; consumers must treat this as
     ///     the authoritative point for re-keying session-owned state.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
+    ///   - onReconnectReady: fires after reconnect attach drainage and reseeding.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
     ///     does NOT fire this — the connection reconnects instead.
     ///   - onConnectionStateChanged: fires on every connection-state transition
     ///     (e.g. `.connected` → `.reconnecting` on a transport loss), so consumers
     ///     can show a disconnected/reconnecting indicator without tearing down.
+    ///   - onAuthRequired: fires when a RECONNECT attempt failed because the host
+    ///     wants interactive authentication that the pipe-backed reconnect cannot
+    ///     service (a password, MFA, a FIDO touch, host-key confirmation). The
+    ///     payload is the `ssh` argv to run under a controlling tty. Retrying is
+    ///     stopped when this fires, so a consumer MUST either run that argv and
+    ///     call ``RemoteTmuxControlConnection/resumeAfterInteractiveAuth()`` or
+    ///     tear the connection down; otherwise the mirror stays frozen. Return `true`
+    ///     only when a login was actually presented: returning `true` merely for being
+    ///     subscribed suppresses the caller's retry fallback and strands the host.
     /// - Returns: a ``Token`` to pass to ``remove(_:)``.
     func add(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
+        onPaneTitleChanged: ((_ paneId: Int) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
+        onReconnectReady: (() -> Void)?,
         onExit: (() -> Void)?,
-        onConnectionStateChanged: ((RemoteTmuxControlConnection.ConnectionState) -> Void)?
+        onConnectionStateChanged: ((RemoteTmuxControlConnection.ConnectionState) -> Void)?,
+        onAuthRequired: ((_ sshArgv: [String]) -> Bool)? = nil
     ) -> Token {
         let token = Token()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
+        if let onPaneSeed { paneSeedObservers[token] = onPaneSeed }
         if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
         if let onPaneReflow { paneReflowObservers[token] = onPaneReflow }
+        if let onPaneTitleChanged { paneTitleObservers[token] = onPaneTitleChanged }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onSessionChanged { sessionChangedObservers[token] = onSessionChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
+        if let onReconnectReady { reconnectReadyObservers[token] = onReconnectReady }
         if let onExit { exitObservers[token] = onExit }
         if let onConnectionStateChanged { stateObservers[token] = onConnectionStateChanged }
+        if let onAuthRequired { authRequiredObservers[token] = onAuthRequired }
         return token
     }
 
     /// Deregisters the callbacks registered under `token`.
     func remove(_ token: Token) {
         paneOutputObservers[token] = nil
+        paneSeedObservers[token] = nil
         paneCwdObservers[token] = nil
         paneReflowObservers[token] = nil
+        paneTitleObservers[token] = nil
         activePaneObservers[token] = nil
         sessionChangedObservers[token] = nil
         topologyObservers[token] = nil
+        reconnectReadyObservers[token] = nil
         exitObservers[token] = nil
         stateObservers[token] = nil
+        // Leaving this behind would keep `notifyAuthRequired` reporting "handled" to a
+        // detached observer, so the connection would park with nobody able to present a
+        // login instead of falling back to the retry loop.
+        authRequiredObservers[token] = nil
     }
 
     /// Fans `%output` bytes out to every pane-output observer.
@@ -91,6 +122,16 @@ final class RemoteTmuxConnectionObservers {
         // Snapshot before iterating: a callback may unregister an observer (mutating
         // the dict) synchronously, which would trap on the live collection.
         for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
+    }
+
+    /// Fans a typed seed to seed-aware observers. Output-only observers receive
+    /// one compatibility write, never both paths.
+    func emitPaneSeed(_ paneId: Int, _ seed: RemoteTmuxPaneSeed) {
+        for callback in Array(paneSeedObservers.values) { callback(paneId, seed) }
+        for (token, callback) in Array(paneOutputObservers)
+        where paneSeedObservers[token] == nil {
+            callback(paneId, seed.renderedBytes)
+        }
     }
 
     /// Fans a pane's working directory out to every cwd observer.
@@ -101,6 +142,11 @@ final class RemoteTmuxConnectionObservers {
     /// Fans a pane's reflow classification out to every reflow observer.
     func emitPaneReflow(_ paneId: Int, _ noReflow: Bool) {
         for callback in Array(paneReflowObservers.values) { callback(paneId, noReflow) }
+    }
+
+    /// Fans one pane's title change out to every title observer.
+    func emitPaneTitleChanged(_ paneId: Int) {
+        for callback in Array(paneTitleObservers.values) { callback(paneId) }
     }
 
     /// Fans a window's new active pane out to every active-pane observer.
@@ -118,6 +164,11 @@ final class RemoteTmuxConnectionObservers {
         for callback in Array(topologyObservers.values) { callback() }
     }
 
+    /// Notifies observers that reconnect commands are safe and the prior claims were reseeded.
+    func notifyReconnectReady() {
+        for callback in Array(reconnectReadyObservers.values) { callback() }
+    }
+
     /// Notifies every exit observer that the connection permanently ended.
     func notifyExit() {
         // Snapshot: notifyExit -> handleSessionEndedRemotely -> detachObserver ->
@@ -128,5 +179,27 @@ final class RemoteTmuxConnectionObservers {
     /// Notifies every connection-state observer of a transition.
     func notifyStateChanged(_ state: RemoteTmuxControlConnection.ConnectionState) {
         for callback in Array(stateObservers.values) { callback(state) }
+    }
+
+    /// Notifies every auth-required observer that a reconnect needs an interactive
+    /// login, passing the `ssh` argv to run under a controlling tty.
+    ///
+    /// Whether any consumer is listening decides the user-visible outcome: with a
+    /// consumer the user gets a login they can complete, without one the mirror
+    /// simply stays frozen. Either way the retry loop has already stopped, so this
+    /// never degenerates into the silent forever-retry it replaces.
+    /// Offers the login to every observer, and reports whether one actually presented it.
+    ///
+    /// The distinction is the whole point. Reporting "handled" merely because an observer is
+    /// *subscribed* means a consumer that declines — because the user already dismissed this
+    /// host's login — silently suppresses the caller's fallback, leaving the connection
+    /// parked with no retry and no waiter. That is a host stranded until cmux restarts.
+    func notifyAuthRequired(sshArgv: [String]) -> Bool {
+        var presented = false
+        for callback in Array(authRequiredObservers.values) {
+            // Every observer runs: `||` would short-circuit and skip the rest.
+            if callback(sshArgv) { presented = true }
+        }
+        return presented
     }
 }

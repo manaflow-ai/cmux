@@ -15,6 +15,7 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var rightSidebarMode: String??
     var rightSidebarFocusFirstItem: Bool?
     var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
+    var remoteTmuxSizingPayload: JSONValue?
 
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
@@ -29,6 +30,10 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
         rightSidebarMode = modeName
         rightSidebarFocusFirstItem = focusFirstItem
         return rightSidebarResolution
+    }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        remoteTmuxSizingPayload
     }
 }
 
@@ -59,6 +64,31 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
+        #expect(coordinator.handleDebugV1(command: "screenshot", args: "") == nil)
+
+        let screenshotRequest = ControlRequest(
+            id: .int(1),
+            method: "debug.window.screenshot",
+            params: [:]
+        )
+        #expect(coordinator.handle(screenshotRequest) == nil)
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: screenshotRequest.method)
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
+    @Test func remoteTmuxSizingSettlementUsesMainActorDebugSeam() {
+        let (coordinator, context) = makeCoordinator()
+        let payload: JSONValue = .object([
+            "windows": .array([.object(["window": .int(7), "settled": .bool(true)])]),
+        ])
+        context.remoteTmuxSizingPayload = payload
+        let request = ControlRequest(
+            id: .int(1), method: "remote.tmux.sizing_settled", params: [:]
+        )
+        #expect(coordinator.handle(request) == .ok(payload))
+        #expect(ControlCommandExecutionPolicy(forMethod: request.method) == .mainActor)
     }
 
     @Test func rightSidebarFocusInvalidModeReproducesLegacyString() {
