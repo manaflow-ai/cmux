@@ -5,7 +5,8 @@ Binding: [a3-link.md](a3-link.md), [b2-webrtc.md](b2-webrtc.md) (V1), [b3-webrtc
 (V2), [b4-direct.md](b4-direct.md) (V3), [c1-terminal-rpc.md](c1-terminal-rpc.md) section 8 (latency
 telemetry), `transport.md` section 13 (prior WAN measurements). Code: `Packages/Shared/CmuxLinkBench`.
 Raw results: [bakeoff/results](bakeoff/results), reproduced by [bakeoff/run-local.sh](bakeoff/run-local.sh),
-tables by [bakeoff/summarize.py](bakeoff/summarize.py).
+tables by [bakeoff/summarize.py](bakeoff/summarize.py). Checked-in comparisons use a
+`cmux-link-bench-manifest/1` file so a table names its exact result files and source commit.
 
 Audit note (2026-10-07): the loopback harness and carrier conformance results are evidence for the
 current DEV path policy only. The split Mac/iPhone harness (F2) is not implemented: there is no
@@ -69,6 +70,9 @@ Packages/Shared/CmuxLinkBench/.build/release/cmux-link-bench --rig v1 --out /tmp
 Packages/Shared/CmuxLinkBench/.build/release/cmux-link-bench --rig v2-mem --rtt-ms 80 --loss 0.01 --quick
 plans/cmux-next/ios-next/bakeoff/run-local.sh      # the full set below, about 20 minutes
 python3 plans/cmux-next/ios-next/bakeoff/summarize.py
+# Reproduce the E1 table from its exact file set (the directory selector also finds manifest.json):
+python3 plans/cmux-next/ios-next/bakeoff/summarize.py \
+  plans/cmux-next/ios-next/bakeoff/results/e1/manifest.json
 ```
 
 ## 3. Results on loopback
@@ -193,12 +197,17 @@ no rate limit, 1200 B datagrams):
 
 ### 5.1 Result provenance and open carrier work
 
-The post-F1/E1 measurements are under `bakeoff/results/e1/`, while the default
-`python3 bakeoff/summarize.py` command scans only `bakeoff/results/*.json` and therefore prints the
-older pre-F1 V1 rows. The nested E1 directory contains three raw runs but only one full V1 run, so it
-cannot reproduce every three-run row in section 3. Keep each table row tied to an explicit result
-directory, commit, and run count (or add a manifest and make the summarizer consume it) before using
-the numbers as a release comparison.
+The post-F1/E1 measurements are under `bakeoff/results/e1/`. The checked-in
+`bakeoff/results/e1/manifest.json` enumerates the exact ten JSON files, labels the full-session and
+raw-transport groups, and records the source commit (`2aebd498ca`). Pass that manifest directly to
+`summarize.py`, or pass its parent directory (the summarizer discovers `manifest.json`); this keeps
+the one full V1 run and the three-run raw runs separate and prevents a mixed directory from silently
+changing the table. The default `python3 bakeoff/summarize.py` invocation still summarizes the
+top-level historical results directory, which has no manifest and is intentionally separate from E1.
+
+Any new device or WAN comparison must add a manifest beside its result files with the same schema,
+source commit, and run labels before it is used as release evidence. A manifest rejects missing files,
+schema mismatches, and paths that escape its directory.
 
 F3 (continuous V1 RTT sampling and cancellation of a send waiting on a full channel), F7 (direct
 TCP head-of-line control), and F8 (RTT-sized render credit) remain open. They need focused tests and
