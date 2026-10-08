@@ -41,7 +41,7 @@ pub(crate) fn snapshot_group(connection: &Connection, group: &str) -> anyhow::Re
 /// The public summary of a group record (`ClosedItemSnapshot.group`).
 pub(crate) fn public_group(archive: &Value) -> Value {
     let row = &archive["row"][0];
-    json!({"id": archive["id"], "name": row["name"], "color": row["color"]})
+    json!({"id": archive["id"], "name": row["name"], "color": row["color"], "icon": row["icon"]})
 }
 
 /// Restore the group of `archive` when it is gone. Members of `session`

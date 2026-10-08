@@ -67,11 +67,15 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         public var id: String
         public var name: String
         public var color: String?
+        /// The group's icon, one emoji or an SF Symbol name
+        /// (`workspace-group-icon-v1`); nil for none or an older daemon.
+        public var icon: String?
 
-        public init(id: String, name: String, color: String? = nil) {
+        public init(id: String, name: String, color: String? = nil, icon: String? = nil) {
             self.id = id
             self.name = name
             self.color = color
+            self.icon = icon
         }
     }
 

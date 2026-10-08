@@ -6239,6 +6239,17 @@
               "name": "string"
             }
           }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the deleted group's icon (the shared icon string), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false

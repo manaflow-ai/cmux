@@ -121,6 +121,8 @@ fn reopen_after_a_restart_restores_the_group_icon_and_pin() {
     mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
     mutate(&mux, "workspace_group.delete", json!({"workspace_group": work}), "delete-work");
     assert!(groups(&mux).iter().all(|group| group["id"] != work.as_str()), "the group is gone");
+    let closed = read(&mux, "closed.list", json!({}));
+    assert_eq!(closed[0]["group"]["icon"], "star.fill", "the record shows the icon: {closed}");
     mux.shutdown();
     drop(mux);
 
