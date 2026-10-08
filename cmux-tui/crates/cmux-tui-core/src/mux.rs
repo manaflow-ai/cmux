@@ -271,13 +271,13 @@ impl<T> SignaledMutex<T> {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
             let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
         }
     }
@@ -6249,7 +6249,7 @@ impl Mux {
         let commit_from = Instant::now();
         let remaining = deadline.saturating_duration_since(Instant::now());
         let commits = if remaining.is_zero() {
-            Err(anyhow::anyhow!("session journal commit deadline expired"))
+            Err(crate::JournalContention::COMMIT_DEADLINE.into())
         } else {
             registry.append_journal_ingress_events_with_deadline(
                 events,
