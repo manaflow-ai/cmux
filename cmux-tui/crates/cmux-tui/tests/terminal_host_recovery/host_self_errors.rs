@@ -73,13 +73,17 @@ fn set_descriptor_limit(pid: u32, soft: u64) -> u64 {
     let mut old = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: reads the limit of a process this test started.
     assert_eq!(
-        unsafe { libc::prlimit(pid as libc::pid_t, libc::RLIMIT_NOFILE, std::ptr::null(), &mut old) },
+        unsafe {
+            libc::prlimit(pid as libc::pid_t, libc::RLIMIT_NOFILE, std::ptr::null(), &mut old)
+        },
         0
     );
     let new = libc::rlimit { rlim_cur: soft.min(old.rlim_max), rlim_max: old.rlim_max };
     // SAFETY: lowers or restores the soft limit of a process this test started.
     assert_eq!(
-        unsafe { libc::prlimit(pid as libc::pid_t, libc::RLIMIT_NOFILE, &new, std::ptr::null_mut()) },
+        unsafe {
+            libc::prlimit(pid as libc::pid_t, libc::RLIMIT_NOFILE, &new, std::ptr::null_mut())
+        },
         0,
         "prlimit: {}",
         std::io::Error::last_os_error()
@@ -116,7 +120,7 @@ fn descriptor_exhaustion_on_accept_never_ends_the_shell() {
     echo_round_trip(&harness.socket, surface, "after-emfile");
     assert_host_live(&record_path, &record, "descriptors were free again");
     // The accept loop still serves new clients.
-    let mut probe = UnixStream::connect(&record.endpoint).expect("connect after EMFILE");
+    let probe = UnixStream::connect(&record.endpoint).expect("connect after EMFILE");
     probe.set_read_timeout(Some(test_timeout(Duration::from_secs(5)))).unwrap();
     drop(probe);
     let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");

@@ -5,8 +5,9 @@
 //! job. A host is therefore ended only by its owner's `Terminate` frame or
 //! by its child's exit, never by a stray signal. `SIGTERM`, `SIGHUP`,
 //! `SIGINT` and `SIGQUIT` (a plain `kill PID`, a `pkill -f` that matches the
-//! bundle path, a cleanup sweep, a hangup of a former session) are recorded
-//! and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
+//! bundle path, a cleanup sweep, a hangup of a former session), and every
+//! other catchable signal whose default action ends a process
+//! ([`SURVIVED_SIGNALS`]), are recorded and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
 //! the loss from the missing exit record and these breadcrumbs.
 //!
 //! One sender is honored: a `SIGTERM` from PID 1, the service manager
@@ -34,9 +35,24 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-/// The signals a host records and survives.
-pub(crate) const SURVIVED_SIGNALS: [libc::c_int; 4] =
-    [libc::SIGTERM, libc::SIGHUP, libc::SIGINT, libc::SIGQUIT];
+/// The signals a host records and survives: every catchable signal whose
+/// default action ends the process (cx-0tgl LB). `SIGPIPE` stays ignored (the
+/// Rust runtime's disposition), so a broken client socket fills no slot.
+/// `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGABRT` and `SIGSYS` stay fatal:
+/// they report a bug in the host and must leave a crash report.
+pub(crate) const SURVIVED_SIGNALS: [libc::c_int; 11] = [
+    libc::SIGTERM,
+    libc::SIGHUP,
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGUSR1,
+    libc::SIGUSR2,
+    libc::SIGALRM,
+    libc::SIGVTALRM,
+    libc::SIGPROF,
+    libc::SIGXCPU,
+    libc::SIGXFSZ,
+];
 
 /// Recorded signals per host process; later ones are only counted.
 pub(crate) const MAX_RECORDED_SIGNALS: usize = 32;
@@ -219,6 +235,9 @@ pub(crate) fn install() -> anyhow::Result<()> {
                 return Err(std::io::Error::last_os_error().into());
             }
         }
+        // Whatever the launcher left, a host survives `SIGPIPE`; the PTY
+        // child gets the default back before it execs.
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
     let _ = INSTALLED.set(());
     Ok(())
