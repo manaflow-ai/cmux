@@ -45,6 +45,25 @@ struct RemoteBrowserSurfacesTests {
         #expect(!page.subviews.contains(view))
     }
 
+    /// CEF API 21 kinds: a datalist/autofill list and an extension popup are
+    /// child views over the page like a page popup, each on its own stream.
+    @Test(arguments: ["autofill", "extension_popup"])
+    func viewsSurfaceKindsShowAsChildViewsAtTheirAnchor(kind: String) throws {
+        let (surfaces, page, streams, _) = Self.make()
+        let body = RemoteRdJSON.object([
+            "t": .string("rb.surface.show"), "surface": .int(11), "stream": .int(4), "kind": .string(kind),
+            "anchor": .object(["x": .int(8), "y": .int(40), "width": .int(180), "height": .int(90)]),
+            "width": .int(360), "height": .int(180),
+        ])
+        surfaces.apply(try #require(RbSurfaceMessage(body)))
+        let view = try #require(surfaces.view(of: 11))
+        #expect(view.superview === page)
+        #expect(view.frame == CGRect(x: 8, y: 40, width: 180, height: 90))
+        #expect(streams.requested == [4])
+        surfaces.apply(.hide(surface: 11))
+        #expect(surfaces.view(of: 11) == nil)
+    }
+
     @Test func closingTheSessionRemovesEverySurface() throws {
         let (surfaces, page, _, _) = Self.make()
         surfaces.apply(try #require(RbSurfaceMessage(Self.show)))
