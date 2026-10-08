@@ -176,35 +176,41 @@ final class DevLinkBenchViewController: UIViewController {
         let runner = self.runner
         let identity = self.identity
         let quick = quickSwitch.isOn
-        runTask = Task { [weak self] in
+        // Capture the controller through an immutable alias. The progress
+        // callback is `@Sendable`, so capturing the task closure's weak
+        // `self` variable directly is rejected by Swift's strict concurrency
+        // checking when this target is archived with whole-module
+        // optimisation.
+        let controller = self
+        runTask = Task { [weak controller] in
             do {
                 let report = try await runner(descriptor, identity, quick) { line in
-                    Task { @MainActor [weak self] in self?.statusLabel.text = line }
+                    Task { @MainActor [weak controller] in controller?.statusLabel.text = line }
                 }
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let data = try encoder.encode(report)
                 guard !Task.isCancelled else { return }
-                guard let self else { return }
-                self.reportData = data
-                self.reportPersistenceError = nil
-                self.onReport?(data)
-                self.resultView.text = String(decoding: data, as: UTF8.self)
-                if let error = self.reportPersistenceError {
-                    self.statusLabel.text = "Could not save report: \(error)"
+                guard let controller else { return }
+                controller.reportData = data
+                controller.reportPersistenceError = nil
+                controller.onReport?(data)
+                controller.resultView.text = String(decoding: data, as: UTF8.self)
+                if let error = controller.reportPersistenceError {
+                    controller.statusLabel.text = "Could not save report: \(error)"
                 } else {
-                    self.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
+                    controller.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
                 }
-                self.runTask = nil
-                self.runButton.isEnabled = true
+                controller.runTask = nil
+                controller.runButton.isEnabled = true
             } catch is CancellationError {
-                self?.statusLabel.text = "Cancelled."
-                self?.runTask = nil
-                self?.runButton.isEnabled = true
+                controller?.statusLabel.text = "Cancelled."
+                controller?.runTask = nil
+                controller?.runButton.isEnabled = true
             } catch {
-                self?.statusLabel.text = "Benchmark failed: \(error.localizedDescription)"
-                self?.runTask = nil
-                self?.runButton.isEnabled = true
+                controller?.statusLabel.text = "Benchmark failed: \(error.localizedDescription)"
+                controller?.runTask = nil
+                controller?.runButton.isEnabled = true
             }
         }
     }
