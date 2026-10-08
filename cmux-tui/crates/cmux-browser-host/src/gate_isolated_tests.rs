@@ -12,6 +12,10 @@ fn isolated_gate() -> (Gate, Arc<FakeDriver>) {
 
 fn isolated_gate_allowing(allow: Vec<std::net::SocketAddr>) -> (Gate, Arc<FakeDriver>) {
     let (_, driver) = make_gate(Value::Null, false);
+    // Port 1337 stands for a cmux service (the daemon's control port).
+    let services: crate::egress_services::ServiceCheck = Arc::new(|addr: std::net::SocketAddr| {
+        (addr.port() == 1337).then(|| "loopback port 1337 is the cmux service cmux".to_owned())
+    });
     let rule = EgressRule::new(
         allow,
         Arc::new(|host: &str, _| match host {
@@ -20,7 +24,8 @@ fn isolated_gate_allowing(allow: Vec<std::net::SocketAddr>) -> (Gate, Arc<FakeDr
             "public.test" => vec!["93.184.216.34".parse().unwrap()],
             _ => Vec::new(),
         }),
-    );
+    )
+    .with_service_check(services);
     let grants =
         Grants { isolated: Some(Arc::new(IsolatedEgress::new(rule))), ..Grants::default() };
     (Gate::new(driver.clone(), grants), driver)
@@ -33,13 +38,11 @@ fn a_local_caller_on_a_cloud_machine_is_refused_every_limited_range() {
         "http://169.254.169.254/latest/meta-data/",
         "http://[fd00:ec2::254]/latest/meta-data/",
         "http://metadata.google.internal/computeMetadata/v1/",
-        "http://127.0.0.1:3000/",
-        "http://localhost:3000/",
         "http://10.0.0.1/",
         "http://172.16.5.4/",
         "http://192.168.1.1/",
         "http://100.64.0.1/",
-        "http://[::1]/",
+        "http://0.0.0.0:3000/",
         "http://[fe80::1]/",
         "http://[fd12::1]/",
         "http://[::ffff:10.0.0.1]/",
@@ -56,7 +59,9 @@ fn a_local_caller_on_a_cloud_machine_is_refused_every_limited_range() {
         }
     }
     assert!(methods(&driver).is_empty(), "nothing reached the engine: {:?}", methods(&driver));
-    assert!(gate.driver_call("tabs.open", json!({"url": "https://public.test/"})).is_ok());
+    for url in ["https://public.test/", "http://localhost:3000/", "http://127.0.0.1:3000/"] {
+        assert!(gate.driver_call("tabs.open", json!({"url": url})).is_ok(), "{url}");
+    }
 }
 
 #[test]
@@ -132,12 +137,46 @@ fn the_owner_allow_list_reaches_fetch_and_the_request_filter() {
     assert_eq!(decide("http://localhost:3000/app.js"), None);
     assert_eq!(decide("http://127.0.0.1:3000/app.js"), None);
     assert_eq!(decide("https://public.test/x"), None, "names are the listener's");
-    for refused in [
-        "http://127.0.0.1:3001/",
-        "http://10.0.0.1/",
-        "http://169.254.169.254/",
-        "http://metadata.google.internal/",
-    ] {
+    assert_eq!(decide("http://127.0.0.1:3001/"), None, "the VM's own loopback");
+    for refused in
+        ["http://10.0.0.1/", "http://169.254.169.254/", "http://metadata.google.internal/"]
+    {
         assert!(decide(refused).is_some(), "{refused}");
+    }
+}
+
+/// An agent call to a cmux service port is refused with a clear reason; the
+/// request filter leaves it to the listener (no /proc walk per request).
+#[test]
+fn a_cmux_service_port_is_refused_before_dispatch() {
+    let (gate, driver) = isolated_gate();
+    for url in ["http://127.0.0.1:1337/", "http://localhost:1337/", "http://[::1]:1337/"] {
+        let refused = gate.driver_call("tabs.open", json!({"url": url})).unwrap_err();
+        assert!(refused.message.contains("cmux service"), "{url}: {refused}");
+    }
+    assert!(!methods(&driver).contains(&"tabs.open".to_owned()));
+    policy(&gate, "set", json!({"prohibited": ["peer.test"]})).unwrap();
+    let filter = driver.filter.lock().unwrap().clone().expect("a policy installs the filter");
+    let info = crate::driver::RequestInfo {
+        target: "T",
+        url: "http://127.0.0.1:1337/",
+        kind: crate::driver::RequestKind::Subresource,
+    };
+    assert_eq!(filter(&info), None, "the listener checks the connected peer");
+}
+
+/// A loopback answer that is not the listener's went around it.
+#[test]
+fn a_loopback_response_outside_the_listener_stops_the_load() {
+    let (gate, driver) = isolated_gate();
+    gate.grants.isolated.as_ref().unwrap().listener().expect("the listener starts");
+    gate.mask_event(
+        "response",
+        &json!({"targetId": "T", "url": "http://localhost:3000/", "remoteIPAddress": "[::1]"}),
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !methods(&driver).contains(&"tab.stop".to_owned()) {
+        assert!(std::time::Instant::now() < deadline, "the load was never stopped");
+        std::thread::yield_now();
     }
 }
