@@ -131,14 +131,21 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
     }
 
     /// Reads and writes `procStart` with single spaces (`Sat Oct 3 18:52:39 2026`).
-    /// DateFormatter is thread-safe for formatting and parsing on macOS 10.9+.
-    private nonisolated(unsafe) static let procStartFormatter: DateFormatter = {
+    /// DateFormatter is thread-safe for formatting and parsing on macOS 10.9+;
+    /// the box keeps this building on SDKs that do not mark it Sendable.
+    private struct ProcStartFormatterBox: @unchecked Sendable {
+        let formatter: DateFormatter
+    }
+
+    private static let procStartFormatterBox: ProcStartFormatterBox = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
-        return formatter
+        return ProcStartFormatterBox(formatter: formatter)
     }()
+
+    private static var procStartFormatter: DateFormatter { procStartFormatterBox.formatter }
 
     /// Parses Claude's `procStart` (`Sat Oct  3 18:52:39 2026`, UTC).
     public static func parseProcStart(_ value: String) -> Int? {
