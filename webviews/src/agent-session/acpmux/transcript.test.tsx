@@ -988,7 +988,7 @@ describe("acpmux host handshake", () => {
       },
     };
     const doc = dom.window.document;
-    const title = () => doc.querySelector(".acpmux-title")?.textContent;
+    const title = () => doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label");
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -996,13 +996,13 @@ describe("acpmux host handshake", () => {
     const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await waitFor(() => title() === "Claude Code" && Boolean(actions()?.["chat.new"]));
-      expect(title()).toBe("Claude Code");
+      await waitFor(() => title() === "Agent Chat" && Boolean(actions()?.["chat.new"]));
+      expect(title()).toBe("Agent Chat");
       // No timer or reply runs between the pick and this read.
       act(() => {
         void actions()["chat.new"]!({ harness: "codex" });
       });
-      expect(title()).toBe("Codex");
+      expect(title()).toBe("Agent Chat");
       expect(sent.some((request) => request.method === "session/new")).toBe(true);
       act(() => {
         void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
@@ -1016,7 +1016,7 @@ describe("acpmux host handshake", () => {
       expect(sent.find((request) => request.method === "session/prompt")?.params.sessionId).toBe("n");
       await waitFor(() => doc.querySelector(".cv-user__status") === null);
       expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
-      expect(title()).toBe("Codex");
+      expect(title()).toBe("Agent Chat");
     } finally {
       await act(async () => root.unmount());
       globals.WebSocket = realSocket;
@@ -1085,7 +1085,9 @@ describe("acpmux host handshake", () => {
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await waitFor(
-        () => Boolean(actions()?.["chat.new"]) && doc.querySelector(".acpmux-title")?.textContent === "Claude Code",
+        () =>
+          Boolean(actions()?.["chat.new"]) &&
+          doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label") === "Agent Chat",
       );
       act(() => {
         void actions()["chat.new"]!({ harness: "gemini" });
@@ -2068,7 +2070,7 @@ describe("acpmux turn diff", () => {
     const root = await renderCard(editRow(["/repo/src/a.ts", "/repo/b.ts"]), opened);
     const document = dom.window.document;
     try {
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 filesView changes");
       const files = [...document.querySelectorAll(".acpmux-edited-file")];
       expect(files.map((file) => file.textContent)).toEqual(["src/a.ts+2-1", "b.ts+2-1"]);
       await act(async () => files[0]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
@@ -2117,7 +2119,7 @@ describe("acpmux turn diff", () => {
         ),
       );
       expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe(
-        "Edited 2 files+7-1Includes changes outside tool calls",
+        "Edited 2 filesView changesIncludes changes outside tool calls",
       );
       expect([...document.querySelectorAll(".acpmux-edited-file")].map((file) => file.textContent)).toEqual([
         "src/a.ts+2-1",
@@ -2129,7 +2131,7 @@ describe("acpmux turn diff", () => {
     }
   });
 
-  test("one edited file is named in the card, and many show the first three", async () => {
+  test("one edited file is named in the card, and many show the first five", async () => {
     const opened: [string, string | undefined][] = [];
     const document = dom.window.document;
     let root = await renderCard(editRow(["/repo/a.ts"]), opened);
@@ -2142,13 +2144,16 @@ describe("acpmux turn diff", () => {
     } finally {
       await act(async () => root.unmount());
     }
-    root = await renderCard(editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts"]), opened);
+    root = await renderCard(
+      editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts", "/r/f.ts", "/r/g.ts"]),
+      opened,
+    );
     try {
-      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(3);
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
       const more = document.querySelector(".acpmux-edited-more")!;
       expect(more.textContent).toBe("Show 2 more files");
       await act(async () => more.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(7);
       expect(document.querySelector(".acpmux-edited-more")?.textContent).toBe("Show fewer files");
     } finally {
       await act(async () => root.unmount());
@@ -2156,8 +2161,8 @@ describe("acpmux turn diff", () => {
   });
 
   test("an ended turn's card never asks the agent to undo its edits", async () => {
-    // The agent could run any command (git checkout) and lose the user's later edits. Undo comes
-    // back only as a host revert that checks each file still holds the turn's bytes.
+    // The agent could run any command (git checkout) and lose the user's later edits. Undo is a
+    // host revert (turn.undo) that checks each file still holds the turn's bytes.
     const { TurnActionsContext } = await import("./conversation/turnActions");
     const asked: string[] = [];
     const review = {
@@ -2182,8 +2187,7 @@ describe("acpmux turn diff", () => {
           ),
         ),
       );
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
-      expect([...document.querySelectorAll("button")].map((button) => button.textContent)).not.toContain("Undo");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 filesView changes");
       for (const button of document.querySelectorAll<HTMLButtonElement>(".acpmux-edited button"))
         await act(async () => button.click());
       expect(asked).toEqual([]);
@@ -2907,6 +2911,11 @@ describe("acpmux new chat", () => {
       expect(dom.window.document.querySelector(".acpmux-scroll")).toBeNull();
       await show(snapshot({ cwd: "/Users/me" }));
       expect(hero()).toBe("What should we build?");
+      // A folderless workspace's private agent-home folder is never named by its UUID.
+      await show(
+        snapshot({ cwd: "/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481" }),
+      );
+      expect(hero()).toBe("What should we build?");
       // Between a session's reset and its attach there is no summary yet.
       await show(snapshot({ summary: false }));
       expect(hero()).toBeUndefined();
@@ -2935,6 +2944,10 @@ describe("acpmux new chat", () => {
     expect(projectName("/Users/me")).toBeUndefined();
     expect(projectName("/")).toBeUndefined();
     expect(projectName(undefined)).toBeUndefined();
+    expect(
+      projectName("/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481"),
+    ).toBeUndefined();
+    expect(projectName("/Users/me/Library/Application Support/cmux/agent-home/home/")).toBeUndefined();
   });
 });
 
@@ -3425,4 +3438,73 @@ describe("acpmux hunk review", () => {
       await act(async () => root.unmount());
     }
   });
+});
+
+describe("agent pane header", () => {
+  const snapshot = (connection: string, isWorking = false) => ({
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection,
+    sessionId: "s",
+    summary: { sessionId: "s", title: "Fix the header", harness: "codex" },
+    isWorking,
+    queue: [],
+    catalog: [],
+    canLoadOlder: false,
+  });
+
+  test.each(["connected", "connecting", "idle", "tool_call", "mock"])(
+    "%s shows no header title or normal status and keeps the pane name",
+    async (connection) => {
+      const root = createRoot(dom.window.document.getElementById("root")!);
+      try {
+        await act(async () => root.render(createElement(AcpmuxApp)));
+        await act(async () =>
+          (dom.window as unknown as Window).cmuxAcpmuxBridge!.receive(snapshot(connection, true) as never),
+        );
+        const header = dom.window.document.querySelector(".acpmux-header")!;
+        expect(header.querySelector(".acpmux-title") === null).toBe(true);
+        expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(header.textContent).not.toContain("Agent Chat");
+        expect(header.textContent).not.toContain("Claude Code");
+        expect(header.textContent).not.toContain("Codex");
+        expect(dom.window.document.querySelector("section.acpmux-shell")?.getAttribute("aria-label")).toBe(
+          "Fix the header",
+        );
+        expect(header.querySelectorAll(".acpmux-header-tools button").length).toBeGreaterThanOrEqual(4);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
+
+  test.each([
+    ["disconnected", "Disconnected", "Disconnected"],
+    ["connecting: Error: connection refused", "Reconnecting", "Error: connection refused"],
+    ["error: access denied", "Failed", "access denied"],
+    ["failed", "Failed", "Failed"],
+  ])(
+    "%s shows a quiet problem label with an icon and details, then clears on recovery",
+    async (connection, label, detail) => {
+      const root = createRoot(dom.window.document.getElementById("root")!);
+      const host = dom.window as unknown as Window;
+      try {
+        await act(async () => root.render(createElement(AcpmuxApp)));
+        await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(connection!, true) as never));
+        const header = dom.window.document.querySelector(".acpmux-header")!;
+        const tools = header.querySelector(".acpmux-header-tools");
+        const status = header.querySelector(".acpmux-status");
+        expect(status?.textContent).toBe(label!);
+        expect(status?.querySelector("svg")).not.toBeNull();
+        expect(status?.getAttribute("title")).toContain(detail!);
+        await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("connected") as never));
+        expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(header.querySelector(".acpmux-header-tools")).toBe(tools);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
 });

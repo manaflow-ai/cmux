@@ -5,7 +5,7 @@ import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { SchemaRow } from "../schema";
 import { managedOf, managedText, valueOf } from "../store";
-import { text } from "../strings";
+import { t, text } from "../strings";
 import { Highlight } from "./Highlight";
 import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
@@ -15,10 +15,13 @@ export function SettingRow({
   row,
   query = "",
   focused = false,
+  filtered = false,
 }: {
   row: SchemaRow;
   query?: string;
   focused?: boolean;
+  /** Outside the search filter: collapsed in place, inert and hidden from assistive technology. */
+  filtered?: boolean;
 }) {
   const state = useSettingsState();
   const labelId = useId();
@@ -33,8 +36,12 @@ export function SettingRow({
       data-row-key={row.key}
       data-kind={row.kind}
       data-managed={managed ? "" : undefined}
+      data-filtered={filtered ? "" : undefined}
+      inert={filtered}
+      aria-hidden={filtered ? true : undefined}
       tabIndex={-1}
-      ref={focused ? revealRow : undefined}
+      // Revealed once the owner's values arrive: before that every control is disabled.
+      ref={focused && state.readable ? revealRow : undefined}
     >
       {diagnostics && <RowNotice settingKey={row.key} messages={diagnostics} disabled={disabled} />}
       <div className="row-main">
@@ -60,15 +67,18 @@ export function SettingRow({
           )}
           {error && (
             <div className="row-error" role="alert" title={error.detail}>
-              {error.message}
+              {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}
         </div>
         <div className="row-control">
           <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
-          {customized && !managed && row.kind !== "color" && (
-            <ResetButton settingKey={row.key} disabled={!state.connected || !state.readable} />
-          )}
+          <ResetButton
+            settingKey={row.key}
+            shown={customized && !managed}
+            disabled={!state.connected || !state.readable}
+            label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
+          />
         </div>
       </div>
     </div>

@@ -15,7 +15,7 @@
 use crate::config::HarnessProfile;
 use crate::rpc::{Id, Message, RpcError, method};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -69,6 +69,8 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
 
 mod inbound;
 mod outbound;
+#[cfg(test)]
+mod subagent_tests;
 #[cfg(test)]
 mod tests;
 
@@ -162,6 +164,15 @@ pub struct Translator {
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
     stdin_replies: Mutex<Vec<Value>>,
+    /// Running Agent (Task) tool calls: tool_use id -> the subagent session
+    /// id their lines stream under.
+    subagents: Mutex<HashMap<String, String>>,
+    /// Agent tool calls whose subagent runs in the background: their tool
+    /// result is only the launch, and their `task_notification` ends them.
+    background_subagents: Mutex<HashSet<String>>,
+    /// Claude's task ids of running subagents -> their Agent tool call
+    /// (`task_updated` names only the task).
+    subagent_tasks: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -195,6 +206,9 @@ impl Translator {
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             stdin_replies: Mutex::new(Vec::new()),
+            subagents: Mutex::new(HashMap::new()),
+            background_subagents: Mutex::new(HashSet::new()),
+            subagent_tasks: Mutex::new(HashMap::new()),
         })
     }
 

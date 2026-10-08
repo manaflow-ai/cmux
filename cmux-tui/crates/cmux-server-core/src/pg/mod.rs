@@ -3,7 +3,8 @@
 //!
 //! [`PgPlan`] is built from a validated [`ClusterSpec`]. It renders the
 //! `initdb` argv, the `cmux.conf` include for `postgresql.conf`, the full
-//! `pg_hba.conf` and `pg_ident.conf`, and the SQL statements per app. The I/O
+//! `pg_hba.conf` and `pg_ident.conf`, the SQL statements per app and the
+//! app's connection settings (no password). The I/O
 //! crate writes the files, runs the argv and executes the statements in order,
 //! each on the database it names.
 
@@ -11,6 +12,7 @@ mod conf;
 mod ident;
 mod scram;
 mod sql;
+mod url;
 
 pub use conf::{CONF_FILE, CONF_INCLUDE_LINE};
 pub use ident::{

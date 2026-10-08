@@ -9,7 +9,7 @@ import {
   sanitizeCollapsedFiles,
   withCollapsedFile,
 } from "../src/collapsed-files";
-import { createDiffViewerLabelResolver } from "../src/labels";
+import { createDiffViewerLabelResolver, loadDiffViewerLabels } from "../src/labels";
 import { resolveFileIcon } from "../src/file-icons";
 import { diffStatSpriteSheet, diffStatSymbolId } from "../src/file-tree-stats";
 import { sanitizeViewerPrefs } from "../src/viewer-prefs";
@@ -218,7 +218,8 @@ test("the bar's ... menu opens without toggling and acts on the file", async () 
   expect(doc.querySelector(".file-header-menu")).toBeNull();
 });
 
-test("the caret label is localized in Japanese", () => {
+test("the caret label is localized in Japanese", async () => {
+  await loadDiffViewerLabels("ja");
   const ja = createDiffViewerLabelResolver(undefined, { language: "ja" });
   expect(ja("collapseFile").replace("{file}", "a.ts")).toBe("a.ts を折りたたむ");
   expect(ja("expandFile").replace("{file}", "a.ts")).toBe("a.ts を展開");

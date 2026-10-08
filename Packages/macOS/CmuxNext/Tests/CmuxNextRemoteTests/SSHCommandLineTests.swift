@@ -151,6 +151,17 @@ import Testing
         #expect(args[2] == "ssh://box")
     }
 
+    @Test func linkAttachesToAnExistingDaemonSocketOnlyWhenNamed() throws {
+        let brain = try SSHHost(destination: SSHDestination(parsing: "box"), remoteMuxSocket: "~/.cmux/brains/chief/daemon/cmux.sock")
+        #expect(value(SSHCommandLine().link(brain, clientStateDir: "/s", localSocket: "/l"), "--remote-mux-socket") == "~/.cmux/brains/chief/daemon/cmux.sock")
+        #expect(!SSHCommandLine().link(host, clientStateDir: "/s", localSocket: "/l").contains("--remote-mux-socket"))
+        #expect(throws: SSHHost.Invalid.self) { try SSHHost(destination: SSHDestination(parsing: "box"), remoteMuxSocket: "/tmp/a b") }
+        // A plain SSH machine keeps its id; naming a socket makes another machine.
+        let plain = try SSHHost(destination: SSHDestination(parsing: "box"))
+        #expect(plain.machineID != brain.machineID)
+        #expect(SSHHost(transportFields: brain.transportFields) == brain)
+    }
+
     @Test func remotePathsKeepTildeExpansionAndQuoteTheRest() {
         #expect(RemotePath.shellWord("~/.local/bin/cmux-tui") == "\"$HOME\"/'.local/bin/cmux-tui'")
         #expect(RemotePath.shellWord("~") == "\"$HOME\"")

@@ -9,7 +9,8 @@ description: "Use only after the user explicitly asks for cmux Computer Use thro
 cmux bundles a local computer-use engine (packaged as `cmux Computer Use` with
 the MCP proxy named `cmux-cua`, from a pinned build of
 the `manaflow-ai/cmux-cua` fork) and attaches it as an MCP tool server named
-`cmux-cua` to every agent session cmux launches (Claude Code, Codex).
+`cmux-cua` to every agent session cmux launches (Claude Code, Codex and the
+other ACP harnesses).
 The agent can then perceive and operate real macOS apps: read the accessibility
 tree, take screenshots, and click / type / scroll / drag.
 
@@ -18,6 +19,13 @@ helper has its own TCC identity, so Accessibility and Screen Recording never
 belong to the main cmux app and granting Screen Recording never requires
 restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
+The tools never act on the user's cmux (`com.cmuxterm.app` and every
+`com.cmuxterm.app.*` bundle and window), other terminal apps, the helper itself,
+or macOS security surfaces: such a call returns `target_not_allowed` (its
+`structuredContent.reason` says which) and must not be retried. A session may
+drive its own tagged cmux DEV app only when its profile or preset env sets
+`CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS=com.cmuxterm.app.debug.<tag>`.
+
 Do not invoke this skill, start its helper, request permissions, or perform a
 GUI action when the user is only reading, asking about, quoting, or mentioning
 cmux Computer Use. Wait for a direct user request to use cmux Computer Use; missing tools
@@ -25,63 +33,35 @@ or permissions are not a reason to begin setup automatically.
 
 ## How it attaches
 
-- The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject `cmux-cua` as an
-  MCP proxy using `mcp --socket <cmux-owned socket>` plus cursor-branding and
-  state-dir env. Codex launches the exact tag-installed helper executable as
-  its authenticated approval broker; Claude uses the bundled native-profile
-  proxy client. The Codex wrapper additionally passes
-  `--codex-computer-use-compat`; the Claude wrapper deliberately does not.
-  Attachment availability is not user consent: merely starting an agent or
-  discovering this skill is not a request to use it, and it must not open a
-  permission window or perform GUI work.
-- In Codex sessions launched by cmux, the wrapper disables Codex's native
-  `computer_use` provider. When the user says `$cmux-cua`, use only the
-  namespaced `cmux-cua` MCP tools below. Never substitute Codex's built-in
-  `computer` tool, another CUA connector, or a direct helper launch. If the
-  `cmux-cua` tools are absent or unavailable, report that they are unavailable
-  and stop; do not silently switch providers.
-- `ComputerUseRuntimeService` is the only helper lifecycle owner. It installs
-  the nested helper under the tag-scoped
-  `~/Library/Application Support/cmux/cmux-cua/helper/<scope>/` directory
-  and launches that explicit app URL through LaunchServices.
-- The native daemon uses the tag-scoped
-  `/tmp/cmux-cua-<uid>/<scope>/cmux-cua.sock`; the Codex compatibility daemon uses
-  `cmux-cua-codex.sock` beside it. Both fit Darwin's Unix-socket path limit and share
-  the tag-scoped cmux Application Support state directory.
-- Neither wrapper installs global skills or adds skill directories by default.
-  Use the agent's normal skill installer for a persistent user-owned installation.
-  Alternatively, `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` requests an app-managed
-  global link for that launch (`~/.agents/skills/cmux-cua` for Codex or
-  `~/.claude/skills/cmux-cua` for Claude). Export the flag to retain these links
-  on future launches; they may also appear outside cmux. Unset or `=0` removes
-  only verified app-managed links. Project and user-owned skills take precedence,
-  with no competing global install or automatic fallback. Codex 0.153 does not
-  discover new paths from `skills.config`; no Claude projection or plugin
-  fallback is used. Migration of the canonical and legacy `cmux-computer-use` /
-  `codex-cua` links requires an existing cmux bundle ID, known install/build root,
-  and root/current-user ownership. Unknown or dangling targets, real skill
-  directories, unrelated symlinks, and project paths are preserved.
-  `CMUX_CUA_DIAGNOSTICS=1` identifies preserved paths blocking explicit install
-  and verified managed links retired by the per-launch policy. Historical
-  app-created and manually-created symlinks with identical verified targets
-  cannot be distinguished retroactively; recognized app-bundle links are
-  treated as cmux-managed, while unknown and dangling links are preserved.
-- While Computer Use is enabled, the helper daemon starts quietly at cmux
-  startup with its internal permission gate disabled. Starting cmux or an agent
-  never requests access or shows onboarding.
-- Wrappers are pure forced proxies. They never copy or launch the helper and
-  never fall back to in-process computer use. cmux owns the onboarding window
-  and opens the permanent macOS permission panes directly; it does not ask the
-  helper to raise an intermediate native prompt. The proxy keeps its
-  external-flow flag on so the first driving call waits for both helper grants
-  before it is forwarded.
-- An explicit functional `$cmux-cua` request is the opt-in: if the saved
-  Computer Use toggle is off, cmux enables the runtime and opens onboarding
-  automatically. The hard kill switch is `CMUX_COMPUTER_USE_MCP_DISABLED=1`
-  (or managed policy); turning the Settings toggle off only stops automatic
-  helper startup until the next explicit request.
-- Attaches only on cmux-launched, live-socket sessions (same authority bar as
-  cmux hooks); hooks-disabled and stale-socket sessions do not attach.
+- cmux attaches it to every agent session it starts on this Mac: the acpmux
+  daemon that runs the app's agent pane, the TUI, `cmux acp`, the Chief and
+  their subagents, pooled sessions and forks adds an MCP server named
+  `cmux-cua` (`<app>/Contents/Resources/bin/cmux-cua mcp`, with
+  `CMUX_CUA_MCP_FORCE_PROXY=1` and the cursor branding env). Claude Code gets
+  it through `--mcp-config` and this skill as `cmux:cmux-cua` from a
+  session-only plugin; ACP harnesses (Codex, OpenCode, Pi, Gemini) get it in
+  `session/new`. Source: `cmux-tui/crates/acpmux/src/agent_tools.rs`.
+  Sessions started for a remote client (web, peer) never get it.
+  `ACPMUX_AGENT_TOOLS=0` on the daemon turns the attachment off.
+- Attachment is not consent. Starting an agent, listing tools or reading this
+  skill is not a request to use computer use, and must not open a permission
+  window or perform GUI work.
+- When the user asks for `$cmux-cua`, use only the namespaced `cmux-cua` MCP
+  tools below. Never substitute a harness's built-in computer tool, another
+  computer-use connector, or a direct helper launch. If the `cmux-cua` tools
+  are absent or fail to connect, report that and stop; do not switch
+  providers.
+- The proxy forwards to the **cmux Computer Use** helper (`com.cmuxterm.cua`)
+  over its Unix socket and starts it on the first call. Only a helper signed
+  with the cmux Developer ID (team `7WLXT3NR37`) is used
+  (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/CuaHelperIdentity.swift`,
+  `scripts/cmux-cua-helper-trust.sh`). A release, NIGHTLY or RC cmux carries
+  it. A tagged dev build has no helper of its own (`reload.sh` removes an
+  ad-hoc one), so dev builds use the helper of an installed NIGHTLY (or
+  release or RC). With no signed helper installed, computer use is
+  unavailable in that build; say so instead of trying to build or sign one.
+- Agent activity (every computer use session, its timeline and thumbnails) is
+  in the app's Agent activity pane, read from the same helper.
 
 ## Permissions (one-time, granted to the helper)
 
@@ -111,11 +91,9 @@ to bypass the system private window picker". That alert is expected — it comes
 from onboarding's host-authenticated capture probe, onboarding explains it in
 place, and the user must allow it before setup completes. Never "fix" it by
 suppressing the probe; without that consent, agent screenshots on Tahoe fail.
-The consent follows the helper's code signature, so every rebuilt (ad-hoc
-signed) dev helper can require the direct-capture step again: cmux invalidates
-its cached direct-capture-ready flag whenever it replaces the installed helper
-build. Helper replacement stays quiet until the next functional Computer Use
-request or a deliberate Settings action.
+The grants and this consent follow the helper's Developer ID signature, so
+they survive helper updates. Never grant them to an ad-hoc signed copy: that
+replaces the release helper's TCC rows.
 Do not invoke `check_permissions {prompt:true}` or any standalone helper while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
@@ -224,14 +202,15 @@ Notes:
 
 The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
-cursor. It is configured by env the wrapper injects
+cursor. It is configured by env the attachment sets
 (`CMUX_CUA_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
 the helper daemon is driving. It remains visible across normal reasoning gaps
 and is removed when the driving session ends or the proxy control connection
 closes. Each later action reasserts the cursor directly above the driven
 target. If no cursor appears during an action, confirm the MCP config uses the
-helper socket, has a stable `CMUX_CUA_DEFAULT_SESSION`, and uses the pinned
-  cmux-cua build.
+helper socket and that you passed your own `session` to `start_session` and
+every action. The cmux-next app draws the same cursor for browser REPL input
+(`plans/cmux-next/agent-cursor.md`).
 
 ## Finding and focusing the driving session
 
@@ -258,10 +237,12 @@ Settings → cmux Computer Use.
 
 ## Troubleshooting
 
-- **Agent has no computer-use tools** — the session was launched outside cmux,
-  the hard kill switch is active, or the wrapper started before the tagged app.
-  Start a fresh session inside the tagged cmux app; the first functional
-  request enables setup automatically.
+- **Agent has no computer-use tools** — the session was not started by cmux's
+  acpmux daemon, the daemon has `ACPMUX_AGENT_TOOLS=0`, the daemon's
+  executable is not the app's (no `cmux-cua` beside it), or the session has a
+  remote origin. Start a fresh session from the cmux app.
+- **Tools present, every call fails** — no Developer ID signed helper is
+  installed (typical for a tagged dev build without a NIGHTLY install).
 - **Clicks do nothing / not permitted** — grant Accessibility to cmux Computer Use.
 - **Black/empty screenshots** — grant Screen Recording to cmux Computer Use;
   restart only the helper if its automatic refresh has not completed yet.
@@ -277,12 +258,12 @@ Settings → cmux Computer Use.
 
 - Engine source: `manaflow-ai/cmux-cua` (`libs/cmux-cua/rust`). cmux consumes
   it via `CMUX_CUA_PINNED_SHA` in `scripts/build-cmux-cua.sh`, which builds,
-  lipos, and codesigns the binary plus the nested helper into the app bundle.
+  and lipos the `cmux-cua` client into `Contents/Resources/bin`. Only release,
+  NIGHTLY and RC builds carry a signed nested helper.
 - The helper daemon's `CMUX_CUA_EXTERNAL_PERMISSION_FLOW=1` prevents
   agent-supplied `check_permissions {prompt:true}` from bypassing cmux
-  onboarding. The wrappers set `CMUX_CUA_MCP_FORCE_PROXY=1` and preserve
-  the external-flow contract in the proxy process so protected calls wait for
-  cmux's post-verification readiness signal.
+  onboarding. The attachment sets `CMUX_CUA_MCP_FORCE_PROXY=1`, so the
+  proxy never runs computer use in the agent's own process.
   There is no ambient executable override. Both profiles resolve the app-bundled
   `cmux-cua` executable and the tag-scoped helper only; missing ownership fails
   closed instead of running a user-supplied executable.
@@ -292,7 +273,7 @@ Settings → cmux Computer Use.
   MCP tool after the helper runtime is healthy.
 - Never hand-edit `docs/.../cmux-cua/mcp-tools.mdx` in the fork — it is
   generated from the Rust tool descriptions.
-- The runtime service, helper lifecycle, capture and daemon admission live in
-  `Packages/macOS/CmuxComputerUse/`; the two wrappers live under `Resources/bin/`.
-  The app in `Packages/macOS/CmuxNext` does not wire Computer Use yet (its
-  actions are typed unavailable).
+- The attachment lives in `cmux-tui/crates/acpmux/src/agent_tools.rs`; the
+  helper identity rule and the Agent activity pane in
+  `Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/`; the design in
+  `plans/cmux-next/computer-use.md`.

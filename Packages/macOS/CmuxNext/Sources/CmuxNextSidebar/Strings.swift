@@ -11,6 +11,7 @@ enum Strings {
             String(localized: "sidebar.tabDrop.pinnedArea", defaultValue: "The pinned area holds no new workspace.", bundle: .module)
         }
     }
+    static var back: String { String(localized: "sidebar.footer.back", defaultValue: "Back", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
@@ -34,6 +35,7 @@ enum Strings {
     static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
+    static var muted: String { String(localized: "sidebar.a11y.muted", defaultValue: "Muted", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }
     static var activityNeedsInput: String { String(localized: "sidebar.a11y.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var activityError: String { String(localized: "sidebar.a11y.error", defaultValue: "Error", bundle: .module) }
@@ -47,7 +49,7 @@ enum Strings {
     static func activity(_ state: StatusIndicatorState) -> String? {
         switch state {
         case .idle: nil
-        case .busy: state.progress.map { activityProgress(Int(($0 * 100).rounded())) } ?? activityRunning
+        case .busy, .working: state.progress.map { activityProgress(Int(($0 * 100).rounded())) } ?? activityRunning
         case .paused: activityPaused
         case .waiting: activityNeedsInput
         case .error: activityError

@@ -61,6 +61,27 @@ export { commitOutbox, createOutbox } from "./outbox.ts"
 export { CLOUD_REJECT_CODES, LOCAL_REJECT_CODES, REJECT_CODES, type ConversationReject, type RejectCode } from "./reject.ts"
 export type { ApplyResult, Commit, OpRequest } from "./request.ts"
 export * from "./types.ts"
+export {
+  answerQuestion,
+  checkQuestionEdit,
+  MAX_QUESTION_ITEMS,
+  MAX_QUESTION_LABEL_BYTES,
+  MAX_QUESTION_OPTIONS,
+  MAX_QUESTION_PREVIEW_BYTES,
+  MAX_QUESTION_TEXT_BYTES,
+  questionText,
+  validateQuestion,
+  type PreviewFormat,
+  type QuestionAnswer,
+  type QuestionHarness,
+  type QuestionItem,
+  type QuestionOption,
+  type QuestionPart,
+  type QuestionPreview,
+  type QuestionSelection,
+  type QuestionState,
+  type Respondent
+} from "./question.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
 export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
 export {

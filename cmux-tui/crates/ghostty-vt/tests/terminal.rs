@@ -70,6 +70,7 @@ fn title_and_pty_callbacks() {
         on_title_changed: Some(Box::new(move || *tc.lock().unwrap() = true)),
         on_bell: None,
         on_clipboard_read: None,
+        on_program_status: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -92,6 +93,7 @@ fn default_colors_answer_osc_queries() {
         on_title_changed: None,
         on_bell: None,
         on_clipboard_read: None,
+        on_program_status: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 

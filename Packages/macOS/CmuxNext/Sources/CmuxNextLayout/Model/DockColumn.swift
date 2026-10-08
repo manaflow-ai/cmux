@@ -27,9 +27,11 @@ public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable {
 public nonisolated struct DockColumn: Hashable, Sendable {
     public var edge: DockEdge
     public var mode: DockMode
+    public var role: DockRole?
 
-    public init(edge: DockEdge = .right, mode: DockMode = .docked) {
+    public init(edge: DockEdge = .right, mode: DockMode = .docked, role: DockRole? = nil) {
         self.edge = edge
         self.mode = mode
+        self.role = role
     }
 }

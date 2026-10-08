@@ -16,7 +16,7 @@ public struct SidebarDemoMock {
             unread: UnreadState = .none, activity: StatusIndicatorState = .idle
         ) -> SidebarWorkspace {
             SidebarWorkspace(
-                id: WorkspaceID("demo-\(n)"), title: title, subtitle: cwd, status: status,
+                id: WorkspaceID("demo-\(n)"), title: title, directory: cwd, status: status,
                 icon: icon, unread: unread, activity: activity
             )
         }

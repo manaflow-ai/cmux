@@ -163,15 +163,17 @@ async fn the_app_pane_is_local_and_the_pool_serves_it() {
     let token = d.local_token();
     let (mut ws, init) = hello(&d, Some(PANE), Some(&token)).await;
     assert_eq!(origin_of(&init), "local", "{init}");
+    let trust = call(&mut ws, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
     let warmed = call(
         &mut ws,
-        2,
+        3,
         "_acpmux/prewarm",
         json!({"harness": "fake", "cwd": d.home, "wait": true}),
     )
     .await;
     assert_eq!(warmed["result"]["accepted"], true, "{warmed}");
-    let status = call(&mut ws, 3, "_acpmux/status", json!({})).await;
+    let status = call(&mut ws, 4, "_acpmux/status", json!({})).await;
     let text = status.to_string();
     assert!(!text.contains(&token), "the LocalApp token came back");
     assert!(!text.contains(&d.listener_token), "the listener token came back");

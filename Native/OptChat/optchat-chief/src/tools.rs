@@ -40,8 +40,10 @@ impl Memory for OptChat {
 
 /// Section 9's subagent tools, answered by the host (subagents.rs).
 pub trait Orchestrator: Send + Sync {
-    /// Starts one subagent per task; answers their ids.
-    fn spawn(&self, tasks: Vec<String>) -> Result<String, String>;
+    /// Starts one subagent per task, in `cwd` when it exists on this host;
+    /// answers their ids, each one's workspace (or why it has none) and the
+    /// directory they run in.
+    fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String>;
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
 }
@@ -64,7 +66,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
     let call = match (tool, args) {
         ("zoom", [id, n]) => Call::parse("zoom", &serde_json::json!({"id": id, "n": n})),
         ("date", [id]) => Call::parse("date", &serde_json::json!({"id": id})),
-        ("spawn", tasks) if !tasks.is_empty() => {
+        ("spawn", ["--cwd", dir, tasks @ ..]) if !tasks.is_empty() => {
+            Call::parse("spawn", &serde_json::json!({"tasks": tasks, "cwd": dir}))
+        }
+        ("spawn", tasks) if !tasks.is_empty() && tasks[0] != "--cwd" => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
         }
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
@@ -83,7 +88,7 @@ pub fn usage(tool: &str) -> String {
         match tool {
             "zoom" => "ID N",
             "date" => "ID",
-            "spawn" => "\"task\" [\"task\" ...]",
+            "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             _ => "ID \"message\"",
         }
     )
@@ -92,10 +97,23 @@ pub fn usage(tool: &str) -> String {
 /// One tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {
-    Zoom { id: u64, n: u64 },
-    Date { id: u64 },
-    Spawn { tasks: Vec<String> },
-    Tell { id: String, message: String },
+    Zoom {
+        id: u64,
+        n: u64,
+    },
+    Date {
+        id: u64,
+    },
+    Spawn {
+        tasks: Vec<String>,
+        /// The subagents' working directory on the Chief's host (`~` is
+        /// its home); None is the default subagent directory.
+        cwd: Option<String>,
+    },
+    Tell {
+        id: String,
+        message: String,
+    },
 }
 
 impl Call {
@@ -130,7 +148,13 @@ impl Call {
                 if tasks.is_empty() {
                     return Err("spawn: `tasks` must be a list of task texts".into());
                 }
-                Ok(Call::Spawn { tasks })
+                let cwd = args
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|d| !d.is_empty())
+                    .map(str::to_owned);
+                Ok(Call::Spawn { tasks, cwd })
             }
             "tell" => {
                 let text = |key: &str| {
@@ -165,7 +189,11 @@ impl Call {
         match self {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
-            Call::Spawn { tasks } => json!({"tool": "spawn", "tasks": tasks}),
+            Call::Spawn { tasks, cwd: None } => json!({"tool": "spawn", "tasks": tasks}),
+            Call::Spawn {
+                tasks,
+                cwd: Some(cwd),
+            } => json!({"tool": "spawn", "tasks": tasks, "cwd": cwd}),
             Call::Tell { id, message } => json!({"tool": "tell", "id": id, "message": message}),
         }
     }
@@ -195,6 +223,9 @@ pub struct Served {
     pub memory: Arc<dyn Memory>,
     pub orchestrator: Option<Arc<dyn Orchestrator>>,
     pub control: Option<Control>,
+    /// The memory inspector's read-only API (`inspect` tool): a remote
+    /// owner reaches it through the brain's daemon (`chief.inspect`).
+    pub inspector: Option<Arc<crate::inspect::Inspector>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -215,6 +246,7 @@ pub fn serve_with(
             memory,
             orchestrator: None,
             control,
+            inspector: None,
         },
     )
 }
@@ -269,6 +301,22 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
+                if tool == "inspect" {
+                    let answer = match &served.inspector {
+                        Some(inspector) => crate::inspect::tool_answer(
+                            inspector,
+                            &req,
+                            crate::inspect::INSPECT_MAX_BYTES,
+                        ),
+                        None => {
+                            json!({"status": 503, "error": "the inspector is off on this host"})
+                        }
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if tool == "browse" {
                     let answer = json!({"text": memory.browse()});
                     if writeln!(out, "{answer}").is_err() {
@@ -283,8 +331,8 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Spawn { .. } | Call::Tell { .. }) if subagent => {
                         Err("subagents have no spawn or tell".to_owned())
                     }
-                    Ok(Call::Spawn { tasks }) => match &served.orchestrator {
-                        Some(o) => o.spawn(tasks),
+                    Ok(Call::Spawn { tasks, cwd }) => match &served.orchestrator {
+                        Some(o) => o.spawn(tasks, cwd),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::Tell { id, message }) => match &served.orchestrator {

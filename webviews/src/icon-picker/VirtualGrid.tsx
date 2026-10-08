@@ -45,7 +45,12 @@ export class GridViewport {
   }
 
   scrollToTop() {
-    if (this.element) this.element.scrollTop = 0;
+    this.scrollTo(0);
+  }
+
+  /** Scrolls to offset `top` (a category jump to its section header). */
+  scrollTo(top: number) {
+    if (this.element) this.element.scrollTop = top;
     this.onScroll();
   }
 

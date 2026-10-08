@@ -225,7 +225,7 @@ import Testing
 
     @Test func filterIsDiacriticAndCaseInsensitive() {
         let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "L", kind: .local)), nodes: [
-            .workspace(SidebarWorkspace(id: id("r"), title: "Résumé builder", subtitle: "main")),
+            .workspace(SidebarWorkspace(id: id("r"), title: "Résumé builder", branch: "main")),
         ])]
         #expect(SidebarFilter.matches("resume MAIN", in: sections) == [id("r")])
         #expect(SidebarFilter.matches("   ", in: sections) == nil)

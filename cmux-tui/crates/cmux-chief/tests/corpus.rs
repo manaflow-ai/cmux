@@ -11,7 +11,7 @@ fn the_generated_corpus_passes() {
         "../../../../mux/packages/brain/conformance/chief-cases.json"
     ))
     .expect("corpus JSON");
-    assert!(!corpus.cases.is_empty() && !corpus.memory.is_empty());
+    assert!(!corpus.cases.is_empty() && !corpus.memory.is_empty() && !corpus.policy.is_empty());
     let failures = run(&corpus);
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }

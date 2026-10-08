@@ -53848,127 +53848,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save Tab Group"
+            "value": "Pin Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブグループを保存"
+            "value": "グループをピン留め"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "حفظ مجموعة علامات التبويب"
+            "state": "translated",
+            "value": "تثبيت المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sačuvaj grupu tabova"
+            "state": "translated",
+            "value": "Prikači grupu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gem fanegruppe"
+            "state": "translated",
+            "value": "Fastgør gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tabgruppe sichern"
+            "state": "translated",
+            "value": "Gruppe anheften"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Guardar grupo de pestañas"
+            "state": "translated",
+            "value": "Fijar grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enregistrer le groupe d’onglets"
+            "state": "translated",
+            "value": "Épingler le groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Salva gruppo di schede"
+            "state": "translated",
+            "value": "Fissa gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "រក្សាទុកក្រុមថេប"
+            "state": "translated",
+            "value": "ខ្ទាស់ក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "탭 그룹 저장"
+            "state": "translated",
+            "value": "그룹 고정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lagre fanegruppe"
+            "state": "translated",
+            "value": "Fest gruppe"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapisz grupę kart"
+            "state": "translated",
+            "value": "Przypnij grupę"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Salvar Grupo de Abas"
+            "state": "translated",
+            "value": "Fixar Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сохранить группу вкладок"
+            "state": "translated",
+            "value": "Закрепить группу"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "บันทึกกลุ่มแท็บ"
+            "state": "translated",
+            "value": "ปักหมุดกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekme Grubunu Kaydet"
+            "state": "translated",
+            "value": "Grubu Sabitle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Зберегти групу вкладок"
+            "state": "translated",
+            "value": "Закріпити групу"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lưu nhóm tab"
+            "state": "translated",
+            "value": "Ghim nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "存储标签页组"
+            "state": "translated",
+            "value": "固定组"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "儲存標籤頁群組"
+            "state": "translated",
+            "value": "固定群組"
           }
         }
       }
@@ -54372,127 +54372,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsave Tab Group"
+            "value": "Unpin Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブグループの保存を解除"
+            "value": "グループのピン留めを解除"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إلغاء حفظ مجموعة علامات التبويب"
+            "state": "translated",
+            "value": "إلغاء تثبيت المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukloni sačuvanu grupu tabova"
+            "state": "translated",
+            "value": "Otkači grupu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Glem gemt fanegruppe"
+            "state": "translated",
+            "value": "Frigør gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tabgruppe nicht mehr sichern"
+            "state": "translated",
+            "value": "Gruppe loslösen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dejar de guardar grupo de pestañas"
+            "state": "translated",
+            "value": "Dejar de fijar grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne plus enregistrer le groupe d’onglets"
+            "state": "translated",
+            "value": "Détacher le groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Non salvare più gruppo di schede"
+            "state": "translated",
+            "value": "Sblocca gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ឈប់រក្សាទុកក្រុមថេប"
+            "state": "translated",
+            "value": "ឈប់ខ្ទាស់ក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "탭 그룹 저장 해제"
+            "state": "translated",
+            "value": "그룹 고정 해제"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Slutt å lagre fanegruppe"
+            "state": "translated",
+            "value": "Løsne gruppe"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cofnij zapis grupy kart"
+            "state": "translated",
+            "value": "Odepnij grupę"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deixar de Salvar Grupo de Abas"
+            "state": "translated",
+            "value": "Desafixar Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Не сохранять группу вкладок"
+            "state": "translated",
+            "value": "Открепить группу"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เลิกบันทึกกลุ่มแท็บ"
+            "state": "translated",
+            "value": "เลิกปักหมุดกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekme Grubunu Kayıttan Çıkar"
+            "state": "translated",
+            "value": "Grubun Sabitlemesini Kaldır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Скасувати збереження групи вкладок"
+            "state": "translated",
+            "value": "Відкріпити групу"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bỏ lưu nhóm tab"
+            "state": "translated",
+            "value": "Bỏ ghim nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "取消存储标签页组"
+            "state": "translated",
+            "value": "取消固定组"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "取消儲存標籤頁群組"
+            "state": "translated",
+            "value": "取消固定群組"
           }
         }
       }
@@ -70344,6 +70344,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Reset Interface Scale"
+          }
+        }
+      }
+    },
+    "action.chief.openMemoryInspector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Open Memory Inspector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: メモリインスペクタを開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: فتح مفتش الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Otvori inspektor memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Åbn hukommelsesinspektør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Speicher-Inspektor öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Abrir inspector de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief : Ouvrir l’inspecteur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Apri ispettore della memoria"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: បើកកម្មវិធីពិនិត្យអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: 메모리 인스펙터 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Åpne minneinspektør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Otwórz inspektor pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Abrir inspetor de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: открыть инспектор памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: เปิดตัวตรวจหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Bellek Denetçisini Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: відкрити інспектор пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mở trình kiểm tra bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief：打开记忆检查器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief：開啟記憶檢查器"
+          }
+        }
+      }
+    },
+    "action.onboarding.continueSetup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue Setup…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップを続ける…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متابعة الإعداد…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavi postavljanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsæt opsætning…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einrichtung fortsetzen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continuar la configuración…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poursuivre la configuration…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continua la configurazione…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្តការរៀបចំ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정 계속하기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsett oppsettet…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontynuuj konfigurację…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continuar configuração…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Продолжить настройку…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าต่อ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kuruluma devam et…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Продовжити налаштування…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiếp tục thiết lập…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "继续设置…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "繼續設定…"
+          }
+        }
+      }
+    },
+    "action.palette.addHarness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Harness…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーネスを追加…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة أداة تشغيل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj harness…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness hinzufügen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir harness…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter un harness…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi harness…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែម harness…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하네스 추가…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til harness…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar harness…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить харнесс…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่ม harness…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ekle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати харнес…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm harness…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "添加 Harness…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增 Harness…"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.setIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Workspace Group Icon…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループのアイコンを設定…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعيين أيقونة مجموعة مساحات العمل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi ikonu grupe radnih prostora…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv ikon for arbejdsområdegruppe…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbol der Arbeitsbereichsgruppe festlegen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definir icono del grupo de espacios…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir l’icône du groupe d’espaces…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta icona del gruppo di aree di lavoro…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់រូបតំណាងក្រុមកន្លែងធ្វើការ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 그룹 아이콘 설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi ikon for arbeidsområdegruppe…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw ikonę grupy przestrzeni…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definir Ícone do Grupo de Áreas…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать значок группы пространств…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งไอคอนกลุ่มเวิร์กสเปซ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Alanı Grubu Simgesini Ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задати піктограму групи робочих областей…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt biểu tượng nhóm không gian làm việc…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置工作区组图标…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定工作區群組圖示…"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.clearIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Workspace Group Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループのアイコンを削除"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة أيقونة مجموعة مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni ikonu grupe radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern ikon for arbejdsområdegruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbol der Arbeitsbereichsgruppe entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitar icono del grupo de espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer l’icône du groupe d’espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi icona del gruppo di aree di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបរូបតំណាងក្រុមកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 그룹 아이콘 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern ikon for arbeidsområdegruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń ikonę grupy przestrzeni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover Ícone do Grupo de Áreas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Убрать значок группы пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบไอคอนกลุ่มเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Alanı Grubu Simgesini Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прибрати піктограму групи робочих областей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa biểu tượng nhóm không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作区组图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作區群組圖示"
           }
         }
       }

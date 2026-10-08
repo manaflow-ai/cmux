@@ -79,7 +79,6 @@ fn fake_cdp() -> FakeCdp {
         .unwrap();
     let runtime = BrowserRuntime::connect_to_endpoint(
         &format!("ws://{addr}/devtools/browser/fake"),
-        None,
         BrowserSource::Provider,
     )
     .unwrap();

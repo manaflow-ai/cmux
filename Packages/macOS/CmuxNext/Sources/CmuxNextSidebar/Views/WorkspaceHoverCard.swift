@@ -140,8 +140,8 @@ final class WorkspaceHoverCardView: NSView {
 
     func configure(_ workspace: SidebarWorkspace) {
         titleLabel.stringValue = workspace.title
-        subtitleLabel.stringValue = workspace.subtitle ?? ""
-        subtitleLabel.isHidden = (workspace.subtitle ?? "").isEmpty
+        subtitleLabel.stringValue = workspace.folderLine ?? ""
+        subtitleLabel.isHidden = workspace.folderLine == nil
     }
 
     func setResources(_ report: ResourceReport?) {

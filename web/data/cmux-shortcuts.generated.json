@@ -98,6 +98,42 @@
           "aliases": []
         },
         {
+          "id": "newIncognitoWindow",
+          "title": {
+            "en": "New Incognito Window",
+            "ar": "نافذة جديدة للتصفح المتخفي",
+            "bs": "Novi anonimni prozor",
+            "da": "Nyt inkognitovindue",
+            "de": "Neues Inkognitofenster",
+            "es": "Nueva ventana de incógnito",
+            "fr": "Nouvelle fenêtre de navigation privée",
+            "it": "Nuova finestra in incognito",
+            "ja": "新しいシークレット ウィンドウ",
+            "km": "បង្អួចអនាមិកថ្មី",
+            "ko": "새 시크릿 창",
+            "no": "Nytt inkognitovindu",
+            "pl": "Nowe okno incognito",
+            "pt-BR": "Nova janela anônima",
+            "ru": "Новое окно в режиме инкогнито",
+            "th": "หน้าต่างที่ไม่ระบุตัวตนใหม่",
+            "tr": "Yeni Gizli Pencere",
+            "uk": "Нове вікно в режимі анонімного перегляду",
+            "vi": "Cửa sổ ẩn danh mới",
+            "zh-CN": "新建无痕式窗口",
+            "zh-TW": "新增無痕式視窗"
+          },
+          "shortcut": {
+            "key": "n",
+            "modifiers": [
+              "opt",
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "closeWindow",
           "title": {
             "en": "Close Window",
@@ -428,6 +464,90 @@
           },
           "chord": null,
           "aliases": []
+        },
+        {
+          "id": "home.previousConversation",
+          "title": {
+            "en": "Previous Conversation",
+            "ar": "المحادثة السابقة",
+            "bs": "Prethodni razgovor",
+            "da": "Forrige samtale",
+            "de": "Vorherige Unterhaltung",
+            "es": "Conversación anterior",
+            "fr": "Conversation précédente",
+            "it": "Conversazione precedente",
+            "ja": "前の会話",
+            "km": "ការសន្ទនាមុន",
+            "ko": "이전 대화",
+            "no": "Forrige samtale",
+            "pl": "Poprzednia rozmowa",
+            "pt-BR": "Conversa anterior",
+            "ru": "Предыдущий разговор",
+            "th": "การสนทนาก่อนหน้า",
+            "tr": "Önceki Sohbet",
+            "uk": "Попередня розмова",
+            "vi": "Cuộc trò chuyện trước",
+            "zh-CN": "上一个对话",
+            "zh-TW": "上一個對話"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home"
+            }
+          ]
+        },
+        {
+          "id": "home.nextConversation",
+          "title": {
+            "en": "Next Conversation",
+            "ar": "المحادثة التالية",
+            "bs": "Sljedeći razgovor",
+            "da": "Næste samtale",
+            "de": "Nächste Unterhaltung",
+            "es": "Conversación siguiente",
+            "fr": "Conversation suivante",
+            "it": "Conversazione successiva",
+            "ja": "次の会話",
+            "km": "ការសន្ទនាបន្ទាប់",
+            "ko": "다음 대화",
+            "no": "Neste samtale",
+            "pl": "Następna rozmowa",
+            "pt-BR": "Próxima conversa",
+            "ru": "Следующий разговор",
+            "th": "การสนทนาถัดไป",
+            "tr": "Sonraki Sohbet",
+            "uk": "Наступна розмова",
+            "vi": "Cuộc trò chuyện tiếp theo",
+            "zh-CN": "下一个对话",
+            "zh-TW": "下一個對話"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home"
+            }
+          ]
         },
         {
           "id": "focusHistoryBack",
@@ -976,47 +1096,6 @@
                   "key": "\t",
                   "modifiers": [
                     "shift"
-                  ]
-                }
-              ],
-              "when": "paletteOpen"
-            }
-          ]
-        },
-        {
-          "id": "paletteKey.toggleActions",
-          "title": {
-            "en": "Palette: Show or Hide Actions",
-            "ar": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها",
-            "bs": "Paleta: prikaži ili sakrij radnje",
-            "da": "Palet: Vis eller skjul handlinger",
-            "de": "Palette: Aktionen ein- oder ausblenden",
-            "es": "Paleta: mostrar u ocultar acciones",
-            "fr": "Palette : afficher ou masquer les actions",
-            "it": "Tavolozza: mostra o nascondi azioni",
-            "ja": "パレット: アクションの表示を切り替え",
-            "km": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព",
-            "ko": "팔레트: 작업 표시 또는 숨기기",
-            "no": "Palett: Vis eller skjul handlinger",
-            "pl": "Paleta: Pokaż lub ukryj akcje",
-            "pt-BR": "Paleta: Mostrar ou Ocultar Ações",
-            "ru": "Палитра: показать или скрыть действия",
-            "th": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน",
-            "tr": "Palet: Eylemleri Göster veya Gizle",
-            "uk": "Палітра: показати або сховати дії",
-            "vi": "Bảng lệnh: Hiện hoặc ẩn thao tác",
-            "zh-CN": "面板：显示或隐藏操作",
-            "zh-TW": "命令面板：顯示或隱藏動作"
-          },
-          "shortcut": null,
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "k",
-                  "modifiers": [
-                    "cmd"
                   ]
                 }
               ],
@@ -2900,7 +2979,6 @@
           "shortcut": {
             "key": "=",
             "modifiers": [
-              "ctrl",
               "cmd"
             ]
           },
@@ -2935,7 +3013,6 @@
           "shortcut": {
             "key": "-",
             "modifiers": [
-              "ctrl",
               "cmd"
             ]
           },
@@ -2970,7 +3047,6 @@
           "shortcut": {
             "key": "0",
             "modifiers": [
-              "ctrl",
               "cmd"
             ]
           },
@@ -3387,6 +3463,7 @@
           "shortcut": {
             "key": "k",
             "modifiers": [
+              "shift",
               "cmd"
             ]
           },
@@ -3551,11 +3628,9 @@
             "zh-TW": "新增終端機標籤頁"
           },
           "shortcut": {
-            "key": "t",
+            "key": "`",
             "modifiers": [
-              "ctrl",
-              "shift",
-              "cmd"
+              "ctrl"
             ]
           },
           "chord": null,
@@ -4730,6 +4805,40 @@
           },
           "shortcut": {
             "key": "v",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "terminal.clear",
+          "title": {
+            "en": "Clear Screen and Scrollback",
+            "ar": "مسح الشاشة وسجل التمرير",
+            "bs": "Očisti ekran i historiju",
+            "da": "Ryd skærm og rullehistorik",
+            "de": "Bildschirm und Verlauf löschen",
+            "es": "Limpiar pantalla e historial",
+            "fr": "Effacer l’écran et l’historique",
+            "it": "Pulisci schermo e scrollback",
+            "ja": "画面とスクロールバックを消去",
+            "km": "សម្អាតអេក្រង់ និងប្រវត្តិរំកិល",
+            "ko": "화면 및 스크롤백 지우기",
+            "no": "Tøm skjerm og rullehistorikk",
+            "pl": "Wyczyść ekran i historię przewijania",
+            "pt-BR": "Limpar Tela e Histórico de Rolagem",
+            "ru": "Очистить экран и прокрутку",
+            "th": "ล้างหน้าจอและประวัติเลื่อน",
+            "tr": "Ekranı ve Kaydırma Geçmişini Temizle",
+            "uk": "Очистити екран і прокрутку",
+            "vi": "Xóa màn hình và bộ đệm cuộn",
+            "zh-CN": "清除屏幕和回滚",
+            "zh-TW": "清除畫面與回捲內容"
+          },
+          "shortcut": {
+            "key": "k",
             "modifiers": [
               "cmd"
             ]
@@ -6285,6 +6394,7 @@
           "shortcut": {
             "key": "k",
             "modifiers": [
+              "shift",
               "cmd"
             ]
           },
@@ -6873,40 +6983,6 @@
           "aliases": []
         },
         {
-          "id": "agentPane.searchChats",
-          "title": {
-            "en": "Search Agent Chats",
-            "ar": "البحث في محادثات الوكيل",
-            "bs": "Pretraži razgovore agenta",
-            "da": "Søg i agentchats",
-            "de": "Agent-Chats durchsuchen",
-            "es": "Buscar chats del agente",
-            "fr": "Rechercher dans les discussions de l'agent",
-            "it": "Cerca chat dell'agente",
-            "ja": "エージェントのチャットを検索",
-            "km": "ស្វែងរកការជជែករបស់ភ្នាក់ងារ",
-            "ko": "에이전트 채팅 검색",
-            "no": "Søk i agentchatter",
-            "pl": "Szukaj czatów agenta",
-            "pt-BR": "Pesquisar conversas do agente",
-            "ru": "Поиск по чатам агента",
-            "th": "ค้นหาแชทของเอเจนต์",
-            "tr": "Ajan sohbetlerinde ara",
-            "uk": "Пошук у чатах агента",
-            "vi": "Tìm kiếm cuộc trò chuyện của tác tử",
-            "zh-CN": "搜索代理聊天",
-            "zh-TW": "搜尋代理聊天"
-          },
-          "shortcut": {
-            "key": "k",
-            "modifiers": [
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "agentPane.permission.allowOnce",
           "title": {
             "en": "Allow once",
@@ -7250,6 +7326,111 @@
               ]
             }
           ],
+          "aliases": []
+        },
+        {
+          "id": "appearance.uiScale.increase",
+          "title": {
+            "en": "Increase Interface Scale",
+            "ar": "Increase Interface Scale",
+            "bs": "Increase Interface Scale",
+            "da": "Increase Interface Scale",
+            "de": "Increase Interface Scale",
+            "es": "Increase Interface Scale",
+            "fr": "Increase Interface Scale",
+            "it": "Increase Interface Scale",
+            "ja": "Increase Interface Scale",
+            "km": "Increase Interface Scale",
+            "ko": "Increase Interface Scale",
+            "no": "Increase Interface Scale",
+            "pl": "Increase Interface Scale",
+            "pt-BR": "Increase Interface Scale",
+            "ru": "Increase Interface Scale",
+            "th": "Increase Interface Scale",
+            "tr": "Increase Interface Scale",
+            "uk": "Increase Interface Scale",
+            "vi": "Increase Interface Scale",
+            "zh-CN": "Increase Interface Scale",
+            "zh-TW": "Increase Interface Scale"
+          },
+          "shortcut": {
+            "key": "=",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "appearance.uiScale.decrease",
+          "title": {
+            "en": "Decrease Interface Scale",
+            "ar": "Decrease Interface Scale",
+            "bs": "Decrease Interface Scale",
+            "da": "Decrease Interface Scale",
+            "de": "Decrease Interface Scale",
+            "es": "Decrease Interface Scale",
+            "fr": "Decrease Interface Scale",
+            "it": "Decrease Interface Scale",
+            "ja": "Decrease Interface Scale",
+            "km": "Decrease Interface Scale",
+            "ko": "Decrease Interface Scale",
+            "no": "Decrease Interface Scale",
+            "pl": "Decrease Interface Scale",
+            "pt-BR": "Decrease Interface Scale",
+            "ru": "Decrease Interface Scale",
+            "th": "Decrease Interface Scale",
+            "tr": "Decrease Interface Scale",
+            "uk": "Decrease Interface Scale",
+            "vi": "Decrease Interface Scale",
+            "zh-CN": "Decrease Interface Scale",
+            "zh-TW": "Decrease Interface Scale"
+          },
+          "shortcut": {
+            "key": "-",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "appearance.uiScale.reset",
+          "title": {
+            "en": "Reset Interface Scale",
+            "ar": "Reset Interface Scale",
+            "bs": "Reset Interface Scale",
+            "da": "Reset Interface Scale",
+            "de": "Reset Interface Scale",
+            "es": "Reset Interface Scale",
+            "fr": "Reset Interface Scale",
+            "it": "Reset Interface Scale",
+            "ja": "Reset Interface Scale",
+            "km": "Reset Interface Scale",
+            "ko": "Reset Interface Scale",
+            "no": "Reset Interface Scale",
+            "pl": "Reset Interface Scale",
+            "pt-BR": "Reset Interface Scale",
+            "ru": "Reset Interface Scale",
+            "th": "Reset Interface Scale",
+            "tr": "Reset Interface Scale",
+            "uk": "Reset Interface Scale",
+            "vi": "Reset Interface Scale",
+            "zh-CN": "Reset Interface Scale",
+            "zh-TW": "Reset Interface Scale"
+          },
+          "shortcut": {
+            "key": "0",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
           "aliases": []
         }
       ]

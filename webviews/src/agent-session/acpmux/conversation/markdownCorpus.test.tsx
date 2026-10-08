@@ -77,7 +77,9 @@ describe("tables and lists reply", () => {
     expect(out).toContain('class="cv-list cv-ol" data-depth="0"');
     expect(out).toContain('class="cv-list cv-ul" data-depth="1"');
     expect(out).toContain('class="cv-list cv-ol" data-depth="1"');
-    expect(out.match(/cv-checkbox/g)!.length).toBe(3);
+    // The checked box also contains `cv-checkbox__check` on its SVG; count the exact element
+    // class so the check mark does not look like a fourth task checkbox.
+    expect(out.match(/class="[^"]*\bcv-checkbox\b[^"]*"/g)!.length).toBe(3);
     expect(out).toContain('<blockquote class="cv-quote">');
   });
 
@@ -109,10 +111,10 @@ describe("references reply", () => {
     expect(out).toContain('<h6 class="cv-h cv-h4">Smallest heading</h6>');
   });
 
-  test("a data URL image draws; a web image is a link named by its alt text", () => {
+  test("a data URL image draws; a web image waits behind a placeholder with its site (D5)", () => {
     expect(out).toContain('<img class="cv-img" src="data:image/png;base64,');
     expect(out).toMatch(
-      /<a class="cv-link is-image" href="https:\/\/example.com\/assets\/build-graph.png"[^>]*>.*build graph<\/a>/,
+      /<span class="cv-image-placeholder" title="https:\/\/example.com\/assets\/build-graph.png">.*example.com<\/span><button[^>]*>Load image<\/button>/,
     );
     expect(out).not.toContain("![");
   });

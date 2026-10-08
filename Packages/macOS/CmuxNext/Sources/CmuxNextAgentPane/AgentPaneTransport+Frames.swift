@@ -36,10 +36,13 @@ extension AgentPaneTransport {
         /// credit), and the handoff it names, if any.
         var foreignSource = false
         var handoffId: String?
+        /// `_acpmux/harness_enable`: the native sheet decides it (``confirmHarnessEnable(_:)``).
+        var harnessEnable = false
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
         var free: Bool {
             ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
+                && !harnessEnable
         }
     }
 
@@ -78,6 +81,20 @@ extension AgentPaneTransport {
 
         /// Frees a large frame here, off the main thread.
         func free() { frame.withLock { $0 = [:] } }
+
+        /// A string param of the frame (after the folder check made folders canonical).
+        func param(_ key: String) -> String? {
+            frame.withLock { (($0["params"] as? [String: Any])?[key] as? String) }
+        }
+
+        /// Sets a string param of the frame.
+        func setParam(_ key: String, _ value: String) {
+            frame.withLock { object in
+                var params = object["params"] as? [String: Any] ?? [:]
+                params[key] = value
+                object["params"] = params
+            }
+        }
     }
 
     /// What one off-main pass over the line's frames did: the results of the frames it finished,
@@ -172,7 +189,8 @@ extension AgentPaneTransport {
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
         var rootRequested = false
         if facts.needsPathCheck {
-            let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot())
+            let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
+                                               agentHome: agentHome(), home: homeFolder, granted: addedRoots)
             let result = await Self.checkPaths(box, scope: scope)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             switch result {
@@ -198,8 +216,9 @@ extension AgentPaneTransport {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
                     return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
                 }
-                // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into
-                // a session of this pane. A ticket is spent even when it does not match.
+                // B2: only set_mode, set_config_option and a prompt held for the trust answer (its
+                // promptId) redeem a ticket, for their exact pick, into a session of this pane. A
+                // ticket is spent even when it does not match.
                 let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
@@ -222,6 +241,12 @@ extension AgentPaneTransport {
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
                 if !confirmed { return Self.refuse(.refuse(.modeNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
             }
+        }
+        // A folder harness: the user's Enable on the native sheet, then the prompt's sha256.
+        if facts.harnessEnable {
+            let confirmed = await confirmHarnessEnable(box)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            if !confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
         }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?

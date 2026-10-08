@@ -72,6 +72,9 @@ fn uploads_and_file_choosers_work_on_headless() {
     let socket = dir.join("host.sock");
     // The test's own host: stopped (exact PID) when the test ends, also on failure.
     let _host = HostGuard::start(&socket, &chrome);
+    // The click's reply can come before the held chooser's event (Chromium
+    // sends it after the renderer's chooser request), so the held chooser is
+    // awaited (up to 5 s) instead of read once.
     let out = eval_in(
         &socket,
         &dir,
@@ -89,7 +92,8 @@ fn uploads_and_file_choosers_work_on_headless() {
              await chooser.setFiles({{ name: 'b.txt', mimeType: 'text/plain', buffer: 'beta' }}); \
              await until('hidden:'); console.log('chooser=' + await text()); \
              await page.locator('#many').click(); \
-             const held = page.fileChooser(); console.log('held=' + (held && held.multiple)); \
+             let held = null; for (let i = 0; i < 100 && !(held = page.fileChooser()); i++) await new Promise((r) => setTimeout(r, 50)); \
+             console.log('held=' + (held && held.multiple)); \
              await held.cancel(); await until('many:'); \
              console.log('cancelled=' + await text() + ' ' + page.fileChooser());"
         ),

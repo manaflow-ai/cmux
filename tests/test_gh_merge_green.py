@@ -24,6 +24,23 @@ ISSUE = "✘ Test fragmentNavigation() recorded an issue at NavigationEdgeTests.
 SUMMARY = "✘ Test run with 15 tests in 2 suites failed after 5.731 seconds with 1 issue."
 
 
+CMUX_NEXT_WORKFLOW = """name: cmux-next
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/macOS/CmuxNext/**
+      - 'scripts/cmux-next/bundle-*.sh'
+      - docs/mdm/**
+      - "!docs/mdm/*.md"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - docs/**
+jobs: {}
+"""
+
+
 def test_log(issue=ISSUE):
     return "\n".join(f"cmux-next swift test\t{TEST_STEP}\t2026-10-02T19:10:10Z {line}" for line in (issue, SUMMARY))
 
@@ -283,7 +300,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=()):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -291,6 +308,15 @@ class InstalledHelperRegression(unittest.TestCase):
             for index, (name, status, conclusion) in enumerate(extra_checks)
         )
         check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
+        runs_payload = shlex.quote(json.dumps({"total_count": len(cmux_next_runs), "workflow_runs": [
+            {"id": 900 + index, "status": status, "conclusion": conclusion, "run_attempt": attempt, "head_sha": HEAD, "event": "pull_request"}
+            for index, (status, conclusion, attempt) in enumerate(cmux_next_runs)]}))
+        if cmux_next_workflow is None:
+            cmux_next_workflow = CMUX_NEXT_WORKFLOW
+        workflow_route = (
+            "printf '%s' " + shlex.quote(cmux_next_workflow) + "; exit 0"
+            if cmux_next_workflow else "exit 1"
+        )
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
@@ -299,6 +325,12 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
             "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'workflows/cmux-next.yml/runs'; then "
+            "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
+            + workflow_route + "; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
+            "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -352,6 +384,108 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(validator_marker.exists())
             self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
+    def test_a_cmux_next_run_still_running_refuses_even_with_override(self):
+        """ci-status and the reported checks were green while the cmux-next run's
+        native jobs were still queued (#17602) or rerunning after a runner loss
+        (#17625): those heads merged with Mac tests that never ran."""
+        cases = {
+            "native jobs not created yet": [("in_progress", None, 1)],
+            "rerun queued after a runner loss": [("completed", "cancelled", 1), ("queued", None, 2)],
+            "rerun waiting": [("waiting", None, 2)],
+        }
+        for label, runs in cases.items():
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(label=label, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=runs, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+                    self.assertIn("still", result.stderr)
+
+    def test_a_cmux_next_run_that_did_not_succeed_refuses_even_with_override(self):
+        """A cancelled cmux-next run is completed, so the pending-run guard let
+        #17653, #18079, #18080 and #18083 merge in the seconds between cancelling
+        stale queued runs and rerunning them: swift test, generated files and
+        Release compile never ran. Routing skips happen inside a successful run,
+        so only a run that concluded success shows the native lanes ran or were
+        not needed."""
+        cases = {
+            "cancelled before the rerun started": [("completed", "cancelled", 1)],
+            "skipped run": [("completed", "skipped", 1)],
+            "timed out": [("completed", "timed_out", 1)],
+            "startup failure": [("completed", "startup_failure", 1)],
+            "newest run cancelled after an older success": [("completed", "success", 1), ("completed", "cancelled", 1)],
+        }
+        for label, runs in cases.items():
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(label=label, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=runs, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+
+    def test_a_pull_request_outside_the_cmux_next_paths_filter_merges(self):
+        """cmux-next.yml filters pull_request by paths, so a docs or CI change has
+        no cmux-next run; ci-status on the exact head still gates it."""
+        for files in (["docs/README.md"], ["scripts/cmux-next/sub/bundle-x.sh", "README.md"], ["docs/mdm/README.md", "docs/mdm/keep.md"]):
+            with self.subTest(files=files), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, cmux_next_runs=[], changed_files=files)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+
+    def test_no_cmux_next_run_for_a_covered_change_refuses_even_with_override(self):
+        """#18100 merged seconds after a push, before GitHub had created the
+        cmux-next run for its head: no run and a green ci-status passed. A change
+        the workflow's paths filter covers gets a run, so its absence means the
+        run does not exist yet."""
+        for files in (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"], ["docs/README.md", "scripts/cmux-next/bundle-acpmux.sh"]):
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(files=files, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=[], changed_files=files, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+
+    def test_no_cmux_next_run_with_an_unreadable_workflow_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[], cmux_next_workflow="")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_an_older_cancelled_cmux_next_run_behind_a_success_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "cancelled", 1), ("completed", "success", 1)])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_failed_cmux_next_run_needs_an_override(self):
+        """A red native lane on the base stays waivable, as its check run is."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "failure", 1)])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("cmux-next run", result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "failure", 1)],
+                                     extra_args=("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_finished_cmux_next_run_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "success", 1)])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_ci_status_is_required_on_the_exact_head(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -58,7 +58,7 @@ final class SectionHeaderRowView: SidebarRowView {
             switch machine.kind {
             case .local: symbol = .machineLocal
             case .cloud: symbol = .cloud
-            case .ssh: symbol = .machineRemote
+            case .ssh, .server: symbol = .machineRemote
             }
             title = machine.name
             switch (machine.kind, machine.status) {

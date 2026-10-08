@@ -1,81 +1,11 @@
-// The Swift window's remaining cards, drawn by the page (R82 commit 4): the theme picker by level
-// (Appearance), the wallpaper grid (Appearance, behind appearance.experimentalControls), the
+// The Swift window's remaining cards, drawn by the page (R82 commit 4): the wallpaper grid
+// (Experimental, behind appearance.experimentalControls), the
 // terminal facts (Terminal) and the settings file with its problems (Advanced). Data comes from
 // the host lists; writes run host ops or catalog actions, the palette's paths.
-import { useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
-
-export function ThemeLevels() {
-  const store = useStore();
-  const { host, domains } = useSettingsState();
-  const levels = host?.theme?.levels ?? [];
-  const [picked, setPicked] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [custom, setCustom] = useState<string | null>(null);
-  if (!host?.theme || levels.length === 0) return null;
-  const level = picked && levels.includes(picked) ? picked : levels[0]!;
-  const current = host.theme.current[level] ?? null;
-  const text = query.trim();
-  const names = text
-    ? domains.themes.filter((name) => name.toLowerCase().includes(text.toLowerCase()))
-    : domains.themes;
-  const onQuery = (value: string) => {
-    setQuery(value);
-    const typed = value.trim();
-    setCustom(null);
-    if (typed && !domains.themes.includes(typed)) {
-      void store.acceptsTheme(typed).then((accepts) => setCustom(accepts ? typed : null));
-    }
-  };
-  const choice = (title: string, spec: string | null) => (
-    <button
-      type="button"
-      key={spec ?? "\u0000config"}
-      className="theme-choice"
-      aria-pressed={current === spec}
-      onClick={() => void store.setTheme(level, spec)}
-    >
-      {title}
-    </button>
-  );
-  return (
-    <section className="group" data-card="theme">
-      <h3 className="group-title">{t("settingsWindow.themePicker")}</h3>
-      <div className="theme-picker">
-        <fieldset className="segmented" aria-label={t("settingsWindow.themePicker")}>
-          {levels.map((id) => (
-            <label key={id} className="segment" data-checked={id === level ? "" : undefined}>
-              <input
-                type="radio"
-                name="theme-level"
-                value={id}
-                aria-label={t(`settingsWindow.themeLevel.${id}`)}
-                checked={id === level}
-                onChange={() => setPicked(id)}
-              />
-              {t(`settingsWindow.themeLevel.${id}`)}
-            </label>
-          ))}
-        </fieldset>
-        <input
-          className="field"
-          aria-label={t("settingsWindow.themeSearch")}
-          placeholder={t("settingsWindow.themeSearch")}
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-        />
-        <div className="theme-list" data-theme-list="">
-          {choice(t("settingsWindow.themeUseConfig"), null)}
-          {custom && custom === text && choice(t("settingsWindow.themeUse", custom), custom)}
-          {names.map((name) => choice(name, name))}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 export function Backdrops() {
   const store = useStore();

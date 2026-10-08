@@ -104,5 +104,18 @@ import WebKit
         SystemScrollers.preferredStyleOverride = .overlay
         #expect(WebTheme(tokens(opacity: 1)).scrollers == "overlay")
     }
-}
 
+    /// Pages get the app theme's contract tokens (`--cmux-app-*`): the scope's own (its terminal
+    /// theme) unless an app theme is passed (appearance.appTheme).
+    @Test func pagesGetTheAppThemeTokens() {
+        let tokens = ThemeTokens.derive(from: .ghosttyDefault)
+        let own = WebTheme(tokens, scrollers: "overlay", app: tokens.app)
+        for token in AppTheme.Token.allCases {
+            #expect(own.variables[token.variable] == AppTheme.hex(tokens.app[token]))
+        }
+        let nord = AppTheme.derive(background: ThemeRGB(hex: 0x2E3440), foreground: ThemeRGB(hex: 0xD8DEE9), palette: [ThemeRGB]())
+        let chosen = WebTheme(tokens, scrollers: "overlay", app: nord)
+        #expect(chosen.variables["--cmux-app-window"] == "#2e3440")
+        #expect(chosen.variables["--cmux-text"] == own.variables["--cmux-text"], "the page's own tokens stay the scope's")
+    }
+}

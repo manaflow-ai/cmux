@@ -5,6 +5,10 @@ Each published build gets `notes/<build>.json` and a detached Ed25519
 signature `notes/<build>.json.sig` (base64, the `content-signing` key), plus
 a signed `notes/index.json` listing recent builds for the full history.
 
+The notes also carry the build's What's New digest ("whatsNew", decision
+WHATS-NEW-AFTER-UPDATE W3; scripts/whats-new/digest.py) built from the same
+highlight files, when they validate.
+
 Highlights are human-written: one Markdown file per highlight under
 release-notes/next/highlights/. A highlight belongs to the first build whose
 commit range adds its file, so writing the file is all a person does. Front
@@ -14,14 +18,17 @@ matter (lines before the first blank line):
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
 
 The rest is the body (Markdown). A build with no new highlight file ships
-only its commit subjects (full history, no what's-new card).
+only its commit subjects (full history, no what's-new card). Each commit is
+also an item {title, author, pr} (newest first; pr from a "(#1234)" suffix)
+for the update card's "What's changed" popover; older notes without items
+still decode, and the app then reads the PR from each subject.
 
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
 """
-import argparse, base64, json, os, subprocess, sys, tempfile
+import argparse, base64, json, os, re, subprocess, sys, tempfile
 
 HIGHLIGHTS = "release-notes/next/highlights"
 MAX_CHANGES = 200
@@ -51,15 +58,63 @@ def parse_highlight(path, text):
     return item
 
 
+PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
+
+
+def change_item(subject, author):
+    """One structured change (UPDATE-CARD "What's changed"): the subject's
+    title without its "(#1234)" suffix, the commit author, the PR number."""
+    item = {"title": subject.strip(), "author": author.strip() or None}
+    match = PR_SUFFIX.match(subject)
+    if match and match["title"].strip():
+        item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
+    return {k: v for k, v in item.items() if v is not None}
+
+
+def whats_new_digest(args):
+    """The What's New nightly digest of the same highlights (scripts/whats-new/digest.py),
+    or None when it is empty or does not validate: the notes still publish."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    try:
+        import digest, validate
+        document = digest.build(args.short, args.date, args.head, args.since)
+    except (ImportError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"whats-new digest skipped: {error}", file=sys.stderr)
+        return None
+    problems = validate.validate_document(f"{args.short}.json", document)
+    if problems:
+        print("whats-new digest skipped:\n" + "\n".join(problems), file=sys.stderr)
+        return None
+    return document if document["entries"] else None
+
+
+def write_community_summary(digest, args):
+    """notes/community-<build>.md: a short Discord/X summary a human posts (K2); the
+    release-notes artifact keeps it and the R2 upload publishes it with the notes."""
+    import community
+    text = community.summary(digest, f"https://cmux.com/whats-new/{digest['version']}")
+    if text:
+        os.makedirs(args.out, exist_ok=True)
+        with open(os.path.join(args.out, f"community-{args.build}.md"), "w", encoding="utf-8") as out:
+            out.write(text)
+
+
 def build(args):
     span = rev_range(args.since, args.head)
-    changes = [line for line in git("log", "--no-merges", "--format=%s", span).splitlines() if line.strip()][:MAX_CHANGES]
+    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
+    commits = [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:MAX_CHANGES]
+    changes = [subject for subject, _ in commits]
+    items = [change_item(subject, author) for subject, author in commits]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     for path in sorted(set(p for p in added if p.endswith(".md"))):
         highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date,
-             "highlights": highlights, "changes": changes}
+             "highlights": highlights, "changes": changes, "items": items}
+    digest = whats_new_digest(args)
+    if digest is not None:
+        notes["whatsNew"] = digest
+        write_community_summary(digest, args)
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, f"{args.build}.json")
     with open(path, "w", encoding="utf-8") as out:
