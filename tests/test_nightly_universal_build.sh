@@ -522,6 +522,7 @@ assert "Reject stale continuation before publication" in auto
 assert "cmux-published-build" in auto
 assert "final_dmg_sha256" in auto
 assert 'branch not in {"main", "nightly-next"}' in auto
+assert "eligible=false" in auto and "source-branch-is-not-published" in auto
 assert "published: ${{ steps.publication-result.outputs.published }}" in auto
 assert "needs.publish.outputs.published == 'true'" in auto
 assert "SOURCE_HEAD_SHA.toLowerCase()" in auto

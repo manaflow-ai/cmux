@@ -45,7 +45,7 @@ jobs:
           [[ "$SOURCE_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || { echo "invalid source run attempt" >&2; exit 1; }
           [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "invalid source head SHA" >&2; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
-          python3 - "$RUNNER_TEMP/source-run.json" "$SOURCE_REPOSITORY" "$SOURCE_HEAD_SHA" "$SOURCE_BRANCH" "$SOURCE_RUN_ATTEMPT" <<'PY'
+          python3 - "$RUNNER_TEMP/source-run.json" "$SOURCE_REPOSITORY" "$SOURCE_HEAD_SHA" "$SOURCE_BRANCH" "$SOURCE_RUN_ATTEMPT" <<'PY' > "$RUNNER_TEMP/source-check"
           import json
           import pathlib
           import sys
@@ -62,11 +62,18 @@ jobs:
               raise SystemExit("source run attempt mismatch")
           if run.get("event") not in {"push", "schedule", "workflow_dispatch"}:
               raise SystemExit("source run event cannot publish")
-          if branch not in {"main", "nightly-next"} and not branch.startswith("rc/"):
-              raise SystemExit("source run is not a published branch")
           if run.get("conclusion") not in {"failure", "success"}:
               raise SystemExit("source run did not complete")
+          if branch not in {"main", "nightly-next"} and not branch.startswith("rc/"):
+              print("eligible=false")
+          else:
+              print("eligible=true")
           PY
+          if grep -Fxq 'eligible=false' "$RUNNER_TEMP/source-check"; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=source-branch-is-not-published" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$SOURCE_BRANCH" = main ] || [ "$SOURCE_BRANCH" = nightly-next ]; then
             channel=nightly
             release_tag=nightly
@@ -403,16 +410,6 @@ jobs:
             --feed nightly-out/appcast-universal.xml \
             --feed nightly-out/appcast.xml
 
-      - name: Record release metadata
-        if: env.ALREADY_PUBLISHED != 'true'
-        run: |
-          set -euo pipefail
-          gh release edit "$RELEASE_TAG" \
-            --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" \
-            --notes-file nightly-notes.published.md \
-            --draft=false \
-            --prerelease
-
       - name: Upload accepted appcasts to R2
         if: env.ALREADY_PUBLISHED != 'true'
         env:
@@ -448,6 +445,16 @@ jobs:
           args=(--repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$SOURCE_HEAD_SHA")
           [ "$RELEASE_TAG" = nightly ] || args+=(--allow-non-descendant)
           python3 scripts/ci/update-release-tag.py "${args[@]}"
+
+      - name: Record release metadata
+        if: env.ALREADY_PUBLISHED != 'true'
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" \
+            --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" \
+            --notes-file nightly-notes.published.md \
+            --draft=false \
+            --prerelease
 
       - name: Record publication result
         id: publication-result
@@ -575,6 +582,9 @@ jobs:
     if: >-
       always() && needs.preflight.outputs.ready == 'true' &&
       needs.publish.outputs.published == 'true' && needs.generate-deltas.result == 'success'
+    concurrency:
+      group: release-publish-${{ needs.preflight.outputs.release_tag }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
