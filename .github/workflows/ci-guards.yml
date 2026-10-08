@@ -1152,6 +1152,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_nightly_dmg.sh
 
+      - name: Validate automatic nightly notarization recovery
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_nightly_notarization_recovery.sh
+
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_finalize_sparkle_deltas.sh
