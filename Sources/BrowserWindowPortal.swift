@@ -1317,18 +1317,7 @@ final class WindowBrowserSlotView: NSView {
     nonisolated override var isOpaque: Bool { false }
     nonisolated override var isHidden: Bool {
         didSet {
-            if !isHidden {
-                guard oldValue, let hostedWebView else { return }
-                // Browser REPL may still own the WebView in its render host
-                // when this retained pane slot becomes visible again. Let its
-                // attachment re-evaluate the shared portal visibility rule.
-                NotificationCenter.default.post(
-                    name: .browserPortalDidBecomePresentable,
-                    object: hostedWebView
-                )
-                return
-            }
-            guard !oldValue else { return }
+            guard isHidden, !oldValue else { return }
             clearLinkHoverURLs()
             guard let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
