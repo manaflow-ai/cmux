@@ -29,9 +29,6 @@
  "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUIControl.swift": {
   "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
  },
- "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHConnection.swift": {
-  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
- },
  "ios/CmuxiOS/Sources/CmuxiOSBrowserCore/Link/LinkSimulatorStreamSource.swift": {
   "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
  },
@@ -60,9 +57,6 @@
   "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
  },
  "ios/CmuxiOS/Sources/CmuxiOSPlatform/Diagnostics/DiagnosticLogSink.swift": {
-  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
- },
- "ios/CmuxiOS/Sources/CmuxiOSSSHCore/Session/SSHTerminalByteSource.swift": {
   "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
  },
  "ios/CmuxiOS/Sources/CmuxiOSTerminal/Bench/FixtureByteSource.swift": {
