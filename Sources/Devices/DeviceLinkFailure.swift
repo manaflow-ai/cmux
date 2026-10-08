@@ -48,9 +48,9 @@ struct DeviceLinkFailure: Equatable, Sendable {
     /// Maps a dial or session error to its failure class. The host name is
     /// intentionally not included in admission messages: it can contain a
     /// user-provided device name that must not be echoed into UI text.
-    static func classify(_ error: any Error, hostName: String) -> DeviceLinkFailure {
+    static func classify(_ error: any Error, hostName _: String) -> DeviceLinkFailure {
         if let denial = error as? IrxAdmissionDenied {
-            return admission(denial.code, hostName: hostName)
+            return admission(denial.code)
         }
         if let error = error as? IrxMacPeerAuthorization.Failure {
             return peerAuthorization(error)
@@ -97,7 +97,7 @@ struct DeviceLinkFailure: Equatable, Sendable {
 
     /// The host's admission verdict travels in the QUIC close reason. Every
     /// code is mapped here, so a new code cannot fall into the retry loop.
-    private static func admission(_ code: IrxCloseCode, hostName _: String) -> DeviceLinkFailure {
+    private static func admission(_ code: IrxCloseCode) -> DeviceLinkFailure {
         // Keep the localized strings' grammatical placeholder while using a
         // fixed label. Device names are display metadata and are not trusted
         // to be safe user-facing disclosure in a refusal message.

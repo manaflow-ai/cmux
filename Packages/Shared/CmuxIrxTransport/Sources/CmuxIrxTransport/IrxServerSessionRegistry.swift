@@ -123,4 +123,13 @@ public actor IrxServerSessionRegistry {
             }
         }
     }
+
+    /// Compatibility overload for callers that do not need to distinguish
+    /// account-admitted sessions from team sessions.
+    public func closeAll(
+        code: IrxCloseCode,
+        matching shouldClose: @Sendable (_ remoteEndpointIDHex: String) -> Bool
+    ) async {
+        await closeAll(code: code, matching: { endpoint, _ in shouldClose(endpoint) })
+    }
 }
