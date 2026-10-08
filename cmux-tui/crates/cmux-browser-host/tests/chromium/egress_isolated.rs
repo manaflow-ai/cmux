@@ -42,9 +42,20 @@ fn an_isolated_browser_reaches_no_limited_range() {
         )
     };
 
-    // Allowed: the literal fixture and a name the listener resolved.
+    // Allowed: the literal fixture.
     go(&format!("http://127.0.0.1:{port}/second")).expect("the allow-listed fixture loads");
-    go(&format!("http://app.test:{port}/second")).expect("the listener resolves names");
+    // Names reach the listener (Chromium itself resolves none), which
+    // refuses them: Chromium reports a proxy failure, not an unresolved
+    // name. app.test resolves to the allowed port, which is rebinding.
+    for url in [
+        format!("http://app.test:{port}/second"),
+        "http://meta.test/latest/meta-data/".to_owned(),
+        "http://metadata.google.internal/computeMetadata/v1/".to_owned(),
+    ] {
+        let refused = go(&url).expect_err(&url);
+        eprintln!("{url}: {}", refused.message);
+        assert!(!refused.message.contains("ERR_NAME_NOT_RESOLVED"), "{url}: {refused}");
+    }
 
     for url in [
         "http://169.254.169.254/latest/meta-data/".to_owned(),
@@ -66,6 +77,7 @@ fn an_isolated_browser_reaches_no_limited_range() {
         format!("http://127.0.0.1:{port}/redirect"),
     ] {
         let refused = go(&url).expect_err(&url);
+        eprintln!("{url}: {}", refused.message);
         assert!(refused.message.contains("ERR_"), "{url}: {refused}");
     }
 

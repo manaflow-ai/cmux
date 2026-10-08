@@ -7,9 +7,13 @@ use super::*;
 use crate::egress_scope::{EgressRule, IsolatedEgress};
 
 fn isolated_gate() -> (Gate, Arc<FakeDriver>) {
+    isolated_gate_allowing(Vec::new())
+}
+
+fn isolated_gate_allowing(allow: Vec<std::net::SocketAddr>) -> (Gate, Arc<FakeDriver>) {
     let (_, driver) = make_gate(Value::Null, false);
     let rule = EgressRule::new(
-        Vec::new(),
+        allow,
         Arc::new(|host: &str, _| match host {
             "rebind.test" => vec!["10.0.0.5".parse().unwrap()],
             "meta.test" => vec!["169.254.169.254".parse().unwrap()],
@@ -73,6 +77,7 @@ fn a_session_on_a_cloud_machine_sets_no_proxy() {
 #[test]
 fn the_listener_address_in_a_response_is_not_a_rebinding() {
     let (gate, driver) = isolated_gate();
+    gate.grants.isolated.as_ref().unwrap().listener().expect("the listener starts");
     gate.mask_event(
         "response",
         &json!({"targetId": "T", "url": "https://public.test/", "remoteIPAddress": "127.0.0.1"}),
@@ -83,4 +88,56 @@ fn the_listener_address_in_a_response_is_not_a_rebinding() {
         gate.driver_call("net.fetch", json!({"targetId": "T", "url": "https://public.test/x"}));
     assert!(out.is_ok(), "{out:?}");
     assert!(!methods(&driver).contains(&"tab.stop".to_owned()), "{:?}", methods(&driver));
+}
+
+/// A response from any address but the listener's went around it (an
+/// engine the host did not launch, a proxy setting it did not make): a
+/// refused address stops the load.
+#[test]
+fn a_response_from_another_refused_address_stops_the_load() {
+    let (gate, driver) = isolated_gate();
+    gate.grants.isolated.as_ref().unwrap().listener().expect("the listener starts");
+    gate.mask_event(
+        "response",
+        &json!({"targetId": "T", "url": "https://public.test/", "remoteIPAddress": "10.0.0.5"}),
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !methods(&driver).contains(&"tab.stop".to_owned()) {
+        assert!(std::time::Instant::now() < deadline, "the load was never stopped");
+        std::thread::yield_now();
+    }
+}
+
+/// The owner's allow list reaches the request filter too: a fetch to an
+/// allowed dev server port runs, page requests to it pass with a policy
+/// active, and other private targets stay refused there.
+#[test]
+fn the_owner_allow_list_reaches_fetch_and_the_request_filter() {
+    let allow = crate::egress_scope::parse_allow("localhost:3000").0;
+    let (gate, driver) = isolated_gate_allowing(allow);
+    *driver.fetch_reply.lock().unwrap() = json!({"url": "http://localhost:3000/", "status": 200,
+        "headers": [], "bodyBase64": ""});
+    let out =
+        gate.driver_call("net.fetch", json!({"targetId": "T", "url": "http://localhost:3000/"}));
+    assert!(out.is_ok(), "{out:?}");
+    policy(&gate, "set", json!({"prohibited": ["peer.test"]})).unwrap();
+    let filter = driver.filter.lock().unwrap().clone().expect("a policy installs the filter");
+    let decide = |url: &str| {
+        filter(&crate::driver::RequestInfo {
+            target: "T",
+            url,
+            kind: crate::driver::RequestKind::Subresource,
+        })
+    };
+    assert_eq!(decide("http://localhost:3000/app.js"), None);
+    assert_eq!(decide("http://127.0.0.1:3000/app.js"), None);
+    assert_eq!(decide("https://public.test/x"), None, "names are the listener's");
+    for refused in [
+        "http://127.0.0.1:3001/",
+        "http://10.0.0.1/",
+        "http://169.254.169.254/",
+        "http://metadata.google.internal/",
+    ] {
+        assert!(decide(refused).is_some(), "{refused}");
+    }
 }

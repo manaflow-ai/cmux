@@ -21,15 +21,18 @@
 //! and refuses session proxies (a session's own exit would bypass the
 //! listener).
 //!
-//! Which scope: `CMUX_BROWSER_HOST_EGRESS` = `isolated` or `machine`; unset,
-//! the host is isolated when it runs on a baked cmux Cloud image
-//! (`/etc/cmux/bake-instance-id`) or `CMUX_VM_ID` is set. Any other value is
-//! isolated (fail closed).
+//! Which scope: isolated on a baked cmux Cloud image
+//! (`/etc/cmux/bake-instance-id`) or when `CMUX_VM_ID` is set, whatever
+//! `CMUX_BROWSER_HOST_EGRESS` says; elsewhere `CMUX_BROWSER_HOST_EGRESS` =
+//! `isolated` turns it on. Any value other than `machine` is isolated (fail
+//! closed).
 //!
 //! The only exception is the machine owner's allow list,
 //! `CMUX_BROWSER_HOST_EGRESS_ALLOW`: comma-separated `ip:port`, `[ip6]:port`
 //! or `localhost:port` (both loopback addresses), for example a dev server the
-//! agent should test. It never allows a link-local or metadata address.
+//! agent should test. It applies to literal and `localhost` targets only (a
+//! public name that resolves to an allowed address is refused: rebinding),
+//! and never allows a link-local or metadata address.
 //!
 //! Remote localhost (plans/cmux-next/remote-localhost.md) is untouched: a
 //! person's Mac tab reaches the Cloud machine's loopback through the
@@ -40,7 +43,7 @@
 use crate::gate::{NameResolver, system_resolver};
 use crate::policy::egress::{Range, ip_range, is_metadata_name};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, PoisonError};
 use url::{Host, Url};
 
 /// Selects the scope: `isolated` or `machine`.
@@ -91,6 +94,12 @@ impl EgressScope {
     ) -> (EgressScope, Vec<String>) {
         let mut warnings = Vec::new();
         let isolated = match scope.map(str::trim).filter(|s| !s.is_empty()) {
+            // A Cloud machine is always isolated: an agent that starts its
+            // own host with its own environment cannot turn it off.
+            Some("machine") if on_cloud => {
+                warnings.push(format!("{SCOPE_VAR}=machine is ignored on a Cloud machine"));
+                true
+            }
             Some("machine") => false,
             Some("isolated") => true,
             Some(other) => {
@@ -186,6 +195,10 @@ impl std::fmt::Display for Target {
 pub struct EgressRule {
     allow: Vec<SocketAddr>,
     resolver: NameResolver,
+    /// Tests: one loopback address that counts as public (a stand-in for
+    /// an internet host the test can dial).
+    #[cfg(test)]
+    test_public: Option<SocketAddr>,
 }
 
 impl std::fmt::Debug for EgressRule {
@@ -196,18 +209,40 @@ impl std::fmt::Debug for EgressRule {
 
 impl EgressRule {
     pub fn new(allow: Vec<SocketAddr>, resolver: NameResolver) -> EgressRule {
-        EgressRule { allow: allow.into_iter().map(canonical).collect(), resolver }
+        EgressRule {
+            allow: allow.into_iter().map(canonical).collect(),
+            resolver,
+            #[cfg(test)]
+            test_public: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_public(mut self, addr: SocketAddr) -> EgressRule {
+        self.test_public = Some(addr);
+        self
     }
 
     /// Why `addr` is refused, if it is.
     pub fn address_refusal(&self, addr: SocketAddr) -> Option<String> {
+        self.refusal(addr, true)
+    }
+
+    /// The range rule for one address; `allow` applies the owner's allow
+    /// list (only to literal and `localhost` targets: a public name that
+    /// resolves to an allowed private address is DNS rebinding).
+    fn refusal(&self, addr: SocketAddr, allow: bool) -> Option<String> {
         let addr = canonical(addr);
+        #[cfg(test)]
+        if self.test_public == Some(addr) {
+            return None;
+        }
         let range = ip_range(addr.ip())?;
         match range {
             Range::LinkLocal => {
                 Some(format!("{} is a link-local or cloud metadata address", addr.ip()))
             }
-            Range::Private if self.allow.contains(&addr) => None,
+            Range::Private if allow && self.allow.contains(&addr) => None,
             Range::Private => Some(format!(
                 "{} is a loopback, private or local-network address, which browsing on a Cloud machine may not reach",
                 addr.ip()
@@ -230,13 +265,13 @@ impl EgressRule {
         if is_metadata_name(&name) {
             return Err(Refusal::Blocked(format!("{name} is a cloud metadata name")));
         }
-        let ips = if name == "localhost" || name.ends_with(".localhost") {
+        let (ips, literal) = if name == "localhost" || name.ends_with(".localhost") {
             // Never from DNS (RFC 6761); the hosts file is not consulted either.
-            vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)]
+            (vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)], true)
         } else if let Ok(ip) = name.trim_matches(['[', ']']).parse::<IpAddr>() {
-            vec![ip]
+            (vec![ip], true)
         } else {
-            (self.resolver)(&name, port)
+            ((self.resolver)(&name, port), false)
         };
         if ips.is_empty() {
             return Err(Refusal::Unresolved(format!("{name} does not resolve")));
@@ -244,12 +279,26 @@ impl EgressRule {
         let addrs: Vec<SocketAddr> = ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
         // One refused address refuses the name: an answer that mixes a
         // public and a private address is a rebinding attempt.
-        if let Some(reason) = addrs.iter().find_map(|addr| self.address_refusal(*addr)) {
+        if let Some(reason) = addrs.iter().find_map(|addr| self.refusal(*addr, literal)) {
             return Err(Refusal::Blocked(format!(
                 "{name} resolves to a refused address: {reason}"
             )));
         }
         Ok(addrs)
+    }
+
+    /// The rule for a URL's literal host only (an IP, `localhost`, a
+    /// metadata name), with no lookup: the request filter's check, which
+    /// runs on a driver thread for every request. Names go to the listener.
+    pub fn literal_refusal(&self, url: &Url) -> Option<String> {
+        let host = url.host()?;
+        if let Host::Domain(name) = &host {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            if !(is_metadata_name(&name) || name == "localhost" || name.ends_with(".localhost")) {
+                return None;
+            }
+        }
+        self.url_refusal(url)
     }
 
     /// The rule for a URL the agent opens or fetches (its host, literal or
@@ -277,12 +326,13 @@ impl EgressRule {
 #[derive(Debug)]
 pub struct IsolatedEgress {
     rule: Arc<EgressRule>,
-    listener: OnceLock<Result<SocketAddr, String>>,
+    /// The running listener (a failed start is retried at the next launch).
+    listener: Mutex<Option<SocketAddr>>,
 }
 
 impl IsolatedEgress {
     pub fn new(rule: EgressRule) -> IsolatedEgress {
-        IsolatedEgress { rule: Arc::new(rule), listener: OnceLock::new() }
+        IsolatedEgress { rule: Arc::new(rule), listener: Mutex::new(None) }
     }
 
     pub fn rule(&self) -> &EgressRule {
@@ -290,14 +340,21 @@ impl IsolatedEgress {
     }
 
     /// The listener every browser of this host uses, started once. An
-    /// error fails every launch (closed).
+    /// error fails that launch (closed); the next launch tries again.
     pub fn listener(&self) -> Result<SocketAddr, String> {
-        self.listener
-            .get_or_init(|| {
-                crate::egress_proxy::start(self.rule.clone())
-                    .map_err(|e| format!("the browser egress listener did not start: {e}"))
-            })
-            .clone()
+        let mut slot = self.listener.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(addr) = *slot {
+            return Ok(addr);
+        }
+        let addr = crate::egress_proxy::start(self.rule.clone())
+            .map_err(|e| format!("the browser egress listener did not start: {e}"))?;
+        *slot = Some(addr);
+        Ok(addr)
+    }
+
+    /// The listener's address once it runs (a proxied response reports it).
+    pub fn listener_addr(&self) -> Option<SocketAddr> {
+        *self.listener.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The Chromium switches that send all of a browser's traffic through

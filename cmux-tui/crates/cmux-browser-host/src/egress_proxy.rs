@@ -11,13 +11,13 @@
 use crate::egress_scope::{EgressRule, Refusal, Target};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
 /// Connections served at once (each holds two sockets and two threads);
 /// more are closed at accept.
-pub const MAX_CONNECTIONS: usize = 256;
+/// Each holds four descriptors, so 128 stay far below a 1024 soft limit.
+pub const MAX_CONNECTIONS: usize = 128;
 /// How long a client may take to send its greeting and request.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long one dial may take.
@@ -39,13 +39,21 @@ mod reply {
 pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let addr = listener.local_addr()?;
-    let live = Arc::new(AtomicUsize::new(0));
+    let live: Arc<Live> = Arc::default();
     std::thread::Builder::new().name("cmux-browser-host-egress".into()).spawn(move || {
-        // An accept error (a connection reset before accept, EMFILE) drops
-        // that connection only; our own sockets are capped below.
-        for client in listener.incoming().flatten() {
-            if live.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
-                live.fetch_sub(1, Ordering::SeqCst);
+        loop {
+            let client = match listener.accept() {
+                Ok((client, _)) => client,
+                // Out of descriptors: wait until one of our connections
+                // ends (signalled; bounded) instead of spinning on accept.
+                Err(error) if matches!(error.raw_os_error(), Some(code) if code == EMFILE || code == ENFILE) => {
+                    live.wait_for_end();
+                    continue;
+                }
+                // A connection reset before accept drops that one only.
+                Err(_) => continue,
+            };
+            if !live.enter() {
                 continue;
             }
             let (rule, done) = (rule.clone(), live.clone());
@@ -53,14 +61,49 @@ pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
                 .name("cmux-browser-host-egress-conn".into())
                 .spawn(move || {
                     let _ = serve(client, &rule);
-                    done.fetch_sub(1, Ordering::SeqCst);
+                    done.leave();
                 });
             if spawned.is_err() {
-                live.fetch_sub(1, Ordering::SeqCst);
+                live.leave();
             }
         }
     })?;
     Ok(addr)
+}
+
+const EMFILE: i32 = 24;
+const ENFILE: i32 = 23;
+
+/// Connections being served, and a signal when one ends.
+#[derive(Default)]
+struct Live {
+    count: Mutex<usize>,
+    ended: Condvar,
+}
+
+impl Live {
+    /// Takes a slot; false when all [`MAX_CONNECTIONS`] are taken.
+    fn enter(&self) -> bool {
+        let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        if *count >= MAX_CONNECTIONS {
+            return false;
+        }
+        *count += 1;
+        true
+    }
+
+    fn leave(&self) {
+        let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        *count = count.saturating_sub(1);
+        self.ended.notify_all();
+    }
+
+    /// Waits for a connection to end (at most a second: descriptors may
+    /// also free outside the listener).
+    fn wait_for_end(&self) {
+        let count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = self.ended.wait_timeout(count, Duration::from_secs(1));
+    }
 }
 
 /// One client: handshake, rule, dial, copy.
@@ -110,6 +153,9 @@ fn serve(mut client: TcpStream, rule: &EgressRule) -> io::Result<()> {
     send_reply(&mut client, reply::OK)?;
     client.set_read_timeout(None)?;
     let _ = upstream.set_nodelay(true);
+    // A dead peer ends the connection instead of holding its slot forever.
+    keepalive(&client);
+    keepalive(&upstream);
     copy_both_ways(client, upstream)
 }
 
@@ -192,3 +238,31 @@ fn copy_both_ways(client: TcpStream, upstream: TcpStream) -> io::Result<()> {
     let _ = up.join();
     Ok(())
 }
+
+/// TCP keepalive: first probe after 60 s idle, then every 20 s, 3 probes.
+#[cfg(target_os = "linux")]
+fn keepalive(stream: &TcpStream) {
+    use std::os::fd::AsRawFd;
+    let fd = stream.as_raw_fd();
+    for (level, name, value) in [
+        (libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 60),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 20),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3),
+    ] {
+        let value: libc::c_int = value;
+        // SAFETY: fd is a live socket owned by `stream`; value outlives the call.
+        unsafe {
+            libc::setsockopt(
+                fd,
+                level,
+                name,
+                (&raw const value).cast(),
+                size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn keepalive(_stream: &TcpStream) {}

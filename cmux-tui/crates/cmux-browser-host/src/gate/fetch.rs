@@ -195,10 +195,17 @@ impl Gate {
     /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
     /// it): why a response from `url` that came from `ip` is refused.
     pub(super) fn rebinding_refusal(&self, url: &str, ip: &str) -> Option<String> {
-        // Isolated: the egress listener checked the address before it dialed,
-        // and a response reports the listener's own address.
-        if self.grants.isolated.is_some() {
-            return None;
+        // Isolated: a response through the egress listener reports the
+        // listener's own address (it checked the real one before it
+        // dialed); any other address went around it and meets the rule.
+        if let Some(isolated) = &self.grants.isolated {
+            let address: std::net::IpAddr =
+                ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
+            if isolated.listener_addr().is_some_and(|listener| listener.ip() == address) {
+                return None;
+            }
+            let reason = isolated.rule().address_refusal(std::net::SocketAddr::new(address, 0))?;
+            return Some(format!("{url} resolved to {ip}, which is blocked: {reason}"));
         }
         let address = ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
         let parsed = url::Url::parse(url).ok()?;

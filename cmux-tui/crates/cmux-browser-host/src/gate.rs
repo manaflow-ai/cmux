@@ -210,11 +210,12 @@ impl Gate {
         };
         let fetching = self.fetches.lock().unwrap_or_else(PoisonError::into_inner).running > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
-            let (policy, filtered, log, remote) = (
+            let (policy, filtered, log, remote, isolated) = (
                 self.policy.clone(),
                 self.filtered.clone(),
                 self.log.clone(),
-                self.grants.refuses_private_ranges(),
+                self.grants.remote,
+                self.grants.isolated.clone(),
             );
             // The session's policy is the same for every tab it drives.
             let filter: crate::driver::RequestFilter = Arc::new(move |request| {
@@ -222,9 +223,12 @@ impl Gate {
                 let parsed = url::Url::parse(url).ok()?;
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
-                    policy
-                        .subresource_refusal(&parsed)
-                        .or_else(|| policy.egress_refusal(&parsed, remote))
+                    policy.subresource_refusal(&parsed).or_else(|| match &isolated {
+                        // The isolated rule, literal hosts only (the owner
+                        // allow list applies; names go to the listener).
+                        Some(isolated) => isolated.rule().literal_refusal(&parsed),
+                        None => policy.egress_refusal(&parsed, remote),
+                    })
                 }?;
                 let mut filtered = filtered.lock().unwrap_or_else(PoisonError::into_inner);
                 if filtered.len() >= 64 {

@@ -141,6 +141,12 @@ fn the_owner_allow_list_opens_exact_private_ports_but_never_metadata() {
     assert!(rule.resolve(&addr("[::1]:3000")).is_ok());
     assert!(rule.resolve(&addr("[::ffff:127.0.0.1]:3000")).is_ok());
     assert!(rule.resolve(&Target::Name("localhost".into(), 3000)).is_ok());
+    let rebind =
+        EgressRule::new(parse_allow("10.0.0.5:8080").0, table(&[("evil.test", &["10.0.0.5"])]));
+    assert!(
+        matches!(rebind.resolve(&Target::Name("evil.test".into(), 8080)), Err(Refusal::Blocked(_))),
+        "a public name that resolves to an allowed address"
+    );
     assert!(rule.resolve(&addr("10.0.0.5:8080")).is_ok());
     for refused in ["127.0.0.1:3001", "10.0.0.5:80", "169.254.169.254:80", "[fd00:ec2::254]:80"] {
         assert!(rule.resolve(&addr(refused)).is_err(), "{refused}");
@@ -155,7 +161,8 @@ fn a_cloud_machine_is_isolated_unless_its_owner_says_machine() {
     assert!(isolated(None, true), "a baked Cloud image");
     assert!(!isolated(None, false), "the person's own machine");
     assert!(isolated(Some("isolated"), false));
-    assert!(!isolated(Some("machine"), true));
+    assert!(isolated(Some("machine"), true), "an agent's own host cannot turn it off");
+    assert!(!isolated(Some("machine"), false));
     let (scope, warnings) = EgressScope::decide(Some("off"), false, "", no_names());
     assert!(scope.isolated().is_some(), "an unknown value fails closed");
     assert_eq!(warnings.len(), 1, "{warnings:?}");
@@ -265,9 +272,9 @@ fn the_listener_refuses_each_limited_target_and_carries_an_allowed_one() {
         socks(proxy, &Target::Address(SocketAddr::from(([127, 0, 0, 1], port))), 1);
     assert_eq!(code, 0x00);
     assert_eq!(echo(&mut stream), b"ping");
-    let (code, mut stream) = socks(proxy, &Target::Name("dev.test".into(), port), 1);
-    assert_eq!(code, 0x00, "the listener resolves names itself");
-    assert_eq!(echo(&mut stream), b"ping");
+    // A public name that resolves to the allowed address is DNS rebinding.
+    let (code, _) = socks(proxy, &Target::Name("dev.test".into(), port), 1);
+    assert_eq!(code, 0x02, "the allow list is for literal targets");
 }
 
 /// DNS rebinding: an answer that changes after the check cannot reach a
@@ -285,8 +292,11 @@ fn a_changing_answer_is_resolved_once_per_connection() {
         let next = if answers.is_empty() { "169.254.169.254" } else { answers.remove(0) };
         vec![next.parse().unwrap()]
     });
-    let rule = EgressRule::new(vec![SocketAddr::from(([127, 0, 0, 1], port))], resolver);
-    let proxy = crate::egress_proxy::start(Arc::new(rule)).unwrap();
+    // The echo server stands in for a public host: the rule allows
+    // 127.0.0.1 here only to have something to dial.
+    let rule = EgressRule::new(Vec::new(), resolver);
+    let rule = Arc::new(rule.with_test_public(SocketAddr::from(([127, 0, 0, 1], port))));
+    let proxy = crate::egress_proxy::start(rule).unwrap();
     // First answer allowed, every later one is metadata: the connection
     // carries bytes to the checked address and asks the resolver once.
     answers.lock().unwrap().push("127.0.0.1");
