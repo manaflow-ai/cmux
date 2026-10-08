@@ -9,6 +9,7 @@ import {
   maxActiveVmsForPlan,
   maxMemoryMbForPlan,
   resourcePoolForPlan,
+  resourcePoolPolicyForPlan,
   maxVcpusForPlan,
   memoryOptionsMbForPlan,
 } from "../services/vms/entitlements";
@@ -146,6 +147,7 @@ describe("Cloud VM resource pool policy", () => {
     expect(resourcePoolForPlan("go", 1)).toBeNull();
     expect(resourcePoolForPlan("free", 0)).toBeNull();
     expect(resourcePoolForPlan("pro", null)).toBeNull();
+    expect(resourcePoolPolicyForPlan("pro", 5)?.legacyReservation).toEqual({ vcpus: 32, memoryMb: 64 * GB });
   });
 
   const refusal = (planId: string, resource: "memoryMb" | "vcpus") => new VmResourcePoolExceededError({
