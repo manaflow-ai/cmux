@@ -146,9 +146,22 @@ fn full_check_order() {
             for d in s["denies"].as_array().unwrap().iter().filter(|d| d[0] == *q) {
                 listed.push(serde_json::json!({"optionId": d[1], "kind": "reject_once"}));
             }
+            // The shared cases keep the question body out of `state`. Mirror the Swift
+            // parity harness by deriving the pending question's item ids from this frame's
+            // `answers` object, so answer cases exercise the same key allowlist in both hosts.
+            let keys: Vec<String> = c["text"]
+                .as_str()
+                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                .and_then(|frame| frame.get("params").cloned())
+                .and_then(|params| params.get("answers").cloned())
+                .and_then(|answers| {
+                    answers.as_object().map(|answers| answers.keys().cloned().collect())
+                })
+                .unwrap_or_default();
+            let items: Vec<Value> = keys.iter().map(|key| serde_json::json!({"id": key})).collect();
             let pending = serde_json::json!({"method": "_acpmux/permission_pending", "params": {
                 "permissionId": q, "request": {"options": listed,
-                    "toolCall": {"_meta": {"acpmux": {"question": {"items": []}}}}}}});
+                    "toolCall": {"_meta": {"acpmux": {"question": {"items": items}}}}}}});
             options.observe(pending.as_object().unwrap(), None);
         }
         let state = FrameState {
