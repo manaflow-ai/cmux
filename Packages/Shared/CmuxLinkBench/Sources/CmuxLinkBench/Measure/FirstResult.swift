@@ -8,7 +8,7 @@ actor FirstResult<T: Sendable> {
         guard result == nil else { return }
         result = outcome
         for waiter in waiters.values { waiter.resume(with: outcome) }
-        waiters = []
+        waiters = [:]
     }
 
     func value() async throws -> T {
