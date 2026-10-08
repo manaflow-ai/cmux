@@ -209,14 +209,17 @@ Any new device or WAN comparison must add a manifest beside its result files wit
 source commit, and run labels before it is used as release evidence. A manifest rejects missing files,
 schema mismatches, and paths that escape its directory.
 
-F8 implementation (2026-10-08): `LinkSession` now sizes the default reliable render credit from
-the latest path RTT (`LinkConfiguration.renderCreditBudget`). The baseline remains 256 KiB until an
-RTT sample arrives; the default target is 2.5 MB/s and the adaptive window is capped at 2 MiB.
-Non-default channel budgets are preserved, and waiters are woken when a new RTT sample can enlarge
-the window. This is a bounded protocol-side change, covered by `LinkConfiguration` tests; it does not
-claim a device throughput result. F3 (continuous V1 RTT sampling and cancellation of a send waiting
-on a full channel) and F7 (direct TCP head-of-line control) remain open. F8 still needs WAN/device
-evidence before the default path policy is promoted beyond DEV dogfood.
+F8 implementation (2026-10-08): `LinkSession` now sizes reliable render credit from the latest path
+RTT (`LinkConfiguration.renderCreditBudget`). The baseline remains 256 KiB until an RTT sample
+arrives; the default target is 2.5 MB/s and the adaptive window is capped at 2 MiB. Terminal channels
+are declared with a 64 KiB input budget, then the Mac bridge explicitly promotes its send direction
+to the render baseline, so the adaptive budget applies to the real host-to-phone output path while
+the input budget remains unchanged. Other explicit channel budgets are preserved, and waiters wake
+when a new RTT sample can enlarge the window. This is a bounded protocol-side change, covered by
+pure budget tests and an input-priority terminal integration case; it does not claim device
+throughput. F3 (continuous V1 RTT sampling and cancellation of a send waiting on a full channel)
+and F7 (direct TCP head-of-line control) remain open. F8 still needs WAN/device evidence before the
+default path policy is promoted beyond DEV dogfood.
 
 ## 6. Re-measure on device
 

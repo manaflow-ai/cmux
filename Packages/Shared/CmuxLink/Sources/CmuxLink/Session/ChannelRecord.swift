@@ -18,6 +18,10 @@ struct ChannelRecord: Sendable {
     /// the accepting side may lower or raise its own direction (a terminal
     /// opened at `input` for keystrokes sends its output at `render`).
     var sendPriority: ChannelPriority
+    /// Optional directional budget selected by the owner after opening. A
+    /// terminal declares its input budget on the wire, then the host may
+    /// select a separate render budget for its output direction.
+    var sendBudgetOverride: Int?
     var phase: Phase = .awaiting
     /// The peer has acknowledged this channel at least once.
     var everOpened = false
@@ -54,6 +58,7 @@ struct ChannelRecord: Sendable {
         self.descriptor = descriptor
         self.openedLocally = openedLocally
         self.sendPriority = descriptor.priority
+        self.sendBudgetOverride = nil
         self.cursorEpoch = cursorEpoch
         self.lastReceived = lastReceived
         self.lastConsumed = lastReceived

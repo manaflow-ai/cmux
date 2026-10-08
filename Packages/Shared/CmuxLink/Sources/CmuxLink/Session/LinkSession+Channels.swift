@@ -154,10 +154,10 @@ extension LinkSession {
     /// avoids silently changing small diagnostic channels and keeps the
     /// adaptation bounded by `LinkConfiguration`.
     func effectiveBudget(for record: ChannelRecord) -> Int {
-        let base = record.descriptor.budgetBytes
+        let base = record.sendBudgetOverride ?? record.descriptor.budgetBytes
         guard record.descriptor.reliability == .reliableOrdered,
-              record.descriptor.priority == .render,
-              base == ChannelDescriptor.defaultBudget(for: .render)
+              record.sendPriority == .render,
+              record.descriptor.priority == .render || record.sendBudgetOverride != nil
         else { return base }
         return configuration.renderCreditBudget(for: rtt, base: base)
     }
@@ -303,9 +303,11 @@ extension LinkSession {
         channels[id]?.flushWaiters.removeValue(forKey: waiter)?.resume(throwing: CancellationError())
     }
 
-    func channelSetSendPriority(_ id: UInt32, _ incarnation: UInt64, _ priority: ChannelPriority) {
+    func channelSetSendPriority(_ id: UInt32, _ incarnation: UInt64, _ priority: ChannelPriority,
+                                budgetBytes: Int? = nil) {
         guard isLive(id, incarnation) else { return }
         channels[id]?.sendPriority = priority
+        channels[id]?.sendBudgetOverride = budgetBytes.map { max(1, $0) }
     }
 
     func channelCursor(_ id: UInt32, _ incarnation: UInt64, stream: String) -> StreamCursor {

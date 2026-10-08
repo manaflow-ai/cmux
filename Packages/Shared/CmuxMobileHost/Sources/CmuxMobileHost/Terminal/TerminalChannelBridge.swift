@@ -1,3 +1,4 @@
+import CmuxLink
 import CmuxMobileLink
 import CmuxMobileWire
 import CmuxTerminalStream
@@ -53,7 +54,9 @@ actor TerminalChannelBridge {
         // The phone opens terminals at `input` so its keystrokes leave first;
         // this side's output must not outrank the rpc channel (c1 section 5).
         if channel.link.descriptor.priority < .render {
-            await channel.link.setSendPriority(.render)
+            // The wire descriptor's 64 KiB input budget protects keystrokes;
+            // output gets the terminal render baseline and then adapts to RTT.
+            await channel.link.setSendPriority(.render, budgetBytes: ChannelDescriptor.defaultBudget(for: .render))
         }
         let opened = ChannelOpenedFrame(channel: channel.id, window: Self.inboundWindow,
                                         params: (try? JSONValue(encoding: attachment.opened))?.objectValue ?? [:],

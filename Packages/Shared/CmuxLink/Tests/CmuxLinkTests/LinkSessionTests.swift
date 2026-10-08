@@ -91,6 +91,25 @@ struct LinkSessionTests {
         await pair.shutdown()
     }
 
+    @Test("terminal output can adapt after an input-priority channel is promoted")
+    func promotedTerminalUsesRenderBudget() async throws {
+        let pair = try await SessionTestPair()
+        let hostSession = try await pair.nextHostSession()
+        let descriptor = ChannelDescriptor(
+            stream: "terminal/test", reliability: .reliableOrdered, priority: .input, budgetBytes: 64 * 1024
+        )
+        let (_, hostChannel) = try await pair.openPair(descriptor, hostSession: hostSession)
+        await pair.network.reportRTT(.milliseconds(200))
+        await hostChannel.setSendPriority(.render, budgetBytes: ChannelDescriptor.defaultBudget(for: .render))
+
+        let frame = Data(repeating: 0x41, count: 200_000)
+        // The declared input budget is 64 KiB. At 200 ms RTT the adaptive
+        // render budget is 500 KiB, so two frames fit before the peer consumes.
+        try await SessionTestPair.within(.seconds(1)) { try await hostChannel.send(frame) }
+        try await SessionTestPair.within(.seconds(1)) { try await hostChannel.send(frame) }
+        await pair.shutdown()
+    }
+
     @Test("gives up after the attempt budget")
     func unreachable() async throws {
         var configuration = SessionTestPair.fast

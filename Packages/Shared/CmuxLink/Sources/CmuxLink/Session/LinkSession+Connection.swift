@@ -282,8 +282,8 @@ extension LinkSession {
         for id in channels.keys {
             guard let record = channels[id],
                   record.descriptor.reliability == .reliableOrdered,
-                  record.descriptor.priority == .render,
-                  record.descriptor.budgetBytes == ChannelDescriptor.defaultBudget(for: .render)
+                  record.sendPriority == .render,
+                  record.descriptor.priority == .render || record.sendBudgetOverride != nil
             else { continue }
             let waiters = Array(record.creditWaiters.values)
             channels[id]?.creditWaiters.removeAll()

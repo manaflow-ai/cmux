@@ -34,11 +34,11 @@ public final class LinkChannel: Sendable, Identifiable {
         try await session.channelFlush(id, incarnation)
     }
 
-    /// Sets the priority of this side's sends only; the peer's direction
-    /// keeps the declared priority. Call before sending: frames already
-    /// queued keep the priority they were queued at.
-    public func setSendPriority(_ priority: ChannelPriority) async {
-        await session.channelSetSendPriority(id, incarnation, priority)
+    /// Sets the priority and optional directional budget of this side's sends
+    /// only; the peer's direction keeps the declared values. Call before
+    /// sending: frames already queued keep the priority they were queued at.
+    public func setSendPriority(_ priority: ChannelPriority, budgetBytes: Int? = nil) async {
+        await session.channelSetSendPriority(id, incarnation, priority, budgetBytes: budgetBytes)
     }
 
     /// The inbound cursor to save for `openChannel(_:resumeFrom:)`.
