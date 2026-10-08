@@ -116,13 +116,13 @@ extension CMUXCLI {
         return false
     }
 
-    /// Whether `commandWords`, a pane command split into shell words, start the OMX HUD.
-    func tmuxCommandLooksLikeOMXHud(_ commandWords: [String]) -> Bool {
+    /// Whether `commandText`, a pane command as a shell would receive it, starts the OMX HUD.
+    func tmuxCommandLooksLikeOMXHud(_ commandText: String) -> Bool {
         let environment = ProcessInfo.processInfo.environment
         let launchedThroughOMXShim = environment["CMUX_OMX_CMUX_BIN"] != nil
             || environment["CMUX_AGENT_LAUNCH_KIND"] == "omx"
         return OMXHudCommandMatcher().matches(
-            commandWords,
+            command: commandText,
             launchedThroughOMXShim: launchedThroughOMXShim
         )
     }

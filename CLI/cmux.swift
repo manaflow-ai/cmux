@@ -27995,9 +27995,9 @@ struct CMUXCLI {
                 boolFlags: ["-P", "-b", "-d", "-f", "-h", "-v"]
             )
             // tmux joins these arguments and hands the text to a shell, so
-            // classify the words that shell would see.
+            // classify the text that shell would see.
             let isOMXHud = tmuxCommandLooksLikeOMXHud(
-                tmuxShellWords(tmuxStartCommand(commandTokens: parsed.positional) ?? "")
+                tmuxStartCommand(commandTokens: parsed.positional) ?? ""
             )
             if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
                 tmuxWriteDebugDiagnostic(

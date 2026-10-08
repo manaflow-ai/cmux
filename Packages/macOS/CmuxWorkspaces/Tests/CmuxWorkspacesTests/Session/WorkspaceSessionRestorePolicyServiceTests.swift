@@ -383,6 +383,8 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         "omx hud",
         "oh-my-codex hud",
         "omx hud --watch; rm -rf build",
+        "omx hud --watch\nrm -rf build",
+        "X=\"$(touch /tmp/marker)\" omx hud --watch",
         "cd /tmp && omx hud --watch",
         "vim notes-about-omx-hud.md --watch",
         "node /opt/tools/report.js hud --watch",

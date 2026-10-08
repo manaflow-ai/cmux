@@ -155,6 +155,9 @@ class OMXHudCommandMatchTests(unittest.TestCase):
             (["echo omx hud --watch"], False),
             (["omx hud"], False),
             (["node /opt/tools/report.js hud --watch"], False),
+            # The pane's shell would run the second command too.
+            (["omx hud --watch && echo done"], False),
+            (["X=\"$(echo marker)\" omx hud --watch"], False),
         ]
         for command, through_shim in cases:
             with self.subTest(command=command, through_shim=through_shim):

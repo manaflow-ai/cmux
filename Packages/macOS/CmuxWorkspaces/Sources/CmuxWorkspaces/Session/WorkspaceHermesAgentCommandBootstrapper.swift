@@ -323,6 +323,6 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     }
 
     private func terminalCommandLooksLikeOMXHud(_ command: String) -> Bool {
-        OMXHudCommandMatcher().matches(shellWords(in: command).map(\.value))
+        OMXHudCommandMatcher().matches(command: command)
     }
 }
