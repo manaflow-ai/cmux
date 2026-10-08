@@ -3,6 +3,26 @@ import CmuxTerminal
 import CmuxWorkspaces
 import Foundation
 
+/// How one restored terminal relates to a live Claude background session.
+enum ClaudeBackgroundAttachRestore: Sendable {
+    /// This pane reattaches the session.
+    case attach(plan: ClaudeBackgroundAttachPlan, startupInput: String)
+    /// Another pane in this restore attaches the session; this one must not resume it.
+    case attachedElsewhere(ClaudeBackgroundSessionRegistration)
+
+    var attach: (plan: ClaudeBackgroundAttachPlan, startupInput: String)? {
+        if case .attach(let plan, let startupInput) = self { return (plan, startupInput) }
+        return nil
+    }
+
+    var registration: ClaudeBackgroundSessionRegistration {
+        switch self {
+        case .attach(let plan, _): return plan.registration
+        case .attachedElsewhere(let registration): return registration
+        }
+    }
+}
+
 /// One autosave observation of a pane's foreground process.
 struct ClaudeBackgroundViewerObservation: Sendable {
     let processID: Int
@@ -58,27 +78,75 @@ extension Workspace {
             .filter { panels[$0.key] != nil }
     }
 
-    /// Plans the attach-only startup input for a restored local terminal whose
-    /// Claude session is still hosted by Claude's background daemon.
+    /// Plans background-session reattachment for every terminal in one
+    /// workspace restore pass.
     ///
-    /// Returns `nil` for interactive sessions and when the daemon no longer
-    /// lists the session, so those panels keep their existing restore.
-    nonisolated static func claudeBackgroundAttachRestore(
-        terminal: SessionTerminalPanelSnapshot?,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        attach: ClaudeBackgroundSessionAttach = ClaudeBackgroundSessionAttach()
-    ) -> (plan: ClaudeBackgroundAttachPlan, startupInput: String)? {
-        let viewer = terminal?.claudeBackgroundViewer
-        let hookSession = claudeBackgroundHookSession(
-            restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding
+    /// - A pane qualifies when it recorded a `claude attach` viewer, or when
+    ///   its hook-reported Claude session was running at quit. A pane that only
+    ///   spawned a background session and went back to shell work is left alone.
+    /// - Claude's registry is scanned at most once per config directory.
+    /// - One pane attaches per session, preferring the viewer pane. Other panes
+    ///   on the same live session keep no startup work; they must not resume it.
+    ///
+    /// Interactive sessions and sessions the daemon no longer hosts get no
+    /// entry, so those panels keep their existing restore.
+    nonisolated static func claudeBackgroundAttachRestores(
+        panels: [SessionPanelSnapshot],
+        skipsRemoteTerminals: Bool,
+        attach: ClaudeBackgroundSessionAttach = ClaudeBackgroundSessionAttach(
+            lookup: ClaudeBackgroundSessionAttach.memoizedRegistryLookup()
         )
-        guard viewer != nil || hookSession != nil,
-              let plan = attach.plan(viewer: viewer, hookSession: hookSession) else {
-            return nil
+    ) -> [UUID: ClaudeBackgroundAttachRestore] {
+        var candidates: [(panelID: UUID, hasViewer: Bool, plan: ClaudeBackgroundAttachPlan)] = []
+        for panel in panels where panel.type == .terminal {
+            guard let terminal = panel.terminal,
+                  terminal.isRemoteTerminal != true,
+                  !(skipsRemoteTerminals && terminal.isRemoteTerminal != false),
+                  terminal.tmuxStartCommand == nil,
+                  terminal.hibernation == nil else {
+                continue
+            }
+            let restorableAgent = restorableAgentForSessionRestore(
+                terminal.agent,
+                resumeBinding: terminal.resumeBinding
+            )
+            let resumeBinding = resumeBindingForSessionRestore(
+                terminal.resumeBinding,
+                restorableAgent: restorableAgent
+            )
+            let viewer = terminal.claudeBackgroundViewer
+            let hookSession = viewer != nil || terminal.wasAgentRunning != false
+                ? claudeBackgroundHookSession(restorableAgent: restorableAgent, resumeBinding: resumeBinding)
+                : nil
+            guard viewer != nil || hookSession != nil,
+                  let plan = attach.plan(viewer: viewer, hookSession: hookSession) else {
+                continue
+            }
+            candidates.append((panel.id, viewer != nil, plan))
         }
-        return (plan, AgentRestoreAttachCommand.claudeBackgroundStartupInput(plan))
+        var winnerBySession: [String: UUID] = [:]
+        for candidate in candidates {
+            let key = candidate.plan.registration.sessionID.lowercased()
+            if winnerBySession[key] == nil { winnerBySession[key] = candidate.panelID }
+        }
+        for candidate in candidates where candidate.hasViewer {
+            let key = candidate.plan.registration.sessionID.lowercased()
+            let current = winnerBySession[key]
+            if current.flatMap({ id in candidates.first { $0.panelID == id }?.hasViewer }) != true {
+                winnerBySession[key] = candidate.panelID
+            }
+        }
+        var restores: [UUID: ClaudeBackgroundAttachRestore] = [:]
+        for candidate in candidates {
+            let key = candidate.plan.registration.sessionID.lowercased()
+            restores[candidate.panelID] = winnerBySession[key] == candidate.panelID
+                ? .attach(
+                    plan: candidate.plan,
+                    startupInput: AgentRestoreAttachCommand.claudeBackgroundStartupInput(candidate.plan)
+                )
+                : .attachedElsewhere(candidate.plan.registration)
+        }
+        return restores
     }
 
     private nonisolated static func claudeBackgroundHookSession(

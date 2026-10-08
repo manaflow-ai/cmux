@@ -156,7 +156,9 @@ enum AgentRestoreAttachCommand {
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
         let words = (assignments.isEmpty ? [] : ["/usr/bin/env"] + assignments) + plan.arguments
-        return typedInput(
+        // The leading space keeps the typed command (config dir, routing URL)
+        // out of shell history under HISTCONTROL=ignorespace / HIST_IGNORE_SPACE.
+        return " " + typedInput(
             command: words.map(TerminalStartupShellQuoting.singleQuoted).joined(separator: " "),
             dialect: dialect
         )

@@ -273,9 +273,9 @@ struct ClaudeBackgroundSessionRestoreTests {
             }
             snapshot.panels[index].terminal = terminal
         }
-        // The viewer pane comes second, so a first-come choice would pick the wrong pane.
-        #expect(snapshot.panels.firstIndex { $0.id == spawningPanelID }!
-            < snapshot.panels.firstIndex { $0.id == viewerPanelID }!)
+        // Put the viewer pane last so a first-come choice would pick the wrong pane.
+        snapshot.panels = snapshot.panels.filter { $0.id != viewerPanelID }
+            + snapshot.panels.filter { $0.id == viewerPanelID }
 
         let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
         defer { restored.teardownAllPanels() }

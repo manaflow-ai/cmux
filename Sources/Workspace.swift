@@ -322,6 +322,15 @@ extension Workspace {
             return (panel.id, panel)
         }, uniquingKeysWith: { first, _ in first })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
+        claudeBackgroundAttachRestoresByStablePanelID = AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        )
+            ? Self.claudeBackgroundAttachRestores(
+                panels: snapshot.panels.compactMap { panelSnapshotsById[$0.id] },
+                skipsRemoteTerminals: remoteTerminalStartupCommand() != nil
+            )
+            : [:]
+        defer { claudeBackgroundAttachRestoresByStablePanelID = [:] }
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
             snapshot.panels.filter { $0.type == .terminal }.count == 1
@@ -1621,21 +1630,20 @@ extension Workspace {
                 persistedResumeBinding,
                 restorableAgent: restorableAgent
             )
-            // A Claude background session lives on in Claude's daemon. Reattach
-            // its viewer; never start `claude --resume` as a second writer.
-            let claudeBackgroundAttach = autoResumeAgentSessions &&
+            // A Claude background session lives on in Claude's daemon. One pane
+            // reattaches its viewer; no pane starts `claude --resume` as a
+            // second writer. The workspace pass planned this before any pane.
+            let claudeBackgroundRestore = autoResumeAgentSessions &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
                 restoredRemotePTYSessionID == nil &&
                 restoredHibernation == nil &&
                 snapshot.terminal?.isRemoteTerminal != true
-                ? Self.claudeBackgroundAttachRestore(
-                    terminal: snapshot.terminal,
-                    restorableAgent: restorableAgent,
-                    resumeBinding: resumeBinding
-                )
+                ? claudeBackgroundAttachRestoresByStablePanelID[snapshot.id]
                 : nil
+            let claudeBackgroundAttach = claudeBackgroundRestore?.attach
+            let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
             let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit &&
-                claudeBackgroundAttach == nil
+                !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
             // snapshot available for manual continuation, but never let the
@@ -1692,7 +1700,7 @@ extension Workspace {
                 stablePanelHasUncertainProcess
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
-                claudeBackgroundAttach != nil ||
+                suppressesResumeForBackgroundSession ||
                 restoreStartupBlocked ||
                 liveSessionOwner != nil ||
                 stablePanelHasLiveProcess ||
@@ -1766,7 +1774,7 @@ extension Workspace {
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
                     !stablePanelHasLiveProcess &&
-                    claudeBackgroundAttach == nil &&
+                    !suppressesResumeForBackgroundSession &&
                     restorableAgent == nil && restoredBindingLaunch == nil
                     ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                     : nil)
@@ -2115,14 +2123,16 @@ extension Workspace {
                 panel: terminalPanel,
                 snapshot: restorableAgent,
                 resumeBinding: resumeBinding,
-                manualResumeAvailable: restorableAgent != nil,
+                // The daemon still owns the session; offering a manual resume
+                // would invite a second writer.
+                manualResumeAvailable: restorableAgent != nil && !suppressesResumeForBackgroundSession,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
                 resumeWorkingDirectory: restoredDirectoryIsLocalPath
                     ? resumeSessionWorkingDirectory
                     : nil,
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
                 agentSessionAlreadyActive: liveSessionOwner != nil ||
-                    claudeBackgroundAttach != nil ||
+                    suppressesResumeForBackgroundSession ||
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
@@ -2139,14 +2149,15 @@ extension Workspace {
                     processID: liveSessionOwner.processID
                 )
             }
-            if let claudeBackgroundAttach {
+            if let claudeBackgroundRestore {
                 StartupBreadcrumbLog.append(
                     "session.restore.panel.claudeBackgroundAttach",
                     fields: [
                         "workspace": id.uuidString,
                         "panel": terminalPanel.id.uuidString,
-                        "session": String(claudeBackgroundAttach.plan.registration.sessionID.prefix(8)),
-                        "daemonPid": String(claudeBackgroundAttach.plan.registration.processID),
+                        "session": String(claudeBackgroundRestore.registration.sessionID.prefix(8)),
+                        "daemonPid": String(claudeBackgroundRestore.registration.processID),
+                        "attach": claudeBackgroundAttach == nil ? "0" : "1",
                         "viewer": snapshot.terminal?.claudeBackgroundViewer == nil ? "0" : "1"
                     ]
                 )
@@ -8671,6 +8682,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Last `claude attach` viewer check per panel, keyed by the foreground PID
     /// so autosave reads a pane's argv once per foreground process.
     var claudeBackgroundViewerObservationsByPanelId: [UUID: ClaudeBackgroundViewerObservation] = [:]
+
+    /// Background-session reattach decisions for the restore pass in progress.
+    var claudeBackgroundAttachRestoresByStablePanelID: [UUID: ClaudeBackgroundAttachRestore] = [:]
 
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).

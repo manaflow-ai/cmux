@@ -10,7 +10,7 @@ import Foundation
 public struct ClaudeBackgroundSessionViewer: Codable, Equatable, Sendable {
     /// The id, short job id, or name the viewer was attached with.
     public var reference: String
-    /// The viewer's argv up to and including the `claude` executable.
+    /// The viewer's `claude` executable, optionally preceded by `env`.
     public var launchArguments: [String]
     /// The attach-relevant environment of the viewer process.
     public var environment: [String: String]?
@@ -29,12 +29,25 @@ public struct ClaudeBackgroundSessionRegistration: Equatable, Sendable {
     /// Claude's short job id (for example `884a7be7`), shown by `claude agents`.
     public let jobID: String?
     public let name: String?
+    /// The owner's start time as Claude recorded it (UTC, ctime layout).
+    public let processStart: String?
+    /// The PID namespace the record was written in (`darwin` on macOS).
+    public let pidDomain: String?
 
-    public init(processID: Int, sessionID: String, jobID: String?, name: String?) {
+    public init(
+        processID: Int,
+        sessionID: String,
+        jobID: String?,
+        name: String?,
+        processStart: String? = nil,
+        pidDomain: String? = nil
+    ) {
         self.processID = processID
         self.sessionID = sessionID
         self.jobID = jobID
         self.name = name
+        self.processStart = processStart
+        self.pidDomain = pidDomain
     }
 
     /// The target `claude attach` accepts: the job id `claude agents` prints,
@@ -53,7 +66,7 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
     private let sessionsDirectory: String
     private let contentsOfDirectory: @Sendable (String) -> [String]?
     private let readFile: @Sendable (String) -> Data?
-    private let isProcessAlive: @Sendable (Int) -> Bool
+    private let processMatchesRecord: @Sendable (ClaudeBackgroundSessionRegistration) -> Bool
 
     public init(
         configDirectory: String,
@@ -63,12 +76,14 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
         readFile: @escaping @Sendable (String) -> Data? = {
             FileManager.default.contents(atPath: $0)
         },
-        isProcessAlive: @escaping @Sendable (Int) -> Bool = { ClaudeBackgroundSessionRegistry.processIsAlive($0) }
+        processMatchesRecord: @escaping @Sendable (ClaudeBackgroundSessionRegistration) -> Bool = {
+            ClaudeBackgroundSessionRegistry.recordMatchesLiveProcess($0)
+        }
     ) {
         self.sessionsDirectory = (configDirectory as NSString).appendingPathComponent("sessions")
         self.contentsOfDirectory = contentsOfDirectory
         self.readFile = readFile
-        self.isProcessAlive = isProcessAlive
+        self.processMatchesRecord = processMatchesRecord
     }
 
     /// Claude's config directory for an environment: `CLAUDE_CONFIG_DIR`, else `~/.claude`.
@@ -88,27 +103,113 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
         return (homeDirectory as NSString).appendingPathComponent(".claude")
     }
 
-    public static func processIsAlive(_ processID: Int) -> Bool {
+    /// Whether the record's PID is still the process that wrote it.
+    ///
+    /// PIDs are reused, so a recorded start time must match the live process.
+    /// A record without one is accepted only when the process is Claude.
+    public static func recordMatchesLiveProcess(_ record: ClaudeBackgroundSessionRegistration) -> Bool {
+        if let domain = record.pidDomain, domain.lowercased() != "darwin" { return false }
+        guard let started = processStartSeconds(record.processID) else { return false }
+        if let recorded = record.processStart.flatMap(parseProcStart) {
+            return abs(recorded - started) <= 1
+        }
+        return processLooksLikeClaude(record.processID)
+    }
+
+    /// The process start time in whole seconds since 1970, or `nil` when no such process exists.
+    public static func processStartSeconds(_ processID: Int) -> Int? {
+        guard processID > 0, processID <= Int(Int32.max) else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(processID)]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0,
+              size > 0,
+              info.kp_proc.p_pid == pid_t(processID) else {
+            return nil
+        }
+        return Int(info.kp_proc.p_un.__p_starttime.tv_sec)
+    }
+
+    private static func procStartFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    /// Parses Claude's `procStart` (`Sat Oct  3 18:52:39 2026`, UTC).
+    public static func parseProcStart(_ value: String) -> Int? {
+        let collapsed = value.split(separator: " ").joined(separator: " ")
+        return procStartFormatter("EEE MMM d HH:mm:ss yyyy")
+            .date(from: collapsed)
+            .map { Int($0.timeIntervalSince1970) }
+    }
+
+    /// Renders a start time the way Claude records `procStart` (ctime layout, UTC).
+    public static func formatProcStart(_ seconds: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
+        let head = procStartFormatter("EEE MMM").string(from: date)
+        let day = procStartFormatter("d").string(from: date)
+        let tail = procStartFormatter("HH:mm:ss yyyy").string(from: date)
+        return "\(head) \(day.count == 1 ? " " + day : day) \(tail)"
+    }
+
+    private static func processLooksLikeClaude(_ processID: Int) -> Bool {
         guard processID > 0, processID <= Int(Int32.max) else { return false }
-        if kill(pid_t(processID), 0) == 0 { return true }
-        return errno == EPERM
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(processID)]
+        var size = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
+              size > MemoryLayout<Int32>.size else {
+            return false
+        }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, u_int(mib.count), &bytes, &size, nil, 0) == 0 else { return false }
+        var index = MemoryLayout<Int32>.size
+        func nextString() -> String? {
+            while index < size, bytes[index] == 0 { index += 1 }
+            let start = index
+            while index < size, bytes[index] != 0 { index += 1 }
+            guard index > start else { return nil }
+            return String(decoding: bytes[start..<index], as: UTF8.self)
+        }
+        let executablePath = nextString() ?? ""
+        let argv0 = nextString() ?? ""
+        return URL(fileURLWithPath: argv0).lastPathComponent == "claude"
+            || URL(fileURLWithPath: executablePath).lastPathComponent == "claude"
+            || executablePath.contains("/claude/versions/")
+    }
+
+    /// Every background session in the registry whose owner process is still live.
+    public func liveBackgroundSessions() -> [ClaudeBackgroundSessionRegistration] {
+        guard let fileNames = contentsOfDirectory(sessionsDirectory) else { return [] }
+        return fileNames.sorted().compactMap { fileName in
+            guard fileName.hasSuffix(".json") else { return nil }
+            let path = (sessionsDirectory as NSString).appendingPathComponent(fileName)
+            guard let registration = backgroundRegistration(atPath: path),
+                  processMatchesRecord(registration) else { return nil }
+            return registration
+        }
     }
 
     /// Returns the live background session `reference` names, or `nil` when
     /// the daemon no longer hosts it or the reference is ambiguous.
     public func liveBackgroundSession(matching reference: String) -> ClaudeBackgroundSessionRegistration? {
+        Self.registration(matching: reference, in: liveBackgroundSessions())
+    }
+
+    /// Resolves an attach reference (session id, job id, name, or id prefix).
+    public static func registration(
+        matching reference: String,
+        in registrations: [ClaudeBackgroundSessionRegistration]
+    ) -> ClaudeBackgroundSessionRegistration? {
         let reference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !reference.isEmpty,
-              let fileNames = contentsOfDirectory(sessionsDirectory) else {
-            return nil
-        }
+        guard !reference.isEmpty else { return nil }
         var exact: [ClaudeBackgroundSessionRegistration] = []
         var prefixed: [ClaudeBackgroundSessionRegistration] = []
-        for fileName in fileNames where fileName.hasSuffix(".json") {
-            let path = (sessionsDirectory as NSString).appendingPathComponent(fileName)
-            guard let registration = backgroundRegistration(atPath: path) else { continue }
-            if Self.lowercasedEqual(registration.sessionID, reference) ||
-                registration.jobID.map({ Self.lowercasedEqual($0, reference) }) == true ||
+        for registration in registrations {
+            if lowercasedEqual(registration.sessionID, reference) ||
+                registration.jobID.map({ lowercasedEqual($0, reference) }) == true ||
                 registration.name == reference {
                 exact.append(registration)
             } else if reference.count >= 8,
@@ -118,8 +219,7 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
         }
         let candidates = exact.isEmpty ? prefixed : exact
         guard let first = candidates.first,
-              candidates.allSatisfy({ Self.lowercasedEqual($0.sessionID, first.sessionID) }),
-              isProcessAlive(first.processID) else {
+              candidates.allSatisfy({ lowercasedEqual($0.sessionID, first.sessionID) }) else {
             return nil
         }
         return first
@@ -132,15 +232,30 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
               kind == "bg" || kind == "background",
               let processID = (object["pid"] as? NSNumber)?.intValue,
               processID > 0,
-              let sessionID = Self.normalized(object["sessionId"] as? String) else {
+              let sessionID = Self.identifier(object["sessionId"] as? String) else {
             return nil
         }
         return ClaudeBackgroundSessionRegistration(
             processID: processID,
             sessionID: sessionID,
-            jobID: Self.normalized(object["jobId"] as? String),
+            jobID: Self.identifier(object["jobId"] as? String),
             name: Self.normalized(object["name"] as? String)
+                .flatMap { ClaudeBackgroundSessionAttach.containsControlCharacter($0) ? nil : $0 },
+            processStart: Self.normalized(object["procStart"] as? String),
+            pidDomain: Self.normalized(object["pidDomain"] as? String)
         )
+    }
+
+    /// Session and job ids are typed into a shell; accept only id characters.
+    private static func identifier(_ value: String?) -> String? {
+        guard let value = normalized(value),
+              value.unicodeScalars.allSatisfy({ scalar in
+                  scalar.isASCII &&
+                      (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_")
+              }) else {
+            return nil
+        }
+        return value
     }
 
     private static func lowercasedEqual(_ lhs: String, _ rhs: String) -> Bool {
@@ -185,9 +300,14 @@ public struct ClaudeBackgroundSessionAttach: Sendable {
         }
     }
 
+    public typealias RegistryLookup = @Sendable (
+        _ configDirectory: String,
+        _ reference: String
+    ) -> ClaudeBackgroundSessionRegistration?
+
     /// Keys an attach needs to reach the same daemon as the original session.
-    /// Credentials are deliberately absent: the typed command lands in shell
-    /// history, and attaching talks to the local daemon, not the API.
+    /// Credentials are deliberately absent: attaching talks to the local
+    /// daemon, not the API.
     static let attachEnvironmentKeys: Set<String> = [
         "ANTHROPIC_BASE_URL",
         "CLAUDE_CODE_USE_BEDROCK",
@@ -195,18 +315,35 @@ public struct ClaudeBackgroundSessionAttach: Sendable {
         "CLAUDE_CONFIG_DIR",
     ]
     static let preservedEnvironmentKeyPrefix = "CMUX_PRESERVE_"
+    private static let viewerLaunchers: Set<String> = ["env", "/usr/bin/env"]
 
-    private let lookup: @Sendable (_ configDirectory: String, _ reference: String) -> ClaudeBackgroundSessionRegistration?
+    private let lookup: RegistryLookup
     private let homeDirectory: String
 
     public init(
         homeDirectory: String = NSHomeDirectory(),
-        lookup: @escaping @Sendable (_ configDirectory: String, _ reference: String) -> ClaudeBackgroundSessionRegistration? = {
+        lookup: @escaping RegistryLookup = {
             ClaudeBackgroundSessionRegistry(configDirectory: $0).liveBackgroundSession(matching: $1)
         }
     ) {
         self.homeDirectory = homeDirectory
         self.lookup = lookup
+    }
+
+    /// A registry lookup that scans each config directory at most once, for
+    /// one restore pass over many panes.
+    public static func memoizedRegistryLookup(
+        scan: @escaping @Sendable (_ configDirectory: String) -> [ClaudeBackgroundSessionRegistration] = {
+            ClaudeBackgroundSessionRegistry(configDirectory: $0).liveBackgroundSessions()
+        }
+    ) -> RegistryLookup {
+        let memo = RegistryScanMemo()
+        return { configDirectory, reference in
+            ClaudeBackgroundSessionRegistry.registration(
+                matching: reference,
+                in: memo.registrations(for: configDirectory, scan: scan)
+            )
+        }
     }
 
     /// Recognizes a `claude attach <id|name>` viewer from a pane's foreground process.
@@ -216,24 +353,48 @@ public struct ClaudeBackgroundSessionAttach: Sendable {
     ) -> ClaudeBackgroundSessionViewer? {
         guard let executableIndex = arguments.firstIndex(where: isClaudeExecutable) else { return nil }
         let tail = arguments[(executableIndex + 1)...]
-        guard tail.first == "attach",
-              let reference = tail.dropFirst().first(where: { !$0.hasPrefix("-") })?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !reference.isEmpty else {
+        guard tail.first == "attach" else { return nil }
+        let words = Array(tail.dropFirst())
+        let positionals = words.filter { !$0.hasPrefix("-") }
+        let hasValueOptions = words.contains { $0.hasPrefix("-") && !$0.contains("=") }
+        // `claude attach` takes one target; an option may consume the word
+        // after it, so with options present the target is the last word.
+        let target = hasValueOptions ? positionals.last : (positionals.count == 1 ? positionals.first : nil)
+        guard let reference = target?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reference.isEmpty,
+              !containsControlCharacter(reference) else {
             return nil
         }
         let attachEnvironment = attachEnvironment(environment)
         return ClaudeBackgroundSessionViewer(
             reference: reference,
-            launchArguments: Array(arguments[...executableIndex]),
+            launchArguments: sanitizedViewerLaunchArguments(Array(arguments[...executableIndex])),
             environment: attachEnvironment.isEmpty ? nil : attachEnvironment
         )
+    }
+
+    /// A viewer's launch prefix reduced to a `claude` executable (an absolute
+    /// path or plain `claude`), optionally preceded by `env`. Anything else is
+    /// dropped so a recorded prefix can never run another program.
+    public static func sanitizedViewerLaunchArguments(_ arguments: [String]) -> [String] {
+        guard let executable = arguments.last,
+              isClaudeExecutable(executable),
+              executable == "claude" || executable.hasPrefix("/"),
+              !containsControlCharacter(executable) else {
+            return ["claude"]
+        }
+        let prefix = arguments.dropLast()
+        if prefix.count == 1, let launcher = prefix.first, viewerLaunchers.contains(launcher) {
+            return [launcher, executable]
+        }
+        return [executable]
     }
 
     /// The attach-relevant subset of a captured environment.
     public static func attachEnvironment(_ environment: [String: String]) -> [String: String] {
         environment.filter { key, value in
             !value.isEmpty &&
+                !containsControlCharacter(value) &&
                 (attachEnvironmentKeys.contains(key) || key.hasPrefix(preservedEnvironmentKeyPrefix))
         }
     }
@@ -294,30 +455,49 @@ public struct ClaudeBackgroundSessionAttach: Sendable {
         _ viewer: ClaudeBackgroundSessionViewer,
         hookSession: HookSession?
     ) -> ClaudeBackgroundAttachPlan? {
-        let viewerEnvironment = viewer.environment ?? [:]
+        let viewerEnvironment = Self.attachEnvironment(viewer.environment ?? [:])
         let configDirectory = ClaudeBackgroundSessionRegistry.configDirectory(
             environment: viewerEnvironment,
             homeDirectory: homeDirectory
         )
         guard let registration = lookup(configDirectory, viewer.reference) else { return nil }
-        var environment = Self.attachEnvironment(viewerEnvironment)
+        var environment = viewerEnvironment
         if let hookSession,
            hookSession.sessionID.lowercased() == registration.sessionID.lowercased() {
             // The hook binding captured the session's own launch environment.
             environment.merge(Self.attachEnvironment(hookSession.environment)) { _, hook in hook }
         }
         return ClaudeBackgroundAttachPlan(
-            arguments: Self.attachArguments(
-                target: registration.attachTarget,
-                launchArguments: viewer.launchArguments,
-                launcher: nil
-            ),
+            arguments: Self.sanitizedViewerLaunchArguments(viewer.launchArguments)
+                + ["attach", registration.attachTarget],
             environment: environment,
             registration: registration
         )
     }
 
+    static func containsControlCharacter(_ value: String) -> Bool {
+        value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F || (0x80...0x9F).contains($0.value) }
+    }
+
     private static func isClaudeExecutable(_ argument: String) -> Bool {
         URL(fileURLWithPath: argument).lastPathComponent == "claude"
+    }
+}
+
+/// One restore pass's registry scans, keyed by config directory.
+private final class RegistryScanMemo: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scans: [String: [ClaudeBackgroundSessionRegistration]] = [:]
+
+    func registrations(
+        for configDirectory: String,
+        scan: (String) -> [ClaudeBackgroundSessionRegistration]
+    ) -> [ClaudeBackgroundSessionRegistration] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = scans[configDirectory] { return cached }
+        let scanned = scan(configDirectory)
+        scans[configDirectory] = scanned
+        return scanned
     }
 }
