@@ -18,7 +18,7 @@ final class FilePageOpener: FileOpening {
     /// types `.ts` (TypeScript) as an MPEG transport stream.
     nonisolated static let previewExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
-        "mp4", "mov", "m4v", "webm", "mp3", "m4a", "wav", "aac", "flac", "ogg",
+        "mp4", "mov", "m4v", "webm", "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "ogv",
     ]
 
     /// The page that opens `url`, nil for a file the browser tab previews.

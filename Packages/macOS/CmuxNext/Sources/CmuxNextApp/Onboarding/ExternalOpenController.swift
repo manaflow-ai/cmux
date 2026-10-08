@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextOnboarding
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
-/// `x-man-page:` handler, a script's opener or the Finder service: a tab in
+/// `x-man-page:` handler, a file's opener, Handoff or the Finder service: a tab in
 /// the current window's focused pane, per `ExternalOpenRouter`. A link in
 /// this build's scheme (`cmux://tab/…`) runs `link.open`, the one path every
 /// link takes. Requests that arrive before a window has content (a cold
@@ -26,6 +26,15 @@ final class ExternalOpenController {
     @discardableResult
     func open(_ url: URL) -> Bool {
         let route = router.route(url)
+        guard route != .unsupported else { return false }
+        perform(route)
+        return true
+    }
+
+    /// A web page continued from another device (Handoff). False for any
+    /// other activity (macOS then reports it could not continue).
+    func continueActivity(type: String, webpageURL: URL?) -> Bool {
+        let route = router.route(continuing: type, webpageURL: webpageURL)
         guard route != .unsupported else { return false }
         perform(route)
         return true
@@ -82,6 +91,8 @@ final class ExternalOpenController {
         switch route {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
+        // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
+        case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .deepLink, .unsupported: return
         }
     }
