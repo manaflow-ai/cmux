@@ -55,6 +55,17 @@ import Testing
                                    oldestRow: 0, rows: [Data(repeating: 0, count: SSHTmuxHistoryPage.maximumRowBytes + 1)], hasMore: false) == nil)
     }
 
+    @Test func pagePayloadAndRowBoundariesStayWithinTheControlBudget() {
+        let fullRow = Data(repeating: 0x78, count: SSHTmuxHistoryPage.maximumRowBytes)
+        let rowsAtLimit = Array(repeating: fullRow, count: SSHTmuxHistoryPage.maximumPageBytes / fullRow.count)
+        #expect(SSHTmuxHistoryPage(server: server, windowID: "@7", paneID: "%2", beforeRow: nil,
+                                   oldestRow: 0, rows: rowsAtLimit, hasMore: false) != nil)
+        #expect(SSHTmuxHistoryPage(server: server, windowID: "@7", paneID: "%2", beforeRow: nil,
+                                   oldestRow: 0, rows: rowsAtLimit + [Data("x".utf8)], hasMore: false) == nil)
+        #expect(SSHTmuxHistoryPage(server: server, windowID: "@7", paneID: "%2", beforeRow: nil,
+                                   oldestRow: 0, rows: [Data([0x6f, 0x0a, 0x6b])], hasMore: false) == nil)
+    }
+
     @Test func pageIdentityAndRowLimitsRemainBounded() throws {
         let tooMany = Array(repeating: Data("x".utf8), count: SSHTmuxHistoryPage.maximumRows + 1)
         #expect(SSHTmuxHistoryPage(server: server, windowID: "@7", paneID: "%2", beforeRow: nil,

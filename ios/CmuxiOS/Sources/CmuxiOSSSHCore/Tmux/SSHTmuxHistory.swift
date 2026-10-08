@@ -10,6 +10,10 @@ import Foundation
 public struct SSHTmuxHistoryPage: Hashable, Sendable {
     public static let maximumRows = 256
     public static let maximumRowBytes = 64 * 1024
+    /// A page must stay within the same aggregate payload budget as a framed
+    /// tmux control response. The per-row bound alone would allow a full page
+    /// to grow to 16 MiB before it reached the renderer.
+    public static let maximumPageBytes = 2 * 1024 * 1024
 
     public let server: SSHTmuxServerEpoch
     public let windowID: String
@@ -32,8 +36,18 @@ public struct SSHTmuxHistoryPage: Hashable, Sendable {
     ) {
         guard SSHTmuxWindow.isValidID(windowID, prefix: "@"),
               SSHTmuxWindow.isValidID(paneID, prefix: "%"),
-              rows.count <= Self.maximumRows,
-              rows.allSatisfy({ $0.count <= Self.maximumRowBytes }) else { return nil }
+              rows.count <= Self.maximumRows else { return nil }
+
+        // capture-pane rows are line-delimited by the control response. A
+        // decoded row containing CR/LF would make a later replay ambiguous,
+        // so reject it rather than letting one host row become extra rows.
+        var pageBytes = 0
+        for row in rows {
+            guard row.count <= Self.maximumRowBytes,
+                  !row.contains(where: { $0 == 0x0A || $0 == 0x0D }),
+                  row.count <= Self.maximumPageBytes - pageBytes else { return nil }
+            pageBytes += row.count
+        }
 
         if rows.isEmpty {
             guard !hasMore else { return nil }
