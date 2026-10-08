@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "comment": "Selective is the default PR policy. A suite is not an every-PR check merely because it exists.",
+  "suite": [
+    {
+      "id": "macos-unit",
+      "platform": "macos",
+      "aggregate": "macOS",
+      "pr_mode": "selective",
+      "test_paths": ["cmuxTests/"],
+      "source_paths": ["Sources/", "CLI/", "TunnelExtension/", "Packages/macOS/", "Packages/Shared/"],
+      "source_exclude_paths": ["Sources/Mobile/"],
+      "selector_prefix": "cmuxTests/",
+      "budget_seconds": 600
+    },
+    {
+      "id": "macos-ui",
+      "platform": "macos",
+      "aggregate": "macOS",
+      "pr_mode": "selective",
+      "test_paths": ["cmuxUITests/"],
+      "source_paths": ["cmuxUITests/"],
+      "selector_prefix": "cmuxUITests/",
+      "budget_seconds": 900
+    },
+    {
+      "id": "macos-cli",
+      "platform": "macos",
+      "aggregate": "macOS",
+      "pr_mode": "selective",
+      "test_paths": ["cmuxCLITests/", "cmuxCLITestSupport/"],
+      "source_paths": ["CLI/", "cmuxCLITests/", "cmuxCLITestSupport/"],
+      "selector_prefix": "cmuxCLITests/",
+      "budget_seconds": 600
+    },
+    {
+      "id": "macos-package",
+      "platform": "macos",
+      "aggregate": "macOS",
+      "pr_mode": "selective",
+      "test_paths": ["Packages/macOS/"],
+      "source_paths": ["Packages/macOS/"],
+      "budget_seconds": 900
+    },
+    {
+      "id": "ios",
+      "platform": "ios",
+      "aggregate": "iOS",
+      "pr_mode": "selective",
+      "test_paths": ["ios/tests/", "ios/cmuxPackage/Tests/", "Packages/iOS/"],
+      "source_paths": ["ios/", "Packages/iOS/", "Sources/Mobile/", "Packages/Shared/"],
+      "budget_seconds": 900
+    },
+    {
+      "id": "ios-ui",
+      "platform": "ios",
+      "aggregate": "iOS",
+      "pr_mode": "selective",
+      "test_paths": ["ios/cmuxUITests/"],
+      "source_paths": ["ios/cmuxUITests/"],
+      "selector_prefix": "ios/cmuxUITests/",
+      "budget_seconds": 900
+    },
+    {
+      "id": "ios-vendor",
+      "platform": "ios",
+      "aggregate": "iOS",
+      "pr_mode": "selective",
+      "test_paths": ["vendor/WireGuardKit/Tests/", "vendor/stack-auth-swift-sdk-prerelease/Tests/"],
+      "source_paths": ["vendor/WireGuardKit/", "vendor/stack-auth-swift-sdk-prerelease/"],
+      "budget_seconds": 600
+    },
+    {
+      "id": "shared-package",
+      "platform": "shared",
+      "aggregate": "Shared",
+      "pr_mode": "selective",
+      "test_paths": ["Packages/Shared/"],
+      "source_paths": ["Packages/Shared/"],
+      "budget_seconds": 600
+    },
+    {
+      "id": "web",
+      "platform": "web",
+      "aggregate": "Web",
+      "pr_mode": "selective",
+      "test_paths": ["web/tests/", "webviews/test/"],
+      "source_paths": ["web/", "webviews/"],
+      "budget_seconds": 600
+    },
+    {
+      "id": "examples-off",
+      "platform": "shared",
+      "aggregate": "Shared",
+      "pr_mode": "off",
+      "test_paths": ["Examples/"],
+      "source_paths": ["Examples/"],
+      "budget_seconds": 0
+    }
+  ]
+}

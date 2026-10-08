@@ -1,0 +1,173 @@
+name: PR checks
+
+# Keep these aggregate contexts stable while the platform leaf suites are
+# brought back. The route job validates the policy and records which platform
+# suites the diff would select; the platform jobs are intentionally noops for
+# now and always succeed. No workflow-level path filter is used: every PR gets
+# a result for every aggregate, so a required context never waits forever for a
+# workflow that was filtered out.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  route:
+    name: Route suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      platforms: ${{ steps.route.outputs.platforms }}
+      suites: ${{ steps.route.outputs.suites }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Validate and route the changed test paths
+        id: route
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          git diff --name-only --no-renames "$base" HEAD > "$RUNNER_TEMP/changed-files.txt"
+          route_json="$RUNNER_TEMP/route.json"
+          policy_change=false
+          while IFS= read -r changed; do
+            case "$changed" in
+              config/ci-test-suites.json|scripts/ci/ci_test_policy.py|.github/workflows/pr-checks.yml)
+                policy_change=true
+                ;;
+            esac
+          done < "$RUNNER_TEMP/changed-files.txt"
+          if [ "$policy_change" = true ]; then
+            # Routing policy is a coverage control plane. Validate the PR's
+            # copy, then widen this transition run to every aggregate so a
+            # policy edit cannot reduce the checks it is changing.
+            python3 scripts/ci/ci_test_policy.py --manifest config/ci-test-suites.json
+            printf '%s\n' '{"platforms":["ios","macos","shared","web"],"suites":["policy-change"]}' > "$route_json"
+          else
+            python3 scripts/ci/ci_test_policy.py \
+              --files-from "$RUNNER_TEMP/changed-files.txt" --json > "$route_json"
+          fi
+          platforms="$(python3 - "$route_json" <<'PY'
+          import json
+          import sys
+          print(",".join(json.load(open(sys.argv[1], encoding="utf-8"))["platforms"]))
+          PY
+          )"
+          suites="$(python3 - "$route_json" <<'PY'
+          import json
+          import sys
+          print(",".join(json.load(open(sys.argv[1], encoding="utf-8"))["suites"]))
+          PY
+          )"
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+          {
+            echo "### PR suite route"
+            echo "- platforms: ${platforms:-none}"
+            echo "- suites: ${suites:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  shared:
+    name: Shared
+    needs: route
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Record shared route
+        env:
+          PLATFORMS: ${{ needs.route.outputs.platforms }}
+          SUITES: ${{ needs.route.outputs.suites }}
+        run: |
+          selected=false
+          case ",${PLATFORMS:-}," in *,shared,*) selected=true ;; esac
+          echo "Shared aggregate noop; selected=$selected; suites=${SUITES:-none}"
+
+  macos:
+    name: macOS
+    needs: route
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Record macOS route
+        env:
+          PLATFORMS: ${{ needs.route.outputs.platforms }}
+          SUITES: ${{ needs.route.outputs.suites }}
+        run: |
+          selected=false
+          case ",${PLATFORMS:-}," in *,macos,*) selected=true ;; esac
+          echo "macOS aggregate noop; selected=$selected; suites=${SUITES:-none}"
+
+  ios:
+    name: iOS
+    needs: route
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Record iOS route
+        env:
+          PLATFORMS: ${{ needs.route.outputs.platforms }}
+          SUITES: ${{ needs.route.outputs.suites }}
+        run: |
+          selected=false
+          case ",${PLATFORMS:-}," in *,ios,*) selected=true ;; esac
+          echo "iOS aggregate noop; selected=$selected; suites=${SUITES:-none}"
+
+  web:
+    name: Web
+    needs: route
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Record web route
+        env:
+          PLATFORMS: ${{ needs.route.outputs.platforms }}
+          SUITES: ${{ needs.route.outputs.suites }}
+        run: |
+          selected=false
+          case ",${PLATFORMS:-}," in *,web,*) selected=true ;; esac
+          echo "Web aggregate noop; selected=$selected; suites=${SUITES:-none}"
+
+  status:
+    name: Status
+    needs: [route, shared, macos, ios, web]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Check aggregate results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          needs = json.loads(os.environ["NEEDS"])
+          bad = {
+              name: data["result"]
+              for name, data in needs.items()
+              if name != "route" and data["result"] != "success"
+          }
+          if needs["route"]["result"] != "success":
+              bad["route"] = needs["route"]["result"]
+          if bad:
+              for name, result in sorted(bad.items()):
+                  print(f"{name}: {result}", file=sys.stderr)
+              raise SystemExit(1)
+          print("PR aggregate checks passed")
+          PY
