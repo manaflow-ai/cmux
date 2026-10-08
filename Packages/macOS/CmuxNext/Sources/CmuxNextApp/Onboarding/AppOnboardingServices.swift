@@ -169,33 +169,29 @@ final class AppOnboardingServices: OnboardingServices {
         NSWorkspace.shared.open(url)
     }
 
-    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
-    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
-    /// grants `debug.onboarding grant` flips instead.
+    /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the
+    /// palette action and Settings show). The step shows whenever Computer
+    /// Use may run: off, it says so and Allow turns it on. A DEBUG launch
+    /// with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets grants
+    /// `debug.onboarding grant` flips instead.
     var computerUsePermissions: (any ComputerUsePermissionSource)? {
         // Turned off by policy (DisabledFeatures): no step and no prompts.
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
 
-    /// Resolved on each read until a helper answers, then kept: a helper
-    /// that comes up after the first read still gets the step. The check is
-    /// one non-blocking local connect, never a wait or a poll.
     private var resolvedComputerUseSource: (any ComputerUsePermissionSource)?
-    private var computerUseSource: (any ComputerUsePermissionSource)? {
+    private var computerUseSource: any ComputerUsePermissionSource {
         if let resolvedComputerUseSource { return resolvedComputerUseSource }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            resolvedComputerUseSource = MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
-            return resolvedComputerUseSource
+            let mock = MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
+            resolvedComputerUseSource = mock
+            return mock
         }
         #endif
-        if ComputerUseHelperDaemon.shared.state == .unavailable {
-            // Computer Use is on, but no Developer ID signed helper is
-            // installed: the step shows, and Allow says it is unavailable.
-            return AppComputerUsePermissionSource(configuration: owner.computerUseConfiguration)
-        }
-        resolvedComputerUseSource = AppComputerUsePermissionSource.local(owner.computerUseConfiguration)
-        return resolvedComputerUseSource
+        let source = AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+        resolvedComputerUseSource = source
+        return source
     }
 
     var hasAccountsStep: Bool { true }
