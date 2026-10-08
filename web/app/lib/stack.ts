@@ -79,12 +79,13 @@ export function getStackServerApp(): StackServerApp<true> {
  * redirect.
  */
 export function createUncachedStackServerApp(): StackServerApp<true> {
-  if (!projectId || !publishableClientKey || !secretServerKey) {
+  if (!projectId || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
   return new StackServerApp({
     projectId,
-    publishableClientKey,
+    // Omitted when unset: Stack then uses its public-client secret.
+    ...(publishableClientKey ? { publishableClientKey } : {}),
     secretServerKey,
     // Never used: every call passes the session it checks.
     tokenStore: "memory",
