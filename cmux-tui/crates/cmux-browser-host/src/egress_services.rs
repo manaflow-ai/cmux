@@ -18,9 +18,10 @@ use std::sync::Arc;
 pub type ServiceCheck = Arc<dyn Fn(SocketAddr) -> Option<String> + Send + Sync>;
 
 /// Executable names of cmux services. Anything named `cmux-*` counts too.
-/// Chrome counts: the daemon's CDP browsers listen on a loopback DevTools
-/// port (`--remote-debugging-port=0`), whose HTTP endpoints a page could
-/// read; an agent's own dev servers are never Chrome.
+/// Chrome counts: cmux launches no Chrome with a DevTools port (cx-2u5k),
+/// but an agent's own automation does (agent-browser, Playwright,
+/// Puppeteer: `--remote-debugging-port`), and a page that reaches that port
+/// could read or drive that browser. An agent's dev servers are never Chrome.
 const SERVICE_NAMES: &[&str] = &[
     "cmux",
     "acpmux",
