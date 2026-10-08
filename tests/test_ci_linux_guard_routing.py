@@ -18,8 +18,8 @@ from test_ci_change_areas import (
     module,
     run_guard_status,
     run_linux_preflight,
-    run_tests_gate,
-    tests_gate_needs,
+    run_platform_gate,
+    platform_gate_needs,
     workflow_job_block,
     workflow_job_step_script,
 )
@@ -338,14 +338,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             block,
         )
 
-        no_macos = tests_gate_needs(macos="false", macos_result="skipped")
+        no_macos = platform_gate_needs(macos="false", macos_result="skipped")
         no_macos["linux-preflight"]["result"] = "skipped"
-        result = run_tests_gate(no_macos)
+        result = run_platform_gate(no_macos)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-        macos = tests_gate_needs()
+        macos = platform_gate_needs()
         macos["linux-preflight"]["result"] = "skipped"
-        result = run_tests_gate(macos)
+        result = run_platform_gate(macos)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("linux preflight did not pass: skipped", result.stderr)
 

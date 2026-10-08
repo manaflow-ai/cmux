@@ -135,12 +135,14 @@ for notary_sidecar in "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"; do
     exit 1
   fi
 done
-notary_submit_args=(notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" --output-format json)
-if [ "$SUBMIT_ONLY" != true ]; then
-  notary_submit_args+=(--wait --timeout "$NOTARY_WAIT_TIMEOUT")
-fi
 set +e
-"$XCRUN_TOOL" "${notary_submit_args[@]}" >"$NOTARY_SUBMIT_OUTPUT" 2>&1
+if [ "$SUBMIT_ONLY" != true ]; then
+  "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
+    --output-format json --wait --timeout "$NOTARY_WAIT_TIMEOUT"
+else
+  "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
+    --output-format json
+fi >"$NOTARY_SUBMIT_OUTPUT" 2>&1
 NOTARY_SUBMIT_EXIT=$?
 set -e
 
@@ -175,14 +177,8 @@ fi
 
 write_notary_state() {
   local state_tmp="$NOTARY_SUBMISSION_FILE.tmp.$$" dmg_sha256=""
-  if ! command -v shasum >/dev/null 2>&1; then
-    echo "Cannot preserve notarization state without shasum" >&2
-    return 1
-  fi
-  dmg_sha256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
-  if [[ ! "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]]; then
-    echo "Cannot preserve notarization state without a valid DMG SHA-256" >&2
-    return 1
+  if command -v shasum >/dev/null 2>&1; then
+    dmg_sha256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
   fi
   umask 077
   {
@@ -242,10 +238,15 @@ if [ -n "$DMG_SUBMIT_ID" ] \
 fi
 if [ "$NOTARY_SUBMIT_EXIT" -ne 0 ]; then
   save_notary_output
-  if [ -n "$DMG_SUBMIT_ID" ]; then
-    echo "DMG notarization did not finish within $NOTARY_WAIT_TIMEOUT for $DMG_RELEASE (submission $DMG_SUBMIT_ID); details: $NOTARY_OUTPUT_FILE" >&2
+  if grep -Eiq 'timeout|timed out' "$NOTARY_OUTPUT_FILE"; then
+    notary_failure="did not finish within $NOTARY_WAIT_TIMEOUT"
   else
-    echo "DMG notarization did not finish within $NOTARY_WAIT_TIMEOUT for $DMG_RELEASE; no submission id was returned; details: $NOTARY_OUTPUT_FILE" >&2
+    notary_failure="submit exited $NOTARY_SUBMIT_EXIT"
+  fi
+  if [ -n "$DMG_SUBMIT_ID" ]; then
+    echo "DMG notarization $notary_failure for $DMG_RELEASE (submission $DMG_SUBMIT_ID); details: $NOTARY_OUTPUT_FILE" >&2
+  else
+    echo "DMG notarization $notary_failure for $DMG_RELEASE; no submission id was returned; details: $NOTARY_OUTPUT_FILE" >&2
   fi
   exit 1
 fi

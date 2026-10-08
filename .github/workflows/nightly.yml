@@ -464,7 +464,7 @@ jobs:
   # which publishes from its own push run) to a feat-cmux-next commit. Runs
   # only here on main, in the `release` environment, with the release App (the
   # only bypass actor of the nightly-next ruleset). cmux-next.yml on
-  # feat-cmux-next requests it after a green push run (debounce=true); a person
+  # feat-cmux-next requests it after a green Release compile without debounce; a person
   # can Run workflow with the SHA (no debounce). The commit counts only through
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
@@ -510,19 +510,31 @@ jobs:
               return;
             }
 
-            // A pushed feat-cmux-next head whose push run passed the Release compile.
-            const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
-            });
+            // The source workflow dispatches this request immediately after
+            // Release compile succeeds. GitHub's head-SHA workflow index can
+            // lag that job by a few seconds, so retry the same exact lookup
+            // before rejecting a valid promotion. Never relax the SHA, branch,
+            // event, job name or conclusion checks while retrying.
+            const admissionAttempts = 6;
+            const admissionDelayMs = 5000;
             let green = false;
-            for (const run of pushRuns) {
-              if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+            for (let attempt = 1; attempt <= admissionAttempts && !green; attempt += 1) {
+              const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
               });
-              if (jobs.some((job) => job.name === requiredJob && job.conclusion === 'success')) {
-                green = true;
-                break;
+              for (const run of pushRuns) {
+                if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+                });
+                if (jobs.some((job) => job.status === 'completed' && job.name === requiredJob && job.conclusion === 'success')) {
+                  green = true;
+                  break;
+                }
+              }
+              if (!green && attempt < admissionAttempts) {
+                core.notice(`The exact ${requiredJob} result is not visible yet; retrying promotion admission (${attempt}/${admissionAttempts - 1}).`);
+                await new Promise((resolve) => setTimeout(resolve, admissionDelayMs));
               }
             }
             if (!green) {
@@ -1440,6 +1452,8 @@ jobs:
         with:
           name: cmux-nightly-unsigned-app
           path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
+          # The tar.gz is already compressed; avoid wasting runner CPU on outer deflate.
+          compression-level: 0
           if-no-files-found: error
           retention-days: 1
 
@@ -1508,8 +1522,6 @@ jobs:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
-    outputs:
-      notarization_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -1639,6 +1651,11 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Install build deps
         run: |
@@ -2029,7 +2046,6 @@ jobs:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}
-          CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
@@ -2106,7 +2122,7 @@ jobs:
                   "schema": 1,
                   "source_run_id": "${{ github.run_id }}",
                   "source_run_attempt": "${{ github.run_attempt }}",
-                  "should_publish": ${{ needs.decide.outputs.should_publish == 'true' }},
+                  "should_publish": "${{ needs.decide.outputs.should_publish }}" == "true",
                   "channel": channel,
                   "variant": variant,
                   "release_tag": release_tag,
@@ -2223,7 +2239,10 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # Published paths are completed by auto-resume-nightly-notarization after
+    # Apple accepts every exact DMG. This job remains only for private branch
+    # artifacts, where no Apple ticket or release publication is involved.
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:

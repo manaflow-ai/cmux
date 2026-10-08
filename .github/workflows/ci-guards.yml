@@ -30,14 +30,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout with submodules
+      - name: Checkout parent repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The synthetic PR commit and its first parent are sufficient for
           # the merge-base comparison, and keep this guard shallow like the
           # neighboring history guard.
           fetch-depth: 2
-          submodules: recursive
+          # The guard initializes only changed gitlinks after comparing them.
+          submodules: false
           persist-credentials: false
 
       - name: Bind submodule guard to synthetic merge parent
@@ -168,7 +169,9 @@ jobs:
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: python3 tests/test_ci_reverse_test_impact.py
+        run: |
+          python3 tests/test_ci_reverse_test_impact.py
+          python3 tests/test_reverse_test_impact_route.py
 
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -1135,6 +1138,7 @@ jobs:
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
+          python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
@@ -1151,6 +1155,18 @@ jobs:
       - name: Validate nightly notarization behavior
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_nightly_dmg.sh
+
+      - name: Validate nightly notarization recovery manifest
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_notarization_recovery_manifest.py
+
+      - name: Validate asynchronous notarization status polling
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_poll_notary_submission.py
+
+      - name: Validate accepted nightly DMG artifact aliases
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_artifact_alias.py
 
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}

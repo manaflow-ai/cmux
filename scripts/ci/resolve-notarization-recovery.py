@@ -147,13 +147,16 @@ def extract_app_archive(root: Path, archive_path: Path, app_relative: str) -> No
             rel = PurePosixPath(member.name)
             if rel.is_absolute() or not rel.parts or rel.parts[0] != app_root.name or ".." in rel.parts:
                 raise ValueError(f"unsafe recovery archive member: {member.name}")
+            if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
+                raise ValueError(f"unsupported recovery archive member type: {member.name}")
             if member.issym() or member.islnk():
-                target = PurePosixPath(posixpath.normpath(str(rel.parent / member.linkname)))
+                base = rel.parent if member.issym() else PurePosixPath()
+                target = PurePosixPath(posixpath.normpath(str(base / member.linkname)))
                 if target.is_absolute() or not _under(target, app_root):
                     raise ValueError(f"unsafe recovery archive link: {member.name}")
         if {PurePosixPath(member.name).parts[0] for member in members} != {app_root.name}:
             raise ValueError("recovery app archive contains multiple roots")
-        archive.extractall(destination)
+        archive.extractall(destination, filter="data")
     app_path = root / Path(*app_rel.parts)
     if not (app_path / "Contents").is_dir():
         raise ValueError("recovered app archive did not produce an app bundle")

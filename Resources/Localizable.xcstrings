@@ -284424,131 +284424,6 @@
         }
       }
     },
-    "remoteTmux.error.authenticationRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طلب %@ بيانات اعتماد ولا يوجد لدى cmux مكان لكتابتها. سجّل الدخول إلى المضيف، ثم أعد المحاولة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ je zatražio pristupne podatke, a cmux ih nema gdje upisati. Prijavite se na host, a zatim pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ bad om loginoplysninger, og cmux har ingen steder at indtaste dem. Log ind på værten, og prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hat nach Anmeldedaten gefragt, und cmux kann sie nirgends eingeben. Melden Sie sich beim Host an, und versuchen Sie es erneut."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ solicitó credenciales y cmux no tiene dónde escribirlas. Inicia sesión en el host y vuelve a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ a demandé des identifiants et cmux n'a nulle part où les saisir. Connectez-vous à l'hôte, puis réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ha richiesto le credenziali e cmux non ha modo di digitarle. Accedi all'host, quindi riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ が認証情報を要求しましたが、cmux には入力する場所がありません。ホストにログインしてから、もう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ បានស្នើសុំព័ត៌មានផ្ទៀងផ្ទាត់ ហើយ cmux គ្មានកន្លែងបញ្ចូលវាទេ។ សូមចូលទៅកាន់ម៉ាស៊ីនបម្រើ បន្ទាប់មកព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에서 자격 증명을 요청했지만 cmux에는 입력할 곳이 없습니다. 호스트에 로그인한 다음 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ba om påloggingsinformasjon, og cmux har ingen steder å skrive den. Logg på verten, og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ poprosił o dane uwierzytelniające, a cmux nie ma gdzie ich wpisać. Zaloguj się na hoście, a następnie spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ pediu credenciais e o cmux não tem onde digitá-las. Faça login no host e tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ запросил учётные данные, а cmux негде их ввести. Войдите на хост, затем повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ขอข้อมูลรับรอง แต่ cmux ไม่มีที่ให้พิมพ์ กรุณาเข้าสู่ระบบโฮสต์ แล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kimlik bilgileri istedi ve cmux bunları yazacak bir yer bulamıyor. Ana makinede oturum açın, ardından yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ запросив облікові дані, а cmux не має де їх увести. Увійдіть на хост, потім повторіть спробу."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 请求了凭据，而 cmux 无处输入。请先登录该主机，然后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 要求了憑證，而 cmux 沒有地方輸入。請先登入該主機，然後重試。"
-          }
-        }
-      }
-    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -286130,381 +286005,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "向右分割"
-          }
-        }
-      }
-    },
-    "remoteTmux.reconnectAuth.failure": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل تسجيل الدخول. شغّل الأمر أعلاه مرة أخرى لإعادة المحاولة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prijava nije uspjela. Ponovno pokrenite naredbu iznad da pokušate opet."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Login mislykkedes. Kør kommandoen ovenfor igen for at prøve igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anmeldung fehlgeschlagen. Führen Sie den Befehl oben erneut aus, um es noch einmal zu versuchen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign-in failed. Run the command above again to retry."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo iniciar sesión. Vuelve a ejecutar el comando anterior para intentarlo de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec de la connexion. Relancez la commande ci-dessus pour réessayer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accesso non riuscito. Esegui di nuovo il comando sopra per riprovare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインインに失敗しました。上のコマンドをもう一度実行してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការចូលបានបរាជ័យ។ ដំណើរការពាក្យបញ្ជាខាងលើម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로그인에 실패했습니다. 위 명령을 다시 실행해 재시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Påloggingen mislyktes. Kjør kommandoen ovenfor på nytt for å prøve igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logowanie nie udało się. Uruchom ponownie powyższe polecenie, aby spróbować jeszcze raz."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Falha ao entrar. Execute o comando acima novamente para tentar de novo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось войти. Запустите команду выше ещё раз, чтобы повторить попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลงชื่อเข้าใช้ไม่สำเร็จ เรียกใช้คำสั่งด้านบนอีกครั้งเพื่อลองใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oturum açılamadı. Yeniden denemek için yukarıdaki komutu tekrar çalıştırın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося увійти. Запустіть команду вище ще раз, щоб повторити спробу."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登录失败。请再次运行上面的命令重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登入失敗。請再次執行上方的指令重試。"
-          }
-        }
-      }
-    },
-    "remoteTmux.reconnectAuth.success": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم تسجيل الدخول. جارٍ إعادة توصيل المرآة…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prijavljeni ste. Ponovno povezivanje zrcala…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du er logget ind. Opretter forbindelse til spejlingen igen…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angemeldet. Spiegelung wird neu verbunden…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Signed in. Reconnecting the mirror…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesión iniciada. Volviendo a conectar la duplicación…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connexion réussie. Reconnexion du miroir…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accesso effettuato. Riconnessione del mirror…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインインしました。ミラーを再接続しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានចូល។ កំពុងភ្ជាប់កញ្ចក់ឡើងវិញ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로그인되었습니다. 미러를 다시 연결하고 있습니다…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pålogget. Kobler til speilingen igjen…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zalogowano. Ponowne łączenie kopii…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessão iniciada. Reconectando o espelho…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вход выполнен. Переподключение зеркала…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลงชื่อเข้าใช้แล้ว กำลังเชื่อมต่อมิเรอร์อีกครั้ง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oturum açıldı. Yansıma yeniden bağlanıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вхід виконано. Повторне підключення дзеркала…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已登录。正在重新连接镜像…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已登入。正在重新連線鏡像…"
-          }
-        }
-      }
-    },
-    "remoteTmux.reconnectAuth.workspaceTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تسجيل الدخول إلى %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prijava na %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Log ind på %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bei %@ anmelden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign in to %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iniciar sesión en %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se connecter à %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accedi a %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ にサインイン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចូលទៅ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에 로그인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logg på %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaloguj się do %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entrar em %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вход в %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลงชื่อเข้าใช้ %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ için oturum açın"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вхід у %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登录 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登入 %@"
           }
         }
       }
@@ -435946,171 +435446,6 @@
         }
       }
     },
-    "socket.remoteTmux.transportPortOutOfRange": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port must be between 1 and 65535"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يجب أن يكون transport_port بين 1 و65535"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port muss zwischen 1 und 65535 liegen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port debe estar entre 1 y 65535"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port doit être compris entre 1 et 65535"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port は 1 から 65535 の範囲で指定してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port는 1에서 65535 사이여야 합니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port 必须在 1 到 65535 之间"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_port 必須介於 1 到 65535 之間"
-          }
-        }
-      }
-    },
-    "socket.remoteTmux.transportHelperPathInvalid": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_helper_path must be an absolute path without control or hidden characters"
-          }
-        },
-        "ar": { "stringUnit": { "state": "translated", "value": "يجب أن يكون transport_helper_path مسارًا مطلقًا لنقل مدعوم" } },
-        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path muss ein absoluter Pfad für einen unterstützten Transport sein" } },
-        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path debe ser una ruta absoluta para un transporte compatible" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path doit être un chemin absolu pour un transport pris en charge" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path は対応するトランスポートの絶対パスである必要があります" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 지원되는 전송의 절대 경로여야 합니다" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必须是受支持传输的绝对路径" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必須是支援傳輸的絕對路徑" } }
-      }
-    },
-    "socket.remoteTmux.transportHelperPathUnsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path is not supported by the selected transport" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "النقل المحدد لا يدعم transport_helper_path" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Der ausgewählte Transport unterstützt transport_helper_path nicht" } },
-        "es": { "stringUnit": { "state": "translated", "value": "El transporte seleccionado no admite transport_helper_path" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Le transport sélectionné ne prend pas en charge transport_helper_path" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "選択したトランスポートは transport_helper_path に対応していません" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "선택한 전송은 transport_helper_path를 지원하지 않습니다" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "所选传输不支持 transport_helper_path" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選取的傳輸不支援 transport_helper_path" } }
-      }
-    },
-    "socket.remoteTmux.transportHelperPathBrokerConflict": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path cannot be used with a broker; the broker supplies the remote helper" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "لا يمكن استخدام transport_helper_path مع وسيط؛ فالوسيط يوفّر المساعد البعيد" } },
-        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path kann nicht mit einem Broker verwendet werden; der Broker stellt den Remote-Helfer bereit" } },
-        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path no puede usarse con un broker; el broker proporciona el auxiliar remoto" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path ne peut pas être utilisé avec un broker ; le broker fournit l’assistant distant" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path はブローカーと併用できません。ブローカーがリモートヘルパーを提供します" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 브로커와 함께 사용할 수 없습니다. 브로커가 원격 헬퍼를 제공합니다" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能与 broker 一起使用；broker 会提供远程辅助程序" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能與 broker 一起使用；broker 會提供遠端輔助程式" } }
-      }
-    },
-    "socket.remoteTmux.transportUnknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport is not one cmux knows; use ssh or et"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قيمة transport ليست نقلًا يعرفه cmux؛ استخدم ssh أو et"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport ist kein Transport, den cmux kennt; verwenden Sie ssh oder et"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport no es un transporte que cmux conozca; usa ssh o et"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport n’est pas un transport connu de cmux ; utilisez ssh ou et"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport は cmux が対応していない値です。ssh または et を使用してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport가 cmux가 아는 값이 아닙니다. ssh 또는 et를 사용하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport 不是 cmux 支持的传输方式；请使用 ssh 或 et"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport 不是 cmux 支援的傳輸方式；請使用 ssh 或 et"
-          }
-        }
-      }
-    },
     "socket.sidebar.custom.invalidName": {
       "extractionState": "manual",
       "localizations": {
@@ -439509,242 +438844,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "轉送選取器無效"
-          }
-        }
-      }
-    },
-    "socket.remoteTmux.brokerMalformed": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker ليس اسمًا صالحًا للاستخدام: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker ist kein verwendbarer Name: %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker is not a usable name: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker no es un nombre utilizable: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker n’est pas un nom utilisable : %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker は使用できる名前ではありません: %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker는 사용할 수 있는 이름이 아닙니다: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker 不是可用的名称：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "transport_broker 不是可用的名稱：%@"
-          }
-        }
-      }
-    },
-    "socket.remoteTmux.brokerNotUsedByTransport": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يستخدم النقل '%@' وسيطًا؛ مرّر --transport et للاتصال عبر وسيط"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "der Transport '%@' verwendet keinen Broker; übergib --transport et, um über einen zu verbinden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "the '%@' transport does not use a broker; pass --transport et to connect through one"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "el transporte '%@' no usa un broker; pasa --transport et para conectarte a través de uno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "le transport '%@' n’utilise pas de broker ; passez --transport et pour vous connecter via un broker"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "'%@' トランスポートはブローカーを使用しません。ブローカー経由で接続するには --transport et を指定してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "'%@' 전송은 브로커를 사용하지 않습니다. 브로커를 통해 연결하려면 --transport et를 전달하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "'%@' 传输不使用 broker；传入 --transport et 以通过 broker 连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "'%@' 傳輸不使用 broker；傳入 --transport et 以透過 broker 連線"
-          }
-        }
-      }
-    },
-    "socket.remoteTmux.brokerUnknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يوجد وسيط باسم '%@' مُعرّف ضمن remoteTmux.brokers في cmux.json"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "in cmux.json ist unter remoteTmux.brokers kein Broker namens '%@' deklariert"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "no broker named '%@' is declared under remoteTmux.brokers in cmux.json"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "no hay ningún broker llamado '%@' declarado en remoteTmux.brokers de cmux.json"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "aucun broker nommé '%@' n’est déclaré sous remoteTmux.brokers dans cmux.json"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json の remoteTmux.brokers に '%@' という名前のブローカーは宣言されていません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json의 remoteTmux.brokers에 '%@'라는 이름의 브로커가 선언되어 있지 않습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json 的 remoteTmux.brokers 下没有声明名为 '%@' 的 broker"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json 的 remoteTmux.brokers 下沒有宣告名為 '%@' 的 broker"
-          }
-        }
-      }
-    },
-    "socket.remoteTmux.brokerUnusable": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الوسيط '%@' مُعرّف لكن لا يمكن استخدامه: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "der Broker '%@' ist deklariert, kann aber nicht verwendet werden: %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "broker '%@' is declared but cannot be used: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "el broker '%@' está declarado, pero no se puede usar: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "le broker '%@' est déclaré mais ne peut pas être utilisé : %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブローカー '%@' は宣言されていますが使用できません: %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "브로커 '%@'가 선언되어 있지만 사용할 수 없습니다: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "broker '%@' 已声明，但无法使用：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "broker '%@' 已宣告，但無法使用：%@"
           }
         }
       }
@@ -567000,6 +566099,65 @@
         }
       }
     },
+    "settings.search.alias.setting.workspaceColors.brighten-dark-mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 明るく ダークモード ワークスペース 色 塗りつぶし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 调亮 深色模式 工作区 颜色 填充"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 調亮 深色模式 工作區 顏色 填滿"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 밝게 다크 모드 작업 공간 색상 채우기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aufhellen dunkler Modus Arbeitsbereich Farben Füllung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aclarar modo oscuro espacio de trabajo colores relleno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color éclaircir mode sombre espace de travail couleurs remplissage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color تفتيح الوضع الداكن مساحة العمل الألوان تعبئة"
+          }
+        }
+      }
+    },
     "settings.workspaceColors.subtleSelection": {
       "extractionState": "manual",
       "localizations": {
@@ -605641,65 +604799,6 @@
         }
       }
     },
-    "browser.discard.restoring": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restoring…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ الاستعادة…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurando…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restauration…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復元中…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복원 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在恢复…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在還原…"
-          }
-        }
-      }
-    },
     "settings.browser.autoRestoreUnloadedPages": {
       "extractionState": "manual",
       "localizations": {
@@ -627224,55 +626323,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف حسابات Codex وClaude وOpenCode Go التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
+            "value": "أضف حسابات Codex وClaude وOpenCode التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Go-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
+            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add the Codex, Claude and OpenCode Go accounts you already have, and agents on your Cloud machines use them right away."
+            "value": "Add the Codex, Claude and OpenCode accounts you already have, and agents on your Cloud machines use them right away."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las cuentas de Codex, Claude y OpenCode Go que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
+            "value": "Añade las cuentas de Codex, Claude y OpenCode que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez vos comptes Codex, Claude et OpenCode Go existants : les agents de vos machines Cloud les utilisent aussitôt."
+            "value": "Ajoutez vos comptes Codex, Claude et OpenCode existants : les agents de vos machines Cloud les utilisent aussitôt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "お持ちの Codex、Claude、OpenCode Go アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
+            "value": "お持ちの Codex、Claude、OpenCode アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 가진 Codex, Claude, OpenCode Go 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
+            "value": "이미 가진 Codex, Claude, OpenCode 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加你已有的 Codex、Claude 和 OpenCode Go 账户，云机器上的代理即可立即使用。"
+            "value": "添加你已有的 Codex、Claude 和 OpenCode 账户，云机器上的代理即可立即使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增你已有的 Codex、Claude 和 OpenCode Go 帳號，雲端機器上的代理程式即可立即使用。"
+            "value": "新增你已有的 Codex、Claude 和 OpenCode 帳號，雲端機器上的代理程式即可立即使用。"
           }
         }
       }
@@ -627401,55 +626500,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقر على حساب Codex أو Claude أو OpenCode Go جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
+            "value": "انقر على حساب Codex أو Claude أو OpenCode جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klicke auf „Neues Codex-, Claude- oder OpenCode-Go-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
+            "value": "Klicke auf „Neues Codex-, Claude- oder OpenCode-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click New Codex, Claude or OpenCode Go Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+            "value": "Click New Codex, Claude or OpenCode Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haz clic en Nueva cuenta de Codex, Claude u OpenCode Go e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
+            "value": "Haz clic en Nueva cuenta de Codex, Claude u OpenCode e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cliquez sur Nouveau compte Codex, Claude ou OpenCode Go et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
+            "value": "Cliquez sur Nouveau compte Codex, Claude ou OpenCode et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい Codex、Claude、OpenCode Go アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
+            "value": "新しい Codex、Claude、OpenCode アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 Codex, Claude 또는 OpenCode Go 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
+            "value": "새 Codex, Claude 또는 OpenCode 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按“新建 Codex、Claude 或 OpenCode Go 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
+            "value": "点按“新建 Codex、Claude 或 OpenCode 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點按「新增 Codex、Claude 或 OpenCode Go 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
+            "value": "點按「新增 Codex、Claude 或 OpenCode 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
           }
         }
       }
@@ -628158,6 +627257,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "머신을 포크할 수 없음"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.brightenInDarkMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brighten Colors in Dark Mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفتيح الألوان في الوضع الداكن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farben im dunklen Modus aufhellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aclarar los colores en modo oscuro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éclaircir les couleurs en mode sombre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークモードで色を明るくする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크 모드에서 색상 밝게 하기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下调亮颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下調亮顏色"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.brightenInDarkMode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتّح ألوان مساحات العمل في الوضع الداكن لتبقى مقروءة على شريط جانبي داكن. أوقفه لعرض الألوان كما اخترتها تمامًا. ينطبق على «تعبئة بلون خالص»؛ يستخدم «العمود الأيسر» دائمًا عمودًا مُفتَّحًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hellt Arbeitsbereichsfarben im dunklen Modus auf, damit sie auf einer dunklen Seitenleiste lesbar bleiben. Deaktivieren, um Farben genau wie gewählt anzuzeigen. Gilt für „Vollfarbige Füllung“; „Linke Leiste“ verwendet immer eine aufgehellte Leiste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aclara los colores de los espacios de trabajo en modo oscuro para que sigan siendo legibles sobre una barra lateral oscura. Desactívalo para mostrar los colores exactamente como los elegiste. Se aplica a «Relleno sólido»; «Riel izquierdo» siempre usa un riel aclarado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éclaircit les couleurs des espaces de travail en mode sombre pour qu'elles restent lisibles sur une barre latérale sombre. Désactivez pour afficher les couleurs exactement comme choisies. S'applique à « Remplissage plein » ; « Rail gauche » utilise toujours un rail éclairci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークモードでワークスペースの色を明るくし、暗いサイドバー上でも読みやすく保ちます。オフにすると選んだ色をそのまま表示します。「塗りつぶし」に適用されます。「左レール」は常に明るくしたレールを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크 모드에서 작업 공간 색상을 밝게 하여 어두운 사이드바에서도 잘 보이게 합니다. 끄면 선택한 색상을 그대로 표시합니다. '단색 채우기'에 적용되며, '왼쪽 레일'은 항상 밝게 한 레일을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下调亮工作区颜色，使其在深色侧边栏上保持清晰可读。关闭后将完全按照所选颜色显示。仅适用于“实心填充”；“左侧竖条”始终使用调亮的竖条。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下調亮工作區顏色，使其在深色側邊欄上保持清晰可讀。關閉後會完全依照所選顏色顯示。僅適用於「實心填滿」；「左側導軌」一律使用調亮的導軌。"
           }
         }
       }
@@ -641621,179 +640838,2091 @@
         }
       }
     },
-    "settings.search.alias.setting.workspaceColors.brighten-dark-mode": {
+    "mobile.agentFeed.question.answer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 明るく ダークモード ワークスペース 色 塗りつぶし"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 调亮 深色模式 工作区 颜色 填充"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 調亮 深色模式 工作區 顏色 填滿"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 밝게 다크 모드 작업 공간 색상 채우기"
+            "value": "Answer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aufhellen dunkler Modus Arbeitsbereich Farben Füllung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aclarar modo oscuro espacio de trabajo colores relleno"
+            "value": "Antwort"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color éclaircir mode sombre espace de travail couleurs remplissage"
+            "value": "Répondre"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color تفتيح الوضع الداكن مساحة العمل الألوان تعبئة"
+            "value": "إجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
           }
         }
       }
     },
-    "settings.workspaceColors.brightenInDarkMode": {
+    "mobile.agentFeed.question.answerSubtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brighten Colors in Dark Mode"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تفتيح الألوان في الوضع الداكن"
+            "value": "Choose an option or write an answer for each prompt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farben im dunklen Modus aufhellen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aclarar los colores en modo oscuro"
+            "value": "Wähle eine Option oder schreibe eine Antwort für jede Frage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Éclaircir les couleurs en mode sombre"
+            "value": "Choisissez une option ou écrivez une réponse pour chaque question."
           }
         },
-        "ja": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダークモードで色を明るくする"
+            "value": "اختر خيارًا أو اكتب إجابة لكل سؤال."
           }
         },
-        "ko": {
+        "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "다크 모드에서 색상 밝게 하기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在深色模式下调亮颜色"
+            "value": "Elige una opción o escribe una respuesta para cada pregunta."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在深色模式下調亮顏色"
+            "value": "為每個問題選擇選項或輸入回答。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个问题选择选项或输入回答。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 질문에 대한 옵션을 선택하거나 답변을 입력하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各質問の選択肢を選ぶか、回答を入力してください。"
           }
         }
       }
     },
-    "settings.workspaceColors.brightenInDarkMode.subtitle": {
+    "mobile.agentFeed.question.answerTitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يفتّح ألوان مساحات العمل في الوضع الداكن لتبقى مقروءة على شريط جانبي داكن. أوقفه لعرض الألوان كما اخترتها تمامًا. ينطبق على «تعبئة بلون خالص»؛ يستخدم «العمود الأيسر» دائمًا عمودًا مُفتَّحًا."
+            "value": "Answer questions"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hellt Arbeitsbereichsfarben im dunklen Modus auf, damit sie auf einer dunklen Seitenleiste lesbar bleiben. Deaktivieren, um Farben genau wie gewählt anzuzeigen. Gilt für „Vollfarbige Füllung“; „Linke Leiste“ verwendet immer eine aufgehellte Leiste."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aclara los colores de los espacios de trabajo en modo oscuro para que sigan siendo legibles sobre una barra lateral oscura. Desactívalo para mostrar los colores exactamente como los elegiste. Se aplica a «Relleno sólido»; «Riel izquierdo» siempre usa un riel aclarado."
+            "value": "Fragen beantworten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Éclaircit les couleurs des espaces de travail en mode sombre pour qu'elles restent lisibles sur une barre latérale sombre. Désactivez pour afficher les couleurs exactement comme choisies. S'applique à « Remplissage plein » ; « Rail gauche » utilise toujours un rail éclairci."
+            "value": "Répondre aux questions"
           }
         },
-        "ja": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダークモードでワークスペースの色を明るくし、暗いサイドバー上でも読みやすく保ちます。オフにすると選んだ色をそのまま表示します。「塗りつぶし」に適用されます。「左レール」は常に明るくしたレールを使います。"
+            "value": "أجب عن الأسئلة"
           }
         },
-        "ko": {
+        "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "다크 모드에서 작업 공간 색상을 밝게 하여 어두운 사이드바에서도 잘 보이게 합니다. 끄면 선택한 색상을 그대로 표시합니다. '단색 채우기'에 적용되며, '왼쪽 레일'은 항상 밝게 한 레일을 사용합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在深色模式下调亮工作区颜色，使其在深色侧边栏上保持清晰可读。关闭后将完全按照所选颜色显示。仅适用于“实心填充”；“左侧竖条”始终使用调亮的竖条。"
+            "value": "Responde a las preguntas"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在深色模式下調亮工作區顏色，使其在深色側邊欄上保持清晰可讀。關閉後會完全依照所選顏色顯示。僅適用於「實心填滿」；「左側導軌」一律使用調亮的導軌。"
+            "value": "回答問題"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答问题"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문에 답하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問に回答"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answeredShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beantwortet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت الإجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respondida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答済み"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.pendingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs your input"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Agent benötigt eine Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre agent attend une réponse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج وكيلك إلى إجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu agente necesita una respuesta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的輸入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的输入"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 답변을 기다리고 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが回答を待っています"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.singleSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose one"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine auswählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une option"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر خيارًا واحدًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇一項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一项"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つ選択"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.submitShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送出"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld question"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Frage"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Fragen"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld question posée"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions posées"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions posées"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤالان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld أسئلة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤالًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld pregunta"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preguntas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preguntas"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個問題"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个问题"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld개 질문"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld件の質問"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.pageLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "問題 %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "问题 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "질문 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "質問 %lld"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld of %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld of %lld"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld von %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld von %lld"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "第 %lld 個問題，共 %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "第 %lld 个问题，共 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "전체 %lld개 질문 중 %lld번째"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld問目"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.progressSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld of %lld answered"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld of %lld answered"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld von %lld beantwortet"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld von %lld beantwortet"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondu"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondus"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondus"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondida"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondidas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondidas"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 已回答"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 已回答"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 답변함"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld件回答済み"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "remoteTmux.error.authenticationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب %@ بيانات اعتماد ولا يوجد لدى cmux مكان لكتابتها. سجّل الدخول إلى المضيف، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je zatražio pristupne podatke, a cmux ih nema gdje upisati. Prijavite se na host, a zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bad om loginoplysninger, og cmux har ingen steder at indtaste dem. Log ind på værten, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat nach Anmeldedaten gefragt, und cmux kann sie nirgends eingeben. Melden Sie sich beim Host an, und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ solicitó credenciales y cmux no tiene dónde escribirlas. Inicia sesión en el host y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a demandé des identifiants et cmux n'a nulle part où les saisir. Connectez-vous à l'hôte, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha richiesto le credenziali e cmux non ha modo di digitarle. Accedi all'host, quindi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が認証情報を要求しましたが、cmux には入力する場所がありません。ホストにログインしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានស្នើសុំព័ត៌មានផ្ទៀងផ្ទាត់ ហើយ cmux គ្មានកន្លែងបញ្ចូលវាទេ។ សូមចូលទៅកាន់ម៉ាស៊ីនបម្រើ បន្ទាប់មកព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 자격 증명을 요청했지만 cmux에는 입력할 곳이 없습니다. 호스트에 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ba om påloggingsinformasjon, og cmux har ingen steder å skrive den. Logg på verten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ poprosił o dane uwierzytelniające, a cmux nie ma gdzie ich wpisać. Zaloguj się na hoście, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pediu credenciais e o cmux não tem onde digitá-las. Faça login no host e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросил учётные данные, а cmux негде их ввести. Войдите на хост, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ขอข้อมูลรับรอง แต่ cmux ไม่มีที่ให้พิมพ์ กรุณาเข้าสู่ระบบโฮสต์ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kimlik bilgileri istedi ve cmux bunları yazacak bir yer bulamıyor. Ana makinede oturum açın, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросив облікові дані, а cmux не має де їх увести. Увійдіть на хост, потім повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 请求了凭据，而 cmux 无处输入。请先登录该主机，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 要求了憑證，而 cmux 沒有地方輸入。請先登入該主機，然後重試。"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تسجيل الدخول. شغّل الأمر أعلاه مرة أخرى لإعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava nije uspjela. Ponovno pokrenite naredbu iznad da pokušate opet."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login mislykkedes. Kør kommandoen ovenfor igen for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung fehlgeschlagen. Führen Sie den Befehl oben erneut aus, um es noch einmal zu versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in failed. Run the command above again to retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar sesión. Vuelve a ejecutar el comando anterior para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la connexion. Relancez la commande ci-dessus pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso non riuscito. Esegui di nuovo il comando sopra per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインに失敗しました。上のコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលបានបរាជ័យ។ ដំណើរការពាក្យបញ្ជាខាងលើម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인에 실패했습니다. 위 명령을 다시 실행해 재시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Påloggingen mislyktes. Kjør kommandoen ovenfor på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie nie udało się. Uruchom ponownie powyższe polecenie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao entrar. Execute o comando acima novamente para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось войти. Запустите команду выше ещё раз, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ไม่สำเร็จ เรียกใช้คำสั่งด้านบนอีกครั้งเพื่อลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açılamadı. Yeniden denemek için yukarıdaki komutu tekrar çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося увійти. Запустіть команду вище ще раз, щоб повторити спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录失败。请再次运行上面的命令重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入失敗。請再次執行上方的指令重試。"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول. جارٍ إعادة توصيل المرآة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavljeni ste. Ponovno povezivanje zrcala…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ind. Opretter forbindelse til spejlingen igen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angemeldet. Spiegelung wird neu verbunden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in. Reconnecting the mirror…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada. Volviendo a conectar la duplicación…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion réussie. Reconnexion du miroir…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso effettuato. Riconnessione del mirror…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしました。ミラーを再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចូល។ កំពុងភ្ជាប់កញ្ចក់ឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인되었습니다. 미러를 다시 연결하고 있습니다…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pålogget. Kobler til speilingen igjen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalogowano. Ponowne łączenie kopii…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão iniciada. Reconectando o espelho…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход выполнен. Переподключение зеркала…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้แล้ว กำลังเชื่อมต่อมิเรอร์อีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açıldı. Yansıma yeniden bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід виконано. Повторне підключення дзеркала…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录。正在重新连接镜像…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登入。正在重新連線鏡像…"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.workspaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei %@ anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için oturum açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід у %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 %@"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.transportPortOutOfRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port must be between 1 and 65535"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون transport_port بين 1 و65535"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port muss zwischen 1 und 65535 liegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port debe estar entre 1 y 65535"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port doit être compris entre 1 et 65535"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port は 1 から 65535 の範囲で指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port는 1에서 65535 사이여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port 必须在 1 到 65535 之间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port 必須介於 1 到 65535 之間"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_helper_path must be an absolute path without control or hidden characters"
+          }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "يجب أن يكون transport_helper_path مسارًا مطلقًا لنقل مدعوم" } },
+        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path muss ein absoluter Pfad für einen unterstützten Transport sein" } },
+        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path debe ser una ruta absoluta para un transporte compatible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path doit être un chemin absolu pour un transport pris en charge" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path は対応するトランスポートの絶対パスである必要があります" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 지원되는 전송의 절대 경로여야 합니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必须是受支持传输的绝对路径" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必須是支援傳輸的絕對路徑" } }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path is not supported by the selected transport" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "النقل المحدد لا يدعم transport_helper_path" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der ausgewählte Transport unterstützt transport_helper_path nicht" } },
+        "es": { "stringUnit": { "state": "translated", "value": "El transporte seleccionado no admite transport_helper_path" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transport sélectionné ne prend pas en charge transport_helper_path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したトランスポートは transport_helper_path に対応していません" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "선택한 전송은 transport_helper_path를 지원하지 않습니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "所选传输不支持 transport_helper_path" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選取的傳輸不支援 transport_helper_path" } }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathBrokerConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path cannot be used with a broker; the broker supplies the remote helper" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يمكن استخدام transport_helper_path مع وسيط؛ فالوسيط يوفّر المساعد البعيد" } },
+        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path kann nicht mit einem Broker verwendet werden; der Broker stellt den Remote-Helfer bereit" } },
+        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path no puede usarse con un broker; el broker proporciona el auxiliar remoto" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path ne peut pas être utilisé avec un broker ; le broker fournit l’assistant distant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path はブローカーと併用できません。ブローカーがリモートヘルパーを提供します" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 브로커와 함께 사용할 수 없습니다. 브로커가 원격 헬퍼를 제공합니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能与 broker 一起使用；broker 会提供远程辅助程序" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能與 broker 一起使用；broker 會提供遠端輔助程式" } }
+      }
+    },
+    "socket.remoteTmux.transportUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport is not one cmux knows; use ssh or et"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة transport ليست نقلًا يعرفه cmux؛ استخدم ssh أو et"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport ist kein Transport, den cmux kennt; verwenden Sie ssh oder et"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport no es un transporte que cmux conozca; usa ssh o et"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport n’est pas un transport connu de cmux ; utilisez ssh ou et"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport は cmux が対応していない値です。ssh または et を使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport가 cmux가 아는 값이 아닙니다. ssh 또는 et를 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport 不是 cmux 支持的传输方式；请使用 ssh 或 et"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport 不是 cmux 支援的傳輸方式；請使用 ssh 或 et"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerMalformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ليس اسمًا صالحًا للاستخدام: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ist kein verwendbarer Name: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker is not a usable name: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker no es un nombre utilizable: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker n’est pas un nom utilisable : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker は使用できる名前ではありません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker는 사용할 수 있는 이름이 아닙니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名称：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名稱：%@"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerNotUsedByTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستخدم النقل '%@' وسيطًا؛ مرّر --transport et للاتصال عبر وسيط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Transport '%@' verwendet keinen Broker; übergib --transport et, um über einen zu verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the '%@' transport does not use a broker; pass --transport et to connect through one"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el transporte '%@' no usa un broker; pasa --transport et para conectarte a través de uno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le transport '%@' n’utilise pas de broker ; passez --transport et pour vous connecter via un broker"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' トランスポートはブローカーを使用しません。ブローカー経由で接続するには --transport et を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 전송은 브로커를 사용하지 않습니다. 브로커를 통해 연결하려면 --transport et를 전달하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 传输不使用 broker；传入 --transport et 以通过 broker 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 傳輸不使用 broker；傳入 --transport et 以透過 broker 連線"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد وسيط باسم '%@' مُعرّف ضمن remoteTmux.brokers في cmux.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in cmux.json ist unter remoteTmux.brokers kein Broker namens '%@' deklariert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no broker named '%@' is declared under remoteTmux.brokers in cmux.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no hay ningún broker llamado '%@' declarado en remoteTmux.brokers de cmux.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucun broker nommé '%@' n’est déclaré sous remoteTmux.brokers dans cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json の remoteTmux.brokers に '%@' という名前のブローカーは宣言されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json의 remoteTmux.brokers에 '%@'라는 이름의 브로커가 선언되어 있지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下没有声明名为 '%@' 的 broker"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下沒有宣告名為 '%@' 的 broker"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnusable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسيط '%@' مُعرّف لكن لا يمكن استخدامه: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Broker '%@' ist deklariert, kann aber nicht verwendet werden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' is declared but cannot be used: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el broker '%@' está declarado, pero no se puede usar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le broker '%@' est déclaré mais ne peut pas être utilisé : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカー '%@' は宣言されていますが使用できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브로커 '%@'가 선언되어 있지만 사용할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已声明，但无法使用：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已宣告，但無法使用：%@"
+          }
+        }
+      }
+    },
+    "browser.discard.restoring": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستعادة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird wiederhergestellt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restauration…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在還原…"
           }
         }
       }
