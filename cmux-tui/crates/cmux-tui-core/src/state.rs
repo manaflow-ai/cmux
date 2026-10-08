@@ -27,6 +27,12 @@ pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;
 pub(crate) mod frontend_browser_keys;
+#[cfg(test)]
+mod group_delete_tests;
+#[cfg(test)]
+mod group_icon_tests;
+#[cfg(test)]
+mod group_pin_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
@@ -42,6 +48,8 @@ pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
 pub(crate) mod room_delete;
+#[cfg(test)]
+mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
 pub(crate) mod router;

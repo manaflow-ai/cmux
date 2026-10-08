@@ -1,4 +1,6 @@
 use super::*;
+
+mod exit_snapshot;
 use base64::Engine;
 
 use crate::resource::WireDecimal;
@@ -22,10 +24,9 @@ const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        deadline.is_none_or(|deadline| Instant::now() < deadline),
-        "session journal commit deadline expired"
-    );
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(crate::JournalContention::COMMIT_DEADLINE.into());
+    }
     Ok(())
 }
 
@@ -407,7 +408,8 @@ pub(super) fn create_journal_extensions_schema(
            content BLOB NOT NULL,
            uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes > 0),
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
-           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
+           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
+           actors_json TEXT
          );
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
@@ -1211,6 +1213,7 @@ impl WorkspaceRegistry {
                         content: None,
                         resource_revision: None,
                         previous_resource_revision: None,
+                        actor: None,
                     },
                 )?;
                 commits.push(None);
@@ -1346,6 +1349,7 @@ impl WorkspaceRegistry {
                     content,
                     resource_revision: None,
                     previous_resource_revision: None,
+                    actor: None,
                 },
             )?;
             commits.push(None);
@@ -1533,6 +1537,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -1678,6 +1683,7 @@ fn append_journal_ingress_transaction(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     let result = json!({
@@ -1851,6 +1857,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2274,6 +2281,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2306,56 +2314,6 @@ impl WorkspaceRegistry {
             },
             journal: JournalAppendCommit { sequence, event_id, replayed: false },
         })
-    }
-
-    /// Store the exit snapshot for one terminal generation, best-effort and
-    /// idempotent. The exit latch is first-writer-wins, so at most one row
-    /// exists per terminal; a replayed store is a no-op. Returns whether a
-    /// snapshot row was written.
-    pub(crate) fn put_terminal_exit_snapshot(
-        &mut self,
-        terminal_id: &str,
-        generation: &str,
-        blob: &JournalContentBlob,
-    ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
-        let covered_through = tx
-            .query_row(
-                "SELECT next_offset FROM journal_terminal_streams
-                 WHERE terminal_id = ?1 AND generation = ?2",
-                params![terminal_id, generation],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .map(u64::try_from)
-            .transpose()
-            .context("terminal journal offset is negative")?
-            .unwrap_or(0);
-        if covered_through == 0 {
-            // The generation journaled no output; there is nothing for the
-            // snapshot to cover and record reads stay exact without it.
-            return Ok(false);
-        }
-        let now = unix_epoch_ms()?;
-        insert_journal_content_blob(&tx, blob, now)?;
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO terminal_exit_snapshots(
-               terminal_id, generation, content_id, format, cols, rows,
-               covered_through, created_at_ms
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                terminal_id,
-                generation,
-                blob.reference.content_id,
-                blob.reference.format,
-                i64::from(blob.reference.cols.max(1)),
-                i64::from(blob.reference.rows.max(1)),
-                i64::try_from(covered_through)?,
-                i64::try_from(now)?,
-            ],
-        )?;
-        tx.commit()?;
-        Ok(inserted > 0)
     }
 
     /// Load and verify one terminal's exit snapshot, decoded to replay bytes.
@@ -2658,8 +2616,8 @@ impl WorkspaceRegistry {
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
-                   uncompressed_bytes, sha256, sealed_at_ms
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8)",
+                   uncompressed_bytes, sha256, sealed_at_ms, actors_json
+                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8, ?9)",
                 params![
                     segment.metadata.segment_id,
                     i64::try_from(segment.metadata.start_sequence)?,
@@ -2669,6 +2627,11 @@ impl WorkspaceRegistry {
                     i64::try_from(segment.metadata.uncompressed_bytes)?,
                     segment.digest,
                     i64::try_from(segment.metadata.sealed_at_ms)?,
+                    session_journal::segment_actors_json(
+                        &tx,
+                        segment.metadata.start_sequence,
+                        segment.metadata.end_sequence,
+                    )?,
                 ],
             )?;
         }
@@ -2715,6 +2678,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -3020,6 +2984,7 @@ fn append_hook_delivery_event(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     Ok((sequence, event_id))

@@ -649,6 +649,10 @@
       "scope": "inbox:write",
       "class": "mutation"
     },
+    "integration.approval.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
     "integration.complete": {
       "scope": "integration:write",
       "class": "mutation"
@@ -1701,7 +1705,10 @@
     "tab.close",
     "tab_group.close",
     "team.enrollment_token.revoke",
+    "team_vm.rebuild",
+    "team_vm.retired.delete",
     "team_vm.ssh_ca.rotate",
+    "team_vm.taint.accept",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",

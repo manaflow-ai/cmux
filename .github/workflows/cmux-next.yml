@@ -42,6 +42,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -93,10 +103,13 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -124,8 +137,6 @@ on:
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
@@ -141,6 +152,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -192,10 +213,13 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -690,8 +714,10 @@ jobs:
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
+          bash scripts/cmux-next/tests/request-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
+          bash scripts/cmux-next/tests/tree-key-embeds.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
@@ -1587,6 +1613,13 @@ jobs:
   # dropping the last one. Only main's job, in the `release` environment,
   # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
+  # The request also waits for this commit's cmux-tui tree: the nightly builds
+  # the tip with the tip's own nightly.yml and daemon only when that tree is
+  # published (a tip with a building tree failed runs 37767816879 and
+  # 37769010617). When the tree publishes after this job,
+  # cmux-tui-artifacts.yml's request-nightly-next asks instead
+  # (scripts/cmux-next/request-nightly-next.sh, tested by
+  # scripts/cmux-next/tests/request-nightly-next.test.sh).
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
@@ -1594,15 +1627,24 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write
+      contents: read
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
       - name: Request nightly-next promotion on main
-        # Main gets the promote-nightly-next job with PR 17116; until then the
-        # dispatch is refused (unknown input) and must not fail this run.
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
-        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA"
+        run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY" --release-compile-green
 
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight]

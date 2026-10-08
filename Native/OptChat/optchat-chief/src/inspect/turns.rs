@@ -11,7 +11,7 @@ use optchat_host::OptChat;
 use serde_json::{Value, json};
 
 use super::Inspector;
-use crate::prompt::{CMUX_INSTRUCTIONS, MASTER, VIEW_DOC};
+use crate::prompt::{CMUX_INSTRUCTIONS, base_prompt};
 use crate::trace::hash;
 
 /// One turn's prompt, laid out again from the trace and the memory.
@@ -149,7 +149,8 @@ pub(crate) fn parse_name(name: &str) -> Option<NodeId> {
 /// The system text cut into its named parts (prompt.rs builds it from
 /// them); one part when it was built some other way.
 pub fn system_parts(system_text: &str) -> Vec<Value> {
-    let head = format!("{MASTER}\n\n{VIEW_DOC}\n\n{CMUX_INSTRUCTIONS}");
+    let base = base_prompt();
+    let head = format!("{base}\n\n{CMUX_INSTRUCTIONS}");
     let part = |label: &str, explain: &str, text: &str| json!({"label": label, "explain": explain, "text": text, "bytes": text.len()});
     let Some(rest) = system_text.strip_prefix(&head) else {
         return vec![part(
@@ -160,14 +161,9 @@ pub fn system_parts(system_text: &str) -> Vec<Value> {
     };
     let mut out = vec![
         part(
-            "Who Chief is",
-            "The fixed opening: Chief works for one user in one endless chat.",
-            MASTER,
-        ),
-        part(
-            "How to read the view",
-            "Explains the id+n|text lines and the zoom and date tools.",
-            VIEW_DOC,
+            "The spec's prompt",
+            "Taelin's one prompt for turns and compactions: the view, turns, compactions.",
+            &base,
         ),
         part(
             "cmux instructions",
@@ -253,7 +249,7 @@ pub(crate) fn prompt_json(prompt: &TurnPrompt, start: &Value) -> Value {
             "text": v,
             "bytes": v.len(),
             "marks": optchat_core::cache_marks(v),
-            "grid": crate::prompt::grid_cuts(v),
+            "grid": optchat_core::block_cuts(v),
             "unchanged_prefix_bytes": start["view"]["unchanged_prefix_bytes"],
             "parts": prompt.parts.iter().map(|p| p.name()).collect::<Vec<_>>(),
         })),

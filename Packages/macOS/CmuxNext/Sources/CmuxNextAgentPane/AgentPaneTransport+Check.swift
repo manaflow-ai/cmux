@@ -88,6 +88,10 @@ extension AgentPaneTransport {
         if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
             return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
         }
+        // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
+        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
+            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        }
         // A prompt block's own _meta never reaches the harness.
         var frame = AcpmuxPaneMethods.strippingPromptMeta(object) ?? object
         var facts = Facts(isFirst: snapshot.isFirst, method: method, pageID: pageID)

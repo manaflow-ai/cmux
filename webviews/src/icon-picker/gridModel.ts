@@ -25,8 +25,19 @@ export interface GridMetrics {
   readonly header: number;
 }
 
+/** A titled section's header: where a category jump scrolls to. */
+export interface GridSectionAnchor {
+  readonly id: string;
+  readonly title: string;
+  readonly top: number;
+  /** Index in `GridLayout.items` of its first cell. */
+  readonly first: number;
+}
+
 export interface GridLayout<T> {
   readonly columns: number;
+  /** Titled sections with items, in order. */
+  readonly sections: readonly GridSectionAnchor[];
   readonly rows: readonly GridRow<T>[];
   /** Every item in display order (recents, then sections). */
   readonly items: readonly T[];
@@ -45,10 +56,12 @@ export function layoutGrid<T>(
   const rows: GridRow<T>[] = [];
   const items: T[] = [];
   const rowOfItem: number[] = [];
+  const anchors: GridSectionAnchor[] = [];
   let top = 0;
   for (const section of sections) {
     if (section.items.length === 0) continue;
     if (section.title) {
+      anchors.push({ id: section.id, title: section.title, top, first: items.length });
       rows.push({ kind: "header", key: `h:${section.id}`, title: section.title, top });
       top += metrics.header;
     }
@@ -60,7 +73,16 @@ export function layoutGrid<T>(
       top += metrics.cell;
     }
   }
-  return { columns: cols, rows, items, rowOfItem, height: top, metrics };
+  return { columns: cols, sections: anchors, rows, items, rowOfItem, height: top, metrics };
+}
+
+/** The id of the section at scroll offset `top` (the last header at or above it), or null. */
+export function sectionAt<T>(layout: GridLayout<T>, top: number): string | null {
+  const { sections } = layout;
+  for (let index = sections.length - 1; index >= 0; index--) {
+    if (sections[index].top <= top) return sections[index].id;
+  }
+  return sections[0]?.id ?? null;
 }
 
 function rowHeight<T>(layout: GridLayout<T>, row: GridRow<T>): number {

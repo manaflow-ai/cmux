@@ -1030,7 +1030,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
 
     let mut next = original.clone();
     // Override all ambient discovery with test fixtures: no real provider is launched.
-    for name in acpmux::config::discover_harnesses().keys() {
+    for name in acpmux::config::discover_harnesses(None).keys() {
         next.harnesses.insert(name.clone(), profile.clone());
     }
     next.harnesses.remove("fake");
@@ -1461,3 +1461,6 @@ mod lifecycle_fixes;
 
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+
+#[path = "hub_integration/claude_failover.rs"]
+mod claude_failover;

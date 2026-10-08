@@ -27,6 +27,7 @@ mod sidebar;
 mod startup;
 mod terminal;
 mod terminal_input;
+pub(crate) mod terminal_respawn;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use app_control::AppControlMessages;

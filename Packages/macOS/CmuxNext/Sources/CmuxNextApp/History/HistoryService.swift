@@ -137,7 +137,8 @@ final class HistoryService {
             case .screen: .screen
             case .workspace: .workspace
             }
-            let title = item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+            let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
+                ?? item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.url)
             let local = entry.daemon.machineID == MachineRegistry.localID

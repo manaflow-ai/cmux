@@ -195,6 +195,26 @@ impl Gate {
     /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
     /// it): why a response from `url` that came from `ip` is refused.
     pub(super) fn rebinding_refusal(&self, url: &str, ip: &str) -> Option<String> {
+        // Isolated: a response through the egress listener reports the
+        // listener's own address (it checked the real one before it
+        // dialed); any other address went around it and meets the rule.
+        if let Some(isolated) = &self.grants.isolated {
+            let address: std::net::IpAddr =
+                ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
+            if isolated.listener_addr().is_some_and(|listener| listener.ip() == address) {
+                return None;
+            }
+            // Anything else went around the listener: loopback is refused
+            // too (its port is unknown here, so no service check could pass).
+            let reason = if address.is_loopback()
+                || matches!(address, std::net::IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback()))
+            {
+                Some(format!("{address} is loopback outside the browser egress listener"))
+            } else {
+                isolated.rule().address_refusal(std::net::SocketAddr::new(address, 0))
+            }?;
+            return Some(format!("{url} resolved to {ip}, which is blocked: {reason}"));
+        }
         let address = ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
         let parsed = url::Url::parse(url).ok()?;
         let reason = self.policy.lock().unwrap_or_else(PoisonError::into_inner).range_refusal(

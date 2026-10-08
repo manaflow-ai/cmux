@@ -55,6 +55,15 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 .pane, "arrow.up.arrow.down", cli: "pane swap-down", keywords: ["pane", "move"], targets: [.pane]),
             row("closePane", String(localized: "action.closePane", defaultValue: "Close Pane", table: "LayoutActions", bundle: .module),
                 .pane, "xmark.rectangle", cli: "pane close", keywords: ["pane", "remove"], targets: [.pane]),
+            // Chrome's Close Other Tabs for panes (cx-k9go): no question; each closed
+            // pane's tabs go to the closed history and an undo toast offers them back.
+            ActionDescriptor(
+                id: "pane.closeOthers",
+                title: String(localized: "action.pane.closeOthers", defaultValue: "Close Other Panes", table: "LayoutActions", bundle: .module),
+                keywords: ["pane", "close", "others", "only"], category: .pane, symbol: "xmark.rectangle", surfaces: [.palette, .contextMenu],
+                targets: [.pane], cliName: "pane close-others",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .close, 601)])
+            ),
             row("renamePane", String(localized: "action.renamePane", defaultValue: "Rename Pane…", table: "LayoutActions", bundle: .module),
                 .pane, "pencil", cli: "pane rename", keywords: ["pane", "title"], targets: [.pane],
                 arguments: [CatalogArgument.nameString.optional]),
