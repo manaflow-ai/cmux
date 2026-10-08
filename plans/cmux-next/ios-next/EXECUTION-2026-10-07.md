@@ -26,13 +26,16 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `a7bff36e41` reports 86 of 98 parity rows done, with one
+The refreshed D3 matrix at the current implementation baseline
+`cff9e2e9cff22df187c664b542c8047deba34d8b` reports 86 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), three seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
-repair traffic. C9 has bounded tmux scrollback hydration for safe single-pane attachment, C16 has
+repair traffic. C9 has bounded tmux scrollback hydration for safe single-pane attachment and a
+partial pane-composition seam that preserves renderer/parser identity by pane id, C16 has
 an authenticated cached/fail-closed remote-config source, and E1 bounds SSH session output; carrier,
-device, multi-pane/history, lifecycle, and other explicitly mocked or seam-only evidence remain open.
+device, full multi-pane/history/parser-state, lifecycle, and other explicitly mocked or seam-only
+evidence remain open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
 WireGuard-over-WebRTC, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
@@ -44,7 +47,7 @@ The remaining work separates independent implementation from shared runtime depe
 | D2 carrier measurement | B2/B3/B4; implemented F7 scheduling and F8 render credit | F2 split Mac/iOS benchmark harness; finish F3 blocked-send cancellation | real latency/throughput/roam results with manifests; power results require an authorized device run |
 | C8 task attachments | landed C4 picker/uploader and C8 shell integration | native tests and PhotosUI/camera/document upload, cancellation and dispatch verification | tagged pair; no further picker seam is missing |
 | C12 VM host | A0/A3 vectors, C12 connect-info and one-shot token contract | Rust link session and services, VM underlay, HostDO admission and token verifier | end-to-end VM terminal/files attach before enabling `cloudWorkspaces` |
-| C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata and lifecycle wire contract | multi-pane renderer composition/parser-state parity; owner-backed lifecycle adapter | hosted tests and live SSH verification |
+| C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata, partial pane composition and lifecycle wire contract | complete multi-pane renderer/parser-state parity; owner-backed lifecycle adapter | hosted tests and live SSH verification |
 | C14 browser and other landed feature paths | existing feature seams and Mac adapters | WKWebView/SSH/direct-host, simulator and media verification | tagged pair, permissions and reconnect evidence |
 
 ## Completed in this wave
@@ -99,6 +102,10 @@ The remaining work separates independent implementation from shared runtime depe
 - `33c8dc43f7` adds bounded tmux split-layout metadata to SSH discovery, validating checksums, pane
   geometry, depth and count before exposing read-only layout information. Full renderer composition
   and SSH lifecycle mutations remain open.
+- `143b81f92d` and `661bbb47e9` add the C9 pane-composition seam: pane ids remain stable renderer
+  and parser identities, grid input maps to pane-local coordinates, and reconciliation emits
+  deterministic add/remove/update operations. This is a landed partial seam; full SSH multi-pane,
+  history, parser-state restoration and lifecycle parity remain incomplete.
 - `efe7c3c349` through `b060e3e9b4` add a transport-agnostic, bounded analytics uploader with offline
   fail-closed behavior, body/event splitting, transient retry backoff, cancellation-safe flushes,
   payload bounds and focused tests. It remains opt-in; `NoopAnalytics` is still the app default.
@@ -158,6 +165,12 @@ C8/C12/C16 slices add static and focused contract evidence; the backend slice ha
 tests and a clean TypeScript typecheck. The next gate is tagged Mac/iOS pairing and D3 runtime
 evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
+Focused hosted checks at this exact head also passed: DirectWriter cancellation job
+`08cb4b4404254ee8982135f1`, WebRTC room-waiter cancellation job
+`b8eea654f3041653d09df898` (3 tests), and CmuxLinkBench job
+`1f1ccda7d15a2458512e588e` (4 tests). These jobs provide deterministic application/test evidence;
+they do not substitute for a tagged pair, device install, WAN run, or live SSH/browser verification.
+
 ### D2 carrier audit
 
 The local bakeoff records a DEV-only loopback decision. F2's first split slice now has a real direct
@@ -167,9 +180,10 @@ writes the regular report plus a checked manifest. The iOS DEV Link bench screen
 adapters for V1/V2 remain open, so no device JSON has been captured. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
-before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 now has
-deterministic coverage for a real `WebRTCPeer.send` blocked by a full lane: cancellation removes only that
-send's waiter, admits no frame, and leaves the peer open (`495f05b762f`). F7's application-side head-of-line
+before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 blocked-send
+cancellation is implemented at the application and deterministic-test level: a real
+`WebRTCPeer.send` blocked by a full lane removes only that send's waiter, admits no frame, and leaves
+the peer open (`495f05b762f`). WAN/device evidence remains open. F7's application-side head-of-line
 mitigation is implemented, but WAN/device evidence is still required before its tail-latency benefit is
 claimed.
 

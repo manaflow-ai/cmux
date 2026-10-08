@@ -1,14 +1,16 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
 Status: parity refresh on `feat-cmux-next-ios` implementation baseline
-`1cfec927019d0735b1838bb5acbf1e2f91104b8b`, including native C8 attachments, the C12 one-shot
-credential seam and concurrency hardening, D2 F7 scheduling, and steady-state V1 RTT sampling.
-Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive exists for the older head
-`dd344fa661ac766511d5da0f02f70dfa7e10a42a`: job `22d44de4793805270a52cbff` produced tag
-`nxd3-dd344-ios-v4` and
-artifact digest `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00`. The matrix below
-separates implementation and compile evidence from the still-pending live-pair gate. No simulator
-or device run is recorded, and the older archive does not verify the later C8/C12/D2 changes.
+`cff9e2e9cff22df187c664b542c8047deba34d8b`, including the C9 pane-composition seam, direct and
+WebRTC cancellation tests, and the split link benchmark harness. Plan: [PLAN.md](PLAN.md) D3.
+The exact-head fleet archive job `a439f2f1083073248164673e` produced tag
+`nxios-cff-c9-d2-v1` with artifact digest
+`sha256:ad26dc3b97ae13418b2038028cabf9783710c57456c48d1ec6abf6eaf22fd7a7`. This is device-archive
+and simulator-compile evidence only: no install, simulator run, real-phone run, or tagged Mac/iOS
+runtime pair is recorded. Focused hosted checks at this head passed: DirectWriter cancellation
+(`08cb4b4404254ee8982135f1`), WebRTC room-waiter cancellation (`b8eea654f3041653d09df898`, 3 tests),
+and CmuxLinkBench (`1f1ccda7d15a2458512e588e`, 4 tests). These tests do not substitute for runtime
+evidence. The older archive at `dd344fa661ac766511d5da0f02f70dfa7e10a42a` remains historical only.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
 [research-and-scope-2026-10.md](research-and-scope-2026-10.md) as historical context. This refresh
@@ -97,7 +99,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
-| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, and bounded split-layout metadata are landed for single-pane matching-grid windows; full renderer composition, multi-pane/history/parser-state parity and lifecycle mutations remain) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, bounded split-layout metadata, and a partial pane-composition seam are landed for single-pane and matching-grid windows; full renderer composition, multi-pane/history/parser-state parity and lifecycle mutations remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
@@ -130,8 +132,10 @@ device-unverified unless the row says otherwise.)
 Open implementation gaps, grouped by owner:
 - C9: tmux control-mode discovery, epoch validation, hydration and live output are landed for
   single-pane matching-grid windows; discovery now also validates and exposes bounded read-only split
-  layout metadata. Multi-pane renderer composition, history, complete parser-state restore,
-  and SSH create/rename/kill remain explicit gaps; E3 still supplies the screen and cmux-tui paths.
+  layout metadata. The pane-composition seam preserves pane-id renderer/parser identity, maps grid
+  input to pane-local coordinates, and reconciles add/remove/update operations deterministically.
+  Multi-pane renderer composition, history, complete parser-state restore, and SSH create/rename/kill
+  remain explicit gaps; E3 still supplies the screen and cmux-tui paths.
 - C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
   landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps
   loopback routing on the authenticated machine tunnel and requires an explicit direct backend for
@@ -348,8 +352,8 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
-not a test result for the implementation baseline; current implementation evidence is recorded at
-`3bd1e8e9020bec46432c1989f0873eba3b8681cf`.
+not a test result for the current implementation baseline. Current exact-head evidence is listed
+below; compile/archive and focused test results remain separate from runtime evidence.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -373,16 +377,18 @@ not a test result for the implementation baseline; current implementation eviden
 
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
-(no cargo on this Mac). The current-head backend slice has `35` focused Vitest tests and a clean
-TypeScript typecheck at `3bd1e8e9020bec46432c1989f0873eba3b8681cf`.
+(no cargo on this Mac). The current exact-head backend slice has 37 focused Vitest tests and a clean
+TypeScript typecheck. Focused hosted checks at `cff9e2e9cff22df187c664b542c8047deba34d8b` passed:
+DirectWriter cancellation job `08cb4b4404254ee8982135f1`, WebRTC room-waiter cancellation job
+`b8eea654f3041653d09df898` (3 tests), and CmuxLinkBench job `1f1ccda7d15a2458512e588e` (4 tests).
 
-Current-head evidence is static plus the focused backend checks above: Swift syntax parsing, scoped iOS package-convention lint,
-`git diff --check`, `check-concurrency.sh`, and `check-crash-safety.sh` pass for the follow-up changes;
-35 focused backend Vitest tests and TypeScript typecheck pass. The fleet archive above compiled both
-device and simulator targets at its earlier exact head `e039144f38988cb5ad880d8eeb19773cd075f5e7`;
-the C8/C12/C16 follow-ups are static and contract evidence only. Native Swift tests, UI tests, and
-live network/device journeys remain unverified; do not read the historical 460-test total or the
-agent-reported package test runs as current-head device verification.
+Current-head static evidence includes Swift syntax parsing, scoped iOS package-convention lint,
+`git diff --check`, `check-concurrency.sh`, and `check-crash-safety.sh`. Archive job
+`a439f2f1083073248164673e` compiled the device and simulator targets at the exact head and produced
+tag `nxios-cff-c9-d2-v1` with digest
+`sha256:ad26dc3b97ae13418b2038028cabf9783710c57456c48d1ec6abf6eaf22fd7a7`; this is compile/archive
+evidence only. Native Swift/UI tests, install, tagged-pair behavior, and live network/device journeys
+remain unverified; do not read the historical 460-test total or the archive as runtime evidence.
 
 ## 6. Runbook: tagged pair `nxd3`
 
