@@ -10806,9 +10806,9 @@ fn create_surface_with_receipt(
             || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
         "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
     );
+    let actor = origin_gate::connection_actor(mux, client);
     let mutation =
-        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?
-            .by(origin_gate::connection_actor(mux, client));
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin, actor)?;
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
@@ -11012,12 +11012,12 @@ fn workspace_mutation(
     client: u64,
     request: &MutationRequest,
 ) -> anyhow::Result<WorkspaceMutation> {
-    let mutation = match (&request.mutation_id, &request.origin) {
-        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone())?,
-        (None, None) => WorkspaceMutation::local("legacy-control"),
+    let actor = origin_gate::connection_actor(mux, client);
+    match (&request.mutation_id, &request.origin) {
+        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone(), actor),
+        (None, None) => Ok(WorkspaceMutation::local("legacy-control", actor)),
         _ => anyhow::bail!("origin and mutation_id must be provided together"),
-    };
-    Ok(mutation.by(origin_gate::connection_actor(mux, client)))
+    }
 }
 
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
@@ -13515,7 +13515,7 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, params),
+        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, client, params),
         Command::BindConversationTabSession(params) => conversation_tabs_wire::bind(mux, params),
         Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
@@ -14430,7 +14430,7 @@ fn handle_command_with_cancellation(
         ),
         Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
         Command::DeleteProfile { profile, move_to } => {
-            personal::delete_profile(mux, &profile, move_to.as_deref())
+            personal::delete_profile(mux, client, &profile, move_to.as_deref())
         }
         Command::SetProfileFollows { profile, session_ids } => {
             personal::set_profile_follows(mux, &profile, &session_ids)
@@ -14484,7 +14484,7 @@ fn handle_command_with_cancellation(
                 profile.as_deref(),
             )
         }
-        Command::DeletePersonalGroup { group } => personal::delete_group(mux, &group),
+        Command::DeletePersonalGroup { group } => personal::delete_group(mux, client, &group),
         Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
         Command::SetPersonalWorkspace {
             session_id,
@@ -26549,7 +26549,7 @@ mod tests {
                 Some("bootstrap".into()),
                 "bootstrap-receipt-00000001",
                 None,
-                &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+                &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
                 Default::default(),
             )
             .unwrap();
@@ -26610,7 +26610,7 @@ mod tests {
             "renamed".into(),
             None,
             None,
-            &WorkspaceMutation::new("resource-rename", "resource-api").unwrap(),
+            &WorkspaceMutation::daemon("resource-rename", "resource-api").unwrap(),
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
@@ -26636,7 +26636,7 @@ mod tests {
             1,
             None,
             None,
-            &WorkspaceMutation::new("resource-move", "resource-api").unwrap(),
+            &WorkspaceMutation::daemon("resource-move", "resource-api").unwrap(),
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();

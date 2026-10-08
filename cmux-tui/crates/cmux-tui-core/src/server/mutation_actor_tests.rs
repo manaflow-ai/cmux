@@ -92,7 +92,7 @@ fn a_websocket_connection_is_a_peer_never_the_local_user() {
     let reply = send(&mux, &websocket, &create("actor-websocket"));
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(stored_actor(&mux, "actor-websocket").as_deref(), Some("peer:websocket"));
-    let actor = crate::server::origin_gate::connection_actor(&mux, websocket.client);
+    let actor = origin_gate::connection_actor(&mux, websocket.client);
     assert_eq!(actor.wire(), "peer:websocket");
 }
 
@@ -101,6 +101,6 @@ fn a_connection_with_no_record_is_never_the_local_user() {
     let mux = mux("actor-unregistered");
     let gone = connect(&mux);
     assert!(mux.control_clients.remove(gone.client).is_some());
-    let actor = crate::server::origin_gate::connection_actor(&mux, gone.client);
+    let actor = origin_gate::connection_actor(&mux, gone.client);
     assert_eq!(actor.wire(), "peer:unregistered");
 }

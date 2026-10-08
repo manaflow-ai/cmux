@@ -279,7 +279,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::local("cmux-tui-column-dock"),
+                &WorkspaceMutation::daemon_local("cmux-tui-column-dock"),
                 COLUMN_DOCK_OPERATION,
                 &fingerprint,
                 None,

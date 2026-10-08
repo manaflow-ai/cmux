@@ -26,6 +26,9 @@ pub enum Actor {
     Frontend { install_id: String },
     /// An app, as only the in-process app supervisor sets it.
     App { id: String },
+    /// A connection from another machine: a `cmux link` peer
+    /// (`link:<install>`), or a WebSocket or remote-entry connection.
+    Peer { id: String },
 }
 
 impl Actor {
@@ -40,6 +43,7 @@ impl Actor {
             Self::User { id } => format!("user:{id}"),
             Self::Frontend { install_id } => format!("frontend:{install_id}"),
             Self::App { id } => format!("app:{id}"),
+            Self::Peer { id } => format!("peer:{id}"),
         }
     }
 }
@@ -48,28 +52,42 @@ impl Actor {
 pub struct WorkspaceMutation {
     pub id: String,
     pub origin: String,
-    /// Set by the daemon, never by a caller. [`WorkspaceMutation::new`] and
-    /// [`WorkspaceMutation::local`] name the daemon; a request path names its
-    /// caller with [`WorkspaceMutation::by`].
+    /// Set by the daemon, never by a caller. Every constructor names it:
+    /// [`WorkspaceMutation::new`] and [`WorkspaceMutation::local`] take the
+    /// caller's actor, [`WorkspaceMutation::daemon`] and
+    /// [`WorkspaceMutation::daemon_local`] are the daemon's own work.
     pub actor: Actor,
 }
 
 impl WorkspaceMutation {
-    pub fn new(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into(), actor: Actor::Daemon };
+    pub fn new(
+        id: impl Into<String>,
+        origin: impl Into<String>,
+        actor: Actor,
+    ) -> anyhow::Result<Self> {
+        let mutation = Self { id: id.into(), origin: origin.into(), actor };
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         Ok(mutation)
     }
 
-    pub fn local(origin: &str) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string(), actor: Actor::Daemon }
+    pub fn local(origin: &str, actor: Actor) -> Self {
+        Self { id: new_uuid_v4(), origin: origin.to_string(), actor }
     }
 
-    /// The same mutation, caused by `actor`.
-    #[must_use]
-    pub fn by(self, actor: Actor) -> Self {
-        Self { actor, ..self }
+    /// The local user in the in-process TUI (their own frontend, no socket).
+    pub fn by_local_user(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
+        Self::new(id, origin, Actor::local_user())
+    }
+
+    /// The daemon's own work (startup, reaps, reducers), never a request.
+    pub fn daemon(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
+        Self::new(id, origin, Actor::Daemon)
+    }
+
+    /// [`WorkspaceMutation::daemon`] with a fresh id.
+    pub fn daemon_local(origin: &str) -> Self {
+        Self::local(origin, Actor::Daemon)
     }
 }
 

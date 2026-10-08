@@ -174,7 +174,7 @@ impl ParsedResourceRequest {
     pub(crate) fn mutation(&self) -> anyhow::Result<crate::WorkspaceMutation> {
         let key = self.envelope.idempotency_key.clone();
         let key = key.expect("catalog-validated mutations have an idempotency key");
-        Ok(crate::WorkspaceMutation::new(key, "resource-api")?.by(self.actor.clone()))
+        crate::WorkspaceMutation::new(key, "resource-api", self.actor.clone())
     }
 }
 

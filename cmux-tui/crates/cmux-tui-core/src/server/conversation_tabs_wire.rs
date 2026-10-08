@@ -107,7 +107,11 @@ fn record_of(
     }
 }
 
-pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow::Result<Value> {
+pub(super) fn create(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: NewConversationTabParams,
+) -> anyhow::Result<Value> {
     let NewConversationTabParams {
         pane,
         workspace,
@@ -128,7 +132,10 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
         (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
     let mutation = match (origin, mutation_id) {
-        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin)?),
+        (Some(origin), Some(id)) => {
+            let actor = super::origin_gate::connection_actor(mux, client);
+            Some(WorkspaceMutation::new(id, origin, actor)?)
+        }
         (None, None) => None,
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };

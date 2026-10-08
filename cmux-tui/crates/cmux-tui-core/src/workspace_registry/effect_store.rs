@@ -1047,7 +1047,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<ResourceCloseCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let mutation = WorkspaceMutation::new(idempotency_key, "resource-api")?;
+        let mutation = WorkspaceMutation::daemon(idempotency_key, "resource-api")?;
         validate_terminal_batch_close(&mutation, terminals)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());

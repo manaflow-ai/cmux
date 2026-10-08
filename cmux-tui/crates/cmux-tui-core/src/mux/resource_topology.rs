@@ -1174,7 +1174,7 @@ impl Mux {
             selectors,
             false,
             None,
-            &WorkspaceMutation::local("cmux-tui"),
+            &WorkspaceMutation::daemon_local("cmux-tui"),
             &fingerprint,
         )
     }
@@ -1535,7 +1535,7 @@ impl Mux {
             workspace.is_some() || !self.workspaces_are_provider_managed(),
             "managed workspace creation is not supported by tab moves"
         );
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
             "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
@@ -4093,7 +4093,7 @@ impl Mux {
                 }
                 None => TerminalId::random()?.to_hex(),
             };
-            let mutation = WorkspaceMutation::local(context.mutation_origin);
+            let mutation = WorkspaceMutation::daemon_local(context.mutation_origin);
             intent["terminal_reservation"] = json!({
                 "terminal_id":terminal_id,
                 "mutation_id":mutation.id,
@@ -4101,7 +4101,7 @@ impl Mux {
             });
         }
         if topology_effect_may_create_workspace(operation) {
-            let mutation = WorkspaceMutation::local(context.mutation_origin);
+            let mutation = WorkspaceMutation::daemon_local(context.mutation_origin);
             let workspace_key = fields
                 .get("workspace_key")
                 .and_then(Value::as_str)
@@ -4619,7 +4619,7 @@ impl Mux {
                 .context("stored workspace reservation omitted its public id")?
                 .to_string(),
         )?;
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             reservation["mutation_id"]
                 .as_str()
                 .context("stored workspace reservation omitted its mutation id")?,
@@ -4649,7 +4649,7 @@ impl Mux {
             .context("stored terminal reservation omitted its terminal id")?;
         let terminal_id = TerminalId::from_hex(terminal_hex)
             .context("stored terminal reservation has an invalid terminal id")?;
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             stored["mutation_id"]
                 .as_str()
                 .context("stored terminal reservation omitted its mutation id")?,
@@ -6458,7 +6458,7 @@ mod creation_recovery_tests {
         let operation = ResourceOperation::TabCreateBrowser;
         let operation_name = operation_name(operation);
         let correlation_key = "correlation";
-        let mutation = WorkspaceMutation::new("attempt-one", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("attempt-one", "test").unwrap();
         let fingerprint = json!({"operation":operation_name});
         let intent = json!({
             "browser_reservation":{
@@ -6484,7 +6484,7 @@ mod creation_recovery_tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("concurrent-test"),
+            &WorkspaceMutation::daemon_local("concurrent-test"),
         )
         .unwrap();
 
