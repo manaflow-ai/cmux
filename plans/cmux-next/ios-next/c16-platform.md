@@ -48,7 +48,9 @@ home paths, keys, URLs' query secrets), keeps a bounded in-memory ring (2,000 li
 `Application Support/cmux-next/diagnostics.log`, rotated at 1 MB with one archive. A tap mirrors
 each scrubbed line to Sentry as a breadcrumb. `export()` writes one text file (support header:
 app version, build, OS, device model, locale, flags summary; no account id, no email) to the
-temporary directory for the share sheet; `clear()` truncates both. The old
+temporary directory for the share sheet. The export has a hard 2 MB cap including its header;
+when older lines do not fit, the newest complete lines are retained and the file includes an
+omission marker. `clear()` truncates both. The old
 `CMUXMobileCore.DiagnosticLog`/`AppLog` pair is not reused: its event taxonomy is the old iroh
 transport's, and the new transport lanes record into this sink through a `DiagnosticRecording`
 protocol.
@@ -194,7 +196,7 @@ Swift Testing in `CmuxiOSPlatformTests`: router parsing (every route, every acce
 rejects bad ids and foreign hosts), deferral (park while signed out, newest wins, deliver once on
 sign-in, drop on sign-out, notification payloads), toast queue (coalescing, ordering, cap, dwell
 cancellation, `.never`), flag merge (precedence, unknown keys, type mismatch), diagnostic sink
-(scrubbing, ring bound, rotation), What's New presentation rule, Mac compatibility verdicts, mock
+(scrubbing, ring bound, rotation, bounded newest-lines export), What's New presentation rule, Mac compatibility verdicts, mock
 keep-awake and billing intents. Plus the `CmuxiOSShellTests` flag store tests for the remote layer.
 The whole `CmuxiOSApp` target compiles for the iOS simulator with SwiftPM.
 

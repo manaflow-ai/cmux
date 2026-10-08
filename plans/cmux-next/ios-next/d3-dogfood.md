@@ -114,7 +114,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.17 | Terminal and display options, scrollback | C11 | done |
 | 1.17 | Haptics toggle | C11, E5 | done |
 | 1.17 | Privacy (telemetry consent) | C11, C16 | done |
-| 1.17 | Diagnostics: verbose log, export, clear, copy support info | C16 | done |
+| 1.17 | Diagnostics: verbose log, export, clear, copy support info | C16 | done (user export is hard-capped at 2 MB, retaining newest lines with an omission marker) |
 | 1.17 | Legal, support links, version | C11 | done |
 | 1.17 | Erase all data on this device | C11, E5 | done (sandbox-wide plan, e5-extras.md 3) |
 | 1.17 | DEBUG Developer section | A1 | done |

@@ -55,6 +55,23 @@ struct DiagnosticLogSinkTests {
         #expect((active[.size] as? Int ?? .max) <= 1_024)
     }
 
+    @Test func exportIsBoundedAndRetainsTheNewestDiagnosticLines() async throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sink = DiagnosticLogSink(directory: directory, maxFileBytes: 1_024, maxExportBytes: 256)
+        for index in 0..<80 {
+            sink.info("router", "line \(index) " + String(repeating: "x", count: 24))
+        }
+        let header = DiagnosticSupportInfo(appVersion: "1", build: "2", osVersion: "iOS", deviceModel: "iPhone",
+                                           locale: "en_US")
+        let url = try await sink.export(header: header, to: directory)
+        let data = try Data(contentsOf: url)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(data.count <= 256)
+        #expect(text.contains("[diagnostics export truncated]"))
+        #expect(text.contains("line 79"))
+    }
+
     @Test func tapSeesScrubbedLines() async {
         let sink = DiagnosticLogSink(directory: nil)
         let seen = TapBox()
