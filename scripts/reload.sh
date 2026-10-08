@@ -1371,6 +1371,19 @@ if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   export CMUX_NEXT_TUI_MODE=tree
 fi
 
+# Keep the tagged Mac bundle provenance-compatible with the iOS reload. Debug
+# builds carry the checked-out commit's short SHA (with a dirty marker when the
+# checkout has uncommitted changes) and the original tag. Release/TestFlight
+# builds intentionally retain the blank project defaults.
+CMUX_GIT_SHA_VALUE=""
+if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
+  CMUX_GIT_SHA_VALUE="$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || true)"
+  if [[ -n "$CMUX_GIT_SHA_VALUE" ]] \
+      && [[ -n "$(git -C "$SCRIPT_DIR/.." status --porcelain 2>/dev/null)" ]]; then
+    CMUX_GIT_SHA_VALUE="${CMUX_GIT_SHA_VALUE}+"
+  fi
+fi
+
 # Tagged builds normally compile the base product name and stage a distinct
 # tag-named bundle. An explicit base-name override removes that staging
 # boundary, so build-only would overwrite the bundle a running tagged process
@@ -1727,6 +1740,12 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
+  XCODEBUILD_ARGS+=(
+    CMUX_GIT_SHA="$CMUX_GIT_SHA_VALUE"
+    CMUX_DEV_TAG="$TAG"
+  )
+fi
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi
