@@ -111,4 +111,57 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     )
     expect((await approval(owner.team, request))?.state).toBe("pending")
   })
+
+  it("revokes every bound install (they can no longer sign in), and a non-member removal changes nothing", async () => {
+    const owner = await signIn("rm-owner3")
+    const member = await signIn("rm-member3")
+    await join(owner.team, member.user)
+    const a = await boundInstall(member.user, owner.team, "box a")
+    const b = await boundInstall(member.user, owner.team, "box b")
+    const challenge = (install: string) => worker.fetch("https://api.test/v1/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user: member.user, install }) }).then((r) => r.status)
+    expect(await challenge(a)).toBe(200)
+    await removeMember(owner.team, member.user)
+    expect((await installOf(member.user, a)).revoked_at).not.toBeNull()
+    expect((await installOf(member.user, b)).revoked_at).not.toBeNull()
+    expect(await challenge(a)).toBe(403)
+    expect(await challenge(b)).toBe(403)
+    const again = await removeMember(owner.team, member.user)
+    expect(again.frames.find((f: any) => f.t === "result")?.value).toMatchObject({ removed: false })
+  })
+
+  it("a late delivery after a re-join keeps what was created after the removal", async () => {
+    const owner = await signIn("rm-owner4")
+    const member = await signIn("rm-member4")
+    await join(owner.team, member.user)
+    await removeMember(owner.team, member.user)
+    const removedAt = Date.now() - 1
+    await join(owner.team, member.user)
+    const fresh = await boundInstall(member.user, owner.team, "new box")
+    const request = await pending(owner.team, member.user)
+    // The old removal's items arrive again (backoff, dead-letter replay) with their removal time.
+    await inDO(userDO(member.user), async (instance) => instance.systemDeliver(member.user, `team:${owner.team}`, [{ id: 1, op: "user.team_left", key: `late-left:${crypto.randomUUID()}`, params: { team: owner.team, at: removedAt } }]))
+    await inDO(connections(owner.team), async (instance) => instance.systemDeliver(owner.team, `team:${owner.team}`, [{ id: 2, op: "connections.member_left", key: `late:${crypto.randomUUID()}`, params: { team: owner.team, user: member.user, at: removedAt } }]))
+    expect((await installOf(member.user, fresh)).revoked_at).toBeNull()
+    expect((await approval(owner.team, request))?.state).toBe("pending")
+  })
+
+  it("UserDO and ConnectionDO accept the removal only from the team's own TeamDO", async () => {
+    const owner = await signIn("rm-owner5")
+    const member = await signIn("rm-member5")
+    await join(owner.team, member.user)
+    const bound = await boundInstall(member.user, owner.team, "box")
+    const request = await pending(owner.team, member.user)
+    // Right team in the params, another team's stream as the source.
+    await inDO(userDO(member.user), async (instance) => instance.systemDeliver(member.user, `team:${member.team}`, [{ id: 3, op: "user.team_left", key: `forged-left:${crypto.randomUUID()}`, params: { team: owner.team } }]))
+    await inDO(connections(owner.team), async (instance) => instance.systemDeliver(owner.team, `team:${member.team}`, [{ id: 4, op: "connections.member_left", key: `forged:${crypto.randomUUID()}`, params: { team: owner.team, user: member.user } }]))
+    expect((await installOf(member.user, bound)).revoked_at).toBeNull()
+    expect((await approval(owner.team, request))?.state).toBe("pending")
+    // A delivered team.member.remove (not this TeamDO's own submit) is refused.
+    const delivered = await inDO(team(owner.team), async (instance) => {
+      const frames: Array<any> = []
+      instance.boundEngine.submit({ identity: `system:team:${member.team}`, kind: "system" }, { t: "op", op: "team.member.remove", params: { user: member.user }, idempotency_key: crypto.randomUUID(), origin: "script" }, (_t: unknown, f: any) => frames.push(f))
+      return frames.find((f) => f.t === "reject")?.code
+    })
+    expect(delivered).toBe("auth.forbidden")
+  })
 })

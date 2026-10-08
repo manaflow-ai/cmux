@@ -377,10 +377,9 @@ export class UserDO extends OwnerDO<UserState> {
     if (op !== "install.revoke" && op !== "install.revoke_by_team" && op !== "user.team_left") return
     const v = result && result.t === "result" ? (result.value as { id?: string; revoked?: Array<string> }) : undefined
     // One install, or every install bound to a team the user left (cx-44j.47). Other owners' sockets close too; failures retry from the alarm.
-    for (const revoked of v?.revoked ?? (v?.id ? [v.id] : [])) {
-      this.closeSockets((p) => p.install === revoked, "install revoked")
-      if (markInstallClosing(this.ctx.storage.sql, revoked, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
-    }
+    let marked = 0
+    for (const revoked of v?.revoked ?? (v?.id ? [v.id] : [])) [this.closeSockets((p) => p.install === revoked, "install revoked"), (marked += markInstallClosing(this.ctx.storage.sql, revoked, Date.now()))]
+    if (marked > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
   }
 
   /**

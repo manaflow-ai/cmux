@@ -315,13 +315,15 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       }
       case "user.team_left": {
         // Only the team's own TeamDO (system:team:<id>) after it removed this user (cx-44j.47).
-        const team = (params as { team?: unknown } | null)?.team
+        const { team, at } = (params ?? {}) as { team?: unknown; at?: unknown }
         if (typeof team !== "string" || p.kind !== "system" || p.identity !== `system:team:${team}`) return reject("auth.forbidden", "internal op of the team's TeamDO")
+        // Only installs that existed at the removal: a late delivery after a re-join keeps the new ones.
+        const before = typeof at === "number" ? at : ctx.now
         let next = state
         const outbox: Array<OutboxItem> = []
         const revoked: Array<string> = []
         for (const cur of Object.values(state.installs)) {
-          if (cur.bound_team !== team || cur.revoked_at !== null) continue
+          if (cur.bound_team !== team || cur.revoked_at !== null || cur.created_at > before) continue
           const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
           if (!r.ok) return r
           next = r.state

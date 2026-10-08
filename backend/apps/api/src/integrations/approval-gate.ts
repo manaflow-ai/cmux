@@ -214,8 +214,8 @@ export const deliverAnswers = async (
   const done: Array<number> = []
   for (const item of items) {
     if (item.op === "connections.member_left") {
-      const v = (item.params ?? {}) as { team?: unknown; user?: unknown }
-      if (team !== undefined && v.team === team && source === `team:${team}` && typeof v.user === "string") endForMember(sql, v.user, Date.now())
+      const v = (item.params ?? {}) as { team?: unknown; user?: unknown; at?: unknown }
+      if (team !== undefined && v.team === team && source === `team:${team}` && typeof v.user === "string") endForMember(sql, v.user, typeof v.at === "number" ? v.at : Date.now(), Date.now())
       else console.warn(JSON.stringify({ msg: "member_left ignored", source }))
       done.push(item.id)
       continue

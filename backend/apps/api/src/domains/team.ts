@@ -79,18 +79,21 @@ export const teamDomain: Domain<TeamState> = {
       }
       case "team.member.remove": {
         // Internal (cx-44j.47): the future members op and operator tools remove through here.
-        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        // Only this TeamDO's own submitSystem (identity system:team), never a delivered outbox item.
+        if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
         const user = (params as { user?: unknown } | null)?.user
         if (typeof user !== "string" || !user) return reject("validation.invalid", "user required")
         const member = memberOf(state, ctx.rows, user)
         if (!member) return { ok: true, state, value: { user, removed: false }, changed: false }
-        if (state.team?.kind === "personal" && member.role === "owner") return reject("auth.forbidden", "the owner of a personal team cannot be removed from it")
+        // An owner is demoted first, so no team is ever left without one (a personal team's owner never leaves).
+        if (member.role === "owner") return reject("auth.forbidden", "an owner cannot be removed; demote them first")
+        const { [user]: _gone, ...legacyMembers } = state.members ?? {}
         return {
           ok: true,
-          state: { ...state, member_count: Math.max(0, (state.member_count ?? 1) - 1) },
+          state: { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1) },
           writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
           value: { user, removed: true },
-          ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx) } : {})
+          ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx, ctx.now) } : {})
         }
       }
       case "team.ensure_personal": {
