@@ -359,7 +359,7 @@
       "size": 71639840,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux-tui": "cmux-tui" },
+      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
       "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
     },
