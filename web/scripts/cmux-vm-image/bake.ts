@@ -55,6 +55,14 @@ import {
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
+import {
+  METADATA_GUARD_FILE,
+  METADATA_GUARD_UNIT,
+  metadataGuardEnableCommand,
+  metadataGuardProblems,
+  metadataGuardRules,
+  metadataGuardUnit,
+} from "./metadata-guard";
 import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
@@ -311,6 +319,17 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
+/** The metadata service for root only (metadata-guard.ts), loaded now so the parked snapshot carries it. */
+async function installMetadataGuard(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  await writeGuestFile(vm, METADATA_GUARD_FILE, metadataGuardRules(), 0o644);
+  await writeGuestFile(vm, `/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), 0o644);
+  const out = await L.step(vm, "metadata-guard", metadataGuardEnableCommand(DEVBOX_WORK_USER));
+  const problems = metadataGuardProblems(out);
+  if (problems.length > 0) throw new Error(`metadata guard:\n${problems.join("\n")}`);
+  ctx.result.metadataGuard = out.trim();
+}
+
 /** Loopback sshd that trusts only the CA bind writes (cloud-automation.md 5, D-A4). No key material is baked. */
 async function configureSshd(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
@@ -468,6 +487,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await installStore(ctx);
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
+    await installMetadataGuard(ctx);
     await configureSshd(ctx);
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
