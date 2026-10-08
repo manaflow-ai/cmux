@@ -511,6 +511,7 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemon_refresh_missing: &'static str,
     pub positional_invitation_rejected: &'static str,
     pub connect_one_route: &'static str,
+    pub options_conflict: &'static str,
     pub reconnect_policy_invalid: &'static str,
     pub upgrade_no_install: &'static str,
     pub json_requires_headless: &'static str,
@@ -1634,7 +1635,7 @@ OPTIONS:
         forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
-  --host HOST  --listen ADDR  --scheme http|https
+  --host HOST  --listen ADDR  --listen-fd FD  --scheme http|https
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
   `cmux remote connect` are also accepted.
 "#,
@@ -1708,6 +1709,7 @@ OPTIONS:
         known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
         positional_invitation_rejected: "positional invitations are not accepted; use --invite-file or stdin",
         connect_one_route: "connect accepts one route",
+        options_conflict: "--listen and --listen-fd cannot be used together",
         reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
         upgrade_no_install: "--upgrade cannot be combined with --no-install",
         json_requires_headless: "--json requires --headless for connect and ssh",
@@ -2357,7 +2359,7 @@ ID とセッション:
         forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
 
 オプション:
-  --host ホスト  --listen アドレス  --scheme http|https
+  --host ホスト  --listen アドレス  --listen-fd FD  --scheme http|https
   `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
@@ -2430,6 +2432,7 @@ ID とセッション:
         known_daemon_refresh_missing: "ルートの更新中に登録済みデーモンが見つからなくなりました",
         positional_invitation_rejected: "招待を位置引数へ指定できません。--invite-file または標準入力を使用してください",
         connect_one_route: "connect に指定できるルートは 1 つです",
+        options_conflict: "--listen と --listen-fd は同時に指定できません",
         reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",
         upgrade_no_install: "--upgrade と --no-install は同時に指定できません",
         json_requires_headless: "connect と ssh で --json を使うには --headless が必要です",

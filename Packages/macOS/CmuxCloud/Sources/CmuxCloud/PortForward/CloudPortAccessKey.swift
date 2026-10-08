@@ -7,14 +7,17 @@ public struct CloudPortAccessKey: Hashable, Sendable {
     public init(
         machineID: String,
         port: Int,
-        scheme: String
+        scheme: String,
+        loopbackHost: String? = nil
     ) {
         self.machineID = machineID
         self.port = port
         self.scheme = scheme
+        self.loopbackHost = loopbackHost?.lowercased()
     }
 
     public let machineID: String
     public let port: Int
     public let scheme: String
+    public let loopbackHost: String?
 }

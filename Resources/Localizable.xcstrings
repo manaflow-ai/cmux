@@ -549603,6 +549603,301 @@
         }
       }
     },
+    "ssh.tui.browserListener.endpointLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app's managed SSH browser endpoint limit has been reached."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الوصول إلى حد نقاط نهاية متصفح SSH المُدارة في التطبيق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Limit für verwaltete SSH-Browser-Endpunkte der App ist erreicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se alcanzó el límite de puntos finales de navegador SSH administrados por la aplicación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La limite de points de terminaison de navigateur SSH gérés par l’application est atteinte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリで管理できる SSH ブラウザーエンドポイントの上限に達しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱에서 관리할 수 있는 SSH 브라우저 엔드포인트 한도에 도달했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达到应用管理的 SSH 浏览器端点数量上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已達到 App 管理的 SSH 瀏覽器端點數量上限."
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.forwardEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port forward ended before it became ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى تمرير منفذ SSH قبل أن يصبح جاهزًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Portweiterleitung endete, bevor sie bereit war."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío del puerto SSH terminó antes de estar listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La redirection du port SSH s’est terminée avant d’être prête."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポート転送は準備が整う前に終了しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 포트 전달이 준비되기 전에 종료되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 端口转发在准备就绪前已结束。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連接埠轉送在準備就緒前已結束。"
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH forward returned an invalid browser listener port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد تمرير SSH منفذًا غير صالح لمستمع المتصفح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Weiterleitung gab einen ungültigen Browser-Listener-Port zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío SSH devolvió un puerto no válido para el agente del navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La redirection SSH a renvoyé un port d’écouteur de navigateur non valide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 転送から無効なブラウザーリスナーポートが返されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 전달에서 잘못된 브라우저 리스너 포트를 반환했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 转发返回了无效的浏览器监听端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 轉送傳回了無效的瀏覽器監聽連接埠。"
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.operationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not create or configure the managed SSH browser listener."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء مستمع متصفح SSH المُدار أو تهيئته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der verwaltete SSH-Browser-Listener konnte nicht erstellt oder konfiguriert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear ni configurar el agente de navegador SSH administrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer ou de configurer l’écouteur de navigateur SSH géré."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象の SSH ブラウザーリスナーを作成または構成できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리되는 SSH 브라우저 리스너를 만들거나 구성할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建或配置受管理的 SSH 浏览器监听器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立或設定受管理的 SSH 瀏覽器監聽器。"
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.portMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH helper reported a different browser listener port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبلغ مساعد SSH عن منفذ مختلف لمستمع المتصفح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Helfer meldete einen anderen Browser-Listener-Port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El asistente SSH informó de un puerto de navegador diferente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’assistant SSH a signalé un autre port d’écouteur de navigateur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ヘルパーが別のブラウザーリスナーポートを報告しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 도우미가 다른 브라우저 리스너 포트를 보고했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 辅助程序报告了不同的浏览器监听端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 輔助程式回報了不同的瀏覽器監聽連接埠。"
+          }
+        }
+      }
+    },
     "ssh.tui.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -644107,126 +644402,166 @@
         }
       }
     },
-
-      "featureFlags.macAccountDirectory.title": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Cross-team My Devices"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Teamübergreifende Meine Geräte"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Mes appareils entre équipes"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "أجهزتي عبر الفرق"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Mis dispositivos entre equipos"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "跨團隊我的裝置"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "跨团队我的设备"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "팀 간 내 기기"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "チーム横断のマイデバイス"
-            }
+    "cloud.portAccess.loopbackProtectionUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not safely open this SSH loopback preview. Reload to try again."
           }
-        }
-      },
-
-      "featureFlags.macAccountDirectory.description": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Finds and connects your Macs signed in to the same account even when they selected different teams."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Findet und verbindet deine Macs mit demselben Konto, auch wenn sie unterschiedliche Teams ausgewählt haben."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Trouve et connecte vos Mac connectés au même compte, même s’ils ont sélectionné des équipes différentes."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "يعثر على أجهزة Mac المسجّلة بالحساب نفسه ويصلها حتى لو اختارت فرقًا مختلفة."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Encuentra y conecta tus Mac con la misma cuenta aunque hayan seleccionado equipos distintos."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "尋找並連線登入同一帳號的 Mac，即使它們選擇了不同的團隊。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "查找并连接登录同一账号的 Mac，即使它们选择了不同的团队。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "다른 팀을 선택했더라도 같은 계정에 로그인한 Mac을 찾아 연결합니다."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "異なるチームを選択していても、同じアカウントでサインインしている Mac を見つけて接続します。"
-            }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux فتح معاينة SSH المحلية هذه بأمان. أعد تحميل الصفحة للمحاولة مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diese SSH-Loopback-Vorschau nicht sicher öffnen. Lade die Seite neu, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo abrir esta vista previa de bucle local SSH de forma segura. Recarga la página para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu ouvrir cet aperçu de boucle locale SSH en toute sécurité. Rechargez la page pour réessayer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの SSH ループバックプレビューを安全に開けませんでした。再読み込みしてもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 이 SSH 루프백 미리보기를 안전하게 열 수 없습니다. 다시 시도하려면 새로고침하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安全地打开此 SSH 环回预览。请重新加载再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安全地開啟此 SSH 迴圈預覽。請重新載入再試一次。"
           }
         }
       }
+    },
+    "cloud.portAccess.loopbackProtectionRule.prepareFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The SSH browser protection rule could not be prepared."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر إعداد قاعدة حماية متصفح SSH."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die SSH-Browserschutzregel konnte nicht vorbereitet werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo preparar la regla de protección del navegador SSH."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La règle de protection du navigateur SSH n’a pas pu être préparée."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ブラウザー保護ルールを準備できませんでした。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 브라우저 보호 규칙을 준비할 수 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法准备 SSH 浏览器保护规则。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法準備 SSH 瀏覽器保護規則。"}}
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.encodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The SSH browser protection rule could not be encoded."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر ترميز قاعدة حماية متصفح SSH."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die SSH-Browserschutzregel konnte nicht codiert werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo codificar la regla de protección del navegador SSH."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La règle de protection du navigateur SSH n’a pas pu être encodée."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ブラウザー保護ルールをエンコードできませんでした。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 브라우저 보호 규칙을 인코딩할 수 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法编码 SSH 浏览器保护规则。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法編碼 SSH 瀏覽器保護規則。"}}
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.compileFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The SSH browser protection rule could not be compiled."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تجميع قاعدة حماية متصفح SSH."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die SSH-Browserschutzregel konnte nicht kompiliert werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo compilar la regla de protección del navegador SSH."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La règle de protection du navigateur SSH n’a pas pu être compilée."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ブラウザー保護ルールをコンパイルできませんでした。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 브라우저 보호 규칙을 컴파일할 수 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法编译 SSH 浏览器保护规则。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法編譯 SSH 瀏覽器保護規則。"}}
+      }
+    },
+    "cloud.portAccess.sshLoopbackHTTPSUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS previews for SSH loopback services are not supported yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينات HTTPS لخدمات SSH المحلية غير مدعومة حتى الآن."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-Vorschauen für SSH-Loopback-Dienste werden noch nicht unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no se admiten vistas previas HTTPS de servicios de bucle local SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les aperçus HTTPS des services de boucle locale SSH ne sont pas encore pris en charge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ループバックサービスの HTTPS プレビューはまだサポートされていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 루프백 서비스의 HTTPS 미리보기는 아직 지원되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前尚不支持 SSH 环回服务的 HTTPS 预览。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前尚未支援 SSH 迴圈服務的 HTTPS 預覽。"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

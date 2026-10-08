@@ -2089,6 +2089,13 @@ final class BrowserPanel: Panel, ObservableObject {
     var cloudBrowserMachineID: String?
     var cloudBrowserStoreIdentity: UUID?
     var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
+    var cloudBrowserProxyAddress: String?
+    var cloudLoopbackContentRuleList: WKContentRuleList?
+    var cloudLoopbackContentRuleListIdentifier: String?
+    var cloudLoopbackRuntimeBridgeScript: WKUserScript?
+    var cloudLoopbackProtectionGeneration = UUID()
+    var cloudLoopbackScriptGeneration = 0
+    var cloudLoopbackScriptConfigurationKey: String?
     /// Saved Cloud path waiting for a provider/resource to become available.
     /// It is consumed after the first successful authenticated configuration.
     var pendingCloudRestoreURL: URL?
@@ -2624,6 +2631,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private(set) var usesRemoteWorkspaceProxy: Bool
+    private var allowsLocalNavigationWithoutRemoteProxy: Bool
     private struct PendingRemoteNavigation {
         let request: URLRequest
         let recordTypedNavigation: Bool
@@ -2631,6 +2639,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let onNavigationStarted: ((WKNavigation?) -> Void)?
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    var pendingCloudNavigationRequest: URLRequest?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -3654,6 +3663,7 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
+        allowsLocalNavigationWithoutRemoteProxy: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
@@ -3670,6 +3680,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        self.allowsLocalNavigationWithoutRemoteProxy = allowsLocalNavigationWithoutRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
@@ -4228,6 +4239,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
         guard remoteWorkspaceStatus != status else { return }
         remoteWorkspaceStatus = status
+        resumePendingRemoteNavigationIfNeeded()
     }
 
     private func applyProxyConfigurationIfAvailable() {
@@ -4421,10 +4433,12 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         proxyEndpoint: BrowserProxyEndpoint?,
-        remoteStatus: BrowserRemoteWorkspaceStatus?
+        remoteStatus: BrowserRemoteWorkspaceStatus?,
+        allowsLocalNavigationWithoutRemoteProxy: Bool = false
     ) {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        self.allowsLocalNavigationWithoutRemoteProxy = allowsLocalNavigationWithoutRemoteProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
             : isRemoteWorkspace
@@ -5143,6 +5157,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         BrowserReplTabAttachments.shared.panelDidClose(id)
+        removeManagedSSHLoopbackProtection()
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
@@ -5581,14 +5596,28 @@ final class BrowserPanel: Panel, ObservableObject {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
+        } else if cloudAccess.model?.allowsLoopback == true,
+                  RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") {
+            guard let provider = privateAddressRouteProvider(for: url) else { return nil }
+            clearPendingRemoteNavigationForSupersedingRequest()
+            provider.configureBrowser(self, url: url)
+            return nil
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let provider = privateAddressRouteProvider(for: url) {
+            clearPendingRemoteNavigationForSupersedingRequest()
             provider.configureBrowser(self, url: url)
             return nil
         } else {
             leaveCloudRouteAfterValidation = retainsCloudResourceForDuplication
         }
-        let request = URLRequest(url: url)
+        let routedRequest = pendingCloudNavigationRequest
+        pendingCloudNavigationRequest = nil
+        let request: URLRequest
+        if let routedRequest, routedRequest.url == url {
+            request = routedRequest
+        } else {
+            request = URLRequest(url: url)
+        }
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
         (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         if !policy.allowsTrustedInternalURL(url) {
@@ -5657,6 +5686,18 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
         }
+        if let model = cloudAccess.model, model.route == .loopback,
+           cloudAccess.owns(url), let forwardedURL = model.url(for: url), forwardedURL != url {
+            var forwardedRequest = request
+            forwardedRequest.url = forwardedURL
+            return navigateWithoutInsecureHTTPPrompt(
+                request: forwardedRequest,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                trustedInternalNavigation: trustedInternalNavigation,
+                onNavigationStarted: onNavigationStarted
+            )
+        }
         if trustedInternalNavigation {
             if url.isFileURL {
                 beginTrustedLocalFileNavigation(url)
@@ -5664,7 +5705,27 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+        let isOwnedSSHLoopbackNavigation = cloudAccess.shouldRebindLoopbackNavigation(url)
+        if isOwnedSSHLoopbackNavigation {
+            guard let provider = privateAddressRouteProvider(for: url) else {
+                onNavigationStarted?(nil)
+                return nil
+            }
+            clearPendingRemoteNavigationForSupersedingRequest()
+            provider.configureBrowser(self, url: url, request: request)
+            onNavigationStarted?(nil)
+            return nil
+        }
+        if cloudBrowserMachineID == nil,
+           ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+           let provider = privateAddressRouteProvider(for: url) {
+            clearPendingRemoteNavigationForSupersedingRequest()
+            provider.configureBrowser(self, url: url, request: request)
+            onNavigationStarted?(nil)
+            return nil
+        }
+        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil,
+           !allowsLocalPublicNavigationWithoutRemoteProxy(for: url) {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
@@ -5679,6 +5740,7 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldRenderWebView = true
             return nil
         }
+        clearPendingRemoteNavigationForSupersedingRequest()
         return performNavigation(
             request: request,
             originalURL: url,
@@ -5689,16 +5751,29 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
-        // Resume on endpoint arrival, or directly once the pane turned local
-        // (a stranded queue pins the hidden pane as non-discardable forever).
-        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
-              let navigation = pendingRemoteNavigation else {
+        guard let navigation = pendingRemoteNavigation else {
             return
         }
         guard let originalURL = navigation.request.url else {
             navigation.onNavigationStarted?(nil)
             pendingRemoteNavigation = nil
             reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
+            return
+        }
+        if cloudBrowserMachineID == nil,
+           ["http", "https"].contains(originalURL.scheme?.lowercased() ?? ""),
+           let provider = privateAddressRouteProvider(for: originalURL) {
+            pendingRemoteNavigation = nil
+            provider.configureBrowser(self, url: originalURL, request: navigation.request)
+            navigation.onNavigationStarted?(nil)
+            reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_routed")
+            return
+        }
+        // A managed SSH pane can load ordinary public hostnames locally.
+        // Syntactically non-public destinations stay queued until their owning
+        // TUI provider is available; DNS resolution is left to WebKit.
+        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy
+                || allowsLocalPublicNavigationWithoutRemoteProxy(for: originalURL) else {
             return
         }
         performNavigation(
@@ -5709,6 +5784,23 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted: navigation.onNavigationStarted
         )
         pendingRemoteNavigation = nil
+    }
+
+    private func clearPendingRemoteNavigationForSupersedingRequest() {
+        guard let navigation = pendingRemoteNavigation else { return }
+        pendingRemoteNavigation = nil
+        navigation.onNavigationStarted?(nil)
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_superseded")
+    }
+
+    private func allowsLocalPublicNavigationWithoutRemoteProxy(for url: URL) -> Bool {
+        guard allowsLocalNavigationWithoutRemoteProxy,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host else {
+            return false
+        }
+        return !PrivateNetworkHostPolicy().isNonPublic(host: host)
     }
 
     @discardableResult

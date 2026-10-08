@@ -148,7 +148,7 @@ final class CloudBrowserProxyTestServer {
                 await CloudPortForwardRelay.relay(connection, upstream)
                 return
             }
-            guard connect.target == "\(address):\(servicePort)" else { return }
+            guard acceptsServiceTarget(connect.target) else { return }
             var request = try await readRequest(connection, buffered: &buffered)
             if request.method == "OPTIONS" {
                 try await connection.sendAll(Data("HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n".utf8))
@@ -194,6 +194,18 @@ final class CloudBrowserProxyTestServer {
         let target: String
         let headers: [String: String]
         let body: String
+    }
+
+    private func acceptsServiceTarget(_ target: String) -> Bool {
+        let suffix = ":\(servicePort)"
+        guard target.hasSuffix(suffix) else { return false }
+        let host = String(target.dropLast(suffix.count))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let loopbackHosts: Set<String> = ["127.0.0.1", "::1", "localhost"]
+        if loopbackHosts.contains(address.lowercased()) {
+            return loopbackHosts.contains(host.lowercased())
+        }
+        return host.caseInsensitiveCompare(address) == .orderedSame
     }
 
     private func readRequest(_ connection: NWConnection, buffered: inout Data) async throws -> ParsedRequest {

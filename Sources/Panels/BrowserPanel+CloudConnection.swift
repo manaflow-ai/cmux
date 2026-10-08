@@ -10,15 +10,176 @@ extension BrowserPanel {
     func bindCloudBrowserNavigation() {
         cloudAccess.automaticallyNavigate { [weak self] url in
             guard let self, !self.isClosingWebViewLifecycle else { return }
-            _ = self.navigate(to: url)
+            if var request = self.pendingCloudNavigationRequest {
+                request.url = url
+                self.pendingCloudNavigationRequest = request
+            }
+            guard let model = self.cloudAccess.model, model.route == .loopback else {
+                _ = self.navigate(to: url)
+                return
+            }
+            Task { @MainActor [weak self, weak model] in
+                guard let self, let model, !self.isClosingWebViewLifecycle else { return }
+                self.prepareCloudBrowserNavigation()
+                let generation = UUID()
+                self.cloudLoopbackProtectionGeneration = generation
+                self.cloudLoopbackScriptGeneration += 1
+                let scriptGeneration = self.cloudLoopbackScriptGeneration
+                do {
+                    try await self.installManagedSSHLoopbackProtection(
+                        for: url, generation: generation, scriptGeneration: scriptGeneration
+                    )
+                    guard self.cloudLoopbackProtectionGeneration == generation else { return }
+                    guard self.cloudAccess.model === model, self.cloudAccess.owns(url) else { return }
+                    _ = self.navigate(to: url)
+                } catch {
+                    guard self.cloudLoopbackProtectionGeneration == generation,
+                          self.cloudAccess.model === model, self.cloudAccess.owns(url) else { return }
+                    self.cloudAccess.showUnavailable(String(
+                        localized: "cloud.portAccess.loopbackProtectionUnavailable",
+                        defaultValue: "cmux could not safely open this SSH loopback preview. Reload to try again."
+                    ))
+                    await model.stop()
+                }
+            }
         }
+    }
+
+    func installManagedSSHLoopbackProtection(for url: URL, generation: UUID, scriptGeneration: Int) async throws {
+        guard let port = url.port, port > 0, port <= Int(UInt16.max),
+              let store = WKContentRuleListStore.default() else {
+            throw CloudMachineLink.LinkError.spawnFailed(String(
+                localized: "cloud.portAccess.loopbackProtectionRule.prepareFailed",
+                defaultValue: "The SSH browser protection rule could not be prepared."
+            ))
+        }
+        let schemes = ["http", "https", "ws", "wss"]
+        let blockedHosts = [
+            ("localhost\\.?", true), (".*\\.localhost\\.?", true),
+            ("127\\.", false), ("0\\.0\\.0\\.0", true),
+            ("\\[::1\\]", true), ("\\[0:0:0:0:0:0:0:1\\]", true),
+            ("\\[::ffff:", false), ("[0-9]+", true)
+        ]
+        var rules: [[String: Any]] = []
+        for scheme in schemes {
+            for (host, needsPortAndPath) in blockedHosts {
+                let suffix = needsPortAndPath ? "(:[0-9]+)?/" : ""
+                rules.append([
+                    "trigger": ["url-filter": "^\(scheme)://\(host)\(suffix)"],
+                    "action": ["type": "block"]
+                ])
+            }
+        }
+        for scheme in ["http", "ws"] {
+            rules.append([
+                "trigger": ["url-filter": "^\(scheme)://127\\.0\\.0\\.1:\(port)/"],
+                "action": ["type": "ignore-previous-rules"]
+            ])
+        }
+        let encodedRules = try JSONSerialization.data(withJSONObject: rules)
+        guard let ruleJSON = String(data: encodedRules, encoding: .utf8) else {
+            throw CloudMachineLink.LinkError.spawnFailed(String(
+                localized: "cloud.portAccess.loopbackProtectionRule.encodeFailed",
+                defaultValue: "The SSH browser protection rule could not be encoded."
+            ))
+        }
+        // The rule store is persistent. A stable per-port identifier lets a
+        // replacement update the same entry instead of accumulating one UUID
+        // for every navigation in the user's WebKit data directory.
+        let identifier = "cmux.ssh-loopback.\(port)"
+        if let oldIdentifier = cloudLoopbackContentRuleListIdentifier,
+           oldIdentifier != identifier {
+            await removeManagedSSHLoopbackRule(from: store, identifier: oldIdentifier)
+        }
+        // Removing the existing stored entry before compiling avoids a stale
+        // rule-list cache when WebKit rejects a duplicate identifier.
+        await removeManagedSSHLoopbackRule(from: store, identifier: identifier)
+        let ruleList: WKContentRuleList = try await withCheckedThrowingContinuation { continuation in
+            store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: ruleJSON) { rule, error in
+                if let error { continuation.resume(throwing: error) }
+                else if let rule { continuation.resume(returning: rule) }
+                else {
+                    continuation.resume(throwing: CloudMachineLink.LinkError.spawnFailed(String(
+                        localized: "cloud.portAccess.loopbackProtectionRule.compileFailed",
+                        defaultValue: "The SSH browser protection rule could not be compiled."
+                    )))
+                }
+            }
+        }
+        guard cloudLoopbackProtectionGeneration == generation,
+              cloudAccess.model?.route == .loopback,
+              cloudAccess.owns(url) else { return }
+        let controller = webView.configuration.userContentController
+        if let oldRule = cloudLoopbackContentRuleList { controller.remove(oldRule) }
+        controller.add(ruleList)
+        cloudLoopbackContentRuleList = ruleList
+        cloudLoopbackContentRuleListIdentifier = identifier
+        if let model = cloudAccess.model {
+            let scriptConfigurationKey = "ssh:\(model.target.host.lowercased()):\(model.target.port):\(port)"
+            if cloudLoopbackScriptConfigurationKey != scriptConfigurationKey {
+                let script = WKUserScript(
+                    source: RemoteLoopbackRuntimeBridge.scriptSource(
+                        aliasHost: "127.0.0.1", aliasPort: port,
+                        remoteHost: model.target.host, remotePort: model.target.port,
+                        generation: scriptGeneration
+                    ),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+                controller.addUserScript(script)
+                cloudLoopbackRuntimeBridgeScript = script
+                cloudLoopbackScriptConfigurationKey = scriptConfigurationKey
+            }
+        }
+    }
+
+    private func removeManagedSSHLoopbackRule(from store: WKContentRuleListStore, identifier: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            store.removeContentRuleList(forIdentifier: identifier) { _ in continuation.resume() }
+        }
+    }
+
+    func removeManagedSSHLoopbackProtection(restoreGeneralBridge: Bool = false) {
+        cloudLoopbackProtectionGeneration = UUID()
+        cloudLoopbackScriptGeneration += 1
+        let controller = webView.configuration.userContentController
+        if let ruleList = cloudLoopbackContentRuleList { controller.remove(ruleList) }
+        if let identifier = cloudLoopbackContentRuleListIdentifier,
+           let store = WKContentRuleListStore.default() {
+            store.removeContentRuleList(forIdentifier: identifier) { _ in }
+        }
+        if cloudLoopbackScriptConfigurationKey?.hasPrefix("ssh:") == true {
+            let enabled = restoreGeneralBridge ? "true" : "false"
+            let aliasHost = restoreGeneralBridge ? RemoteLoopbackProxyAlias.aliasHost : "127.0.0.1"
+            webView.evaluateJavaScript("""
+            if (window.__cmuxRemoteLoopbackBridgeConfig) {
+              window.__cmuxRemoteLoopbackBridgeConfig.enabled = \(enabled);
+            window.__cmuxRemoteLoopbackBridgeConfig.aliasHost = '\(aliasHost)';
+            }
+            """)
+            let script = WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.scriptSource(
+                    aliasHost: aliasHost, enabled: restoreGeneralBridge, generation: cloudLoopbackScriptGeneration
+                ),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+            controller.addUserScript(script)
+            cloudLoopbackRuntimeBridgeScript = script
+            cloudLoopbackScriptConfigurationKey = nil
+        }
+        cloudLoopbackContentRuleList = nil
+        cloudLoopbackContentRuleListIdentifier = nil
     }
 
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
-    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                               request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
+        if model.route != .loopback { removeManagedSSHLoopbackProtection(restoreGeneralBridge: true) }
         webView.stopLoading()
+        pendingCloudNavigationRequest = request
         if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
             prepareCloudBrowserStore(machineID: machineID)
         }
@@ -35,6 +196,7 @@ extension BrowserPanel {
     /// editing the remote workspace layout while removing stale restore
     /// provenance from this panel.
     func leaveCloudResourceForLocalNavigation() {
+        removeManagedSSHLoopbackProtection()
         pendingCloudRestoreURL = nil
         if retainsCloudResourceForDuplication {
             SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)
@@ -221,6 +383,7 @@ extension BrowserPanel {
         cloudBrowserMachineID = machineID
         cloudBrowserStoreIdentity = identifier
         cloudBrowserProxyEndpoint = nil
+        cloudBrowserProxyAddress = nil
         websiteDataStore = preservesExplicitEphemeralWebsiteDataStore
             ? .nonPersistent() : WKWebsiteDataStore(forIdentifier: identifier)
         // The route may still be connecting. Do not construct its WebView with
@@ -229,10 +392,19 @@ extension BrowserPanel {
 
     /// Apply proxy credentials before the first request, with no system-network fallback.
     func prepareCloudBrowserNavigation() {
+        if cloudAccess.model?.route == .loopback {
+            websiteDataStore.proxyConfigurations = []
+            if webView.configuration.websiteDataStore !== websiteDataStore {
+                replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
+                                              reason: "ssh_loopback_route", restoreAfterReplacement: false)
+            }
+            return
+        }
         guard let endpoint = cloudAccess.model?.browserProxy,
               let address = cloudAccess.model?.target.host else { return }
-        guard endpoint != cloudBrowserProxyEndpoint else { return }
+        guard endpoint != cloudBrowserProxyEndpoint || address != cloudBrowserProxyAddress else { return }
         cloudBrowserProxyEndpoint = endpoint
+        cloudBrowserProxyAddress = address
         websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
         CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
         if webView.configuration.websiteDataStore !== websiteDataStore {
