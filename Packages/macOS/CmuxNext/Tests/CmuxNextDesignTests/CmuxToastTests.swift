@@ -168,10 +168,10 @@ struct CmuxToastTests {
     func everyToastDrawsItsWholeMessage(_ toast: CmuxToast) throws {
         let (label, view) = try #require(Self.shownLabel(toast))
         let natural = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width,
-                                                                        height: .greatestFiniteMagnitude))
-        let oneLine = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: .greatestFiniteMagnitude,
-                                                                        height: .greatestFiniteMagnitude))
-        #expect(label.frame.width >= min(oneLine.width, 360) - 1, "the label has room for the message")
+                                                                        height: CGFloat.greatestFiniteMagnitude))
+        let oneLine = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude,
+                                                                        height: CGFloat.greatestFiniteMagnitude))
+        #expect(label.frame.width >= min(oneLine.width, 360) - 1, "the label has room for the message: \(label.frame), intrinsic \(label.intrinsicContentSize), toast \(view.frame)")
         #expect(label.frame.height >= natural.height - 1, "no wrapped line is cut")
         #expect(view.frame.width > label.frame.maxX, "the toast contains the label")
     }
