@@ -13,7 +13,7 @@ struct BrowserAutomationDocumentStateTests {
         var state = BrowserAutomationDocumentState()
         #expect(state.frameSelector(surfaceID: checkout) == nil)
 
-        state.selectFrame("#checkout", surfaceID: checkout)
+        state.selectFrame("#checkout", surfaceID: checkout, checkedInDocument: state.documentGeneration(surfaceID: checkout))
         #expect(state.frameSelector(surfaceID: checkout) == "#checkout")
         #expect(state.frameSelector(surfaceID: docs) == nil)
 
@@ -37,8 +37,8 @@ struct BrowserAutomationDocumentStateTests {
     @Test("closing a surface drops its frame and refs and leaves other surfaces alone")
     func removingASurfaceDropsOnlyItsState() {
         var state = BrowserAutomationDocumentState()
-        state.selectFrame("#checkout", surfaceID: checkout)
-        state.selectFrame("#sidebar", surfaceID: docs)
+        state.selectFrame("#checkout", surfaceID: checkout, checkedInDocument: state.documentGeneration(surfaceID: checkout))
+        state.selectFrame("#sidebar", surfaceID: docs, checkedInDocument: state.documentGeneration(surfaceID: docs))
         let pay = state.allocateElementRef(selector: "#pay", surfaceID: checkout)
         let search = state.allocateElementRef(selector: "#search", surfaceID: docs)
 
@@ -56,8 +56,8 @@ struct BrowserAutomationDocumentStateTests {
     @Test("a main-frame commit returns the surface to the main frame")
     func mainFrameCommitDropsTheSelectedFrame() {
         var state = BrowserAutomationDocumentState()
-        state.selectFrame("#checkout", surfaceID: checkout)
-        state.selectFrame("#sidebar", surfaceID: docs)
+        state.selectFrame("#checkout", surfaceID: checkout, checkedInDocument: state.documentGeneration(surfaceID: checkout))
+        state.selectFrame("#sidebar", surfaceID: docs, checkedInDocument: state.documentGeneration(surfaceID: docs))
 
         state.mainFrameDidCommit(surfaceID: checkout)
 
@@ -81,5 +81,26 @@ struct BrowserAutomationDocumentStateTests {
         #expect(next != pay)
         #expect(state.selector(forElementRef: pay, surfaceID: checkout) == nil)
         #expect(state.selector(forElementRef: next, surfaceID: checkout) == "#cancel")
+    }
+
+    /// `frame select` checks its selector in the page before storing it. A
+    /// redirect that commits during that check must not leave the selector
+    /// stored for the page it was never checked in.
+    @Test("a frame checked in a document that has since been replaced is not selected")
+    func frameCheckedInAReplacedDocumentIsRefused() {
+        var state = BrowserAutomationDocumentState()
+        let checkedIn = state.documentGeneration(surfaceID: checkout)
+
+        state.mainFrameDidCommit(surfaceID: checkout)
+
+        let selectedStale = state.selectFrame("#checkout", surfaceID: checkout, checkedInDocument: checkedIn)
+        #expect(!selectedStale)
+        #expect(state.frameSelector(surfaceID: checkout) == nil)
+
+        let current = state.documentGeneration(surfaceID: checkout)
+        let selectedCurrent = state.selectFrame("#checkout", surfaceID: checkout, checkedInDocument: current)
+        #expect(selectedCurrent)
+        #expect(state.frameSelector(surfaceID: checkout) == "#checkout")
+        #expect(state.documentGeneration(surfaceID: docs) == checkedIn)
     }
 }

@@ -9923,12 +9923,17 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
+            let document = v2MainSync { v2BrowserDocumentState.documentGeneration(surfaceID: surfaceId) }
             switch v2BrowserProbeFrame(ctx, selector: selector) {
             case .scriptFailed(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .sameOriginFrame:
-                v2MainSync {
-                    v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId)
+                let selected = v2MainSync {
+                    v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId, checkedInDocument: document)
+                }
+                guard selected else {
+                    // The page committed a new document while the frame was being checked.
+                    return .err(code: "stale_state", message: "Browser page changed before the frame was selected", data: ["selector": selector])
                 }
                 return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
             case .crossOrigin:
@@ -9947,10 +9952,21 @@ class TerminalController {
     }
 
     /// Checks that `selector` names a same-origin frame in the document commands currently run in.
-    private nonisolated func v2BrowserProbeFrame(_ ctx: V2BrowserPanelContext, selector: String) -> V2BrowserFrameProbe {
+    ///
+    /// - Parameter afterDocumentParsed: Wait for the document to finish parsing first.
+    ///   A navigation is reported at commit, when the frame element may not exist yet.
+    private nonisolated func v2BrowserProbeFrame(
+        _ ctx: V2BrowserPanelContext,
+        selector: String,
+        afterDocumentParsed: Bool = false
+    ) -> V2BrowserFrameProbe {
         let selectorLiteral = v2JSONLiteral(selector)
+        let waitForParse = afterDocumentParsed
+            ? "if (document.readyState === 'loading') { await new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve, { once: true })); }"
+            : ""
         let script = """
-        (() => {
+        (async () => {
+          \(waitForParse)
           const frame = document.querySelector(\(selectorLiteral));
           if (!frame) return { ok: false, error: 'not_found' };
           if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
@@ -9963,7 +9979,13 @@ class TerminalController {
           return { ok: true };
         })()
         """
-        switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
+        switch v2RunBrowserJavaScript(
+            ctx.webView,
+            browserPanel: ctx.browserPanel,
+            surfaceId: ctx.surfaceId,
+            script: script,
+            timeout: afterDocumentParsed ? 10.0 : 5.0
+        ) {
         case .failure(let message):
             return .scriptFailed(message)
         case .success(let value):
@@ -11393,15 +11415,24 @@ class TerminalController {
                     // The loaded page replaces whatever frame was selected. The saved
                     // selector is applied only if it still names a same-origin frame
                     // there; otherwise commands stay in the main frame.
-                    v2MainSync {
+                    let document = v2MainSync {
                         v2BrowserDocumentState.selectMainFrame(surfaceID: ctx.surfaceId)
+                        return v2BrowserDocumentState.documentGeneration(surfaceID: ctx.surfaceId)
                     }
                     guard let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty,
-                          case .sameOriginFrame = v2BrowserProbeFrame(ctx, selector: frameSelector) else {
+                          case .sameOriginFrame = v2BrowserProbeFrame(
+                              ctx,
+                              selector: frameSelector,
+                              afterDocumentParsed: true
+                          ) else {
                         return
                     }
                     v2MainSync {
-                        v2BrowserDocumentState.selectFrame(frameSelector, surfaceID: ctx.surfaceId)
+                        _ = v2BrowserDocumentState.selectFrame(
+                            frameSelector,
+                            surfaceID: ctx.surfaceId,
+                            checkedInDocument: document
+                        )
                     }
                 },
                 installCookies: {

@@ -16,7 +16,8 @@ public import Foundation
 ///
 /// ```swift
 /// var state = BrowserAutomationDocumentState()
-/// state.selectFrame("#checkout", surfaceID: surfaceID)
+/// let document = state.documentGeneration(surfaceID: surfaceID)
+/// state.selectFrame("#checkout", surfaceID: surfaceID, checkedInDocument: document)
 /// let ref = state.allocateElementRef(selector: "#pay", surfaceID: surfaceID)
 /// state.selector(forElementRef: ref, surfaceID: surfaceID)  // "#pay"
 /// ```
@@ -29,6 +30,7 @@ public struct BrowserAutomationDocumentState: Sendable {
     private var nextElementOrdinal = 1
     private var elementRefs: [String: ElementRef] = [:]
     private var frameSelectors: [UUID: String] = [:]
+    private var commitCounts: [UUID: Int] = [:]
 
     /// Creates a state with no selected frames and no element refs.
     public init() {}
@@ -40,12 +42,35 @@ public struct BrowserAutomationDocumentState: Sendable {
         frameSelectors[surfaceID]
     }
 
+    /// Identifies a surface's current top-level document among the ones it has committed.
+    ///
+    /// Read it before checking a selector against the page, then pass it to
+    /// ``selectFrame(_:surfaceID:checkedInDocument:)``.
+    /// - Parameter surfaceID: The browser surface to look up.
+    /// - Returns: A value that changes with every ``mainFrameDidCommit(surfaceID:)``.
+    public func documentGeneration(surfaceID: UUID) -> Int {
+        commitCounts[surfaceID, default: 0]
+    }
+
     /// Makes later commands on a surface run in the frame matching `selector`.
+    ///
+    /// Checking the selector against the page takes a round trip to the web
+    /// process, and the page can commit a redirect meanwhile. The selection is
+    /// refused then, because the selector was checked in a document that is gone.
     /// - Parameters:
     ///   - selector: CSS selector of a same-origin frame in the current document.
     ///   - surfaceID: The browser surface the selection applies to.
-    public mutating func selectFrame(_ selector: String, surfaceID: UUID) {
+    ///   - generation: The ``documentGeneration(surfaceID:)`` read before the check.
+    /// - Returns: `false` when the surface committed a new document since `generation`.
+    @discardableResult
+    public mutating func selectFrame(
+        _ selector: String,
+        surfaceID: UUID,
+        checkedInDocument generation: Int
+    ) -> Bool {
+        guard generation == documentGeneration(surfaceID: surfaceID) else { return false }
         frameSelectors[surfaceID] = selector
+        return true
     }
 
     /// Makes later commands on a surface run in the main frame again.
@@ -87,7 +112,9 @@ public struct BrowserAutomationDocumentState: Sendable {
     /// `history.pushState`) does not commit and keeps both.
     /// - Parameter surfaceID: The browser surface whose top-level document was replaced.
     public mutating func mainFrameDidCommit(surfaceID: UUID) {
-        removeSurface(surfaceID)
+        frameSelectors.removeValue(forKey: surfaceID)
+        elementRefs = elementRefs.filter { $0.value.surfaceID != surfaceID }
+        commitCounts[surfaceID, default: 0] += 1
     }
 
     /// Forgets the selected frame and every element ref of a closed surface.
@@ -95,5 +122,6 @@ public struct BrowserAutomationDocumentState: Sendable {
     public mutating func removeSurface(_ surfaceID: UUID) {
         frameSelectors.removeValue(forKey: surfaceID)
         elementRefs = elementRefs.filter { $0.value.surfaceID != surfaceID }
+        commitCounts.removeValue(forKey: surfaceID)
     }
 }
