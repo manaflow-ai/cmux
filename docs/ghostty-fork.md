@@ -26,7 +26,9 @@ When we change the fork, update this document and the parent submodule SHA.
   the pre-fix commit with `expected 1, found 39`, then passed in the local
   74-test Ghostty suite. The existing CJK punctuation suite also passed. The
   hosted GhosttyKit build and its CJK, shaping, and compatibility lanes passed
-  in [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294).
+  in [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294);
+  the hosted regression step passed in
+  [run 37852501997](https://github.com/manaflow-ai/cmux/actions/runs/37852501997).
 - Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fff35f43280f6f133ef133d8c470706a068aab55-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 - SHA-256 `b2d2528bb20da61bf882f0ba772ff6060cf29e821d5897af79c17bc1f9aee9e4`
   is pinned in `scripts/ghosttykit-checksums.txt`.
