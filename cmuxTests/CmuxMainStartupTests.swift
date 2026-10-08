@@ -28,7 +28,7 @@ struct CmuxMainStartupTests {
     /// Verifies production startup observes the fatal policy before workers or the app.
     func productionStartupInstallsPolicyBeforeWorkerAndApp() throws {
         let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(RecordingCrashPolicyDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var observations: [String] = []
@@ -37,16 +37,30 @@ struct CmuxMainStartupTests {
             raiseFileDescriptorLimit: {},
             writeAppHostReceipt: {},
             routeWorkers: {
+                #expect(defaults.didRegisterFatalPolicy)
                 #expect(defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
                 observations.append("worker")
             },
             preloadSigningSecret: {},
             launchApp: {
+                #expect(defaults.didRegisterFatalPolicy)
                 #expect(defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
                 observations.append("app")
             }
         )
 
         #expect(observations == ["worker", "app"])
+    }
+}
+
+private final class RecordingCrashPolicyDefaults: UserDefaults {
+    private(set) var didRegisterFatalPolicy = false
+
+    /// Records this invocation's policy registration independently of Foundation's global registration domain.
+    override func register(defaults registrationDictionary: [String: Any]) {
+        if registrationDictionary["NSApplicationCrashOnExceptions"] as? Bool == true {
+            didRegisterFatalPolicy = true
+        }
+        super.register(defaults: registrationDictionary)
     }
 }
