@@ -150,7 +150,10 @@ The older exact fleet archives also prove the iOS device and simulator targets c
 the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
 `dd344fa661ac766511d5da0f02f70dfa7e10a42a`, artifact digest
 `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00` (the prior `f23162542f` archive
-was superseded by the final timing-safety commits). Current static checks pass; the post-build
+was superseded by the final timing-safety commits). Exact-head follow-up job `a439f2f1083073248164673e`
+for `cff9e2e9cff22df187c664b542c8047deba34d8b` completed on `cmuxs-Mac-mini.local` with iOS artifact
+digest `sha256:ad26dc3b97ae13418b2038028cabf9783710c57456c48d1ec6abf6eaf22fd7a7`; this is archive and
+simulator compile evidence only, with no install or runtime claim. Current static checks pass; the post-build
 C8/C12/C16 slices add static and focused contract evidence; the backend slice has 37 focused Vitest
 tests and a clean TypeScript typecheck. The next gate is tagged Mac/iOS pairing and D3 runtime
 evidence; no simulator, real-phone, or live SSH/browser result is claimed.
