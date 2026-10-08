@@ -191,9 +191,12 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
     for key in &keys {
         let value = &answers[key];
         let ok = if codex {
-            value["answers"]
-                .as_array()
-                .is_some_and(|list| !list.is_empty() && list.iter().all(|s| text(s).is_some()))
+            // `{answers: [...]}` with that one key: nothing else rides along
+            // into the agent's tool input unchecked.
+            value.as_object().is_some_and(|o| o.len() == 1)
+                && value["answers"]
+                    .as_array()
+                    .is_some_and(|list| !list.is_empty() && list.iter().all(|s| text(s).is_some()))
         } else {
             text(value).is_some()
         };
