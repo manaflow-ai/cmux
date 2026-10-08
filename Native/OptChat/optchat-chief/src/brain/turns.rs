@@ -741,14 +741,26 @@ impl Brain {
         // which starts now with that message, answers both.
         let superseded = outcome.cancelled && self.stop_wanted;
         self.trace_end(key, &outcome, superseded);
+        // A failure names the harness that ran the turn, and the one it
+        // stood in for when acpmux moved the session onto a fallback.
+        let failed = match outcome.harness.as_deref() {
+            Some(h) if h.requested != h.profile => {
+                format!(
+                    "turn failed on {} (fallback for {})",
+                    h.profile, h.requested
+                )
+            }
+            Some(h) => format!("turn failed on {}", h.profile),
+            None => "turn failed".to_owned(),
+        };
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
             (None, Some(error)) if outcome.refused => format!("(turn {error})"),
-            (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
+            (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
             (Some(reply), None) => reply,
-            (None, Some(error)) => format!("(turn failed: {error})"),
+            (None, Some(error)) => format!("({failed}: {error})"),
             (None, None) => String::new(),
         };
         if superseded {
