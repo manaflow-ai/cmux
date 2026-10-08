@@ -416,6 +416,8 @@ struct ClaudeBackgroundSessionRestoreTests {
         defer { dock.closeAllPanels() }
         let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
         _ = try #require(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false))
+        // Shell integration reports the running `claude attach` command.
+        dock.updatePanelShellActivityState(panelId: movedPanelID, state: .commandRunning)
         let snapshot = dock.sessionSnapshot(includeScrollback: false)
         let saved = try #require(snapshot.panels.first { $0.id == movedPanelID })
         let viewer = try #require(saved.terminal?.claudeBackgroundViewer)
@@ -448,11 +450,14 @@ struct ClaudeBackgroundSessionRestoreTests {
         let dock = makeDock(fixture, foreground: viewerProcess(fixture))
         defer { dock.closeAllPanels() }
         let panelID = UUID()
-        _ = dock.restoreSessionSnapshot(dockContainer([
+        let liveIDs = dock.restoreSessionSnapshot(dockContainer([
             dockTerminalPanel(id: panelID, SessionTerminalPanelSnapshot(
                 workingDirectory: fixture.workingDirectory.path
             )),
         ]))
+        let livePanelID = try #require(liveIDs[panelID])
+        // Shell integration reports the running `claude attach` command.
+        dock.updatePanelShellActivityState(panelId: livePanelID, state: .commandRunning)
         let snapshot = dock.sessionSnapshot(includeScrollback: false)
         let saved = try #require(snapshot.panels.first)
         let viewer = try #require(saved.terminal?.claudeBackgroundViewer)
