@@ -272,7 +272,7 @@ impl Mux {
 
     /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): move a
     /// pane's only tab into a new (optionally docked) column and leave a fresh
-    /// tab in its pane, guarded like [`Self::move_tab_to_split_respawning`].
+    /// tab in its pane, guarded like [`Self::move_tab_to_split_respawning_as`].
     /// Docking a screen's only tab uses it, so the strip keeps a column.
     pub fn move_tab_to_column_respawning_as(
         self: &Arc<Self>,

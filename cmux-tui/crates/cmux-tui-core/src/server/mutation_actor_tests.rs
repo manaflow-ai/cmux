@@ -221,9 +221,8 @@ fn send_legacy(mux: &Arc<Mux>, conn: &Conn, request: &Value) -> Value {
     }
 }
 
-/// Legacy control commands (`new-workspace`, `rename-workspace`, `close-surface`
-/// and the other topology ops) record the actor of their connection, never
-/// the daemon (P8 landing 3a).
+/// A legacy control command records the actor of its connection, never the
+/// daemon (P8 landing 3a); `new-workspace` stands for the ordinary topology ops.
 #[test]
 fn a_legacy_topology_command_records_its_connection_actor() {
     let mux = mux("actor-legacy");

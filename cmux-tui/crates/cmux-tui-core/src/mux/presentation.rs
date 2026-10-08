@@ -818,7 +818,7 @@ impl Mux {
         )
     }
 
-    /// [`Mux::new_frontend_browser_tab`] with a [`FrontendTabPlacement`]: a
+    /// [`Mux::new_frontend_browser_tab_as`] with a [`FrontendTabPlacement`]: a
     /// background tab (`frontend-browser-activate-v1`) and a slot right
     /// after another tab of the pane (`frontend-browser-insert-after-v1`).
     pub(crate) fn new_frontend_browser_tab_placed_as(

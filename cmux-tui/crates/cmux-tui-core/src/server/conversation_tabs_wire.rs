@@ -131,15 +131,16 @@ pub(super) fn create(
         (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
         (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
+    let actor = super::origin_gate::connection_actor(mux, client);
     let mutation = match (origin, mutation_id) {
-        (Some(origin), Some(id)) => Some(WorkspaceMutation::daemon(id, origin)?),
+        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin, actor.clone())?),
         (None, None) => None,
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(conversation, owner, agent_session, page)?;
     let outcome = mux.new_conversation_tab_as(
-        &super::origin_gate::connection_actor(mux, client),
+        &actor,
         target,
         record.clone(),
         mutation.as_ref(),
