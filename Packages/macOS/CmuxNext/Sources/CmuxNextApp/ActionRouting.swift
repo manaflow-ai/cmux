@@ -64,3 +64,5 @@ enum ActionRouting {
         daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
     }
 }
+
+// cx-t3e5 measurement: one-line Swift change
