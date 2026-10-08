@@ -29,6 +29,9 @@ contains(' <key> ') matches whole keys only:
 - `fallback_jobs`: retained for the workflow output contract and always empty;
 - `runner`: the live side label, or the owned pool label when no online side
   runner carries it;
+- `gui_runner`: the local GUI label for the owned pool. GUI jobs always use
+  this label when the run is trusted, so a headless AWS side runner cannot
+  receive a GUI suite;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise.
 """
@@ -61,6 +64,18 @@ def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
            for runner in runners):
         return label
     return pool.pool_label(label)
+
+
+def gui_route_label(label: str) -> str:
+    """Return the GUI-token label paired with a side or pool label."""
+    if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        return ""
+    owned = pool.pool_label(label)
+    # AWS labels intentionally have no GUI route. A GUI job must wait for a
+    # logged-in owned mini rather than silently landing on a headless host.
+    if owned.startswith("glaeda-aws-"):
+        return ""
+    return pool.gui_label(owned)
 
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
@@ -100,6 +115,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners)
+    gui_route = gui_route_label(label)
     if route and route != label:
         why += f"; no online side runner, routing jobs on `{route}`"
     print(f"side-lane placement: {why}")
@@ -108,7 +124,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={route}\nwatch={watch}\n")
+                         f"runner={route}\ngui_runner={gui_route}\nwatch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
