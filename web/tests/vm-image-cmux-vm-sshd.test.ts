@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CRON_ALLOW_FILE,
+  AT_ALLOW_FILE,
+  cronAtAllowCommand,
+  cronAtAllowProblems,
   SSHD_PAM_LINE,
+  SSH_SYNC_UNIT,
+  sshSyncUnit,
   SSHD_PRINCIPALS_COMMAND,
   SSH_CA_FILE,
   SSH_KRL_FILE,
@@ -107,6 +113,12 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
     expect(sshdPamProblems(cut.pam)).not.toEqual([]);
   });
 
+  test("the team trust sync unit runs the cmux binary's sync verb and restarts", () => {
+    expect(SSH_SYNC_UNIT).toBe("cmux-team-ssh-sync.service");
+    expect(sshSyncUnit()).toContain("ExecStart=/opt/cmux/current/bin/cmux host team-ssh sync\n");
+    expect(sshSyncUnit()).toContain("Restart=always\n");
+  });
+
   test("the drop-in, read as sshd would, satisfies the policy", () => {
     // sshd -T lowercases keys; ListenAddress gains the port. This mirrors that for the drop-in we bake.
     const effective = sshdDropIn("cmux")
@@ -120,5 +132,25 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
       })
       .join("\n");
     expect(sshdPolicyProblems(effective, "cmux")).toEqual([]);
+  });
+});
+
+// cx-q4f3: cron and at run a job outside every session scope, so after a revocation nothing would
+// end it. Only root and the work user may schedule; every team account is refused by default.
+describe("cron and at allowlist", () => {
+  test("the bake writes exactly root and the work user to both allow files and prints them", () => {
+    const cmd = cronAtAllowCommand("cmux");
+    expect(cmd).toContain(CRON_ALLOW_FILE);
+    expect(cmd).toContain(AT_ALLOW_FILE);
+    expect(CRON_ALLOW_FILE).toBe("/etc/cron.allow");
+    expect(AT_ALLOW_FILE).toBe("/etc/at.allow");
+  });
+
+  test("the check accepts exactly root and the work user, in both files", () => {
+    const good = `--- ${CRON_ALLOW_FILE}\nroot\ncmux\n--- ${AT_ALLOW_FILE}\nroot\ncmux\n`;
+    expect(cronAtAllowProblems(good, "cmux")).toEqual([]);
+    expect(cronAtAllowProblems(`--- ${CRON_ALLOW_FILE}\nroot\ncmux\nalice-agents\n--- ${AT_ALLOW_FILE}\nroot\ncmux\n`, "cmux")).toEqual([`${CRON_ALLOW_FILE} allows alice-agents`]);
+    expect(cronAtAllowProblems(`--- ${CRON_ALLOW_FILE}\nroot\ncmux\n`, "cmux")).toEqual([`${AT_ALLOW_FILE} is missing`]);
+    expect(cronAtAllowProblems(`--- ${CRON_ALLOW_FILE}\nroot\n--- ${AT_ALLOW_FILE}\nroot\ncmux\n`, "cmux")).toEqual([`${CRON_ALLOW_FILE} does not allow cmux`]);
   });
 });

@@ -81,8 +81,11 @@ pub mod terminal_respawn_text;
 mod windows_processes;
 mod workspace_registry;
 
+#[cfg(unix)]
+mod host_exe;
 pub mod layout;
 pub mod platform;
+#[cfg(unix)]
 mod process_identity;
 pub mod process_resources;
 pub mod server;

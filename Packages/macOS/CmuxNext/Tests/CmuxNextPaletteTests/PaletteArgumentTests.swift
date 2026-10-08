@@ -3,7 +3,7 @@ import CmuxNextPalette
 import Testing
 
 /// The palette collects arguments inline from each action's schema.
-@Suite struct PaletteArgumentTests {
+@Suite(.paletteRanker) struct PaletteArgumentTests {
     /// Binds first, then opens the root page (items snapshot bindings on open).
     func makeController(bind: (ActionRegistry) -> Void) -> PaletteController {
         let registry = ActionRegistry.standard()

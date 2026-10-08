@@ -23,7 +23,7 @@ struct ScreenDividers {
         if let drag = screen.activeDrag { return screen.dividerViews[drag.kind] }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
               let point = screen.context.hoverPointer(window).map({ screen.convert($0, from: nil) }),
-              screen.visibleRect.contains(point) else { return nil }
+              screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
             !$0.isHidden && $0.alphaValue > 0.01 && $0.frame.contains(point)
         }

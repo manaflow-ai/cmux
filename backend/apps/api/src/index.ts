@@ -1,3 +1,4 @@
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { authenticate, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
@@ -55,7 +56,7 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   const authenticated = await authenticate(env, token)
   if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
   // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
-  if (authenticated.install_kind === "vm") return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
+  if (isMachineInstallKind(authenticated.install_kind)) return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
   // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
   let rules: Awaited<ReturnType<typeof signInRules>>, gate: Awaited<ReturnType<typeof ssoGate>>
   try {

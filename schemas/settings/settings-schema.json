@@ -8861,6 +8861,74 @@
     },
     {
       "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.spacesVisibility.help",
+        "text" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.spacesVisibility",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "rooms",
+        "profiles",
+        "dots",
+        "hover",
+        "hide",
+        "show",
+        "always",
+        "visibility"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "spacesVisibility"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.spacesVisibility",
+        "text" : "Show Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "allItems",
         "workspacesOnly"
       ],
@@ -16120,7 +16188,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "be5d19eedadb4b12f6d6d02a1b73f3e3389517e015b191b44b1852482ea4e452",
+  "schema_hash" : "7b79467199bbfe73135801de8ddbdd41617aa991fa3b45794aa0a7342f6ccfd3",
   "sections" : [
     {
       "id" : "general",

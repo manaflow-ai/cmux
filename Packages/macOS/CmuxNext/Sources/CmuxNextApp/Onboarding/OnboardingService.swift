@@ -135,15 +135,21 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    /// `importKinds` checks only those kinds on the import step (the cookie
-    /// import card opens it on cookies).
+    /// `importKinds` checks only those kinds on the import step and
+    /// `importTarget` names the cmux browser profile they go into (the cookie
+    /// import card: cookies, into the tab's profile); without kinds the step
+    /// makes one profile per source.
     func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil,
-              importKinds: Set<ImportDataKind>? = nil) {
+              importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
         var interrupted: OnboardingModel.Step?
         if let controller {
             if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
                 if let step { controller.model.go(to: step) }
-                if let importKinds { controller.model.importer.preset(kinds: importKinds) }
+                if let importKinds {
+                    controller.model.importer.preset(kinds: importKinds, into: importTarget)
+                } else {
+                    controller.model.importer.resetTarget()
+                }
                 controller.present()
                 return
             }
@@ -156,7 +162,7 @@ final class OnboardingService {
             self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
-        if let importKinds { model.importer.preset(kinds: importKinds) }
+        if let importKinds { model.importer.preset(kinds: importKinds, into: importTarget) }
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil

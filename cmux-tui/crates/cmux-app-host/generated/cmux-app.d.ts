@@ -128,7 +128,7 @@ declare namespace Cmux {
   type InputModifier = "shift" | "control" | "alt" | "meta"
   type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId; sso_team?: Cmux.TeamId; bound_machine?: string; capabilities?: Array<Cmux.ServerCapability> }
   type InstallId = string
-  type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+  type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
   type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
   type InviteId = string
   type JournalAppendResult = { producer_id: string; sequence: string; event_id: string }
@@ -294,8 +294,10 @@ declare namespace Cmux {
   type TeamPolicyVersion = { version: number; values: Cmux.TeamPolicyValues; changed: Array<Cmux.PolicyKey>; actor: string | null; at: number; reason: string | null; rollback_of: number | null }
   type TeamVmError = { code: string; message: string; at: number }
   type TeamVmLeaseId = string
+  type TeamVmRetired = { vm: string; epoch: number; state: "pausing" | "paused"; at: number; by: string; tainted_by: Array<string> }
   type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
-  type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number }
+  type TeamVmTaint = { epoch: number; at: number; users: Array<string>; accepted_by: string | null; accepted_at: number | null }
+  type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number; taint: Cmux.TeamVmTaint | null; retired: Array<Cmux.TeamVmRetired> }
   type TerminalAttachItem = unknown
   type TerminalAttachPatch = { kind: "patch"; terminal_id: string /* terminal_… */; render: Cmux.RenderPatch }
   type TerminalAttachScroll = { kind: "scroll"; terminal_id: string /* terminal_… */; scroll: Cmux.RenderScroll }
@@ -1290,7 +1292,7 @@ interface CmuxGlobal {
     }
     /** `team_vm.ssh_ca` (read, scope `team_vm:read`): The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
     ssh_ca: CmuxOp<Record<string, never>, { team: Cmux.TeamId; generation: number; trusted_ca_keys: Array<string>; krl: string; krl_version: number }>
-    /** `team_vm.ssh_cert` (mutation, scope `team_vm:execute`): Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
+    /** `team_vm.ssh_cert` (mutation, scope `team_vm:execute`): Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash. */
     ssh_cert: CmuxOp<{ public_key: string; validity_minutes?: number; class?: Cmux.SshCertClass; presence?: Cmux.SshPresenceProof; expected_revision?: string }, Cmux.MutationResult<{ certificate: string; serial: number; key_id: string; principals: Array<string>; class: Cmux.SshCertClass; valid_after: number; valid_before: number; ca_generation: number; ca_public_key: string }>> & {
       /** `team_vm.ssh_cert.challenge` (mutation, scope `team_vm:execute`): Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key. */
       challenge: CmuxOp<{ public_key: string; validity_minutes?: number; presence_install: Cmux.InstallId; request: string; expected_revision?: string }, Cmux.MutationResult<{ sign: string; message: string; expires_at: number }>>

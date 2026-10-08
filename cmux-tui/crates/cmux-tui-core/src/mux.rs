@@ -6,6 +6,8 @@ mod agent_roster_restore;
 mod browser_tab_create;
 mod closed_workspace_replay;
 #[cfg(test)]
+mod legacy_actor_test_wrappers;
+#[cfg(test)]
 mod test_actor_wrappers;
 mod topology_edit;
 mod topology_ops;
@@ -23,6 +25,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod journal_plugin_host;
+mod journal_retention;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
@@ -49,7 +52,9 @@ mod tab_workspace_name;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 mod loss_causes;
+mod orphan_hosts;
 mod pending_terminals;
+pub(crate) mod terminal_archive;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
@@ -2635,6 +2640,7 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    journal_retention: journal_retention::JournalRetention,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
@@ -3099,6 +3105,7 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            journal_retention: Default::default(),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -3500,6 +3507,7 @@ impl Mux {
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
+        let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3583,6 +3591,15 @@ impl Mux {
                     )?;
                     self.emit_terminal_registry_changed(&registry, revision);
                     terminal = Some(imported);
+                } else if orphan_hosts::recoverable(&options, &record_path, &record) {
+                    match self.recover_orphan_terminal(&record, &mut recovery_workspace) {
+                        Ok(recovered) => terminal = Some(recovered),
+                        Err(error) => {
+                            // The host and its record stay for a later start.
+                            eprintln!("cmux-tui: terminal {terminal_id} not recovered: {error:#}");
+                            continue;
+                        }
+                    }
                 } else {
                     if !cleanup_terminal_host_record(&record, &record_path) {
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
@@ -3807,25 +3824,23 @@ impl Mux {
     /// appears includes the terminal it names.
     #[cfg(unix)]
     fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
-        let is_template = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .terminal_record(terminal_id)?
-            .is_some_and(|terminal| is_template_terminal(&terminal));
-        if !is_template {
+        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        // A recovered terminal (cx-0tgl LC) is placed the same way; only a
+        // Cloud template gets the identity binding below.
+        let Some(terminal) = terminal.filter(orphan_hosts::placed_on_adoption) else {
             return Ok(());
-        }
+        };
         anyhow::ensure!(
             !self.consume_template_completion_failure(),
             "injected template completion failure"
         );
         self.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
             "terminal.adopt-template",
             serde_json::json!({}),
         )?;
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
-        if let Some(path) = bound_file {
+        if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
             self.publish_template_binding(terminal_id, &path)?;
         }
         Ok(())
@@ -4011,7 +4026,7 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) && !has_restored_placements {
+        if orphan_hosts::placed_on_adoption(&terminal) && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -4158,13 +4173,13 @@ impl Mux {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
-                    let terminal = mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .terminal_record(&terminal_id)
-                        .ok()
-                        .flatten();
+                    // A failed read proves nothing about the host: retry.
+                    let Ok(terminal) =
+                        mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                    else {
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
+                    };
                     let Some(terminal) = terminal else {
                         if cleanup_terminal_host_record(&record, &record_path) {
                             break;
@@ -5636,10 +5651,11 @@ impl Mux {
     /// side effect predates the resource coordinator.
     fn commit_ordinary_full_resource_projection(
         &self,
+        actor: &Actor,
         operation: &'static str,
         result: Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let fingerprint = serde_json::json!({"operation":operation,"result":result});
         self.commit_full_resource_projection_with_mutation(
             &mutation,
@@ -6625,6 +6641,7 @@ impl Mux {
         // (stored by the report) still advances exactly once.
         if let Some((title, body, level)) = agent_hook_notification(ingress) {
             self.create_durable_notification(
+                &Actor::Daemon,
                 &format!("agent-hook-notification-{sequence}"),
                 title,
                 None,
@@ -8191,6 +8208,8 @@ impl Mux {
                     Arc::downgrade(self),
                     Some(terminal_id),
                     cell_pixels,
+                    // Reopen Closed of an archived terminal (ARCHIVE-1).
+                    &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
                 ),
             };
             let surface = match spawned {
@@ -10214,7 +10233,11 @@ impl Mux {
         );
         drop(state);
         drop(registry);
-        self.commit_ordinary_full_resource_projection("test.terminal.seed", serde_json::json!({}))?;
+        self.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
+            "test.terminal.seed",
+            serde_json::json!({}),
+        )?;
         Ok(surface.id)
     }
 
@@ -10581,7 +10604,10 @@ impl Mux {
     /// Atomically resolve, incarnation-check, and remove a hosted terminal by
     /// process-stable identity. The host is terminated only after the state
     /// lock has made the removal authoritative for this daemon generation.
-    pub fn close_terminal(
+    /// Tests only: production closes name their mutation (and actor) with
+    /// [`Self::close_terminal_with_mutation`] (P8 landing 3b).
+    #[cfg(test)]
+    pub(crate) fn close_terminal(
         &self,
         terminal_id: &str,
         terminal_incarnation: &str,
@@ -10958,19 +10984,28 @@ impl Mux {
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
-    pub fn post_notification(
+    #[cfg(test)]
+    pub(crate) fn post_notification(
         &self,
         title: String,
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
     ) -> anyhow::Result<u64> {
-        self.post_notification_from(title, body, level, surface, NotificationSource::Cli)
+        self.post_notification_as(
+            &Actor::Daemon,
+            title,
+            body,
+            level,
+            surface,
+            NotificationSource::Cli,
+        )
     }
 
-    /// `post_notification` with an explicit source.
-    pub fn post_notification_from(
+    /// A fresh notification that `actor` posts, with an explicit source.
+    pub fn post_notification_as(
         &self,
+        actor: &Actor,
         title: String,
         body: String,
         level: NotificationLevel,
@@ -10978,7 +11013,7 @@ impl Mux {
         source: NotificationSource,
     ) -> anyhow::Result<u64> {
         let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
-        self.create_durable_notification(&key, title, None, body, level, surface, source)?
+        self.create_durable_notification(actor, &key, title, None, body, level, surface, source)?
             .context("fresh notify key unexpectedly replayed")
     }
 
@@ -11061,7 +11096,8 @@ impl Mux {
     ) {
         for notification in notifications {
             if self
-                .post_notification_from(
+                .post_notification_as(
+                    &Actor::Daemon,
                     notification.title,
                     notification.body,
                     NotificationLevel::Info,
@@ -11232,6 +11268,7 @@ impl Mux {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_durable_notification(
         &self,
+        actor: &Actor,
         idempotency_key: &str,
         title: String,
         subtitle: Option<String>,
@@ -11285,7 +11322,7 @@ impl Mux {
                     "source": source.as_str(),
                 });
                 self.prepare_resource_effect(
-                    &WorkspaceMutation::daemon(idempotency_key, "resource-api")?,
+                    &WorkspaceMutation::new(idempotency_key, "resource-api", actor.clone())?,
                     OPERATION,
                     &fingerprint,
                     &intent,
@@ -14683,9 +14720,11 @@ impl Mux {
             "tab_id":identity.tab_id,
             "browser_id":identity.content_id,
         });
-        if let Err(error) =
-            self.commit_ordinary_full_resource_projection("browser.target.adopt", result)
-        {
+        if let Err(error) = self.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
+            "browser.target.adopt",
+            result,
+        ) {
             let rollback = self.close_surface_for_resource_effect(surface.id);
             return match rollback {
                 Ok(true) => Err(error.context("could not persist adopted browser target")),
@@ -14964,9 +15003,9 @@ impl Mux {
             .with_context(|| format!("close screen {target}"))
     }
 
-    /// Close a workspace and every screen/pane/tab in it.
-    pub fn close_workspace(&self, target: WorkspaceId) -> bool {
-        self.close_workspace_at_revision(target, None)
+    /// Close a workspace and every screen/pane/tab in it, as `actor`.
+    pub fn close_workspace_as(&self, actor: &Actor, target: WorkspaceId) -> bool {
+        self.close_workspace_at_revision_as(actor, target, None)
             .map(|revision| revision.is_some())
             .unwrap_or(false)
     }
@@ -14974,37 +15013,43 @@ impl Mux {
     /// Atomically close one workspace if the caller's registry snapshot is
     /// still current. Returns the resulting revision when the workspace was
     /// present and closed.
-    pub fn close_workspace_at_revision(
+    pub fn close_workspace_at_revision_as(
         &self,
+        actor: &Actor,
         target: WorkspaceId,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
-            .close_workspace_selector_at_revision(Some(target), None, expected_revision)?
+            .close_workspace_selector_at_revision(actor, Some(target), None, expected_revision)?
             .map(|(_, _, revision)| revision))
     }
 
     pub(crate) fn close_workspace_selector_at_revision(
         &self,
+        actor: &Actor,
         id: Option<WorkspaceId>,
         key: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        let authority = WorkspaceMutationAuthority::Ordinary;
         self.close_workspace_selector_with_authority(
+            actor,
             id,
             key,
             expected_revision,
-            WorkspaceMutationAuthority::Ordinary,
+            authority,
             true,
         )
     }
 
     pub(crate) fn close_workspace_at_revision_for_resource_effect(
         &self,
+        actor: &Actor,
         target: WorkspaceId,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
             .close_workspace_selector_with_authority(
+                actor,
                 Some(target),
                 None,
                 None,
@@ -15040,13 +15085,15 @@ impl Mux {
         result
     }
 
-    pub fn close_provider_managed_workspace(
+    pub fn close_provider_managed_workspace_as(
         &self,
+        actor: &Actor,
         id: WorkspaceId,
         key: &str,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
             .close_workspace_selector_with_authority(
+                actor,
                 Some(id),
                 Some(key),
                 None,
@@ -15058,12 +15105,14 @@ impl Mux {
 
     pub(crate) fn close_provider_managed_workspace_authorized(
         &self,
+        actor: &Actor,
         id: WorkspaceId,
         key: &str,
         authority: &str,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
             .close_workspace_selector_with_authority(
+                actor,
                 Some(id),
                 Some(key),
                 None,
@@ -15075,6 +15124,7 @@ impl Mux {
 
     fn close_workspace_selector_with_authority(
         &self,
+        actor: &Actor,
         id: Option<WorkspaceId>,
         key: Option<&str>,
         expected_revision: Option<u64>,
@@ -15094,7 +15144,7 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let result = self.close_workspace_with_mutation_inner(
             id,
             key,
@@ -15289,20 +15339,16 @@ impl Mux {
         Ok(result)
     }
 
-    pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
-        self.rename_workspace_at_revision(target, name, None)
-            .map(|revision| revision.is_some())
-            .unwrap_or(false)
-    }
-
-    pub fn rename_workspace_at_revision(
+    pub fn rename_workspace_at_revision_as(
         &self,
+        actor: &Actor,
         target: WorkspaceId,
         name: String,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
             .rename_workspace_selector_with_authority(
+                actor,
                 Some(target),
                 None,
                 name,
@@ -15338,14 +15384,16 @@ impl Mux {
         result
     }
 
-    pub fn rename_provider_managed_workspace(
+    pub fn rename_provider_managed_workspace_as(
         &self,
+        actor: &Actor,
         id: WorkspaceId,
         key: &str,
         name: String,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
             .rename_workspace_selector_with_authority(
+                actor,
                 Some(id),
                 Some(key),
                 name,
@@ -15357,6 +15405,7 @@ impl Mux {
 
     pub(crate) fn rename_provider_managed_workspace_authorized(
         &self,
+        actor: &Actor,
         id: WorkspaceId,
         key: &str,
         name: String,
@@ -15364,6 +15413,7 @@ impl Mux {
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
             .rename_workspace_selector_with_authority(
+                actor,
                 Some(id),
                 Some(key),
                 name,
@@ -15375,6 +15425,7 @@ impl Mux {
 
     fn rename_workspace_selector_with_authority(
         &self,
+        actor: &Actor,
         id: Option<WorkspaceId>,
         key: Option<&str>,
         name: String,
@@ -15390,7 +15441,7 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let result = self.rename_workspace_with_mutation_inner(
             id,
             key,
@@ -15979,8 +16030,9 @@ impl Mux {
     /// The preview is read only. The caller must retry with its exact current
     /// layout revision and `confirm_close=true`; structural or created-pane tab
     /// membership changes advance that revision before the retry can commit.
-    pub fn undo_layout(
+    pub fn undo_layout_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         expected_revision: Option<u64>,
         confirm_close: bool,
@@ -16063,7 +16115,7 @@ impl Mux {
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
         }
         let commit =
-            self.commit_confirmed_layout_undo(selectors, fields, !created_panes.is_empty())?;
+            self.commit_confirmed_layout_undo(actor, selectors, fields, !created_panes.is_empty())?;
         let screen = commit
             .result
             .get("screen")
@@ -16351,8 +16403,9 @@ impl Mux {
         Ok(LayoutUndoResult::Undone { screen: screen_id, revision })
     }
 
-    pub fn apply_layout(
+    pub fn apply_layout_as(
         self: &Arc<Self>,
+        actor: &Actor,
         workspace: Option<WorkspaceId>,
         name: Option<String>,
         layout: &LayoutSpec,
@@ -16374,7 +16427,7 @@ impl Mux {
                     None,
                     None,
                     WorkspacePublicId::random()?,
-                    &WorkspaceMutation::daemon_local("cmux-tui-layout-workspace"),
+                    &WorkspaceMutation::local("cmux-tui-layout-workspace", actor.clone()),
                     false,
                 )?
                 .workspace,
@@ -16399,6 +16452,7 @@ impl Mux {
         let mut panes = Vec::new();
         let mut spawned = Vec::new();
         let root = match self.instantiate_layout(
+            actor,
             layout,
             size,
             &workspace_key,
@@ -16408,19 +16462,21 @@ impl Mux {
         ) {
             Ok(root) => root,
             Err(err) => {
-                self.discard_spawned(spawned);
+                self.discard_spawned(actor, spawned);
                 if created_workspace {
                     drop(workspace_lifecycle_guard);
-                    let _ = self.close_workspace_at_revision_for_resource_effect(target_workspace);
+                    let _ = self
+                        .close_workspace_at_revision_for_resource_effect(actor, target_workspace);
                 }
                 return Err(err);
             }
         };
         if created.is_empty() {
-            self.discard_spawned(spawned);
+            self.discard_spawned(actor, spawned);
             if created_workspace {
                 drop(workspace_lifecycle_guard);
-                let _ = self.close_workspace_at_revision_for_resource_effect(target_workspace);
+                let _ =
+                    self.close_workspace_at_revision_for_resource_effect(actor, target_workspace);
             }
             anyhow::bail!("layout must contain at least one leaf");
         }
@@ -16431,7 +16487,7 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(target_workspace) else {
                 drop(state);
-                self.discard_spawned(spawned);
+                self.discard_spawned(actor, spawned);
                 anyhow::bail!("layout workspace disappeared");
             };
             for (_, pane) in panes {
@@ -16484,13 +16540,16 @@ impl Mux {
                 "screen_id":state.workspaces[workspace].screens[screen].public_id,
             })
         });
-        if let Err(error) =
-            self.commit_ordinary_full_resource_projection("screen.layout.create", projection_result)
-        {
+        if let Err(error) = self.commit_ordinary_full_resource_projection(
+            actor,
+            "screen.layout.create",
+            projection_result,
+        ) {
             drop(workspace_lifecycle_guard);
             let rollback = self.close_screen_for_resource_effect(screen_id);
             if created_workspace {
-                let _ = self.close_workspace_at_revision_for_resource_effect(target_workspace);
+                let _ =
+                    self.close_workspace_at_revision_for_resource_effect(actor, target_workspace);
             }
             return match rollback {
                 Ok(true) => Err(error.context("could not persist applied layout")),
@@ -16513,8 +16572,10 @@ impl Mux {
         Ok(AppliedLayout { screen: screen_id, panes: created })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn instantiate_layout(
         self: &Arc<Self>,
+        actor: &Actor,
         layout: &LayoutSpec,
         size: Option<(u16, u16)>,
         workspace_key: &str,
@@ -16529,7 +16590,7 @@ impl Mux {
                 }
                 let terminal_id = TerminalId::random()?;
                 let terminal_hex = terminal_id.to_hex();
-                let mutation = WorkspaceMutation::daemon_local("cmux-tui-layout-terminal");
+                let mutation = WorkspaceMutation::local("cmux-tui-layout-terminal", actor.clone());
                 let reservation = TerminalReservationRequest {
                     terminal_id,
                     mutation,
@@ -16565,6 +16626,7 @@ impl Mux {
                 dir: *dir,
                 ratio: clamp_split_ratio(*ratio),
                 a: Box::new(self.instantiate_layout(
+                    actor,
                     a,
                     size,
                     workspace_key,
@@ -16573,6 +16635,7 @@ impl Mux {
                     spawned,
                 )?),
                 b: Box::new(self.instantiate_layout(
+                    actor,
                     b,
                     size,
                     workspace_key,
@@ -16591,6 +16654,7 @@ impl Mux {
                 let mut pane_ids = Vec::with_capacity(*pane_count);
                 for _ in 0..*pane_count {
                     let node = self.instantiate_layout(
+                        actor,
                         &LayoutSpec::Leaf(LayoutLeafSpec { cwd: None, command: None }),
                         size,
                         workspace_key,
@@ -16607,7 +16671,7 @@ impl Mux {
         }
     }
 
-    fn discard_spawned(&self, spawned: Vec<Arc<Surface>>) {
+    fn discard_spawned(&self, actor: &Actor, spawned: Vec<Arc<Surface>>) {
         if spawned.is_empty() {
             return;
         }
@@ -16621,7 +16685,7 @@ impl Mux {
             |closed_public_ids| {
                 registry
                     .close_terminals_atomically(
-                        &WorkspaceMutation::daemon_local("cmux-tui-layout-discard"),
+                        &WorkspaceMutation::local("cmux-tui-layout-discard", actor.clone()),
                         &hosted,
                     )
                     .map(|batch| (batch, closed_public_ids))
@@ -16755,6 +16819,7 @@ impl Mux {
                     self.commit_full_resource_projection_locked(
                         &mut registry,
                         &mut state,
+                        &mutation.actor,
                         "terminal.move",
                     )?;
                 }
@@ -16807,6 +16872,7 @@ impl Mux {
                     self.commit_full_resource_projection_locked(
                         &mut registry,
                         &mut state,
+                        &mutation.actor,
                         "terminal.move",
                     )?;
                 }
@@ -16919,15 +16985,11 @@ impl Mux {
         Ok((Some(placement), true))
     }
 
-    /// Reorder a workspace. The active workspace follows the moved entry.
-    pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> bool {
-        self.move_workspace_at_revision(workspace, index, None)
-            .map(|result| result.is_some_and(|(_, changed)| changed))
-            .unwrap_or(false)
-    }
-
-    pub fn move_workspace_at_revision(
+    /// Reorder a workspace as `actor`. The active workspace follows the
+    /// moved entry.
+    pub fn move_workspace_at_revision_as(
         &self,
+        actor: &Actor,
         workspace: WorkspaceId,
         index: usize,
         expected_revision: Option<u64>,
@@ -16951,7 +17013,7 @@ impl Mux {
                 return Ok(Some((state.workspace_revision, false)));
             }
         }
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let result = self.move_workspace_with_mutation(
             Some(workspace),
             None,
@@ -17056,8 +17118,9 @@ impl Mux {
 
     /// Select a tab within a pane (default: the active pane) by index or
     /// relative delta.
-    pub fn select_tab(
+    pub fn select_tab_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: Option<PaneId>,
         index: Option<usize>,
         delta: Option<isize>,
@@ -17080,7 +17143,7 @@ impl Mux {
             pane.tabs[selected]
         };
         let Some(selectors) = self.ordinary_tab_selectors(surface) else { return };
-        if self.commit_ordinary_tab_selection(selectors).is_err() {
+        if self.commit_ordinary_tab_selection(actor, selectors).is_err() {
             return;
         }
         let viewed = self.with_state(Self::active_surface_in_state);
@@ -24403,7 +24466,8 @@ mod tests {
 
         mux.post_notification("plain".into(), "".into(), NotificationLevel::Info, Some(surface_id))
             .unwrap();
-        mux.post_notification_from(
+        mux.post_notification_as(
+            &Actor::Daemon,
             "osc".into(),
             "body".into(),
             NotificationLevel::Info,
@@ -24646,6 +24710,7 @@ mod tests {
         let second = mux.new_workspace(None, None).unwrap();
         let first_terminal = first.terminal_public_id().cloned().unwrap();
         mux.create_durable_notification(
+            &Actor::Daemon,
             "n-a",
             "a".into(),
             Some("sub".into()),
@@ -24656,6 +24721,7 @@ mod tests {
         )
         .unwrap();
         mux.create_durable_notification(
+            &Actor::Daemon,
             "n-b",
             "b".into(),
             None,
@@ -24666,6 +24732,7 @@ mod tests {
         )
         .unwrap();
         mux.create_durable_notification(
+            &Actor::Daemon,
             "n-c",
             "c".into(),
             None,
@@ -28464,6 +28531,7 @@ mod tests {
             Mux::rebuild_split_screen_index(&mut state);
         }
         mux.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
             "test.viewport_stack.prepare",
             serde_json::json!({}),
         )
@@ -28830,7 +28898,7 @@ mod tests {
         let events = mux.subscribe();
         mux.workspace_registry.lock().unwrap().set_terminal_close_failure(true).unwrap();
 
-        mux.discard_spawned(vec![surface.clone()]);
+        mux.discard_spawned(&Actor::Daemon, vec![surface.clone()]);
 
         let restored = mux
             .with_state(|state| state.pane_of(surface.id))
@@ -32206,7 +32274,12 @@ mod tests {
             let key = key.clone();
             move || {
                 close_done_tx
-                    .send(mux.close_workspace_selector_at_revision(None, Some(&key), None))
+                    .send(mux.close_workspace_selector_at_revision(
+                        &Actor::Daemon,
+                        None,
+                        Some(&key),
+                        None,
+                    ))
                     .unwrap();
             }
         });

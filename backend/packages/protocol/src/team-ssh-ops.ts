@@ -103,9 +103,10 @@ export const TeamVmSshCert = def({
     "team_vm.ssh_presence_required",
     "team_vm.ssh_presence_refused",
     "team_vm.ssh_rate_limited",
+    "team_vm.tainted",
     "owner.unreachable"
   ],
-  docs: "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash.",
+  docs: "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash.",
   cli: { path: "team ssh cert", visible: true },
   mcp: { expose: "opt_in", group: "team" }
 })
@@ -211,5 +212,19 @@ export const teamSshInternalOps: ReadonlyArray<CloudOpDef> = [
     }),
     "Internal: certificates found in the issued log were revoked."
   ),
-  internal("team_vm.ssh_account_allocated", Schema.Struct({ user: UserId }), "Internal: a member's Linux account name and UID block (never reused).")
+  internal("team_vm.ssh_account_allocated", Schema.Struct({ user: UserId }), "Internal: a member's Linux account name and UID block (never reused)."),
+  internal(
+    "team_vm.taint_audit",
+    Schema.Struct({
+      /** cert_issued_while_tainted, taint_accepted, rebuild, retired_deleted. */
+      action: Schema.Literals(["cert_issued_while_tainted", "taint_accepted", "rebuild", "retired_deleted"]),
+      by: Schema.String,
+      epoch: Schema.Int,
+      /** The removed members whose certificates tainted the VM. */
+      tainted_by: Schema.Array(Schema.String),
+      serial: Schema.optionalKey(Schema.Int),
+      vm: Schema.optionalKey(Schema.String)
+    }),
+    "Internal: an owner or admin acted on a tainted team VM (cx-q4f3); audit only."
+  )
 ]

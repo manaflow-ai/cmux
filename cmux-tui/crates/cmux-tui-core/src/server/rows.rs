@@ -92,7 +92,8 @@ pub(super) fn set_row_heights(
     let SetRowHeightsParams { column, heights, fit, transaction } = params;
     let heights = heights.iter().map(|entry| (entry.row, entry.height)).collect::<Vec<_>>();
     let scoped = transaction.map(|transaction| (client, transaction));
-    let outcome = mux.set_row_heights(column, &heights, fit, scoped)?;
+    let actor = origin_gate::connection_actor(mux, client);
+    let outcome = mux.set_row_heights_as(&actor, column, &heights, fit, scoped)?;
     let mut data =
         json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed});
     if let Some(transaction) = transaction {
