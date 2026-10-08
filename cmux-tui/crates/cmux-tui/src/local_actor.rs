@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use cmux_tui_core::Actor;
 #[cfg(test)]
 use cmux_tui_core::{
-    Mux, PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId, ZoomMode, ZoomState,
+    Mux, PaneId, SplitDir, Surface, SurfaceId, WorkspaceId, ZoomMode, ZoomState,
 };
 #[cfg(test)]
 use std::sync::Arc;
