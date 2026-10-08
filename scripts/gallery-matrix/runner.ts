@@ -25,6 +25,11 @@ const DEFAULT_DEVICE_SCALE = 2;
 /** A VM pauses itself after this much network idleness (at most 300 s, coordinator rule
  * 2026-10-07); the run's own pause by exact id is the primary path. */
 const FREESTYLE_IDLE_SECONDS = 300;
+/** A renderer target can stop answering without rejecting its Playwright call. Keep one case
+ * from consuming the entire matrix while still allowing the slow syntax-highlighting specimens
+ * to finish on a healthy browser. The caller recycles the browser after this bound. */
+export const DEFAULT_CASE_TIMEOUT_MS = 30_000;
+const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 /** Browsers run only inside a Freestyle VM (or CI), never on a developer laptop. */
 const IN_VM = process.env.CMUX_GALLERY_IN_VM === "1";
 const LEDGER_PATH = process.env.CMUX_GALLERY_FREESTYLE_LEDGER ?? "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
@@ -104,6 +109,30 @@ export function writeLedger(path: string, ledger: Ledger): void {
   writeFileSync(path, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 });
 }
 
+/** Rejects a renderer operation that no longer responds; the caller must close its browser. */
+export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("case timeout must be a positive number");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function closeBrowser(browser: Browser | undefined): Promise<void> {
+  if (!browser) return;
+  try {
+    await withTimeout(browser.close(), BROWSER_CLOSE_TIMEOUT_MS, "browser close");
+  } catch {
+    // A crashed target may never acknowledge close. The timeout keeps the next case moving; the
+    // browser's own close path still force-kills after its internal grace period.
+  }
+}
+
 /** Deletes only IDs already recorded in the ledger. It intentionally has no list operation. */
 export async function deleteLedgerIds(path: string, deleteExact: (id: string) => Promise<void>): Promise<void> {
   const ledger = readLedger(path);
@@ -174,6 +203,13 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       else if (action.kind === "type") await page.keyboard.type(action.text ?? "");
       else if (action.kind === "press") await page.keyboard.press(action.text ?? "");
     });
+    // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
+    const stills: { index: number; step: string; screenshot: string }[] = [];
+    await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
+      const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
+      await page.screenshot({ path: join(outputDir, name), fullPage: true });
+      stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+    });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
     // The gallery stage reports its own settled/ready state below. Waiting for networkidle here
@@ -195,6 +231,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play, ...(experiment ? { experiment } : {}) };
+    if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
       if (existsSync(baselinePath)) {
@@ -214,7 +251,9 @@ export function renderIndex(results: Record<string, unknown>[]): string {
   return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};function playCells(p){if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre></details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r.play)+'</article>'}).join('')}render();</script>`;
 }
 
-export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
+export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number; caseTimeoutMs?: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
+  const caseTimeoutMs = args.caseTimeoutMs ?? DEFAULT_CASE_TIMEOUT_MS;
+  if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("case timeout must be a positive number");
   const cases = parseManifest(JSON.parse(await readFile(args.manifest, "utf8")));
   const selected = shardCases(cases, args.shardCount, args.shardIndex);
   await mkdir(args.outputDir, { recursive: true });
@@ -239,19 +278,32 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
         const started = Date.now();
         let result: Record<string, unknown>;
         try {
-          result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!);
+          if (!browsers.has(engine)) browsers.set(engine, await launch(engine));
+          result = await withTimeout(
+            renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!),
+            caseTimeoutMs,
+            `${item.id} ${engine}`,
+          );
         } catch (firstError) {
           // A long matrix can lose a renderer process late in the run (Playwright reports
           // "Target crashed" or "browser has been closed"). Recycle that engine once and retry
           // the case so one transient target failure does not discard the entire matrix.
           console.error(`gallery matrix: ${item.id} ${engine} failed; recycling browser and retrying: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
           const previous = browsers.get(engine);
-          try { await previous?.close(); } catch { /* the target already died */ }
+          await closeBrowser(previous);
           try {
             const replacement = await launch(engine);
             browsers.set(engine, replacement);
-            result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement);
+            result = await withTimeout(
+              renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement),
+              caseTimeoutMs,
+              `${item.id} ${engine} retry`,
+            );
           } catch (secondError) {
+            // A timed-out call may still own its context. Close before the next case so a dead
+            // target cannot leave work running in the background or poison later screenshots.
+            await closeBrowser(browsers.get(engine));
+            browsers.delete(engine);
             // Preserve a broken result and continue the other cases. compareRuns will report this
             // case as broken and the matrix still publishes the useful screenshots it collected.
             console.error(`gallery matrix: ${item.id} ${engine} failed after browser recycle: ${secondError instanceof Error ? secondError.message : String(secondError)}`);
@@ -274,7 +326,7 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
     }
     return results;
   } finally {
-    try { await Promise.all([...browsers.values()].map((browser) => browser.close())); }
+    try { await Promise.all([...browsers.values()].map((browser) => closeBrowser(browser))); }
     finally { server?.close(); }
   }
 }
@@ -289,7 +341,7 @@ export async function createAllVms<T>(count: number, create: (shard: number) => 
   return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
-async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
+async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; caseTimeoutMs: number; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
   const { Freestyle } = await import("freestyle");
   // The key is read from its file and only ever sent to the Freestyle API; never printed or logged.
   const key = readFileSync(args.keyFile, "utf8").trim();
@@ -341,7 +393,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       const steps = [
         `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
         // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
-        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold} --case-timeout-ms ${args.caseTimeoutMs}`,
       ];
       const logPath = join(args.outputDir, `shard-${shard}.log`);
       await mkdir(args.outputDir, { recursive: true });
@@ -414,7 +466,7 @@ export function publishRun(outputDir: string, run: string, host = "cmux-lawrence
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
+  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
   if (values["freestyle-cleanup"]) return cleanupLedger(values["freestyle-key-file"], values["freestyle-api-url"]);
   if (!values.manifest || !values["gallery-dir"]) throw new Error("--manifest and --gallery-dir are required");
   if (values["dry-run"]) {
@@ -424,15 +476,15 @@ async function main(): Promise<void> {
     return;
   }
   const publish = () => { if (values["publish-run"]) console.log(`matrix: ${publishRun(values["output-dir"], values["publish-run"], values["publish-host"])}`); };
-  const threshold = Number(values.threshold); const engines = parseEngineList(values.engines); if (!Number.isFinite(threshold) || threshold < 0) throw new Error("--threshold must be a non-negative number");
+  const threshold = Number(values.threshold); const engines = parseEngineList(values.engines); const caseTimeoutMs = Number(values["case-timeout-ms"]); if (!Number.isFinite(threshold) || threshold < 0) throw new Error("--threshold must be a non-negative number"); if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("--case-timeout-ms must be a positive number");
   if (values["freestyle-vms"]) {
-    await runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"] });
+    await runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, caseTimeoutMs, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"] });
     return publish();
   }
   // A browser on a developer laptop interrupts its owner: render only inside a VM (or CI, which sets
   // CMUX_GALLERY_IN_VM=1 on its runner). Use --freestyle-vms N, or --dry-run to list the cases.
   if (!IN_VM) throw new Error("the matrix renders only on Freestyle VMs or CI: pass --freestyle-vms N, or --dry-run");
-  await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]) });
+  await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, caseTimeoutMs, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]) });
   publish();
 }
 

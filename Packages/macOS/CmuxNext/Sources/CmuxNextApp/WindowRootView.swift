@@ -107,6 +107,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebarSide = DesignSettings.shared.sidebarSide
         sidebar.side = sidebarSide
         sidebar.sidebarView.spacesPosition = DesignSettings.shared.spacesPosition
+        sidebar.sidebarView.spacesVisibility = DesignSettings.shared.spacesVisibility
         sidePins = Self.sidePins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight

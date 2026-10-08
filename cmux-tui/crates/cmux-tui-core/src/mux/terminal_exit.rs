@@ -327,17 +327,19 @@ impl Mux {
             // A host loss is logged once, with the signals its host recorded
             // (cx-6so.49); best effort, after the exit latch.
             #[cfg(unix)]
-            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            if let Some(root) = root
-                && let Some(cause) = crate::terminal_loss_log::record_host_loss(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                )
-                && let Some(public_id) = public_terminal_id.as_ref()
             {
-                self.record_terminal_loss_cause(public_id.as_str(), cause);
+                let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+                if let Some(root) = root
+                    && let Some(cause) = crate::terminal_loss_log::record_host_loss(
+                        &root.join(format!("{terminal_id}.json")),
+                        terminal_id,
+                        incarnation,
+                        end,
+                    )
+                    && let Some(public_id) = public_terminal_id.as_ref()
+                {
+                    self.record_terminal_loss_cause(public_id.as_str(), cause);
+                }
             }
             // cx-6so.49 L2: a placed terminal whose shell was lost with its
             // host gets a new shell under the same id (it decides and marks
@@ -365,10 +367,22 @@ impl Mux {
     /// Reconcile a lifecycle row that was committed before topology detach was
     /// introduced, or whose daemon stopped between those two older commits.
     /// The durable terminal receipt remains queryable after every view leaves.
+    ///
+    /// Every path that reconciles an exited terminal also records its typed
+    /// end (R41): a tab the detach keeps (a host loss) has no runtime surface
+    /// after a restart, so its end and loss cause come only from that record
+    /// (cx-ayt2: a restart path that skipped it showed "Process exited").
     pub(super) fn detach_exited_terminal_topology(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<bool> {
+        let detached = self.detach_exited_terminal_topology_only(terminal_id);
+        #[cfg(unix)]
+        self.record_terminal_end(terminal_id);
+        detached
+    }
+
+    fn detach_exited_terminal_topology_only(&self, terminal_id: &str) -> anyhow::Result<bool> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?

@@ -31,7 +31,7 @@ bun runner.ts --manifest manifest.json --gallery-dir dist/gallery --output-dir .
 
 The Freestyle path installs the declared Bun dependencies and Playwright browsers in each VM, runs each shard in parallel, records every exact VM id in `.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json`, and PAUSES only those recorded ids in a `finally` block (also on failure and signals). It never lists the account to decide what to pause or delete. A run refuses to start while the ledger holds ids an earlier run neither paused nor deleted; `--freestyle-cleanup` pauses exactly those. Each VM also pauses itself after 300 s of network idleness. The key is read from its file and only sent to the Freestyle API.
 
-The local runner reuses one browser per engine but recycles it once when a renderer target crashes. If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots.
+The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The per-PR workflow runs the base, head and repeat stages as isolated jobs, then compares their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
 
 ## Per-PR diff
 
@@ -39,9 +39,12 @@ The local runner reuses one browser per engine but recycles it once when a rende
 
 `pr.ts` (with `compare.ts` and `report.ts`) compares each state and writes `diff/`:
 
-- `index.html`: changed states first, each as a highlight overlay (changed regions boxed), a before/after slider and an onion skin; then new, removed, broken (the head stage did not mount) and nondeterministic states; unchanged states folded.
+- `index.html`: changed states first, each as a highlight overlay (changed regions boxed), a before/after slider and an onion skin; then new, removed, broken (the head stage did not mount) and nondeterministic states; unchanged states folded. The Entry filter narrows broad host changes to one gallery entry without discarding the measured states.
 - `comment.md`: the sticky PR comment ("7 states changed: agent-pane.composer/streaming, ...") with before/after thumbnails of the changed regions.
+  With `--branch`, it also gives each changed or new state's page in the branch's live preview: `/wt/<name>/?entry=<id>#/<id>/<variant>`, where `<name>` is the branch as `gallery-live.sh` names it (hq `scripts/gallery-live.sh up <branch>` starts the preview, which follows the pushed branch). The comment gives only the path, because the gallery host is tailnet-only.
 - `summary.json`: the same summary for the team feed's PR card.
+
+A variant with `play` steps (webviews/src/gallery/ENTRIES.md, "Play steps and checks") also gets a filmstrip. The stage calls the runner's `cmuxGalleryStep` once each step settles, and the runner keeps that still as `<case>-<engine>--step-NN.png`. Each step's still is compared like a state, so a state whose final picture holds but whose steps moved still counts as changed. The page shows each step with its layout shift and long frames, next to the base's when they differ. A failed play check is listed in the summary, the comment and the feed.
 
 A state whose head render differs from a second head render is nondeterministic (a clock or fixture leak). It is listed apart and never counted as a PR change.
 

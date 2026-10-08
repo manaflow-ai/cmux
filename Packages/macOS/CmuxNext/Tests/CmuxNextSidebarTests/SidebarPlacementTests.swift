@@ -69,4 +69,14 @@ import Testing
         let band = view.footerRegion.frame
         #expect(dots.minY >= band.minY - 0.5 && dots.maxY <= band.maxY + 0.5 && dots.height > 0, "\(dots) in \(band)")
     }
+
+    /// `sidebar.spacesVisibility` always (cx-5k3r) keeps the strip shown at rest.
+    @Test func spacesAlwaysVisibleShowAtRest() {
+        let view = sidebar(spaces: .bottom)
+        #expect(view.profileBar.alphaValue == 0, "the default shows them on hover only")
+        view.spacesVisibility = .always
+        #expect(view.profileBar.alphaValue == 1)
+        view.spacesVisibility = .hover
+        #expect(view.profileBar.alphaValue == 0)
+    }
 }

@@ -11,6 +11,17 @@ public nonisolated enum TitlebarButtonsMode: String, Sendable, CaseIterable, Cod
     case always
 }
 
+/// `sidebar.spacesVisibility` (cx-5k3r, Lawrence 2026-10-08: "by default,
+/// spaces should only be visible when i hover on sidebar. same as all the
+/// other buttons"): when the sidebar's spaces strip shows.
+public nonisolated enum SpacesVisibilityMode: String, Sendable, CaseIterable, Codable {
+    /// Only while the sidebar is hovered (the default), with the sidebar's
+    /// other hover chrome.
+    case hover
+    /// Always shown.
+    case always
+}
+
 /// `tabs.plusButton` (R120): when each tab bar's plus button shows.
 public nonisolated enum PlusButtonMode: String, Sendable, CaseIterable, Codable {
     /// Only while the tab bar is hovered (the default).
