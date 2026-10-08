@@ -13,14 +13,24 @@ struct RemoteSessionPowerObserver {
             object: nil,
             queue: .main
         ) { _ in
-            MainActor.assumeIsolated { onWillSleep() }
+            MainActor.assumeIsolated {
+#if DEBUG
+                cmuxDebugLog("systemPower.willSleep")
+#endif
+                onWillSleep()
+            }
         }
         let didWake = notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
         ) { _ in
-            MainActor.assumeIsolated { onDidWake() }
+            MainActor.assumeIsolated {
+#if DEBUG
+                cmuxDebugLog("systemPower.didWake")
+#endif
+                onDidWake()
+            }
         }
         return [willSleep, didWake]
     }
