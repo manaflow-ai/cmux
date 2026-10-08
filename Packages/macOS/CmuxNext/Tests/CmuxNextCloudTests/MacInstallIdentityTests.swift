@@ -132,7 +132,9 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
         await mac.signOut(stackUser: "stack_1", session: { "session" })
         #expect(await owner.revoked == ["inst_1"])
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await mac.installToken() }
-        // The next sign-in registers a new install with a new key.
+        // The session ends (the app's observer unbinds); the next sign-in
+        // registers a new install with a new key.
+        await mac.unbind()
         try await mac.signedIn(stackUser: "stack_1", session: { "session" })
         let keys = await owner.registered.map(\.keyX)
         #expect(keys.count == 2 && keys[0] != keys[1])
