@@ -128,10 +128,14 @@ function markReady(): void {
 
 /** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
 async function playThenReady(): Promise<void> {
-  const play = entry.variants[variantName]?.play;
+  const variant = entry.variants[variantName];
+  const play = variant?.play;
   if (play) {
     const { runPlay } = await import("./playRunner");
-    const report = await runPlay(play, { anchors: entry.anchors, checks: entry.checks });
+    const report = await runPlay(play, {
+      anchors: entry.anchors,
+      checks: { ...entry.checks, ...variant.checks },
+    });
     window.cmuxGalleryPlayReport = report;
     parent.postMessage({ type: "cmux-gallery-play", report }, "*");
   }
