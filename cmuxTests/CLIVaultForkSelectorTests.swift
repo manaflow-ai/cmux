@@ -244,4 +244,13 @@ struct VaultForkSelectorSocketTests {
         }
         #expect(code == "invalid_params")
     }
+
+    @Test func socketTreatsNullCheckpointAsAbsent() async {
+        let result = await TerminalController.shared.v2VaultFork(params: [
+            "agent": "claude", "session": "session-1", "checkpoint": NSNull(), "turn": 2,
+        ])
+        if case .err(let code, _, _) = result {
+            #expect(code != "invalid_params")
+        }
+    }
 }

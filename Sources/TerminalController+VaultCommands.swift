@@ -160,9 +160,11 @@ extension TerminalController {
     // MARK: vault.fork
 
     nonisolated func v2VaultFork(params: [String: Any]) async -> V2CallResult {
-        // Selector presence is decided by the keys, before either value is
-        // trimmed or parsed, so a blank checkpoint cannot fall through to turn.
-        if params["checkpoint"] != nil, params["turn"] != nil {
+        // Selector presence is decided before either value is trimmed or
+        // parsed, so a blank checkpoint cannot fall through to turn. A JSON
+        // null counts as absent.
+        func isSupplied(_ value: Any?) -> Bool { value != nil && !(value is NSNull) }
+        if isSupplied(params["checkpoint"]), isSupplied(params["turn"]) {
             return .err(
                 code: "invalid_params",
                 message: String(localized: "socket.vault.conflictingForkSelectors",
