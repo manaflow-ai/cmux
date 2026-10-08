@@ -87,8 +87,15 @@ struct DeviceDirectoryMerge {
             candidate.directoryEndpoint != nil && existing.directoryEndpoint == nil
         }
 
+        // Account presence is subscribed independently of the selected team.
+        // The owner collection is the authentication proof for those rows;
+        // raw presence remains non-authoritative until that proof arrives.
+        let accountOwned = Set(hostPresence.keys.filter { id in
+            guard let currentUserID = input.currentUserID, input.ownersKnown else { return false }
+            return input.owners[cmxCanonicalDeviceID(id.deviceID)] == currentUserID
+        })
         let ids = SurfaceDeviceDirectoryAdmission(requiresAuthenticatedDiscovery: input.requiresAuthenticatedDiscovery)
-            .admittedInstances(authenticated: Set(accountMacs.keys),
+            .admittedInstances(authenticated: Set(accountMacs.keys), accountOwned: accountOwned,
                 legacySources: [Set(registryInstances.keys), Set(presenceMacs.keys), Set(pairedByID.keys), Set(previousByID.keys)],
                 local: input.selfInstance)
 

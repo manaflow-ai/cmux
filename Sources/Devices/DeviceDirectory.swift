@@ -12,8 +12,9 @@ nonisolated private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", categ
 /// The account's discoverable Macs, authorized by the Mac directory and enriched
 /// with saved pairings, registry metadata, and live presence. An unavailable
 /// discovery client never makes those secondary sources authoritative.
-/// Bound to one account generation and team scope: the registry
-/// rebuilds it when either changes, and every token it uses fails closed after.
+/// Bound to one account generation. Account-wide presence and ownership stay
+/// live when the selected team changes; team-scoped registry enrichment may
+/// fail and is never allowed to remove an account-owned row.
 ///
 /// Liveness is push: one presence WebSocket subscription (snapshot first, then
 /// transitions, plus the `devices` sync collection for owners) reconnects with
@@ -106,7 +107,7 @@ final class DeviceDirectory {
         self.teamID = teamID
         self.pairing = pairing
         self.automaticClient = automaticClient
-        let tokens = HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID)
+        let tokens = HiveAccountTokenSource(accountScopedAuth: auth, identity: identity)
         self.tokens = tokens
         self.registryClient = registryClient ?? DeviceRegistryDirectoryClient(
             session: { try await tokens.session() },
@@ -237,10 +238,13 @@ final class DeviceDirectory {
                 presenceState = .connecting
                 notifyChanged()
                 let tokens = self.tokens
-                let teamID = self.teamID
                 let subscriber = makeSubscriber(url) {
                     let session = try await tokens.session()
-                    return DevicePresenceSubscriber.Credentials(accessToken: session.accessToken, teamID: teamID)
+                    // The account presence stream is deliberately independent
+                    // of the selected team. Sending the team header here
+                    // would select a team room and make another signed-in Mac
+                    // disappear when it changes teams.
+                    return DevicePresenceSubscriber.Credentials(accessToken: session.accessToken, teamID: nil)
                 }
                 let frames = try await subscriber.subscribe()
                 for try await frame in frames {

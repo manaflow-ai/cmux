@@ -13,15 +13,18 @@ public struct SurfaceDeviceDirectoryAdmission: Sendable {
     /// Computes membership after source identities have been joined.
     /// - Parameters:
     ///   - authenticated: Installations named by the authenticated Mac host directory.
+    ///   - accountOwned: Installations proven to belong to the signed-in user by
+    ///     the account-scoped presence owner collection.
     ///   - legacySources: Registry, presence, saved pairing, and retained row identities.
     ///   - local: This Mac's installation, whose physical device must remain hidden.
     /// - Returns: The permitted remote installation identities.
     public func admittedInstances(
         authenticated: Set<SurfaceDeviceInstanceID>,
+        accountOwned: Set<SurfaceDeviceInstanceID> = [],
         legacySources: [Set<SurfaceDeviceInstanceID>],
         local: SurfaceDeviceInstanceID
     ) -> Set<SurfaceDeviceInstanceID> {
-        var result = authenticated
+        var result = authenticated.union(accountOwned)
         if !requiresAuthenticatedDiscovery {
             for source in legacySources { result.formUnion(source) }
         }
