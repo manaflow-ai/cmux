@@ -141,9 +141,18 @@ public struct BrowserSourceDetector: Sendable {
             .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
             // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
-            .passwords: session(FirefoxLoginReader.hasLogins(profile) ? .available : present("logins.json") ? .unsupported(.exportFromSource) : .absent),
+            .passwords: session(firefoxPasswords(profile, present: present("logins.json"))),
             .cookies: session(present("cookies.sqlite") ? .available : .absent),
         ]
+    }
+
+    static func firefoxPasswords(_ profile: URL, present: Bool) -> DataAvailability {
+        #if CMUX_NO_PASSWORD_IMPORT
+        // The cx-f58x notary test build has no Firefox password reader.
+        return present ? .unsupported(.exportFromSource) : .absent
+        #else
+        return FirefoxLoginReader.hasLogins(profile) ? .available : present ? .unsupported(.exportFromSource) : .absent
+        #endif
     }
 
     static func safariAvailability(_ directory: URL, cookies: URL?) -> [ImportDataKind: DataAvailability] {
