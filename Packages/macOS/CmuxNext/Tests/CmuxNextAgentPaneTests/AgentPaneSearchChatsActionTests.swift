@@ -9,7 +9,7 @@ import Testing
     @Test func showAllRunsTheSearchChatsAppAction() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var ran: [String] = []
-        model.onRunAction = { ran.append($0) }
+        model.onRunAction = { ran.append($0); return true }
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "action.run", "params": ["id": "agentPane.searchChats"]] as [String: Any]))
         #expect(reply["error"] == nil)
         #expect(ran == ["agentPane.searchChats"])

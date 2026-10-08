@@ -91,6 +91,10 @@ public struct ThemeTokens: Hashable, Sendable {
     public var backgroundOpacity: Double
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     public var backgroundBlur: Int
+    /// The app theme of the same colors (``AppTheme``): surfaces, text, accent and status colors
+    /// that meet the WCAG contract. Web pages get it as `--cmux-app-*` (`WebTheme`); an app theme
+    /// apart from the terminal's (`appearance.appTheme`) replaces it there.
+    public var app: AppTheme
 
     /// Theme-derived tint opacity used when a wallpaper is selected.
     ///
@@ -178,7 +182,8 @@ public struct ThemeTokens: Hashable, Sendable {
             hasThemeAccent: input.palette.count >= 8,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
-            backgroundBlur: input.backgroundBlur
+            backgroundBlur: input.backgroundBlur,
+            app: AppTheme.derive(from: input)
         )
     }
 

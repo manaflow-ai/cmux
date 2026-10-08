@@ -20,36 +20,140 @@ protocol SidebarDelegate: AnyObject {
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID)
     func sidebar(_ sidebar: SidebarController, setMuted muted: Bool, for id: ConversationID)
     func sidebar(_ sidebar: SidebarController, delete id: ConversationID)
+    // v1.1 (defaults in the extension below).
+    func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions
+    func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem]
+}
+
+/// v1.1: the context-menu actions an owner supports for one conversation. An action that is
+/// not in the set has no menu item.
+struct SidebarActions: OptionSet {
+    let rawValue: Int
+    init(rawValue: Int) { self.rawValue = rawValue }
+    /// Pin / Unpin (`setPinned`).
+    static let pin = SidebarActions(rawValue: 1 << 0)
+    /// Mark as Read / Mark as Unread (`setRead`).
+    static let markRead = SidebarActions(rawValue: 1 << 1)
+    /// Hide Alerts / Show Alerts (`setMuted`).
+    static let mute = SidebarActions(rawValue: 1 << 2)
+    /// Delete Conversation… (`delete`).
+    static let delete = SidebarActions(rawValue: 1 << 3)
+    static let all: SidebarActions = [.pin, .markRead, .mute, .delete]
+}
+
+/// v1.1: a context-menu item that runs a closure (for `menuItemsFor`).
+final class SidebarMenuItem: NSMenuItem {
+    private let handler: () -> Void
+    init(title: String, image: NSImage? = nil, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        self.image = image
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    @objc private func run() { handler() }
+}
+
+/// v1.1: one row of a host's extra search section.
+struct SidebarSearchResult: Equatable {
+    /// The host's id (any string; it is not a conversation id).
+    var id: String
+    var title: String
+    var subtitle: String
+    var avatar: AvatarSpec
+    init(id: String, title: String, subtitle: String = "", avatar: AvatarSpec) {
+        self.id = id; self.title = title; self.subtitle = subtitle; self.avatar = avatar
+    }
+}
+
+/// v1.1: a host's extra search section, shown under the matching conversations with its title.
+struct SidebarSearchSection: Equatable {
+    var title: String
+    var results: [SidebarSearchResult]
+    init(title: String, results: [SidebarSearchResult]) { self.title = title; self.results = results }
+}
+
+/// v1.1: one query to a `SidebarSearchProvider`. Answer once, from any thread, with
+/// `complete(_:)`. The next keystroke cancels it (`isCancelled` turns true and a later answer
+/// is dropped), so a long search should check `isCancelled` and stop.
+final class SidebarSearchRequest: @unchecked Sendable {
+    let query: String
+    private let lock = NSLock()
+    private var cancelled = false
+    private var handler: ((SidebarSearchSection?) -> Void)?
+    init(query: String, handler: @escaping (SidebarSearchSection?) -> Void) { self.query = query; self.handler = handler }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); cancelled = true; handler = nil; lock.unlock() }
+    /// The section for this query (nil or no results: no section). Any thread; once.
+    func complete(_ section: SidebarSearchSection?) {
+        lock.lock(); let h = cancelled ? nil : handler; handler = nil; lock.unlock()
+        h?(section)
+    }
+}
+
+/// v1.1: extra search results from the host (`SidebarController.searchProvider`).
+protocol SidebarSearchProvider: AnyObject {
+    /// A new non-empty query (main thread). Answer through `request.complete(_:)`.
+    func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest)
+    /// The user selected one of the section's rows (click, Up/Down, Return in the search field).
+    /// The delegate's `didSelect` is not called for these rows, and `selectedID` is nil while
+    /// one is selected.
+    func sidebar(_ sidebar: SidebarController, didSelectSearchResult id: String)
 }
 
 extension SidebarDelegate {
+    /// v1.1: the menu actions for `id` (default: all). Leave one out to hide its item.
+    func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions { .all }
+    /// v1.1: extra context-menu items for `id`, shown after the built-in ones (default: none).
+    /// The host sets each item's title, target and action (or a closure-based subclass).
+    func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { [] }
+    /// v1.1: pinning is optional too (a host without pins leaves `.pin` out of the actions).
+    func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) {}
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) {}
     func sidebar(_ sidebar: SidebarController, setMuted muted: Bool, for id: ConversationID) {}
     func sidebar(_ sidebar: SidebarController, delete id: ConversationID) {}
 }
 
-/// The sidebar's user-facing strings (AppKitNative.xcstrings, English and Japanese). A host
-/// that vendors the list copies the `sidebar.*` keys into its own catalog and sets `table`.
-enum SidebarStrings {
-    static var table = "AppKitNative"
+/// v1.1: where the sidebar's strings come from. Every sidebar string is in one catalog,
+/// `SidebarLocalizable.xcstrings` (stable `sidebar.*` keys, an English comment per key). A host
+/// copies that file into its resources and points `bundle` at them (a Swift package:
+/// `Bundle.module`). Default: the bundle that contains the sidebar code, not `Bundle.main`.
+enum SidebarLocalization {
+    static var bundle: Bundle = Bundle(for: SidebarController.self)
+    /// The catalog's table name (its file name without the extension).
+    static var table = "SidebarLocalizable"
+    /// The string for `key` in the user's preferred language; `english` if the key is missing.
+    static func string(_ key: String, _ english: String) -> String {
+        bundle.localizedString(forKey: key, value: english, table: table)
+    }
+}
 
-    static var search: String { String(localized: "sidebar.search", defaultValue: "Search", table: table) }
-    static var yesterday: String { String(localized: "sidebar.yesterday", defaultValue: "Yesterday", table: table) }
-    static var pin: String { String(localized: "sidebar.menu.pin", defaultValue: "Pin", table: table) }
-    static var unpin: String { String(localized: "sidebar.menu.unpin", defaultValue: "Unpin", table: table) }
-    static var markRead: String { String(localized: "sidebar.menu.markRead", defaultValue: "Mark as Read", table: table) }
-    static var markUnread: String { String(localized: "sidebar.menu.markUnread", defaultValue: "Mark as Unread", table: table) }
-    static var hideAlerts: String { String(localized: "sidebar.menu.hideAlerts", defaultValue: "Hide Alerts", table: table) }
-    static var showAlerts: String { String(localized: "sidebar.menu.showAlerts", defaultValue: "Show Alerts", table: table) }
-    static var delete: String { String(localized: "sidebar.menu.delete", defaultValue: "Delete Conversation…", table: table) }
-    static var noResults: String { String(localized: "sidebar.noResults", defaultValue: "No Results", table: table) }
-    static var conversations: String { String(localized: "sidebar.list", defaultValue: "Conversations", table: table) }
-    static var pinned: String { String(localized: "sidebar.pinned", defaultValue: "Pinned", table: table) }
-    static var typing: String { String(localized: "sidebar.typing", defaultValue: "Typing", table: table) }
+/// The sidebar's user-facing strings (SidebarLocalizable.xcstrings, through SidebarLocalization).
+enum SidebarStrings {
+    /// v1: the table name; v1.1 forwards it to `SidebarLocalization.table`.
+    static var table: String {
+        get { SidebarLocalization.table }
+        set { SidebarLocalization.table = newValue }
+    }
+    private static func s(_ key: String, _ english: String) -> String { SidebarLocalization.string(key, english) }
+
+    static var search: String { s("sidebar.search", "Search") }
+    static var yesterday: String { s("sidebar.yesterday", "Yesterday") }
+    static var pin: String { s("sidebar.menu.pin", "Pin") }
+    static var unpin: String { s("sidebar.menu.unpin", "Unpin") }
+    static var markRead: String { s("sidebar.menu.markRead", "Mark as Read") }
+    static var markUnread: String { s("sidebar.menu.markUnread", "Mark as Unread") }
+    static var hideAlerts: String { s("sidebar.menu.hideAlerts", "Hide Alerts") }
+    static var showAlerts: String { s("sidebar.menu.showAlerts", "Show Alerts") }
+    static var delete: String { s("sidebar.menu.delete", "Delete Conversation…") }
+    static var noResults: String { s("sidebar.noResults", "No Results") }
+    static var conversations: String { s("sidebar.list", "Conversations") }
+    static var pinned: String { s("sidebar.pinned", "Pinned") }
+    static var typing: String { s("sidebar.typing", "Typing") }
     /// "%d unread messages" (accessibility).
-    static var unreadFormat: String { String(localized: "sidebar.unread", defaultValue: "%d unread", table: table) }
-    static var muted: String { String(localized: "sidebar.muted", defaultValue: "Alerts hidden", table: table) }
-    static var image: String { String(localized: "sidebar.preview.image", defaultValue: "Image", table: table) }
+    static var unreadFormat: String { s("sidebar.unread", "%d unread") }
+    static var muted: String { s("sidebar.muted", "Alerts hidden") }
+    static var image: String { s("sidebar.preview.image", "Image") }
 
     /// The reaction preview: "Lucas loved “…”", "Loved “…”" (from me in a 1:1, the sender
     /// is left out as Messages does), or "Lucas reacted 🔥 to “…”".
@@ -57,23 +161,23 @@ enum SidebarStrings {
         let t = "“" + r.target + "”"
         if let who = r.senderName {
             switch r.kind {
-            case "love": return String(format: String(localized: "sidebar.reaction.love.other", defaultValue: "%1$@ loved %2$@", table: table), who, t)
-            case "like": return String(format: String(localized: "sidebar.reaction.like.other", defaultValue: "%1$@ liked %2$@", table: table), who, t)
-            case "dislike": return String(format: String(localized: "sidebar.reaction.dislike.other", defaultValue: "%1$@ disliked %2$@", table: table), who, t)
-            case "laugh": return String(format: String(localized: "sidebar.reaction.laugh.other", defaultValue: "%1$@ laughed at %2$@", table: table), who, t)
-            case "emphasize": return String(format: String(localized: "sidebar.reaction.emphasize.other", defaultValue: "%1$@ emphasized %2$@", table: table), who, t)
-            case "question": return String(format: String(localized: "sidebar.reaction.question.other", defaultValue: "%1$@ questioned %2$@", table: table), who, t)
-            default: return String(format: String(localized: "sidebar.reaction.emoji.other", defaultValue: "%1$@ reacted %2$@ to %3$@", table: table), who, r.kind, t)
+            case "love": return String(format: s("sidebar.reaction.love.other", "%1$@ loved %2$@"), who, t)
+            case "like": return String(format: s("sidebar.reaction.like.other", "%1$@ liked %2$@"), who, t)
+            case "dislike": return String(format: s("sidebar.reaction.dislike.other", "%1$@ disliked %2$@"), who, t)
+            case "laugh": return String(format: s("sidebar.reaction.laugh.other", "%1$@ laughed at %2$@"), who, t)
+            case "emphasize": return String(format: s("sidebar.reaction.emphasize.other", "%1$@ emphasized %2$@"), who, t)
+            case "question": return String(format: s("sidebar.reaction.question.other", "%1$@ questioned %2$@"), who, t)
+            default: return String(format: s("sidebar.reaction.emoji.other", "%1$@ reacted %2$@ to %3$@"), who, r.kind, t)
             }
         }
         switch r.kind {
-        case "love": return String(format: String(localized: "sidebar.reaction.love.me", defaultValue: "Loved %@", table: table), t)
-        case "like": return String(format: String(localized: "sidebar.reaction.like.me", defaultValue: "Liked %@", table: table), t)
-        case "dislike": return String(format: String(localized: "sidebar.reaction.dislike.me", defaultValue: "Disliked %@", table: table), t)
-        case "laugh": return String(format: String(localized: "sidebar.reaction.laugh.me", defaultValue: "Laughed at %@", table: table), t)
-        case "emphasize": return String(format: String(localized: "sidebar.reaction.emphasize.me", defaultValue: "Emphasized %@", table: table), t)
-        case "question": return String(format: String(localized: "sidebar.reaction.question.me", defaultValue: "Questioned %@", table: table), t)
-        default: return String(format: String(localized: "sidebar.reaction.emoji.me", defaultValue: "Reacted %1$@ to %2$@", table: table), r.kind, t)
+        case "love": return String(format: s("sidebar.reaction.love.me", "Loved %@"), t)
+        case "like": return String(format: s("sidebar.reaction.like.me", "Liked %@"), t)
+        case "dislike": return String(format: s("sidebar.reaction.dislike.me", "Disliked %@"), t)
+        case "laugh": return String(format: s("sidebar.reaction.laugh.me", "Laughed at %@"), t)
+        case "emphasize": return String(format: s("sidebar.reaction.emphasize.me", "Emphasized %@"), t)
+        case "question": return String(format: s("sidebar.reaction.question.me", "Questioned %@"), t)
+        default: return String(format: s("sidebar.reaction.emoji.me", "Reacted %1$@ to %2$@"), r.kind, t)
         }
     }
 }
@@ -193,7 +297,10 @@ struct SidebarPalette: Equatable {
     var bubbleText: CGColor
     var typingDot: CGColor
 
-    static func resolve(_ appearance: NSAppearance) -> SidebarPalette {
+    /// `unreadColor`, `selectionColor`: the host's colors (v1.1; nil: the system's). Each is
+    /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
+    /// catalog, pattern and gray colors are safe).
+    static func resolve(_ appearance: NSAppearance, unreadColor: NSColor? = nil, selectionColor: NSColor? = nil) -> SidebarPalette {
         var p: SidebarPalette!
         appearance.performAsCurrentDrawingAppearance {
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -205,9 +312,9 @@ struct SidebarPalette: Equatable {
                 name: NSColor.labelColor.cgColor,
                 secondary: NSColor.secondaryLabelColor.cgColor,
                 separator: NSColor.separatorColor.cgColor,
-                unread: NSColor.systemBlue.cgColor,
-                accent: NSColor.controlAccentColor.cgColor,
-                selectionActive: NSColor.selectedContentBackgroundColor.cgColor,
+                unread: (unreadColor ?? NSColor.systemBlue).cgColor,
+                accent: (selectionColor ?? NSColor.controlAccentColor).cgColor,
+                selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                 selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
                 hover: NSColor.labelColor.withAlphaComponent(dark ? 0.07 : 0.05).cgColor,
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,

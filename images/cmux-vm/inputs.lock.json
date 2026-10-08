@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "e4da89280cbc1129465e98d979b89c599b6bd477",
-      "url": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "b14daae931900ce54a7fc58e7587d23e305a1e2f3ca81888e71e98ab116517ee",
-      "size": 71639840,
+      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
+      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "6e1f396150d755ad555c29787d71c06c95ddd42893cee4b6fe9f3e205b3d0c56",
+      "size": 75473168,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux-tui": "cmux-tui" },
+      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
+      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "e4da89280cbc1129465e98d979b89c599b6bd477",
-      "url": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "72840726d158be2f8649340cb547fc1cf4258de2298192803fe4ce33319ed0b1",
-      "size": 3621600,
+      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
+      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "dbdcda72ea23ccdcb080e086213cbfed485e05de846b2722fa3da090678f902a",
+      "size": 3625064,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
+      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
     },
     {
       "name": "coderouter",

@@ -278,7 +278,7 @@ public final class ThemeScope {
     /// Runs `body` with this scope's colors active for `Palette` and its
     /// appearance as the drawing appearance (layer owners without a view).
     public func perform<T>(_ body: () -> T) -> T {
-        ThemeContext.push(tokens)
+        ThemeContext.push(tokens, selection: backdropSelection)
         defer { ThemeContext.pop() }
         var result: T?
         appearance.performAsCurrentDrawingAppearance { result = body() }

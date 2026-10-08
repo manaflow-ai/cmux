@@ -2911,6 +2911,11 @@ describe("acpmux new chat", () => {
       expect(dom.window.document.querySelector(".acpmux-scroll")).toBeNull();
       await show(snapshot({ cwd: "/Users/me" }));
       expect(hero()).toBe("What should we build?");
+      // A folderless workspace's private agent-home folder is never named by its UUID.
+      await show(
+        snapshot({ cwd: "/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481" }),
+      );
+      expect(hero()).toBe("What should we build?");
       // Between a session's reset and its attach there is no summary yet.
       await show(snapshot({ summary: false }));
       expect(hero()).toBeUndefined();
@@ -2939,6 +2944,10 @@ describe("acpmux new chat", () => {
     expect(projectName("/Users/me")).toBeUndefined();
     expect(projectName("/")).toBeUndefined();
     expect(projectName(undefined)).toBeUndefined();
+    expect(
+      projectName("/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481"),
+    ).toBeUndefined();
+    expect(projectName("/Users/me/Library/Application Support/cmux/agent-home/home/")).toBeUndefined();
   });
 });
 

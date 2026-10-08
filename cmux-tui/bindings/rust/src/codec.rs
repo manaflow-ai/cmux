@@ -2,15 +2,26 @@ use crate::Result;
 use crate::client::CmuxError;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::mem::{offset_of, size_of, zeroed};
 use std::net::Shutdown;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
-#[cfg(test)]
+/// The connected session socket: a Unix socket, or on Windows the AF_UNIX
+/// stream of the shared `local_socket` transport (the daemon's).
+#[cfg(unix)]
+pub(crate) type UnixStream = std::os::unix::net::UnixStream;
+#[cfg(windows)]
+pub(crate) type UnixStream = crate::local_socket::Stream;
+
+#[cfg(all(test, unix))]
 thread_local! {
     static FORCE_PENDING_CONNECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORCED_CONNECT_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -20,10 +31,10 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) struct ForcedPendingConnectProbe;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl ForcedPendingConnectProbe {
     pub(crate) fn install() -> Self {
         FORCE_PENDING_CONNECT.with(|forced| {
@@ -60,7 +71,7 @@ impl ForcedPendingConnectProbe {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Drop for ForcedPendingConnectProbe {
     fn drop(&mut self) {
         FORCE_PENDING_CONNECT.with(|forced| forced.set(false));
@@ -273,10 +284,12 @@ impl JsonLineConnection {
     }
 }
 
+#[cfg(unix)]
 fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
     connect_unix_with_poll_checks(socket_path, timeout, timeout, || Ok(()))
 }
 
+#[cfg(unix)]
 fn connect_unix_with_poll_checks(
     socket_path: &Path,
     timeout: Duration,
@@ -425,12 +438,14 @@ fn connect_unix_with_poll_checks(
     Ok(UnixStream::from(descriptor))
 }
 
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SocketCreationPlan {
     socket_type: libc::c_int,
     needs_cloexec_fcntl: bool,
 }
 
+#[cfg(unix)]
 fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreationPlan {
     match atomic_cloexec_flag {
         Some(flag) => {
@@ -440,6 +455,7 @@ fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreat
     }
 }
 
+#[cfg(unix)]
 #[cfg(any(
     target_os = "android",
     target_os = "cygwin",
@@ -455,6 +471,7 @@ fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreat
 ))]
 const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = Some(libc::SOCK_CLOEXEC);
 
+#[cfg(unix)]
 #[cfg(not(any(
     target_os = "android",
     target_os = "cygwin",
@@ -470,10 +487,12 @@ const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = Some(libc::SOCK_CLOEXE
 )))]
 const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = None;
 
+#[cfg(unix)]
 fn platform_socket_creation_plan() -> SocketCreationPlan {
     socket_creation_plan(PLATFORM_ATOMIC_CLOEXEC_FLAG)
 }
 
+#[cfg(unix)]
 #[cfg(any(
     target_vendor = "apple",
     target_os = "dragonfly",
@@ -497,11 +516,12 @@ fn set_no_sigpipe(descriptor: libc::c_int) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Path) -> Result<()> {
     wait_for_connect_with_poll_checks(descriptor, timeout, socket_path, timeout, &mut || Ok(()))
 }
 
+#[cfg(unix)]
 fn wait_for_connect_with_poll_checks(
     descriptor: libc::c_int,
     timeout: Duration,
@@ -571,6 +591,46 @@ fn wait_for_connect_with_poll_checks(
     }
 }
 
+/// Windows: the shared transport's deadline connect, which also refuses a
+/// socket file owned by another user (`local_socket`).
+#[cfg(windows)]
+fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
+    connect_unix_with_poll_checks(socket_path, timeout, timeout, || Ok(()))
+}
+
+#[cfg(windows)]
+fn connect_unix_with_poll_checks(
+    socket_path: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut check: impl FnMut() -> Result<()>,
+) -> Result<UnixStream> {
+    if timeout.is_zero() {
+        return Err(connect_timeout_error(socket_path));
+    }
+    if poll_interval.is_zero() {
+        return Err(CmuxError::InvalidArgument(
+            "session socket connect poll interval must be greater than zero".to_string(),
+        ));
+    }
+    let mut failed_check = None;
+    let result =
+        crate::local_socket::connect_with_deadline(socket_path, timeout, poll_interval, || {
+            check().map_err(|error| {
+                failed_check = Some(error);
+                std::io::Error::other("connect check failed")
+            })
+        });
+    match result {
+        Ok(stream) => Ok(stream),
+        Err(_) if failed_check.is_some() => Err(failed_check.take().expect("checked")),
+        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+            Err(connect_timeout_error(socket_path))
+        }
+        Err(error) => Err(connect_error(socket_path, error)),
+    }
+}
+
 fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
     let kind = error.kind();
     CmuxError::ConnectionIo {
@@ -590,7 +650,7 @@ fn socket_timeout(timeout: Duration) -> Duration {
     timeout.max(Duration::from_micros(1))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::io::Write;

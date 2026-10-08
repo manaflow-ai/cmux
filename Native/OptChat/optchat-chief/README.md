@@ -20,9 +20,11 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   acpmux session of the Chief's harness, named `optchat-<home id>-<first
   id>`, and each summary is one too (see [Harnesses and cache
   layout](#harnesses-and-cache-layout)); no Messages API is called. The
-  harness is one setting (`OPTCHAT_CHIEF_HARNESS`): claude-sr by default
-  (acpmux's own Claude Code ACP adapter, `claude_stdio`, launched through
-  the team subrouter's account pool), codex, or any acpmux harness.
+  harness is one setting (`OPTCHAT_CHIEF_HARNESS`). By default it is
+  acpmux's own Claude Code adapter (`claude_stdio`): `claude-cr` when acpmux
+  has a configured CodeRouter route (`coderouterClaudeRoute`), else `claude`,
+  the user's own login. claude-sr (the subrouter pool) only when set; codex
+  or any acpmux harness also work.
   Claude Code's Task/Agent subagents are denied (their steps would be
   logged as the Chief's); `chief agents` starts agents instead. So are
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
@@ -268,8 +270,8 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
-| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-sr` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
-| `MUX_HARNESS` | `claude-sr` | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
+| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-cr` when acpmux has a configured CodeRouter route, else `claude` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
+| `MUX_HARNESS` | `claude` (acpmux resolves it through `defaults.claude.prefer`) | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
 | `MUX_POLICY` | `approve-all` | acpmux: permission policy of each turn session |
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
@@ -953,13 +955,40 @@ spawned from an `ask` turn asks too, and its shell call waits for a person).
 
 ## Deviations from the spec
 
-- **acpmux engine: cache breakpoints in the view (section 8).** On a Claude
-  harness the view's first piece is the system prompt (Claude Code's
-  breakpoint) and one marker sits at the last mark: two of the spec's three
-  breakpoints (50k and 100k; 80k is lost to Claude Code's own three). On
-  codex there are no breakpoints, only automatic prefix caching, routed by
-  the Chief's stable `prompt_cache_key` on the cmux codex fork (upstream's
-  per-thread key defeats it across turns; see Harnesses and cache layout).
+Taelin's updated recipe (gist 3c190e0, 2026-10-08) is followed for the view
+(due from the pair's last message, the 128 KB -> 64 KB sawtooth, the view
+saved at every message and never rebuilt), the compaction view (16-32 KB),
+the compaction order (8 message nodes ahead, a ready queue), the one system
+prompt for turns and compactions, the task texts with the 512-dash ruler,
+the Too long retry, the 4-line cache blocks and single-flight. The replay
+test `optchat-core/tests/cache_replay.rs` pins the cache rate: turns 99.3%,
+compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
+
+- **Claude Code compactor tools.** Compactions send the turns' system text,
+  but a compactor session keeps `--tools ""` and deny-all (isolation), so
+  on the Claude Code route its tool prefix differs from the turns' and it
+  does not read the turns' entry; compactions still read each other's.
+  The native engine with the API compactor sends the same system and tools
+  (tool_choice none).
+- **Kinds.** The log keeps `talk` for the agent's replies (the spec renames
+  it after the agent) and logs a subagent's report as a `user` message
+  starting "[id] " (the spec's `work`): old nodes say `talk:` forever, and
+  an older binary refuses an unknown kind. The prompt names both.
+- **System prompt.** No paragraph on computers (no device tools), no
+  `zoom("Name")`; the mid-turn line says a message interrupts at once.
+- **view.json** is the `memory/checkpoint` state row of the SQLite store,
+  written after every message.
+- **Single-flight** waits for the writer's reply, not its first streamed
+  byte (a compaction reply is one line).
+- **Model.** The compactor stays Claude Sonnet 5.5 at medium effort (spec:
+  Haiku at xhigh): untested here.
+- **Long messages.** A message over 200,000 characters is still logged
+  whole and cut in its compaction call only (STEP_MESSAGE), not split.
+- **Failed compactions** are retried after the fixed 10 s wait (and at the
+  next pump), not only at the next message.
+- **acpmux engine: cache marker.** Claude Code places 3 of the 4
+  breakpoints, so a turn adds one, on the last whole 4-line block; codex
+  has only automatic prefix caching (see Harnesses and cache layout).
 - **Messages during a turn (section 7, MASTER).** The spec delivers them at
   the next tool boundary; here a human message interrupts at once (see the
   top of this file), and MASTER's line says so. On the acpmux engine the
@@ -968,10 +997,6 @@ spawned from an `ask` turn asks too, and its shell call waits for a person).
   engine at the next turn. The brain-host contract has no user cancel, so
   neither engine can cancel a turn or the compactor wait on request; a turn
   past its limit is stopped.
-- **Memory line (MASTER).** The spec says "You keep no memory between
-  turns"; here MASTER says the chat is the memory, kept across turns, and
-  that zoom and date reach any past message, so the Chief zooms instead of
-  telling the user an earlier turn is gone.
 - **cmux routing.** Every turn, the native bash tool, the acpmux daemon the
   host starts and each child's preset carry `CMUX_TUI_SOCKET` and
   `CMUX_MUX_SOCKET` set to the app's daemon (`CMUX_APP_DAEMON_SOCKET`, else

@@ -75,12 +75,14 @@ import Testing
     }
 
     /// Each kind opens directly from the keyboard (#16620). The chords are
-    /// Command chords nothing else owns: not another action, not a chord a
-    /// page keeps, and not one of Ghostty's default keybinds, so a terminal
-    /// never loses a key it reads.
+    /// chords nothing else owns: not another action, not a chord a page
+    /// keeps, and not one of Ghostty's default keybinds. They are Command
+    /// chords, so a terminal never loses a key it reads, except Ctrl-` for
+    /// a terminal (Lawrence call 2026-10-06, as in VS Code): it takes
+    /// Ctrl-@ from a focused terminal on purpose.
     @Test func eachKindHasItsOwnChord() {
         let chords: [ActionID: Shortcut] = [
-            "newSurface": Shortcut("t", modifiers: [.control, .shift, .command]),
+            "newSurface": Shortcut("`", modifiers: [.control]),
             "openBrowser": Shortcut("l", modifiers: [.command, .shift]),
             "palette.newAgentChat": Shortcut("i", modifiers: [.command]),
         ]
@@ -96,7 +98,7 @@ import Testing
             #expect(action?.defaultShortcut == chord, "\(id)")
             #expect(action?.surfaces.contains(.keyboard) == true, "\(id)")
             #expect(ActionCatalog.all.filter { $0.defaultShortcut == chord }.map(\.id) == [id])
-            #expect(chord.modifiers.contains(.command))
+            #expect(chord.modifiers.contains(.command) || id == "newSurface", "\(id)")
             #expect(!BrowserChordTable.chromeReserved.contains(chord), "\(id)")
             #expect(!ghostty.contains(chord), "\(id)")
         }

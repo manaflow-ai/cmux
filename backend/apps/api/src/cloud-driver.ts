@@ -6,6 +6,8 @@ import { parseAllowedTeams } from "./domains/cloud-plan.ts"
 export { providerName } from "./domains/cloud-plan.ts"
 import { FakeCloudDriver } from "./cloud-driver-fake.ts"
 import { redactReason } from "./cloud-redact.ts"
+import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
+export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 
 /**
  * The provider behind CloudDO (state-placement.md 5.2, 5.3). The Freestyle account is shared with
@@ -46,6 +48,8 @@ export interface RawCloudDriver {
   writeFile(id: string, path: string, content: string, mode: number): Promise<void>
   /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
   list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
+  /** Replaces the VM's rule for `rule.domain` in place (Freestyle `GET /v5/tls?vmId&domain`, `PUT /v5/tls/{id}`); false when it has none. */
+  replaceTlsRule(vmId: string, rule: EdgeTlsRule): Promise<boolean>
 }
 
 export interface VmResources {
@@ -59,6 +63,8 @@ export interface CreateOptions {
   readonly idleSeconds: number
   /** Boot from this snapshot slug (a restore: one of ours, guarded) instead of the deployment's image. */
   readonly snapshot?: string
+  /** Inline TLS rules (the coderouter edge, cloud-coderouter-edge.ts); absent or empty sends none. */
+  readonly edgeRules?: ReadonlyArray<EdgeTlsRule>
 }
 
 export interface ListedVm {
@@ -147,6 +153,15 @@ export class GuardedCloudDriver {
     if (!found) throw new DriverError("cloud.provider.unavailable", "write bind file: the VM is not there yet", false)
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     await this.raw.writeFile(found.id, BIND_FILE_PATH, content, 0o600)
+  }
+
+  /** Replaces our VM's edge rule for `rule.domain` (a token refresh); false when the VM or its rule is not there. */
+  async replaceEdgeRule(name: string, tag: VmTag, rule: EdgeTlsRule): Promise<boolean> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) return false
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    return this.raw.replaceTlsRule(found.id, { ...rule, source: { vmId: found.id } })
   }
 
   /** P1-2: the VM a cancelled create may have made, found by its recorded name; never creates. */
@@ -271,32 +286,6 @@ const REQUEST_TIMEOUT_MS = 20_000
 const CREATE_TIMEOUT_MS = 120_000
 export const LIST_PAGE = 100
 
-/**
- * The create body (Freestyle SDK 0.2.10 CreateVmOptions, web/services/vms/drivers/freestyle.ts):
- * - Every Freestyle timer is -1 (coordinator, 2026-10-05): idleTimeoutSeconds, autoDeleteSeconds,
- *   ttlSeconds, maxRunSeconds, maxRunTotalSeconds. Freestyle never pauses, stops or deletes a machine
- *   by itself, so our record stays true; idle is ours (the 24 h backstop and cloud.idlePause, from the
- *   VM's own reports, on the money-op path). automaticRestart true.
- * - firewall: a VM gets nothing implicitly; this allows egress to every publicly routable address.
- *   `public: true` selects by address, so it does not cover private or VPC addresses. The machine
- *   joins no VPC at create (no `vpcs`), so no VPC rule is needed now; the VPC attach work (lane 12)
- *   adds a `{ vpcId }` rule with the attach.
- * - size: create takes no resources (the snapshot decides; resize is a separate, grow-only call),
- *   so the plan checks cpu, memory and disk but the size is not sent yet.
- */
-export const createBody = (name: string, snapshot: string, tag: VmTag, _opts: CreateOptions) => ({
-  slug: name,
-  snapshotId: snapshot,
-  idleTimeoutSeconds: -1,
-  autoDeleteSeconds: -1,
-  ttlSeconds: -1,
-  maxRunSeconds: -1,
-  maxRunTotalSeconds: -1,
-  automaticRestart: true,
-  metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
-  firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
-})
-
 /** Freestyle REST (the same v5 calls TeamVmDO's driver measured). Errors carry only the step, status and provider code. */
 export class FreestyleCloudDriver implements RawCloudDriver {
   private readonly apiKey: string
@@ -386,6 +375,17 @@ export class FreestyleCloudDriver implements RawCloudDriver {
       vms: vms.filter((v) => typeof v.id === "string").map((v) => ({ id: v.id as string, name: typeof v.slug === "string" ? v.slug : null, tag: (v.metadata ?? {}) as Record<string, unknown> })),
       total: typeof got.json.totalCount === "number" ? got.json.totalCount : vms.length
     }
+  }
+
+  async replaceTlsRule(vmId: string, rule: EdgeTlsRule) {
+    const got = await this.call("GET", `/v5/tls?${new URLSearchParams({ vmId, domain: rule.domain })}`)
+    if (got.status !== 200) this.fail(got.status, got.json, "list TLS rules")
+    const id = ((Array.isArray(got.json.rules) ? got.json.rules : []) as Array<Record<string, unknown>>).find((r) => r.domain === rule.domain && typeof r.id === "string")?.id as string | undefined
+    if (!id) return false
+    // The answer may echo the request; only the step and status leave this method (the body holds the token).
+    const r = await this.call("PUT", `/v5/tls/${encodeURIComponent(id)}`, rule)
+    if (r.status >= 200 && r.status < 300) return true
+    this.fail(r.status, {}, "replace TLS rule")
   }
 
   async delete(id: string) {

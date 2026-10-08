@@ -31,6 +31,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cmux-encode"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-rd-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+ "cmux-remote-browser",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-remote-browser"
 version = "0.1.0"
 dependencies = [
@@ -43,8 +80,16 @@ name = "cmux-remote-browser-host"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "cmux-encode",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-ffi",
+ "cmux-rd-proto",
  "cmux-remote-browser",
  "png",
+ "serde",
+ "serde_json",
+ "subtle",
 ]
 
 [[package]]
@@ -199,6 +244,12 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"

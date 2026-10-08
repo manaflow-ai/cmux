@@ -108,7 +108,9 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
                 .appending(path: "cmux-next", directoryHint: .isDirectory)
             if let caches { try? FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true) }
-            let dump = caches?.appending(path: "zcompdump-shell-mode").path ?? "\(home)/.zcompdump-cmux-shell-mode"
+            let dump = environment["CMUX_COMPLETE_DUMP"]
+                ?? caches?.appending(path: "zcompdump-shell-mode").path
+                ?? "\(home)/.zcompdump-cmux-shell-mode"
             return ([shell, "-l", "-c", Self.zshDriver, "zsh", line, shell],
                     ["CMUX_COMPLETE_SETUP": Self.zshSetup, "CMUX_COMPLETE_DUMP": dump])
         case .bash:
