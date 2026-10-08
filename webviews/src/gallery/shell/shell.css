@@ -337,6 +337,9 @@ body {
 .gallery-browse-variants {
   display: flex;
   gap: 4px;
+  border: 0;
+  min-inline-size: 0;
+  margin: 0;
   overflow-x: auto;
   padding: 0 12px 8px;
 }

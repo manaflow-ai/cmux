@@ -90,7 +90,7 @@ function BrowseCard({
         </div>
         <span className="gallery-browse-kind">{fixture?.play ? "Motion" : "Static"}</span>
       </header>
-      <div className="gallery-browse-variants" role="group" aria-label={`${entry.title} variants`}>
+      <fieldset className="gallery-browse-variants" aria-label={`${entry.title} variants`}>
         {variants.map((name) => (
           <button
             key={name}
@@ -102,7 +102,7 @@ function BrowseCard({
             {name}
           </button>
         ))}
-      </div>
+      </fieldset>
       <div ref={previewRef} className="gallery-browse-preview">
         <Stage
           key={variant}
