@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+mod cli_path;
 mod ghostty_files;
 
 use ghostty_files::Mode;
@@ -260,6 +261,7 @@ fn apply(
             env.push(("XDG_DATA_DIRS".into(), format!("{root_str}:{current}")));
         }
     }
+    cli_path::wrap(shell, &mut env, lookup);
     ShellLaunch { command, env }
 }
 
@@ -412,6 +414,9 @@ fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod cli_path_tests;
 
 #[cfg(test)]
 mod user_config_tests;

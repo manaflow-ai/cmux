@@ -40,7 +40,7 @@ public final class AddressBarView: NSView {
     private var fieldToEdge: NSLayoutConstraint!
     private var fieldToBadge: NSLayoutConstraint!
     let panel = OmniboxSuggestionPanel()
-    private let density = DensityBinding()
+    let density = DensityBinding()
 
     private var reportedURL: URL?
     /// The page's URL changed (the host refreshes the bookmark star).
@@ -156,7 +156,7 @@ public final class AddressBarView: NSView {
         density.update { [unowned self] in
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
+            field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
         density.start()

@@ -11184,6 +11184,7 @@ fn pane_json(
                     .and_then(|surface| surface.terminal_end())
                     .map(|end| end.wire_json())
                     .or_else(|| content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned()))
+                    .map(|end| notifications.with_loss_cause(content_terminal, end))
             };
             let mut tab = json!({
                 "surface": sid,
