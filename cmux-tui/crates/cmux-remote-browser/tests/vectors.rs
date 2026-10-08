@@ -227,6 +227,21 @@ fn control_text_round_trips() {
 }
 
 #[test]
+fn navigate_preserves_legacy_and_request_bearing_messages() {
+    for (text, request) in [
+        (r#"{"t":"rb.navigate","url":"https://example.com/"}"#, None),
+        (r#"{"t":"rb.navigate","request":5,"url":"https://example.com/"}"#, Some(5)),
+    ] {
+        let parsed = Control::from_json(text).expect("parses");
+        assert_eq!(parsed, Control::Navigate { request, url: "https://example.com/".into() });
+        assert_eq!(
+            serde_json::from_str::<Value>(&parsed.to_json()).expect("serializes"),
+            serde_json::from_str::<Value>(text).expect("fixture parses")
+        );
+    }
+}
+
+#[test]
 fn navigate_result_carries_a_refusal_or_null() {
     use cmux_remote_browser::proto::NavigateRefusal;
     let refused =
