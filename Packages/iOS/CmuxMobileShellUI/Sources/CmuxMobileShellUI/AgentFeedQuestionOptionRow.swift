@@ -18,14 +18,10 @@ struct AgentFeedQuestionOptionRow: View {
                     .frame(width: 20, height: 20)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(option.label)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
+                    AgentFeedMarkdownText(markdown: option.label, font: .subheadline.weight(.medium))
                         .multilineTextAlignment(.leading)
                     if let description = option.description, !description.isEmpty {
-                        Text(description)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        AgentFeedMarkdownText(markdown: description, font: .footnote, color: .secondary)
                             .multilineTextAlignment(.leading)
                     }
                 }

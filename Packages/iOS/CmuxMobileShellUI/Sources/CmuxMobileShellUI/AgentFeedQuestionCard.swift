@@ -41,9 +41,7 @@ struct AgentFeedQuestionCard: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            Text(question.prompt)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.primary)
+            AgentFeedMarkdownText(markdown: question.prompt, font: .title3.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
 
             if question.multiSelect {

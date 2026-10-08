@@ -131,13 +131,9 @@ private struct AgentFeedQuestionComposerIntro: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .accessibilityLabel(Text(String(
-                        format: String(
-                            localized: "mobile.agentFeed.question.progressSummary",
-                            defaultValue: "%lld of %lld answered",
-                            bundle: .module
-                        ),
-                        Int64(answeredCount),
-                        Int64(questionCount)
+                        localized: "mobile.agentFeed.question.progressSummary",
+                        defaultValue: "\(Int64(answeredCount)) of \(Int64(questionCount)) answered",
+                        bundle: .module
                     )))
             }
         }

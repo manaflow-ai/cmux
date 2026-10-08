@@ -22866,13 +22866,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的代理程式需要回答"
+            "value": "需要你的輸入"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的代理需要回答"
+            "value": "需要你的输入"
           }
         },
         "ko": {

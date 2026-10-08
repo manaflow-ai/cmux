@@ -39,12 +39,9 @@ struct AgentFeedQuestionControls: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.primary)
             Text(String(
-                format: String(
-                    localized: "mobile.agentFeed.question.count",
-                    defaultValue: "%lld questions",
-                    bundle: .module
-                ),
-                Int64(item.questions.count)
+                localized: "mobile.agentFeed.question.count",
+                defaultValue: "\(Int64(item.questions.count)) questions",
+                bundle: .module
             ))
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -58,11 +55,12 @@ struct AgentFeedQuestionControls: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            Text(question.prompt)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
+            AgentFeedMarkdownText(
+                markdown: question.prompt,
+                font: .body.weight(.semibold),
+                lineLimit: 4
+            )
+            .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .center, spacing: 8) {
                 if question.multiSelect {
