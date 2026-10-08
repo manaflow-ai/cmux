@@ -28512,12 +28512,24 @@ struct CMUXCLI {
 
             // Expand #{...} formats in the condition the way tmux does, so a
             // guard can read server state (`#{pid}`) at evaluation time.
-            let conditionContext = try tmuxFormatContext(
-                workspaceId: try tmuxResolvedCallerWorkspaceId(client: client)
-                    ?? tmuxResolveWorkspaceTarget(nil, client: client),
-                client: client,
-                tmuxSocketOverride: socketOverride
-            )
+            let conditionContext: [String: String]
+            if let target = parsed.value("-t") {
+                let resolvedTarget = try tmuxResolveSurfaceTarget(target, client: client)
+                conditionContext = try tmuxFormatContext(
+                    workspaceId: resolvedTarget.workspaceId,
+                    paneId: resolvedTarget.paneId,
+                    surfaceId: resolvedTarget.surfaceId,
+                    client: client,
+                    tmuxSocketOverride: socketOverride
+                )
+            } else {
+                conditionContext = try tmuxFormatContext(
+                    workspaceId: try tmuxResolvedCallerWorkspaceId(client: client)
+                        ?? tmuxResolveWorkspaceTarget(nil, client: client),
+                    client: client,
+                    tmuxSocketOverride: socketOverride
+                )
+            }
             let expandedCondition = tmuxRenderFormatContent(conditionText, context: conditionContext)
 
             let shell = Process()

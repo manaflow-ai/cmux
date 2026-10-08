@@ -337,10 +337,13 @@ TAB="$(printf '\\t')"
 STRIP_FMT="#{pane_id}${TAB}#{socket_path}${TAB}#{pid}"
 stripped_split="$(env -u TMUX tmux -S "$identity_socket" split-window -t "${TMUX_PANE}" -h -l 60% -d -P -F "$STRIP_FMT")"
 printf '%s\\n' "$stripped_split" > "$FAKE_STRIPPED_SPLIT_LOG"
+new_pane_ref="${stripped_split%%$TAB*}"
 guarded="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -n '$identity_socket'" "split-window -t${TMUX_PANE} -h -d -P -F '$STRIP_FMT'" "display-message -p GUARD_FAIL")"
 printf '%s\\n' "$guarded" > "$FAKE_GUARDED_SPLIT_LOG"
 failed_guard="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -z '#{pid}'" "display-message -p NOPE" "display-message -p GUARD_FAIL")"
 printf '%s\\n' "$failed_guard" >> "$FAKE_GUARDED_SPLIT_LOG"
+target_guard="$(env -u TMUX tmux -S "$identity_socket" if-shell -t${new_pane_ref} "test '#{pane_id}' = '${new_pane_ref}'" "display-message -p TARGET_OK" "display-message -p TARGET_FAIL")"
+printf '%s\\n' "$target_guard" >> "$FAKE_GUARDED_SPLIT_LOG"
 set +e
 env -u TMUX tmux -S "$identity_socket" if-shell -F "true" "display-message -p NOPE" > "$FAKE_IFSHELL_FLAG_LOG" 2>&1
 printf '%s\\n' "$?" > "${FAKE_IFSHELL_FLAG_LOG}.status"
@@ -451,8 +454,8 @@ tmux kill-session -t "$window_target"
         if guarded_lines[:1] != [expected_stripped_split]:
             print(f"FAIL: expected guarded split record {expected_stripped_split!r}, got {guarded_lines!r}")
             return 1
-        if guarded_lines[1:] != ["GUARD_FAIL"]:
-            print(f"FAIL: expected failed guard output ['GUARD_FAIL'], got {guarded_lines[1:]!r}")
+        if guarded_lines[1:] != ["GUARD_FAIL", "TARGET_OK"]:
+            print(f"FAIL: expected guard outputs ['GUARD_FAIL', 'TARGET_OK'], got {guarded_lines[1:]!r}")
             return 1
 
         # The shim documents plain if-shell only; -F/-b must be rejected
