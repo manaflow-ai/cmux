@@ -5236,7 +5236,7 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
             fake.write_text(f"#!/bin/bash\nexit {helper_status}\n")
             fake.chmod(0o755)
             env = {**os.environ, "GLAEDA_CANONICAL_ROOT": str(fake),
-                   "REQUESTED_RUNNER": requested_runner}
+                   "CMUX_GUI_TOKEN_RUNNER": requested_runner}
             return subprocess.run(["bash", "-e", "-c", shard_take["run"]], env=env,
                                   capture_output=True, text=True, check=False)
 

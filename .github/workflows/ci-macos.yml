@@ -2149,12 +2149,12 @@ jobs:
       - name: Take this Mac's gui token
         env:
           GLAEDA_CANONICAL_ROOT: /Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
-          REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+          CMUX_GUI_TOKEN_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
         run: |
           set -uo pipefail
-          case "$REQUESTED_RUNNER" in
+          case "$CMUX_GUI_TOKEN_RUNNER" in
             glaeda-*) ;;
-            *) echo "No owned GUI token on $REQUESTED_RUNNER; running app-host tests directly."; exit 0 ;;
+            *) echo "No owned GUI token on $CMUX_GUI_TOKEN_RUNNER; running app-host tests directly."; exit 0 ;;
           esac
           helper=$GLAEDA_CANONICAL_ROOT
           [ -x "$helper" ] || exit 0
