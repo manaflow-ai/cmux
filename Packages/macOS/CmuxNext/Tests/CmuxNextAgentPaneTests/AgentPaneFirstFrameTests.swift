@@ -14,7 +14,8 @@ import Testing
     /// acpmux that never answers the handshake (a daemon start that takes as long as it takes).
     struct SilentHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-            for await _ in AsyncStream<Void>(unfolding: { nil }) {}
+            // Outlives every test here; a test that ends cancels nothing it waits on.
+            try await Task.sleep(for: .seconds(3_600))
             throw CancellationError()
         }
     }
@@ -36,7 +37,7 @@ import Testing
         return false
     }
 
-    static func content(of view: AgentPaneView) -> NSView { view.page ?? view.webView }
+    static func content(of view: AgentPaneView) -> NSView { view.page.map { $0 as NSView } ?? view.webView }
 
     @Test func theFirstFrameShowsALoadingStateWithoutWaitingForThePageOrAcpmux() throws {
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: SilentHost())))
@@ -51,6 +52,15 @@ import Testing
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: SilentHost())))
         _ = await view.model.respond(to: .painted)
         #expect(Self.indicators(in: view).allSatisfy { !Self.shows($0, in: view) })
+        #expect(Self.shows(Self.content(of: view), in: view))
+    }
+
+    @Test func aPaneOverItsLastPagesImageStaysClearUntilThePagePaints() async throws {
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: SilentHost())))
+        view.showsLoadingState = false
+        #expect(Self.indicators(in: view).allSatisfy { !Self.shows($0, in: view) }, "the image under it shows through")
+        #expect(!Self.shows(Self.content(of: view), in: view))
+        _ = await view.model.respond(to: .painted)
         #expect(Self.shows(Self.content(of: view), in: view))
     }
 }
