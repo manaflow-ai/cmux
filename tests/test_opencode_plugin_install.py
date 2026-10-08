@@ -80,6 +80,11 @@ def main() -> int:
         if "cmux-feed-plugin-marker" not in feed_plugin_path.read_text(encoding="utf-8"):
             print(f"FAIL: expected cmux feed marker in {feed_plugin_path}")
             return 1
+        tui_directory = config_dir / "plugins" / "cmux"
+        ownership_marker = tui_directory / ".cmux-owned"
+        if not ownership_marker.exists() or "cmux-opencode-tui-plugin-ownership-marker" not in ownership_marker.read_text(encoding="utf-8"):
+            print(f"FAIL: expected cmux TUI ownership marker at {ownership_marker}")
+            return 1
 
         try:
             config = json.loads(config_json.read_text(encoding="utf-8"))

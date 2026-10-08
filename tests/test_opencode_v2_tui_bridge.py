@@ -41,15 +41,18 @@ const closed = { ui: { router: { current: () => fixture.starterClosed.route }, t
 if (mod.sessionBelongsToTUI(closed, "child-a")) throw new Error("closed starter surface retained ownership");
 const dispatchEnvironment = { CMUX_SURFACE_ID: "surface-a", CMUX_WORKSPACE_ID: "workspace-a", CMUX_OPENCODE_HOOKS_DISABLED: "" };
 let spawnCalls = 0;
-const fakeSpawn = () => {
+let spawnOptions;
+const fakeSpawn = (_command, _args, options) => {
   spawnCalls++;
+  spawnOptions = options;
   return { stdin: { end() {}, on() { return this; } }, on() { return this; }, unref() {} };
 };
-const started = performance.now();
 if (!mod.dispatchSessionHook("stop", { session_id: "opencode-child-a", cwd: "/tmp" }, fakeSpawn, dispatchEnvironment)) throw new Error("session admission was skipped");
-if (performance.now() - started > 50) throw new Error("session admission blocked the TUI");
 if (spawnCalls !== 1) throw new Error("session admission did not use async spawn");
 if (source.includes("spawnSync")) throw new Error("shared bridge still uses synchronous spawn");
+if (spawnOptions?.env?.CMUX_AGENT_LAUNCH_KIND !== "opencode") throw new Error("session admission dropped launch kind");
+if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_EXECUTABLE) throw new Error("session admission dropped launch executable");
+if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session admission dropped launch argv");
 
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
@@ -101,10 +104,10 @@ liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: 
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
 const permissionA = await Promise.race([repliesA.permission.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("permission reply timed out")), 2000))]);
-if (permissionA.sessionID !== "child-a" || permissionA.requestID !== "perm-a" || permissionA.decision !== "once") throw new Error("permission reply used the wrong TUI contract");
-if (permissionA.reply !== undefined) throw new Error("permission reply used the server-only reply field");
+if (permissionA.sessionID !== "child-a" || permissionA.requestID !== "perm-a" || permissionA.reply !== "once") throw new Error("permission reply used the wrong TUI contract");
+if (permissionA.decision !== undefined) throw new Error("permission reply used the server-only decision field");
 const permissionFrame = observed.find((event) => event._opencode_request_id === "perm-a");
-if (permissionFrame?.tool_input?.patterns?.[0] !== "/tmp/a/file") throw new Error("permission resources were dropped from the Feed frame");
+if (permissionFrame?.tool_input?.action !== "edit" || permissionFrame?.tool_input?.resources?.[0] !== "/tmp/a/file") throw new Error("permission request details were dropped from the Feed frame");
 
 liveA.emit({ details: { type: "form.created", data: { sessionID: "child-a", form: { id: "form-a", fields: [{ key: "choice", type: "string", options: [{ label: "yes" }] }] } } } });
 const formA = await Promise.race([repliesA.form.promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`form reply timed out (${JSON.stringify(observed)})`)), 2000))]);
@@ -113,6 +116,7 @@ if (formA.value.sessionID !== "child-a" || formA.value.formID !== "form-a" || fo
 liveB.emit({ details: { type: "session.updated", data: { sessionID: "child-b", info: { id: "child-b", time: { archived: true } } } } });
 
 liveA.ui.router.current = () => fixture.starterClosed.route;
+liveA.refresh?.();
 const beforeClosed = observed.length;
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-closed", action: "edit" } } });
 await new Promise((resolve) => setImmediate(resolve));

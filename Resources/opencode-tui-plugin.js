@@ -55,7 +55,9 @@ function visibleRoots(ctx) {
   try {
     const route = ctx?.ui?.router?.current?.() || ctx?.ui?.route?.current;
     const routeID = route?.sessionID || route?.sessionId || route?.params?.sessionID || route?.params?.sessionId;
-    if (route?.type === "session" || route?.name === "session" || routeID) roots.add(rootFor(ctx, routeID));
+    if ((route?.type === "session" || route?.name === "session") && routeID) {
+      roots.add(rootFor(ctx, routeID));
+    }
     if (ctx?.ui?.tabs?.enabled?.() !== false) {
       for (const tab of ctx?.ui?.tabs?.list?.() || []) {
         const idForTab = typeof tab === "string" ? tab : tab?.sessionID || tab?.sessionId || tab?.id;
@@ -91,11 +93,11 @@ function createOwnership(ctx) {
     }
   }
   return {
-    // Router and tab state are live, but the public TUI API does not expose a
-    // stable change subscription on every supported OpenCode release. Resolve
-    // ownership from the current state for each event so a closed starter
-    // surface cannot retain a session after navigation changes.
-    belongs: (id) => Boolean(id && sessionBelongsToTUI(ctx, id)),
+    // Router and tab state are refreshed by their change notifications. Keep
+    // the ownership predicate O(1) on the event path; supported runtimes that
+    // do not expose a notification can call refresh through this explicit
+    // invalidation handle when their route state changes.
+    belongs: (id) => Boolean(id && roots.has(rootFor(ctx, id))),
     refresh,
     dispose: () => disposers.forEach((stop) => { try { stop(); } catch (_) {} }),
   };
@@ -169,10 +171,12 @@ function sessionEventName(event) {
   return null;
 }
 
-function reportError(ctx, error) {
+function reportError(ctx, _error) {
   try {
     const report = ctx?.error || ctx?.ui?.error || ctx?.onError;
-    if (typeof report === "function") report.call(ctx, error);
+    if (typeof report === "function") {
+      report.call(ctx, "cmux could not process the OpenCode event. Try again.");
+    }
   } catch (_) {}
 }
 

@@ -151,7 +151,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       await ctx.client.permission.reply({
         sessionID: sessionId,
         requestID: requestId,
-        decision: reply,
+        reply,
         ...(message ? { message } : {}),
       });
       return;
@@ -767,26 +767,31 @@ const createCMUXFeed = async (ctx, options = {}) => {
         }
         case "permission.asked": {
           const props = eventProperties(event);
-          const request = props.permission && isObject(props.permission) ? props.permission : props;
-          const requestId = firstString(request.id, request.requestID, request.requestId, props.id);
+          const nestedPermission = isObject(props.permission) ? props.permission : {};
+          const request = props;
+          const requestId = firstString(request.id, request.requestID, request.requestId, nestedPermission.id, nestedPermission.requestID);
           if (!requestId) break;
-          const sid = firstString(request.sessionID, request.sessionId, props.sessionID, props.sessionId) || "unknown";
-          const permission = firstString(request.action, request.permission, request.tool?.name, props.permission, props.tool?.name) || "permission";
-          const resources = Array.isArray(request.resources) ? request.resources : [];
+          const sid = firstString(request.sessionID, request.sessionId, nestedPermission.sessionID, nestedPermission.sessionId) || "unknown";
+          const permission = firstString(request.action, request.permission, nestedPermission.action, nestedPermission.permission, request.tool?.name, nestedPermission.tool?.name) || "permission";
+          const resources = Array.isArray(request.resources)
+            ? request.resources
+            : (Array.isArray(nestedPermission.resources) ? nestedPermission.resources : []);
           const metadata = isObject(request.metadata) ? request.metadata : {};
           const frame = base(sid, {
             hook_event_name: "PermissionRequest",
             _opencode_request_id: requestId,
             tool_name: permission,
             tool_input: {
+              action: request.action,
+              resources,
               permission,
-              patterns: resources.length > 0 ? resources : (Array.isArray(props.patterns) ? props.patterns : []),
-              always: Array.isArray(request.always) ? request.always : (Array.isArray(props.always) ? props.always : []),
+              patterns: resources.length > 0 ? resources : (Array.isArray(request.patterns) ? request.patterns : []),
+              always: Array.isArray(request.always) ? request.always : [],
               save: request.save,
               source: request.source,
               message: request.message,
               metadata,
-              tool: request.tool || props.tool,
+              tool: request.tool,
             },
             context: {
               ...(contextForSession(sid) || {}),

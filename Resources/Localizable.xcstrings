@@ -87833,7 +87833,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+            "value": "cmux non ha potuto installare l'integrazione dell'agente selezionata perché la directory dei plugin è già in uso."
           }
         },
         "ja": {
@@ -87857,7 +87857,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+            "value": "cmux kunne ikke installere den valgte agentintegrasjonen fordi plugin-mappen allerede er i bruk."
           }
         },
         "pl": {
@@ -87869,13 +87869,13 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+            "value": "o cmux não conseguiu instalar a integração do agente selecionada porque o diretório de plugins já está em uso."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+            "value": "cmux не удалось установить выбранную интеграцию агента, поскольку каталог плагинов уже используется."
           }
         },
         "th": {
@@ -87893,7 +87893,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+            "value": "cmux не вдалося встановити вибрану інтеграцію агента, оскільки каталог плагінів уже використовується."
           }
         },
         "zh-Hans": {
@@ -87958,7 +87958,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+            "value": "cmux non ha potuto installare l'integrazione dell'agente selezionata. Reinstalla cmux o esegui di nuovo il comando di installazione degli hook."
           }
         },
         "ja": {
@@ -87982,7 +87982,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+            "value": "cmux kunne ikke installere den valgte agentintegrasjonen. Installer cmux på nytt eller kjør installasjonskommandoen for hooks på nytt."
           }
         },
         "pl": {
@@ -87994,13 +87994,13 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+            "value": "O cmux não conseguiu instalar a integração do agente selecionada. Reinstale o cmux ou execute novamente o comando de instalação dos hooks."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+            "value": "cmux не удалось установить выбранную интеграцию агента. Переустановите cmux или снова выполните команду установки hooks."
           }
         },
         "th": {
@@ -88018,7 +88018,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+            "value": "cmux не вдалося встановити вибрану інтеграцію агента. Перевстановіть cmux або повторно виконайте команду встановлення hooks."
           }
         },
         "zh-Hans": {

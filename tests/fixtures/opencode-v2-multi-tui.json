@@ -4,5 +4,5 @@
     "b": {"route": {"type": "session", "sessionID": "child-b"}, "tabs": ["tab-b"]}
   },
   "roots": {"child-a": "root-a", "tab-a": "root-a", "child-b": "root-b", "tab-b": "root-b"},
-  "starterClosed": {"route": {"type": "home"}, "tabs": []}
+  "starterClosed": {"route": {"type": "home", "sessionID": "child-a"}, "tabs": []}
 }
