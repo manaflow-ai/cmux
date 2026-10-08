@@ -1,16 +1,31 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
-@@ -918,6 +918,9 @@
-     }
+@@ -628,10 +628,11 @@
+             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
+             l.avatarSpec = c.avatar; l.avatarGeneration = generation
+         }
+-        // The unread dot left of the avatar's top, outside the bubble (to verify).
++        // cmux: the unread dot on the tile's leading edge, below the unread bubble when one is
++        // shown, so a wide bubble never covers it (SidebarDraw.tileUnreadDot).
+         l.dot.isHidden = !c.unread
+-        let r = ar.width / 2
+-        l.dot.frame = CGRect(x: ar.midX - r * 0.86 - 6, y: ar.midY - r * 0.5 - 6, width: 12, height: 12)
++        let shownBubble = c.unread && !c.typing ? SidebarDraw.tileBubble(c, metrics: metrics)?.rect : nil
++        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: shownBubble)
+         l.dot.cornerRadius = 6
+         l.dot.backgroundColor = palette.unread
+         if c.typing {
+@@ -919,6 +920,9 @@
  
      // MARK: Hover
-+
+ 
 +    /// cmux: off (Messages shows no hover on rows or tiles).
 +    static let showsHover = false
- 
++
      func mouseMoved(_ p: CGPoint?) {
          let h = p.flatMap(hit)
-@@ -928,6 +931,9 @@
+         guard h != hovered else { return }
+@@ -928,6 +932,9 @@
      private func updateHover() {
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
