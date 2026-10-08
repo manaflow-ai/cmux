@@ -280,11 +280,12 @@ struct ClaudeBackgroundSessionRestoreTests {
         let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
         defer { restored.teardownAllPanels() }
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredViewerPanelID = try #require(restoredIDs[viewerPanelID])
+        let restoredSpawningPanelID = try #require(restoredIDs[spawningPanelID])
         let viewerInput = try #require(
-            restored.terminalPanel(for: try #require(restoredIDs[viewerPanelID]))?
-                .surface.debugInitialInputForTesting()
+            restored.terminalPanel(for: restoredViewerPanelID)?.surface.debugInitialInputForTesting()
         )
-        let spawningInput = restored.terminalPanel(for: try #require(restoredIDs[spawningPanelID]))?
+        let spawningInput = restored.terminalPanel(for: restoredSpawningPanelID)?
             .surface.debugInitialInputForTesting()
 
         #expect(viewerInput.contains("'attach' '\(jobID)'"), Comment(rawValue: viewerInput))
