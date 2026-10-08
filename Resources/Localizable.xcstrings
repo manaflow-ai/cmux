@@ -644224,7 +644224,126 @@
           }
         }
       }
-    }
+    },
+      "featureFlags.macAccountDirectory.title": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Cross-team My Devices"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Teamübergreifende Meine Geräte"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mes appareils entre équipes"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "أجهزتي عبر الفرق"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mis dispositivos entre equipos"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "跨團隊我的裝置"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "跨团队我的设备"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "팀 간 내 기기"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "チーム横断のマイデバイス"
+            }
+          }
+        }
+      },
+
+      "featureFlags.macAccountDirectory.description": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Finds and connects your Macs signed in to the same account even when they selected different teams."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Findet und verbindet deine Macs mit demselben Konto, auch wenn sie unterschiedliche Teams ausgewählt haben."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Trouve et connecte vos Mac connectés au même compte, même s’ils ont sélectionné des équipes différentes."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يعثر على أجهزة Mac المسجّلة بالحساب نفسه ويصلها حتى لو اختارت فرقًا مختلفة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Encuentra y conecta tus Mac con la misma cuenta aunque hayan seleccionado equipos distintos."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "尋找並連線登入同一帳號的 Mac，即使它們選擇了不同的團隊。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "查找并连接登录同一账号的 Mac，即使它们选择了不同的团队。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "다른 팀을 선택했더라도 같은 계정에 로그인한 Mac을 찾아 연결합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "異なるチームを選択していても、同じアカウントでサインインしている Mac を見つけて接続します。"
+            }
+          }
+        }
+      }
   },
   "version": "1.0"
 }

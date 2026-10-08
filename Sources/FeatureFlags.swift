@@ -201,6 +201,25 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
     )
 
+    // FLAG(key: mac-account-directory-release, owner: lawrencecchen,
+    //      reviewBy: 2027-01-31, defaultWhenUnavailable: true)
+    // Lets My Devices find and admit the same user's Macs across teams through
+    // the per-user account directory. Off falls back to team-only discovery
+    // and admission; the enabled fallback keeps the shipping behavior when
+    // PostHog is unavailable, and a remote false value is the kill switch.
+    nonisolated static let macAccountDirectoryFlag = CmuxFeatureFlagDefinition(
+        key: "mac-account-directory-release",
+        title: String(
+            localized: "featureFlags.macAccountDirectory.title",
+            defaultValue: "Cross-team My Devices"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.macAccountDirectory.description",
+            defaultValue: "Finds and connects your Macs signed in to the same account even when they selected different teams."
+        ),
+        defaultWhenUnavailable: true
+    )
+
     // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
     // Shows the bottom-left sidebar iPhone button that opens the Tailscale
@@ -311,7 +330,8 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
-            CmuxFeatureFlags.conversationSidebarFlag
+            CmuxFeatureFlags.conversationSidebarFlag,
+            CmuxFeatureFlags.macAccountDirectoryFlag
         ]
     }()
 
