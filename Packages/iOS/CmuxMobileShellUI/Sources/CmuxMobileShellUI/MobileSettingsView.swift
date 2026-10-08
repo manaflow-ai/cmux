@@ -85,10 +85,8 @@ struct MobileSettingsView: View {
     /// can navigate to any screen (terminal, chat) and watch it play there.
     @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
     #endif
-
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var keyboardCorrectionPreference = keyboardCorrectionPreference
         #if DEBUG
         let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
         let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
@@ -96,13 +94,11 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
-
                 // Plan and App Store subscription, for a signed-in account.
                 // Renders nothing when the host injected no billing model.
                 if authManager.isAuthenticated {
                     MobileSettingsPlanSection()
                 }
-
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is
                 // dismissed (HIG: keep skippable onboarding-style content
@@ -123,7 +119,6 @@ struct MobileSettingsView: View {
                         .accessibilityIdentifier("MobileSettingsWhatsNewRow")
                     }
                 }
-
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
                 // checkmark on the current one — so every team is visible at a glance
@@ -164,7 +159,6 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
-
                 // One row per connected Mac: transport is per computer (each
                 // dials its own configured method), so the old single "Active
                 // Transport" row became a per-row trailing label, and a row
@@ -311,21 +305,7 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
-                    Toggle(isOn: $keyboardCorrectionPreference.isEnabled) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.string(
-                                "mobile.settings.keyboardCorrections",
-                                defaultValue: "Autocomplete and Autocorrect"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.keyboardCorrectionsFooter",
-                                defaultValue: "Allow iOS to suggest, autocorrect, and spell-check terminal input. Off by default because corrections can change commands."
-                            ))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsKeyboardCorrectionsToggle")
+                    MobileKeyboardCorrectionsToggle(preference: keyboardCorrectionPreference)
 
                     Button {
                         showingShortcuts = true

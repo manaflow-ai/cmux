@@ -72,16 +72,13 @@ final class AppCompositionRoot {
     /// of the process (closes Sentry + purges its stores if telemetry is
     /// turned off mid-session).
     let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
-
     /// The bounded, structured connection log shared by the Iroh runtime and
     /// mobile shell. It is present in release builds, but its schema accepts
     /// only fixed categories and integer magnitudes, never terminal contents,
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
-
     /// Owns UIKit lifecycle observers and removes them with the app graph.
     private let appLifecycleDiagnostics: MobileAppLifecycleDiagnostics
-
     /// The consolidated on-disk log pair: `cmux-app.log` (app-wide, including
     /// the mirrored string debug log) and `cmux-network.log` (network
     /// diagnostics). Fed by the diagnostic ring's event tap; always on, since

@@ -71,7 +71,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
     /// Called when the shared-sizing chip on the terminal is tapped.
     var onSharedSizingChipTapped: @MainActor () -> Void = {}
-
     /// Who answers terminal queries: the Mac (mirror), the server's
     /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
     static func localEmulation(store: CMUXMobileShellStore, surfaceID: String) -> TerminalLocalEmulation {
@@ -81,7 +80,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         case false?: .authoritative
         }
     }
-
     func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
         do {
@@ -156,7 +154,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         )
         return GhosttySurfaceHostViewController(hostView: host)
     }
-
     func updateUIViewController(_ controller: UIViewController, context: Context) {
         let uiView = controller.view
         // Bytes flow via the byte sink; the prop-driven mutations are the autofocus
@@ -232,7 +229,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // width's wrapping. No-op when closed or when the height is unchanged.
         context.coordinator.remeasureComposerForLayoutChange()
     }
-
     static func dismantleUIViewController(_ controller: UIViewController, coordinator: Coordinator) {
         (controller.view as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
@@ -242,7 +238,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         coordinator.releaseGateUIProbe?.terminalDidUnmount(surfaceID: coordinator.surfaceID)
         #endif
     }
-
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         #if DEBUG
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
@@ -391,7 +386,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         /// (previews, isolated harnesses). Lazy so production mounts, which
         /// receive the composition root's tracker, never build one.
         lazy var fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
-
         init(
             workspaceID: String,
             surfaceID: String,
@@ -439,7 +433,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             self.viewportReportRetryClock = viewportReportRetryClock
             super.init()
         }
-
         func attach(surfaceView: GhosttySurfaceView) {
             if let currentSurfaceView = self.surfaceView,
                currentSurfaceView !== surfaceView {
@@ -454,7 +447,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 resetRestartFailure: true
             )
         }
-
         private func startMountedTasks(
             surfaceView: GhosttySurfaceView,
             resetRestartFailure: Bool = false
