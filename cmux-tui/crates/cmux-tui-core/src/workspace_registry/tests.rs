@@ -6310,4 +6310,5 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     fs::remove_dir_all(root).unwrap();
 }
 
+mod exit_snapshot_generations;
 mod terminal_keep_tests;

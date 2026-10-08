@@ -39,6 +39,7 @@ public struct SidebarMapping {
                     color: color(group.color) ?? .grey,
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
+                    icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
                     workspaces: rows
                 )))
             } else {
