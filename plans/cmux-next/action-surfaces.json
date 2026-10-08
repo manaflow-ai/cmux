@@ -3398,6 +3398,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "clipboard",
+      "cli_name" : "action workspace-group-copy-i-d",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.copyID",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Workspace Group ID",
+      "title_key" : "action.workspaceGroup.copyID",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "workspace-group collapse",
       "context_menu" : "familyMember",
@@ -3842,9 +3868,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space new-window",
-      "context_menu" : "minimalMenu",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "profile"
       ],
       "default_aliases" : [
 
@@ -3868,9 +3894,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space new-workspace",
-      "context_menu" : "minimalMenu",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "profile"
       ],
       "default_aliases" : [
 
@@ -4232,9 +4258,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space clear-icon",
-      "context_menu" : "minimalMenu",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "profile"
       ],
       "default_aliases" : [
 
@@ -11964,9 +11990,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser open-link-in-default",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "browserLink"
       ],
       "default_aliases" : [
 
@@ -20631,6 +20657,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "pane close-others",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.closeOthers",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "Close Other Panes",
+      "title_key" : "action.pane.closeOthers",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "pane rename",
       "context_menu" : "offered",
       "context_menus" : [
@@ -22127,6 +22179,32 @@
       },
       "title" : "Edit Bookmark…",
       "title_key" : "action.bookmark.edit",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action bookmark-copy-link",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "bookmark"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.copyLink",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Bookmark Link",
+      "title_key" : "action.bookmark.copyLink",
       "title_table" : "BookmarkActions"
     },
     {
@@ -24346,9 +24424,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.toggleBar",
+          "id" : "bookmark.copyLink",
           "kind" : "action",
           "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 12
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.toggleBar",
+          "kind" : "action",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -24361,7 +24456,7 @@
           "enabled_when" : "can_perform",
           "id" : "bookmark.manager",
           "kind" : "action",
-          "order" : 12,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -24372,13 +24467,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 13
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "bookmark.remove",
           "kind" : "action",
-          "order" : 14,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -24599,14 +24694,27 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "openLinkInDefaultBrowser",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 5
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "browser.link.openInIncognitoWindow",
           "kind" : "action",
-          "order" : 6,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -24617,24 +24725,11 @@
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "browser.link.saveAs",
-          "kind" : "action",
-          "order" : 8,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "browser.link.copy",
           "kind" : "action",
           "order" : 9,
           "visible_when" : {
@@ -24647,9 +24742,22 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browser.link.copyText",
+          "id" : "browser.link.copy",
           "kind" : "action",
           "order" : 10,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "browser.link.copyText",
+          "kind" : "action",
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -25256,6 +25364,7 @@
           "enabled_when" : "can_perform",
           "id" : "browserProfile.setIcon",
           "kind" : "action",
+          "label" : "Set Icon…",
           "order" : 9,
           "visible_when" : {
             "debug_only" : false,
@@ -25269,6 +25378,7 @@
           "enabled_when" : "can_perform",
           "id" : "browserProfile.clearIcon",
           "kind" : "action",
+          "label" : "Remove Icon",
           "order" : 10,
           "visible_when" : {
             "debug_only" : false,
@@ -26055,19 +26165,6 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "newColumn",
-          "kind" : "action",
-          "order" : 2,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "children" : [
             {
               "enabled_when" : "can_perform",
@@ -26110,7 +26207,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitBrowserRight",
+              "id" : "newColumn",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -26123,7 +26220,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitBrowserDown",
+              "id" : "splitBrowserRight",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -26136,9 +26233,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "remote.openTerminalHere",
+              "id" : "splitBrowserDown",
               "kind" : "action",
               "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "remote.openTerminalHere",
+              "kind" : "action",
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "remoteHosts",
@@ -26151,7 +26261,7 @@
               "enabled_when" : "can_perform",
               "id" : "newPaneAutoLayout",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -26162,13 +26272,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 7
+              "order" : 8
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.newSimulatorPane",
               "kind" : "action",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -26180,20 +26290,20 @@
           ],
           "folder" : "new",
           "kind" : "folder",
-          "order" : 3,
+          "order" : 2,
           "title" : "New",
           "title_key" : "menu.folder.new",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 4
+          "order" : 3
         },
         {
           "enabled_when" : "can_perform",
           "id" : "renamePane",
           "kind" : "action",
-          "order" : 5,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26204,7 +26314,7 @@
         },
         {
           "kind" : "separator",
-          "order" : 6
+          "order" : 5
         },
         {
           "children" : [
@@ -26302,20 +26412,20 @@
           ],
           "folder" : "move",
           "kind" : "folder",
-          "order" : 7,
+          "order" : 6,
           "title" : "Move",
           "title_key" : "menu.folder.move",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 7
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSplitZoom",
           "kind" : "action",
-          "order" : 9,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26519,14 +26629,14 @@
           ],
           "folder" : "layout",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 9,
           "title" : "Layout",
           "title_key" : "menu.folder.layout",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 10
         },
         {
           "children" : [
@@ -26559,20 +26669,20 @@
           ],
           "folder" : "connection",
           "kind" : "folder",
-          "order" : 12,
+          "order" : 11,
           "title" : "Connection",
           "title_key" : "menu.folder.connection",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 13
+          "order" : 12
         },
         {
           "enabled_when" : "can_perform",
           "id" : "triggerFlash",
           "kind" : "action",
-          "order" : 14,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26612,18 +26722,31 @@
           ],
           "folder" : "copy",
           "kind" : "folder",
-          "order" : 15,
+          "order" : 14,
           "title" : "Copy",
           "title_key" : "menu.folder.copy",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 16
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closePane",
+          "kind" : "action",
+          "order" : 16,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "pane.closeOthers",
           "kind" : "action",
           "order" : 17,
           "visible_when" : {
@@ -26643,10 +26766,56 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
+          "id" : "space.newWorkspace",
+          "kind" : "action",
+          "label" : "New Workspace",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "space.newWindow",
+          "kind" : "action",
+          "label" : "New Window",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 2
+        },
+        {
+          "enabled_when" : "can_perform",
           "id" : "space.setIcon",
           "kind" : "action",
           "label" : "Change Space Icon…",
-          "order" : 0,
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "space.clearIcon",
+          "kind" : "action",
+          "label" : "Remove Space Icon",
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26659,7 +26828,7 @@
           "enabled_when" : "can_perform",
           "id" : "space.rename",
           "kind" : "action",
-          "order" : 1,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26904,7 +27073,7 @@
           "id" : "space.setColor",
           "kind" : "submenu",
           "label" : "Edit Theme Color…",
-          "order" : 2,
+          "order" : 6,
           "title_from" : "action",
           "visible_when" : {
             "debug_only" : false,
@@ -26923,7 +27092,7 @@
           "id" : "browserProfile.setSpaceDefault",
           "kind" : "choices",
           "label" : "Set Browser Profile…",
-          "order" : 3,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26934,14 +27103,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 4
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.newGroup",
           "kind" : "action",
           "label" : "New Group",
-          "order" : 5,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26952,13 +27121,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 6
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.delete",
           "kind" : "action",
-          "order" : 7,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27217,6 +27386,7 @@
               "enabled_when" : "can_perform",
               "id" : "screen.setIcon",
               "kind" : "action",
+              "label" : "Set Icon…",
               "order" : 1,
               "visible_when" : {
                 "debug_only" : false,
@@ -27230,6 +27400,7 @@
               "enabled_when" : "can_perform",
               "id" : "screen.clearIcon",
               "kind" : "action",
+              "label" : "Remove Icon",
               "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
@@ -28929,7 +29100,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tab.setIcon",
+              "id" : "terminal.clearTheme",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -28942,8 +29113,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "terminal.clearTheme",
+              "id" : "tab.setIcon",
               "kind" : "action",
+              "label" : "Set Icon…",
               "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
@@ -28957,6 +29129,7 @@
               "enabled_when" : "can_perform",
               "id" : "tab.clearIcon",
               "kind" : "action",
+              "label" : "Remove Icon",
               "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
@@ -30316,6 +30489,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.setIcon",
               "kind" : "action",
+              "label" : "Set Icon…",
               "order" : 1,
               "visible_when" : {
                 "debug_only" : false,
@@ -30329,6 +30503,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.clearIcon",
               "kind" : "action",
+              "label" : "Remove Icon",
               "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
@@ -30545,8 +30720,21 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "workspaceGroup.copyID",
+          "kind" : "action",
+          "order" : 13,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 13
+          "order" : 14
         },
         {
           "children" : [
@@ -30592,7 +30780,7 @@
           ],
           "folder" : "close",
           "kind" : "folder",
-          "order" : 14,
+          "order" : 15,
           "title" : "Close",
           "title_key" : "menu.folder.close",
           "title_table" : "Localizable"
@@ -30823,6 +31011,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.setIcon",
               "kind" : "action",
+              "label" : "Set Icon…",
               "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
@@ -30836,6 +31025,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.clearIcon",
               "kind" : "action",
+              "label" : "Remove Icon",
               "order" : 4,
               "visible_when" : {
                 "debug_only" : false,

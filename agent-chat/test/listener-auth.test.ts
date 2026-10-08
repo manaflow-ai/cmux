@@ -4,7 +4,8 @@
 // a token is mandatory (generated per launch when no launcher gives one),
 // and every route refuses a foreign Host or Origin.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,22 +22,33 @@ async function waitForFile(path: string): Promise<string> {
   throw new Error(`${path} was not written`);
 }
 
-async function startServer(token?: string): Promise<Server> {
-  const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+function serverEnv(dir: string): Record<string, string> {
   // A minimal PATH: the server's startup probes agent CLIs on PATH, and the
   // test must neither start them nor depend on them.
-  const env: Record<string, string> = {
+  return {
     PATH: "/usr/bin:/bin",
     HOME: dir,
     CMUX_AGENT_CHAT_PORT: "0",
     CMUX_AGENT_CHAT_STATE_FILE: join(dir, "state.json"),
     CMUX_AGENT_CHAT_TOKEN_FILE: join(dir, "token"),
   };
-  if (token) env.CMUX_AGENT_CHAT_TOKEN = token;
+}
+
+/// A server; `token` is handed over an inherited descriptor (--token-fd 3),
+/// as a launcher does: never argv or the environment.
+async function startServer(token?: string): Promise<Server> {
+  const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+  const env = serverEnv(dir);
   const log = Bun.file(join(dir, "server.log"));
-  const proc = Bun.spawn([process.execPath, "server.ts"], {
-    cwd: join(import.meta.dir, ".."), env, stdout: log, stderr: log,
+  let fd: number | undefined;
+  if (token) {
+    await writeFile(join(dir, "given"), `${token}\n`, { mode: 0o600 });
+    fd = openSync(join(dir, "given"), "r");
+  }
+  const proc = Bun.spawn([process.execPath, "server.ts", ...(token ? ["--token-fd", "3"] : [])], {
+    cwd: join(import.meta.dir, ".."), env, stdio: ["ignore", log, log, ...(fd === undefined ? [] : [fd])] as any,
   });
+  if (fd !== undefined) closeSync(fd);
   const state = JSON.parse(await waitForFile(env.CMUX_AGENT_CHAT_STATE_FILE).catch(async (error) => {
     throw new Error(`${error}; server log:\n${await log.text().catch(() => "")}`);
   }));
@@ -84,7 +96,8 @@ test("a server started without a token generates one and keeps it owner-only", a
 
 test("path tricks never reach a route without the token", async () => {
   const host = { Host: `127.0.0.1:${generated.port}` };
-  for (const path of [`/${token}/../api/theme`, `//${token}/api/theme`, `/healthz/../api/theme`, `/api/theme?token=${token}`]) {
+  for (const path of [`/${token}/../api/theme`, `//${token}/api/theme`, `/healthz/../api/theme`, `/api/theme?token=${token}`,
+    `/%2F${token}/api/theme`, `/${token}%2Fapi/theme`, `/x/..%2F${token}/api/theme`]) {
     expect({ path, status: await request(generated.port, path, host) }).toEqual({ path, status: 404 });
   }
 });
@@ -104,6 +117,61 @@ test("Host edge cases are refused", async () => {
   }
   expect([400, 403]).toContain(await request(generated.port, `/${token}/api/theme`, {}));
   expect(await request(generated.port, `/${token}/api/theme`, { Host: `LOCALHOST:${generated.port}` })).toBe(200);
+});
+
+/** One raw request; returns the status code and the Location header. */
+function requestWithLocation(port: number, path: string, headers: Record<string, string>, method = "GET", body = ""): Promise<{ status: number; location: string | null }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let data = "";
+    socket.setEncoding("latin1");
+    socket.on("connect", () => {
+      const lines = [`${method} ${path} HTTP/1.1`, ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`), "Connection: close", "", ""];
+      socket.write(lines.join("\r\n") + body);
+    });
+    socket.on("data", (chunk) => { data += chunk; });
+    socket.on("error", reject);
+    socket.on("close", () => {
+      const status = /^HTTP\/1\.1 (\d{3})/.exec(data);
+      if (!status) return reject(new Error(`no status: ${JSON.stringify(data)}`));
+      const location = /\r\nlocation: ([^\r]*)\r\n/i.exec(data);
+      resolve({ status: Number(status[1]), location: location ? location[1] : null });
+    });
+  });
+}
+
+async function issueCode(port: number, path: string): Promise<{ status: number; url?: string }> {
+  const res = await fetch(`http://127.0.0.1:${port}/${token}/api/open-code`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }),
+  });
+  return { status: res.status, url: res.ok ? (await res.json()).url : undefined };
+}
+
+test("an open code redirects once to its page and is then refused", async () => {
+  const host = { Host: `127.0.0.1:${generated.port}` };
+  const issued = await issueCode(generated.port, "/s/abc12345?transparent=1");
+  expect(issued.status).toBe(200);
+  const code = new URL(issued.url!).pathname;
+  expect(code.startsWith("/o/")).toBe(true);
+  expect(issued.url!.includes(token)).toBe(false);
+  expect(await requestWithLocation(generated.port, code, host)).toEqual({ status: 302, location: `/${token}/s/abc12345?transparent=1` });
+  expect((await requestWithLocation(generated.port, code, host)).status).toBe(404);
+});
+
+test("an open code obeys the Host and Origin rules, and a wrong code is refused", async () => {
+  const code = new URL((await issueCode(generated.port, "/")).url!).pathname;
+  expect((await requestWithLocation(generated.port, code, { Host: `evil.example:${generated.port}` })).status).toBe(403);
+  expect((await requestWithLocation(generated.port, code, { Host: `127.0.0.1:${generated.port}`, Origin: "https://evil.example" })).status).toBe(403);
+  const other = new URL((await issueCode(generated.port, "/")).url!).pathname;
+  expect((await requestWithLocation(generated.port, `${other}x`, { Host: `127.0.0.1:${generated.port}` })).status).toBe(404);
+});
+
+test("an open code is never issued for a path outside the page routes, nor without the token", async () => {
+  for (const path of ["//evil.example/", "https://evil.example/", "/api/sessions", "/s/../api/theme", "/o/x"]) {
+    expect({ path, status: (await issueCode(generated.port, path)).status }).toEqual({ path, status: 400 });
+  }
+  const res = await fetch(`http://127.0.0.1:${generated.port}/api/open-code`, { method: "POST", body: JSON.stringify({ path: "/" }) });
+  expect(res.status).toBe(404);
 });
 
 test("a cross-site POST cannot create a session, also with the token", async () => {
@@ -144,6 +212,25 @@ test("a foreign Origin is refused on every route, also with the token", async ()
     expect(await request(generated.port, `/${token}/api/theme`, { ...host, Origin: origin })).toBe(200);
   }
 });
+
+test("a token in argv or the environment is refused at start", async () => {
+  const given = "launcher-token-0123456789abcdef0123456789abcdef";
+  const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+  try {
+    for (const [args, extra] of [[["--token", given], {}], [[`--token=${given}`], {}], [[], { CMUX_AGENT_CHAT_TOKEN: given }]] as const) {
+      const proc = Bun.spawn([process.execPath, "server.ts", ...args], {
+        cwd: join(import.meta.dir, ".."), env: { ...serverEnv(dir), ...extra }, stdout: "ignore", stderr: "pipe",
+      });
+      const code = await Promise.race([proc.exited, Bun.sleep(15_000).then(() => "running" as const)]);
+      if (code === "running") proc.kill();
+      expect({ args, code }).not.toEqual({ args, code: "running" });
+      expect(code).not.toBe(0);
+      expect(await stat(join(dir, "state.json")).catch(() => null)).toBeNull();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test("a launcher token is used as given and no token file is written", async () => {
   const given = "launcher-token-0123456789abcdef0123456789abcdef";
