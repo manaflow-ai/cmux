@@ -145,17 +145,29 @@ public final class FeedStore {
             let chunk = Array(ids[start..<min(start + 256, ids.count)])
             Task { [weak self] in
                 guard let self else { return }
-                let outcome = await self.send(.seen(itemIDs: chunk))
-                // A transport failure did not reach the owner, so a later
-                // visibility pass should retry it. A refusal is authoritative
-                // for this batch (for example, an item disappeared remotely):
-                // keep the ids marked or a visible feed would immediately
-                // resend the same permanently invalid batch on every render.
-                guard case .notSent = outcome else {
-                    return
-                }
-                self.reportedSeen.subtract(chunk)
+                await self.flushSeenChunk(chunk)
             }
+        }
+    }
+
+    private func flushSeenChunk(_ chunk: [FeedItem.ID]) async {
+        guard !chunk.isEmpty else { return }
+        let outcome = await send(.seen(itemIDs: chunk))
+        switch outcome {
+        case .committed:
+            return
+        case .notSent:
+            // A transport failure did not reach the owner, so a later
+            // visibility pass should retry the whole chunk.
+            reportedSeen.subtract(chunk)
+        case .refused:
+            // The owner rejects the whole batch when one id is stale. Split
+            // refusals so valid ids still reach the owner; a refused
+            // singleton stays marked and will not trigger a render loop.
+            guard chunk.count > 1 else { return }
+            let midpoint = chunk.count / 2
+            await flushSeenChunk(Array(chunk[..<midpoint]))
+            await flushSeenChunk(Array(chunk[midpoint...]))
         }
     }
 

@@ -146,6 +146,24 @@ actor TransientSeenFeedSource: FeedSource {
         #expect(await source.seenCalls == 1)
     }
 
+    @Test func refusedSeenBatchStillCommitsValidIds() async throws {
+        let source = MockFeedSource()
+        let store = FeedStore(source: source)
+        store.receive(await source.hub.current)
+
+        // Simulate a remote deletion after the phone's mirror was rendered.
+        _ = try await source.hub.commit { items in
+            items.removeAll { $0.id == "feed2" }
+        }
+        store.reportSeen(["feed1", "feed2"])
+
+        for _ in 0..<100 {
+            if await source.hub.current.value.first(where: { $0.id == "feed1" })?.seenAt != nil { break }
+            await Task.yield()
+        }
+        #expect(await source.hub.current.value.first(where: { $0.id == "feed1" })?.seenAt != nil)
+    }
+
     @Test func transportFailureReleasesSeenReportsForRetry() async {
         let source = TransientSeenFeedSource()
         let store = FeedStore(source: source)
