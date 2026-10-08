@@ -385,7 +385,11 @@ final class BrowserReplTabAttachment {
         }
         let shown = panel.isWebViewVisibleInPane
         let paneWindow = renderHostWebView === webView ? renderHost?.paneWindow : webView.window
-        if shown, paneWindow?.isKeyWindow == true {
+        // The pane flag can lead the hierarchy while a workspace is changing.
+        // Never route native input back into a hidden WebView during that gap.
+        if shown,
+           !webView.isHiddenOrHasHiddenAncestor,
+           paneWindow?.isKeyWindow == true {
             releaseRenderHost()
             return
         }
