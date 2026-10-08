@@ -169,8 +169,7 @@ fn forward(path: &Path, params: &Params) -> anyhow::Result<Value> {
     let stream = checked(path)?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
-    let request =
-        serde_json::json!({"tool": "inspect", "method": "GET", "path": params.path, "query": params.query});
+    let request = serde_json::json!({"tool": "inspect", "method": "GET", "path": params.path, "query": params.query});
     (&stream).write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
     BufReader::new((&stream).take(MAX_REPLY_BYTES as u64 + 1)).read_line(&mut line)?;
