@@ -14,7 +14,7 @@ import Testing
     }
 
     @Test func onlyImagesPDFsAndMediaUseThePreviewTab() {
-        for name in ["shot.png", "photo.jpeg", "paper.pdf", "clip.mp4"] {
+        for name in ["shot.png", "photo.jpeg", "paper.pdf", "clip.mp4", "clip.ogv", "song.oga", "movie.webm"] {
             #expect(FilePageOpener.kind(for: URL(fileURLWithPath: "/repo/\(name)")) == nil, "\(name)")
         }
         // An SVG can carry script: it is never previewed.
