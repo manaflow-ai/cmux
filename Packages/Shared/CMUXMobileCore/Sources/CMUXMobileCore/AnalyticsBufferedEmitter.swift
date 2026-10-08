@@ -200,8 +200,10 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
     ///   - retryBaseDelay: Initial retry delay. Delays grow exponentially and
     ///     are capped by `retryMaxDelay`.
     ///   - retryMaxDelay: Upper bound for one retry delay.
-    ///   - sleep: Injected delay function. The default uses cancellable
-    ///     `Task.sleep` and never polls.
+    ///   - sleep: Injected retry delay function. The default uses cancellable
+    ///     `Task.sleep` and never polls. Batching cadence always uses the same
+    ///     cancellable default clock so cancelling a flush cannot leave a test
+    ///     backoff hook with an unrelated cadence delay.
     public init(
         transport: any AnalyticsUploadTransport,
         isReachable: @escaping @Sendable () -> Bool,
@@ -351,7 +353,7 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
         func scheduleDrain() {
             guard drainTask == nil else { return }
             drainTask = Task {
-                await sleep(batchingInterval)
+                await BufferedAnalytics.defaultSleep(batchingInterval)
                 state.requestDrain()
             }
         }
