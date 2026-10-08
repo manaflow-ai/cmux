@@ -859,3 +859,76 @@ fn without_the_band_the_middle_of_a_row_is_a_gap() {
         Some(Target::Position { section: machine("local"), group: None, index: 3 })
     );
 }
+
+/// The one-list sidebar (`sidebar.groupByComputer` off): the cloud rows follow
+/// the local rows with no cloud header, so the gap between the last local row
+/// (collapsed group g2, y 108..118) and x (y 120..130) is one gap. It takes
+/// the name the dragged item can go to: index 0 of cloud for a cloud item,
+/// the end of local (index 4) for a local one (cx-hzpd).
+fn one_list_rows() -> Vec<Row> {
+    let mut rows = rows();
+    rows.retain(|row| row.key != RowKey::Section { id: machine("cloud") });
+    for row in &mut rows {
+        if row.section == machine("cloud") {
+            row.y -= 12.0;
+        }
+    }
+    rows
+}
+
+fn one_list(y: f64, payload: Payload) -> Option<Target> {
+    resolve(&request_with_rows(y, payload, one_list_rows(), sections()))
+}
+
+fn one_list_tab(y: f64, source: &str) -> Option<TabDrop> {
+    resolve_tab_drop(&TabRequest { rows: one_list_rows(), ..tab_request(y, Some(source)) })
+}
+
+#[test]
+fn one_list_boundary_gap_is_the_cloud_slot_for_a_cloud_workspace() {
+    let cloud_top = Some(Target::Position { section: machine("cloud"), group: None, index: 0 });
+    let y_ids = || Payload::Workspaces { ids: vec!["y".into()] };
+    // The bottom edge of the last local row, the spacing below it, the top of x.
+    for y in [116.0, 119.0, 120.0, 121.0] {
+        assert_eq!(one_list(y, y_ids()), cloud_top, "y {y}");
+    }
+    // The middle of the collapsed group is no gap: a cloud workspace cannot join it.
+    assert_eq!(one_list(113.0, y_ids()), None);
+}
+
+#[test]
+fn one_list_boundary_gap_is_the_local_end_for_a_local_workspace() {
+    let local_end = Some(Target::Position { section: machine("local"), group: None, index: 4 });
+    for y in [116.0, 119.0, 120.0, 121.0] {
+        assert_eq!(one_list(y, Payload::Workspaces { ids: vec!["a".into()] }), local_end, "y {y}");
+    }
+    // Lower in x is a cloud slot, which a local workspace cannot take.
+    assert_eq!(one_list(127.0, Payload::Workspaces { ids: vec!["a".into()] }), None);
+}
+
+#[test]
+fn one_list_boundary_gap_is_the_local_end_for_a_local_group() {
+    let local_end = Some(Target::Position { section: machine("local"), group: None, index: 4 });
+    assert_eq!(one_list(121.0, Payload::Group { id: "g1".into() }), local_end);
+    assert_eq!(one_list(127.0, Payload::Group { id: "g1".into() }), None);
+    assert_eq!(one_list(133.0, Payload::Group { id: "g1".into() }), None, "y is no boundary row");
+}
+
+#[test]
+fn one_list_boundary_gap_takes_a_tab_to_its_own_machine() {
+    let local_end =
+        Some(TabDrop::NewWorkspace { section: machine("local"), group: None, index: 4 });
+    let cloud_top =
+        Some(TabDrop::NewWorkspace { section: machine("cloud"), group: None, index: 0 });
+    assert_eq!(one_list_tab(120.0, "local"), local_end);
+    assert_eq!(one_list_tab(120.0, "cloud"), cloud_top);
+    assert_eq!(one_list_tab(119.0, "cloud"), cloud_top);
+    assert_eq!(one_list_tab(119.0, "local"), local_end);
+}
+
+#[test]
+fn a_section_header_keeps_the_boundary_two_gaps() {
+    // With the cloud header (groupByComputer on) nothing is renamed.
+    assert_eq!(resolve(&request(119.0, Payload::Workspaces { ids: vec!["y".into()] })), None);
+    assert_eq!(resolve(&request(133.0, Payload::Workspaces { ids: vec!["a".into()] })), None);
+}
