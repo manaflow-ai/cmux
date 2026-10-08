@@ -22,8 +22,10 @@ export const approvalOf = (item: FeedItem): { team: string; request: string; dig
 }
 
 /** The outbox item that tells the posting ConnectionDO the person's decision, or none. */
-export const approvalDecision = (item: FeedItem, decision: "allow" | "deny"): ReadonlyArray<OutboxItem> => {
+export const approvalDecision = (item: FeedItem, decision: "allow" | "deny", ssoTeam?: string): ReadonlyArray<OutboxItem> => {
   const a = approvalOf(item)
   if (!a) return []
-  return [{ kind: "integration.approval.answered", entity: `approval:${a.request}`, payload: { request: a.request, decision, digest: a.digest }, target: { class: "ConnectionDO", name: a.team } }]
+  // The answering session's SSO team: the posting team checks it at answer time when it enforces SSO.
+  const sso = decision === "allow" && ssoTeam ? { sso_team: ssoTeam } : {}
+  return [{ kind: "integration.approval.answered", entity: `approval:${a.request}`, payload: { request: a.request, decision, digest: a.digest, ...sso }, target: { class: "ConnectionDO", name: a.team } }]
 }
