@@ -40,13 +40,17 @@ callback-gap fraction, not Apple's animation hitch ratio.
 | --- | --- |
 | `fetch_*` | Successful `feed.list` request, including transport and host work |
 | `decode_*` | Worker scheduling, decode, and return to the shell actor |
-| `apply_*` | Synchronous snapshot application and merged model projection |
+| `apply_*` | Synchronous snapshot application attempt, including revision checks and merged model projection |
 | `projection_*` | Row preparation through publication, excluding search debounce |
 
-Cancelled/obsolete projection results do not count as published work. Update
-intervals spanning Feed visibility or app-activity boundaries are excluded.
-`updates_while_scrolling` counts completed snapshot applications during a
-scroll. It is an activity signal, not a count of active agents. Item counts
+Cancelled/obsolete projection results do not count as published work. Fetch
+and decode timings omit requests cancelled or replaced before the response
+reaches the shell actor. Update intervals spanning Feed visibility or
+app-activity boundaries are excluded. `apply_*` includes attempts rejected by
+revision checks; `updates_while_scrolling` counts those attempts during a
+scroll. Stage counts therefore do not measure the same population. Apply item
+counts describe the merged Feed across Macs, while fetch/decode counts describe
+the response from one Mac. These are workload signals, not counts of active agents. Item counts
 are bounded at 10000. Window IDs are random and contain no row/session IDs.
 
 ## Axiom comparisons
@@ -57,7 +61,10 @@ dataset for simulator experiments. Filter to the exact bundle, build, time
 range, and workload before drawing conclusions. Signed bundle SHA is included
 when present, alongside app version/build, OS, device category, simulator flag,
 and observed cadence distribution. `device_model` currently identifies the
-Apple device category, not its precise hardware model.
+Apple device category, not its precise hardware model. Device category and
+callback-budget histograms are available on individual events but are not
+returned by the comparison query; query those separately when separating
+device categories or 60/120 Hz populations.
 
 Keep simulator and device observations separate. Compare repeated runs with
 the same retained Feed, agent activity, scroll input method, and sampling
@@ -81,7 +88,10 @@ event, at most once per minute per app instance. The bridge waits until
 scrolling settles and sends a constant message/fingerprint plus four fields:
 window ID, worst gap, callback count, and item count. Axiom's
 `ios_feed_scroll_anomaly` carries the same window ID and the returned Sentry
-event ID. Search the `cmux-ios` project for `feature:feed` and
+event ID. Both the Axiom anomaly record and Sentry bridge share the one-per-
+minute limit and are suppressed when the app becomes inactive. Count stalls
+from performance windows, which retain the gap counts and maxima even when
+no anomaly record is emitted. Search the `cmux-ios` project for `feature:feed` and
 `measurement:display_link_callback_gap`, or paste that event ID into Sentry.
 An SDK event ID is a lookup key, not an upload receipt.
 

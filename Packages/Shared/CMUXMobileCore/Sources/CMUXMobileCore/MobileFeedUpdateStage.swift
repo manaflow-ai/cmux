@@ -4,7 +4,7 @@ public enum MobileFeedUpdateStage: String, CaseIterable, Sendable {
     case fetch
     /// Snapshot decode plus worker scheduling and return to the shell actor.
     case decode
-    /// Synchronous snapshot application and merged model projection.
+    /// Synchronous snapshot application attempt, including revision checks and merged projection.
     case apply
     /// Row preparation through publication, excluding deliberate search debounce.
     case projection

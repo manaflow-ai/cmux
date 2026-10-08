@@ -166,7 +166,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
         if elapsed > 0.100 { window.gapsOver100 += 1 }
     }
 
-    /// Records successful stage work only while the Feed is visible and foregrounded.
+    /// Records completed stage work only while the Feed is visible and foregrounded.
     public func updateCompleted(stage: MobileFeedUpdateStage, startedAt: Double, endedAt: Double, itemCount: Int) {
         let elapsed = endedAt - startedAt
         reconcileConsent()
@@ -227,13 +227,14 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
 
     private func emitWindow() {
         reconcileConsent()
-        guard enabled, consentGate.snapshot().isEnabled, window.hasActivity else { return }
+        guard enabled, consentGate.snapshot().isEnabled else { return }
         let snapshot = window
         window = Window()
         window.itemCount = currentItemCount
         let timestamp = now()
         let elapsed = max(0, timestamp - (startedAt ?? timestamp))
         startedAt = timestamp
+        guard snapshot.hasActivity else { return }
         var properties: [String: AnalyticsValue] = [
             "schema_version": .int(1),
             "window_id": .string(snapshot.id),
