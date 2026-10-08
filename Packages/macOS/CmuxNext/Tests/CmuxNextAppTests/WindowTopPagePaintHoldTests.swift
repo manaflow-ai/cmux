@@ -11,6 +11,16 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WindowTopPagePaintHoldTests {
+    /// Counts how often it left its superview: a workspace that leaves
+    /// detaches its panes.
+    final class Workspace: NSView {
+        var removals = 0
+        override func viewWillMove(toSuperview newSuperview: NSView?) {
+            if newSuperview == nil, superview != nil { removals += 1 }
+            super.viewWillMove(toSuperview: newSuperview)
+        }
+    }
+
     private func root() -> WindowRootView {
         let model = SidebarModel()
         model.width = 240
@@ -45,10 +55,10 @@ struct WindowTopPagePaintHoldTests {
     }
 
     /// Selecting the workspace again before the page paints shows it at once
-    /// and takes the page away.
+    /// and takes the page away; the workspace never left the window.
     @Test func goingBackBeforeThePagePaintsShowsTheWorkspace() {
         let root = root()
-        let workspace = NSView()
+        let workspace = Workspace()
         root.show(workspace)
         let page = PanePaintHoldTests.Unpainted()
         root.show(page)
@@ -57,6 +67,7 @@ struct WindowTopPagePaintHoldTests {
         #expect(workspace.superview === root.contentHost)
         #expect(page.superview == nil)
         #expect(page.alphaValue == 1)
+        #expect(workspace.removals == 0, "the workspace left the window and detached its panes")
     }
 
     @Test func anUnpaintedPageWebViewKeepsTheWorkspace() throws {
