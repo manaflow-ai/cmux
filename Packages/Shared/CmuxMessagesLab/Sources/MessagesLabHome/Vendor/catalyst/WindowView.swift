@@ -50,6 +50,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// header exist (the capture blur reads them).
     static let cvTop: CGFloat = -Fixture.headerHeight
     var cvHeight: CGFloat { bounds.height + Fixture.headerHeight }
+    /// The band the outgoing fills span: the visible height and one transcript height above and
+    /// below (scrolling, and the springs and fold slides, which move a row by at most that much).
+    var fillSpan: RowCell.FillSpan { RowCell.FillSpan(viewport: bounds.height, margin: cvHeight) }
     /// Engine time now (live: the media clock; capture: virtual time).
     var clock: () -> Double = { 0 }
     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
@@ -269,6 +272,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor)
+        // The fills follow the new height (cells made later get it in decorate).
+        let span = fillSpan
+        for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
     }
 
     /// cmux: the width this view's rows were derived for.
@@ -305,23 +311,24 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         refreshVisibleCells()
     }
 
-    private func setOffset(_ y: CGFloat) {
+    /* MarkdownHost.swift uses it. */ func setOffset(_ y: CGFloat) {
         guard collection.contentOffset.y != y else { return }
         settingOffset = true
         collection.contentOffset = CGPoint(x: 0, y: y)
         settingOffset = false
     }
 
-    /// Transcript clip: everything above the field top (minus 4 pt).
+    /// Transcript clip: the whole window. macOS 27 Messages draws the transcript under the
+    /// compose glass down to the window's bottom edge (lossless vscroll-check-take1: rows under
+    /// and beside the field while scrolled; send-typed-media-take1: the arriving photo slides up
+    /// from below the field, compose 29.6 when ours clipped it at the field top minus 4 pt).
+    /// At rest the rows end above the field, so nothing changes there.
     private func placeMask(animated: Bool, element: SpringElement?, begin: CFTimeInterval, oldTop: CGFloat) {
-        let top = fieldTop
+        let top = bounds.height + 4
         CATransaction.begin(); CATransaction.setDisableActions(true)
         clipMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: top - 4 + 200)
         clipMask.position = CGPoint(x: bounds.width / 2, y: -200)
         CATransaction.commit()
-        if animated, let element, oldTop != top {
-            Animate.scalar(clipMask, "bounds.size.height", from: Double(oldTop - 4 + 200), to: Double(top - 4 + 200), element, begin: begin)
-        }
     }
 
     // MARK: Transactions
@@ -427,7 +434,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         var rowsChange = true, paging = false, animate = true, rowsUnchanged = false
         switch action {
         case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread: rowsChange = false
-        case .appendText: animate = false
+        case .appendText, .remeasureCustom(_, false): animate = false
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
         default: break
         }
@@ -624,7 +631,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
-        case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _):
+        case let .remeasureCustom(ids, _):
+            guard let i = ids.compactMap(index).min() else { return nil }
+            idx.append(i)
+        case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _), let .setCustomPart(id, _, _):
             guard let i = index(id) else { return nil }
             idx.append(i)
             if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
@@ -1061,17 +1071,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
     }
 
-    private func refreshVisibleCells() {
+    /* MarkdownHost.swift uses it. */ func refreshVisibleCells() {
         // Bench (commit log on): the slowest cells of this refresh, with what they did.
         let logSlow = MessagesWindowView.commitLog != nil
         var slow: [(Double, String)] = []
         for case let cell as RowCell in collection.visibleCells {
             guard let ip = collection.indexPath(for: cell), ip.item < model.count else { continue }
             if logSlow {
-                let t0 = CACurrentMediaTime(), a0 = Animate.serial, r0 = RowCell.syncRenders
+                let t0 = CACurrentMediaTime(), a0 = Animate.serial, r0 = RowCell.syncRenders, d0 = RowCell.deferredRenders
                 decorate(cell, ip.item)
                 let us = (CACurrentMediaTime() - t0) * 1e6
-                if us > 40 { slow.append((us, "\(Int(us))us \(model.rows[ip.item].spec.key.prefix(14)) a\(Animate.serial - a0) r\(RowCell.syncRenders - r0)")) }
+                if us > 40 { slow.append((us, "\(Int(us))us \(model.rows[ip.item].spec.key.prefix(14)) a\(Animate.serial - a0) r\(RowCell.syncRenders - r0) d\(RowCell.deferredRenders - d0)")) }
             } else {
                 decorate(cell, ip.item)
             }
@@ -1095,6 +1105,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let t = CACurrentMediaTime(); MessagesWindowView.decorateStepMs[n] += (t - tmark) * 1000; tmark = t
         }
         defer { step(2) }
+        cell.fillSpan = fillSpan
         cell.configure(r.spec)
         step(0)
         // A row needs the container-motion check once per row shown in this cell and once per new
@@ -1121,6 +1132,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.setConnector(top: nil, bottom: 0, mirrored: false)
         }
         step(1)
+        defer { CustomRows.host?.decorated(cell) }
         for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
             cell.applied.insert(e.id)
             // The previous receipt text is drawn once, when its fade starts on this cell.
@@ -1631,12 +1643,19 @@ extension MessagesWindowView {
                     }
                 }
                 if delta < 0 { for l in [tb.headClip, tb.band] { slide(l, "position.y", l.position.y, by: shown, hold: 0) } }
+                // My tapback badge (a cell layer, not in the tiled container) comes down with the
+                // bubble's top as the other badges in the container do.
+                if delta < 0, let b = c.badge, !b.isHidden { slide(b, "position.y", b.position.y, by: shown, hold: 0) }
                 continue
             }
             if delta > 0, idx > i, let old = before[k] {
                 // Below the message: from its old window position down.
                 let d = c.convert(c.bounds, to: self).minY - old
-                if d > 0.5 { slide(c.layer, "position.y", c.layer.position.y, by: min(d, travel), hold: max(0, d - travel)) }
+                if d > 0.5 {
+                    slide(c.layer, "position.y", c.layer.position.y, by: min(d, travel), hold: max(0, d - travel))
+                    // Its fill moves with it: the band reaches down to where the row starts.
+                    c.extendFillReach(below: d)
+                }
             } else if delta < 0, idx < i {
                 // Above the message: in from one viewport above.
                 slide(c.layer, "position.y", c.layer.position.y, by: shown, hold: 0)
@@ -1645,6 +1664,24 @@ extension MessagesWindowView {
         updateThumb()
         CATransaction.commit()
         userScrolled()
+        // An expanded message can fold: its rows above then slide in from one viewport above.
+        // Their cells are made after the slide settles, a batch per run-loop pass, not in the fold's frame.
+        if delta > 0, let r = collection as? RowRecycler {
+            let n = Self.reserveCellCount(collection.visibleCells.count)
+            let t = Timer(timeInterval: el.settleTime, repeats: false) { [weak self, weak r] _ in
+                if let self, let r { self.reserveCells(r, n) }
+            }
+            RunLoop.main.add(t, forMode: .common)
+        }
+    }
+
+    /// Cells the pool keeps after an expansion: two viewports of rows.
+    static func reserveCellCount(_ visible: Int) -> Int { min(96, max(24, 2 * visible)) }
+    private func reserveCells(_ r: RowRecycler, _ n: Int) {
+        RunLoop.main.perform(inModes: [.common]) { [weak self, weak r] in
+            guard let self, let r, r.reserve(n) else { return }
+            self.reserveCells(r, n)
+        }
     }
 
     /// Measured line counts replace estimates in long text rows, without animation.

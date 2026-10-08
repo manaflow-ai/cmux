@@ -5,6 +5,7 @@
     "CMUXMobileCore": "Packages/Shared/CMUXMobileCore",
     "CmuxAgentBrands": "Packages/Shared/CmuxAgentBrands",
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
+    "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
@@ -82,7 +83,9 @@
         "CmuxNextAgentActivity"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "tests/fixtures/cua-helper-signatures/"
+      ]
     },
     "CmuxNextAgentCursor": {
       "kind": "regular",
@@ -154,8 +157,31 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/cmux-agent-pane-policy/",
         "webviews/test/fixtures/agent-page-csp.txt"
       ]
+    },
+    "CmuxNextAgentQuestion": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
+      "targets": [
+        "CmuxNextDesign"
+      ],
+      "packages": [
+        "CmuxAgentQuestion"
+      ]
+    },
+    "CmuxNextAgentQuestionTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentQuestionTests",
+      "targets": [
+        "CmuxNextAgentQuestion",
+        "CmuxNextDesign"
+      ],
+      "packages": [
+        "CmuxAgentQuestion"
+      ],
+      "reads": []
     },
     "CmuxNextApp": {
       "kind": "regular",
@@ -167,6 +193,7 @@
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentPane",
+        "CmuxNextAgentQuestion",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -190,6 +217,7 @@
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemote",
+        "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteView",
         "CmuxNextResources",
@@ -208,6 +236,7 @@
       "packages": [
         "CmuxAgentBrands",
         "CmuxAgentCursor",
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ]
@@ -246,6 +275,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ],
@@ -1075,7 +1105,9 @@
       "packages": [
         "CmuxUpdater"
       ],
-      "reads": []
+      "reads": [
+        "scripts/whats-new/fixtures/good/1.0.0-nightly.42.json"
+      ]
     },
     "CmuxNextWakeups": {
       "kind": "regular",

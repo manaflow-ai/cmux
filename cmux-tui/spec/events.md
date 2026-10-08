@@ -1419,7 +1419,9 @@ Meaning: A terminal's shared sizing state changed. The server emits it to
 every subscriber and on every legacy attach stream of each placement of the
 terminal, only for connections that sent `shared-sizing-v1` through
 `set-client-info`. `self_participant` is the receiving connection's own view
-id when that view participates. `generation` increases by one per change;
+id when that view participates. `device_kind` is `linux` or `windows` only for
+connections that sent `open-device-kinds-v1`; others receive `unknown` for
+them. `generation` increases by one per change;
 deliveries on different routes may interleave, so ignore a state whose
 generation is not newer than the last one applied.
 

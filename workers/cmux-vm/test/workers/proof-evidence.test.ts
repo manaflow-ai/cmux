@@ -21,6 +21,7 @@ describe("TenantOwnsResource evidence", () => {
     const client = makeUpstreamClient({
       baseUrl: "https://upstream.test",
       apiKey: Redacted.make("k"),
+      environment: "local",
       fetch: async (request) => {
         requested.push(new URL(request.url).pathname);
         return Response.json({ state: "running", resources: { cpu: 1, memory: 1, storage: 1 }, createdAt: "t", updatedAt: "t" });

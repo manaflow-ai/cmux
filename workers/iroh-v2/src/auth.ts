@@ -7,7 +7,9 @@ export interface StackConfiguration {
   readonly environment: string;
   readonly apiURL: string;
   readonly projectId: string;
-  readonly publishableKey: string;
+  /** Optional: the production project requires none, and a revoked key is
+   * refused, so an unset key sends no header. */
+  readonly publishableKey?: string | undefined;
   readonly serverKey?: string;
 }
 
@@ -37,7 +39,7 @@ export class StackAuthority {
     if (origin.protocol !== "https:" || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") {
       throw new Error("Stack authority requires a configured HTTPS origin");
     }
-    if (!configuration.projectId || !configuration.publishableKey) throw new Error("Stack authority is not configured");
+    if (!configuration.projectId) throw new Error("Stack authority is not configured");
     if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) throw new Error("Invalid authentication work bound");
   }
 
@@ -50,9 +52,11 @@ export class StackAuthority {
     if (this.inFlight >= this.maxConcurrent) throw new OperationError("upstream_unavailable", 503, true, 1000);
     this.inFlight++;
     try {
+      const publishableKey = this.configuration.publishableKey?.trim();
       const headers = {
         "x-stack-access-type": "client", "x-stack-project-id": this.configuration.projectId,
-        "x-stack-publishable-client-key": this.configuration.publishableKey, "x-stack-access-token": accessToken,
+        ...(publishableKey ? { "x-stack-publishable-client-key": publishableKey } : {}),
+        "x-stack-access-token": accessToken,
       };
       // Verify the selected team explicitly. No fallback team or claimed user ID
       // can create authority or a user rate bucket.

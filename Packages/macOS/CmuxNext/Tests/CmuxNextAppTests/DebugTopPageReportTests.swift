@@ -21,7 +21,7 @@ struct DebugTopPageReportTests {
         #expect(store["region"]?.stringValue == "top")
         #expect(store["active"]?.boolValue == true)
         #expect(store["window_frame"] != nil, "a frame or null, always present")
-        #expect(items.contains { $0["id"]?.stringValue == "itm_settings" && $0["region"]?.stringValue == "bottom" })
+        #expect(items.contains { $0["id"]?.stringValue == "itm_account" && $0["region"]?.stringValue == "bottom" })
         window.teardown()
         withExtendedLifetime(services) {}
     }

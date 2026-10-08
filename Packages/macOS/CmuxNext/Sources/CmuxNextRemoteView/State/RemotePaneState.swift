@@ -68,6 +68,23 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
         }
     }
 
+    /// Upstream media as the transport reports it; nothing once the session ended.
+    public var upstream: RemoteUpstreamStatus {
+        isEndedState ? RemoteUpstreamStatus() : status?.upstream ?? RemoteUpstreamStatus()
+    }
+
+    /// The per-kind share buttons: only while streaming from a host that offers upstream media.
+    public var showsUpstreamButtons: Bool { sessionState == .streaming && upstream.offered }
+
+    /// The kinds the indicator shows (each holds consent), in a fixed order.
+    public var upstreamIndicator: [RemoteUpstreamKind] {
+        RemoteUpstreamKind.allCases.filter(upstream.active.contains)
+    }
+
+    private var isEndedState: Bool {
+        if case .ended = sessionState { true } else { false }
+    }
+
     /// The toolbar stays pinned (not hover-only) while there is no live picture.
     public var pinsToolbar: Bool { overlay != nil }
 }

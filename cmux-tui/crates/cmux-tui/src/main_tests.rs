@@ -1048,12 +1048,12 @@ fn startup_help_localizes_the_machine_agent_entrypoint() {
     let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
     assert!(english.contains("cmux machine-agent"));
     assert!(english.contains("Share one local session through the configured host"));
-    assert!(english.contains("cmux server <ACTION>"));
+    assert!(english.contains("cmux daemon <ACTION>"));
     assert!(english.contains("Stop a replaceable SSH sidecar explicitly"));
     let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
     assert!(japanese.contains("cmux machine-agent"));
     assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
-    assert!(japanese.contains("cmux server <操作>"));
+    assert!(japanese.contains("cmux daemon <操作>"));
     assert!(japanese.contains("置換可能な SSH サイドカーを明示的に停止"));
     assert!(!japanese.contains("Share one local session"));
     assert!(!japanese.contains("Stop authenticated remote access explicitly"));

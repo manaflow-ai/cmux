@@ -787,268 +787,6 @@
         }
       }
     },
-    "cloud.compat.incompatible": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This machine runs a cmux-tui this app cannot use (%@). Update the machine to connect."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يشغّل هذا الجهاز إصدارًا من cmux-tui لا يمكن لهذا التطبيق استخدامه (%@). حدّث الجهاز للاتصال."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ova mašina koristi cmux-tui koji ova aplikacija ne može koristiti (%@). Ažurirajte mašinu da se povežete."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne maskine kører en cmux-tui, som appen ikke kan bruge (%@). Opdater maskinen for at forbinde."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diese Maschine nutzt ein cmux-tui, das diese App nicht verwenden kann (%@). Aktualisiere die Maschine, um zu verbinden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta máquina ejecuta un cmux-tui que esta app no puede usar (%@). Actualiza la máquina para conectar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cette machine exécute un cmux-tui que cette app ne peut pas utiliser (%@). Mettez la machine à jour pour vous connecter."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questa macchina esegue un cmux-tui che questa app non può usare (%@). Aggiorna la macchina per connetterti."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このマシンの cmux-tui はこのアプリで使えません (%@)。接続するにはマシンをアップデートしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីននេះដំណើរការ cmux-tui ដែលកម្មវិធីនេះមិនអាចប្រើបាន (%@)។ ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន ដើម្បីភ្ជាប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 머신의 cmux-tui는 이 앱에서 사용할 수 없습니다 (%@). 연결하려면 머신을 업데이트하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne maskinen kjører en cmux-tui som appen ikke kan bruke (%@). Oppdater maskinen for å koble til."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ta maszyna działa na cmux-tui, którego ta aplikacja nie może użyć (%@). Zaktualizuj maszynę, aby się połączyć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta máquina executa um cmux-tui que este app não pode usar (%@). Atualize a máquina para conectar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "На этой машине работает cmux-tui, который это приложение не может использовать (%@). Обновите машину, чтобы подключиться."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องนี้ใช้ cmux-tui ที่แอปนี้ใช้ไม่ได้ (%@) อัปเดตเครื่องเพื่อเชื่อมต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu makine, bu uygulamanın kullanamadığı bir cmux-tui çalıştırıyor (%@). Bağlanmak için makineyi güncelleyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "На цій машині працює cmux-tui, який цей застосунок не може використати (%@). Оновіть машину, щоб під'єднатися."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy này chạy cmux-tui mà ứng dụng không dùng được (%@). Hãy cập nhật máy để kết nối."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此机器运行的 cmux-tui 无法被本应用使用（%@）。请更新机器后再连接。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此機器執行的 cmux-tui 無法被本 App 使用（%@）。請更新機器後再連線。"
-          }
-        }
-      }
-    },
-    "cloud.compat.limited": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This machine runs cmux-tui %1$@. Update it to turn on: %2$@."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يشغّل هذا الجهاز cmux-tui %1$@. حدّثه لتفعيل: %2$@."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ova mašina koristi cmux-tui %1$@. Ažurirajte je da uključite: %2$@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne maskine kører cmux-tui %1$@. Opdater den for at slå til: %2$@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diese Maschine nutzt cmux-tui %1$@. Aktualisiere sie, um Folgendes einzuschalten: %2$@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta máquina ejecuta cmux-tui %1$@. Actualízala para activar: %2$@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cette machine exécute cmux-tui %1$@. Mettez-la à jour pour activer : %2$@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questa macchina esegue cmux-tui %1$@. Aggiornala per attivare: %2$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このマシンは cmux-tui %1$@ を実行しています。次を有効にするにはアップデートしてください: %2$@。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីននេះដំណើរការ cmux-tui %1$@។ ធ្វើបច្ចុប្បន្នភាពវា ដើម្បីបើក៖ %2$@។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 머신은 cmux-tui %1$@을(를) 실행합니다. 다음을 켜려면 업데이트하세요: %2$@."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne maskinen kjører cmux-tui %1$@. Oppdater den for å slå på: %2$@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ta maszyna działa na cmux-tui %1$@. Zaktualizuj ją, aby włączyć: %2$@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta máquina executa o cmux-tui %1$@. Atualize-a para ativar: %2$@."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "На этой машине работает cmux-tui %1$@. Обновите её, чтобы включить: %2$@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องนี้ใช้ cmux-tui %1$@ อัปเดตเครื่องเพื่อเปิด: %2$@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu makine cmux-tui %1$@ çalıştırıyor. Şunları açmak için güncelleyin: %2$@."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "На цій машині працює cmux-tui %1$@. Оновіть її, щоб увімкнути: %2$@."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy này chạy cmux-tui %1$@. Hãy cập nhật để bật: %2$@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此机器运行 cmux-tui %1$@。更新后可开启：%2$@。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此機器執行 cmux-tui %1$@。更新後可開啟：%2$@。"
-          }
-        }
-      }
-    },
     "cloud.failed.alreadySignedIn": {
       "extractionState": "manual",
       "localizations": {
@@ -7071,6 +6809,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法連線到 Cloud 機器（%@）。按一下「連線」以重試。"
+          }
+        }
+      }
+    },
+    "cloud.compat.limitedUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine runs cmux-tui %@. Update it to turn on every feature of this app."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل هذا الجهاز cmux-tui %@. حدّثه لتفعيل كل ميزات هذا التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova mašina koristi cmux-tui %@. Ažurirajte je da uključite sve funkcije ove aplikacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskine kører cmux-tui %@. Opdater den for at slå alle funktioner i denne app til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Maschine nutzt cmux-tui %@. Aktualisiere sie, um alle Funktionen dieser App einzuschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina ejecuta cmux-tui %@. Actualízala para activar todas las funciones de esta app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette machine exécute cmux-tui %@. Mettez-la à jour pour activer toutes les fonctions de cette app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa macchina esegue cmux-tui %@. Aggiornala per attivare tutte le funzioni di questa app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは cmux-tui %@ を実行しています。このアプリのすべての機能を有効にするにはアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះដំណើរការ cmux-tui %@។ ធ្វើបច្ចុប្បន្នភាពវា ដើម្បីបើកមុខងារទាំងអស់របស់កម្មវិធីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신은 cmux-tui %@을(를) 실행합니다. 이 앱의 모든 기능을 켜려면 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskinen kjører cmux-tui %@. Oppdater den for å slå på alle funksjonene i denne appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta maszyna działa na cmux-tui %@. Zaktualizuj ją, aby włączyć wszystkie funkcje tej aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina executa o cmux-tui %@. Atualize-a para ativar todos os recursos deste app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этой машине работает cmux-tui %@. Обновите её, чтобы включить все функции этого приложения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้ใช้ cmux-tui %@ อัปเดตเครื่องเพื่อเปิดทุกฟีเจอร์ของแอปนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makine cmux-tui %@ çalıştırıyor. Bu uygulamanın tüm özelliklerini açmak için güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цій машині працює cmux-tui %@. Оновіть її, щоб увімкнути всі функції цього застосунку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này chạy cmux-tui %@. Hãy cập nhật để bật mọi tính năng của ứng dụng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此机器运行 cmux-tui %@。更新后可开启此应用的全部功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此機器執行 cmux-tui %@。更新後可開啟此 App 的全部功能。"
+          }
+        }
+      }
+    },
+    "cloud.compat.incompatibleUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine runs a cmux-tui this app cannot use. Update the machine to connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل هذا الجهاز إصدارًا من cmux-tui لا يمكن لهذا التطبيق استخدامه. حدّث الجهاز للاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova mašina koristi cmux-tui koji ova aplikacija ne može koristiti. Ažurirajte mašinu da se povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskine kører en cmux-tui, som denne app ikke kan bruge. Opdater maskinen for at oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Maschine nutzt ein cmux-tui, das diese App nicht verwenden kann. Aktualisiere die Maschine, um dich zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina ejecuta un cmux-tui que esta app no puede usar. Actualiza la máquina para conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette machine exécute un cmux-tui que cette app ne peut pas utiliser. Mettez la machine à jour pour vous connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa macchina esegue un cmux-tui che questa app non può usare. Aggiorna la macchina per connetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはこのアプリで使用できない cmux-tui を実行しています。接続するにはマシンをアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះដំណើរការ cmux-tui ដែលកម្មវិធីនេះមិនអាចប្រើបាន។ ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន ដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신은 이 앱에서 사용할 수 없는 cmux-tui를 실행합니다. 연결하려면 머신을 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskinen kjører en cmux-tui denne appen ikke kan bruke. Oppdater maskinen for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta maszyna działa na cmux-tui, którego ta aplikacja nie może używać. Zaktualizuj maszynę, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina executa um cmux-tui que este app não pode usar. Atualize a máquina para conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этой машине работает cmux-tui, который это приложение не может использовать. Обновите машину, чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้ใช้ cmux-tui ที่แอปนี้ใช้ไม่ได้ อัปเดตเครื่องเพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makine bu uygulamanın kullanamadığı bir cmux-tui çalıştırıyor. Bağlanmak için makineyi güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цій машині працює cmux-tui, який цей застосунок не може використовувати. Оновіть машину, щоб підключитися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này chạy một bản cmux-tui mà ứng dụng này không dùng được. Hãy cập nhật máy để kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此机器运行的 cmux-tui 无法被此应用使用。请更新机器以连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此機器執行的 cmux-tui 無法被此 App 使用。請更新機器以連線。"
           }
         }
       }

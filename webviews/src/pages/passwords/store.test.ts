@@ -145,4 +145,13 @@ describe("passwords store", () => {
     expect(store.getSnapshot().connection).toBe("disconnected");
     await store.removePassword(sampleData().passwords.default![0]!);
   });
+
+  test("a refused import shows the app's message and changes no list", async () => {
+    const provider = new MockPasswordsProvider();
+    provider.gesture = false;
+    const { store } = await started(provider);
+    await store.importCSV();
+    expect(store.getSnapshot().notice).toEqual({ kind: "failed", message: "Only you can do this." });
+    expect(store.getSnapshot().passwords.length).toBe(4);
+  });
 });

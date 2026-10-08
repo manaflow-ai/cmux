@@ -5,6 +5,7 @@ import Foundation
 public struct CreateTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "create-tab-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     /// Tabs of one pane (wire `surfaces`).
     public var tabs: [SurfaceID]
     /// Caller-chosen id makes a retry idempotent; nil lets the daemon generate `tgrp_...`.
@@ -48,6 +49,7 @@ public struct CreateTabGroupRequest: DaemonRequest {
 public struct UpdateTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "update-tab-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     public var group: TabGroupID
     public var name: String?
     public var color: FieldUpdate<String>

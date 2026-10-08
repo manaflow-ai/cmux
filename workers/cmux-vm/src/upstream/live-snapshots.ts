@@ -4,9 +4,11 @@
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
+import type { Environment } from "../policy.ts";
 import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
+import { upstreamName } from "./naming.ts";
 import { type CreatedSnapshot, UpstreamSnapshot, UpstreamSnapshots, type UpstreamSnapshotsService } from "./snapshots.ts";
 
 const CREATE_TIMEOUT_MS = 120_000;
@@ -30,7 +32,7 @@ export function makeUpstreamSnapshots(config: UpstreamConfig): UpstreamSnapshots
           "POST",
           `/v5/vms/${proofSegment(owns)}/snapshot`,
           {
-            displayName: `cmux ${options.tenantId} ${options.snapshotId}`,
+            displayName: upstreamName(config.environment, options.tenantId, options.snapshotId),
             ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
             ...(options.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: options.autoDeleteSeconds }),
           },
@@ -60,5 +62,5 @@ export function makeUpstreamSnapshots(config: UpstreamConfig): UpstreamSnapshots
   };
 }
 
-export const upstreamSnapshotsLayer = (config: { readonly baseUrl: string; readonly apiKey: string }): Layer.Layer<UpstreamSnapshots> =>
-  Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey) }));
+export const upstreamSnapshotsLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamSnapshots> =>
+  Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));

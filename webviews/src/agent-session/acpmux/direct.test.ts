@@ -605,6 +605,81 @@ describe("direct client session state", () => {
     expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
   });
 
+  // A Claude Code chat still running in a terminal (`claude --resume <id>`): acpmux refuses to
+  // adopt it (`adopt.live`); the pane offers Fork It and Open Anyway instead of a dead end, and the
+  // fork is the tab's session.
+  test("a chat open in another process is offered fork or open, and the fork becomes the tab's session", async () => {
+    const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: "forked", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.fail("session/new", {
+      code: -32602,
+      message: "claude session 0a1b2c3d is open in another process (pid 812: claude --resume 0a1b2c3d)",
+      data: {
+        reason: "adopt.live",
+        details: { signal: "process", pid: 812, command: "claude --resume 0a1b2c3d", canFork: true },
+      },
+    });
+    const client = await connecting;
+    expect(snapshots.at(-1)?.liveChat).toEqual({ canFork: true, command: "claude --resume 0a1b2c3d" });
+    expect(snapshots.at(-1)?.rows.some((row) => row.kind === "notice")).toBe(false);
+    expect(client.adopted).toBeUndefined();
+
+    ScriptedSocket.held = new Set();
+    await client.adoptLive("fork");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.at(-1)?.params._meta.acpmux.adopt).toEqual({ ...adopt, ifLive: "fork" });
+    expect(client.adopted).toBe("forked");
+    expect(snapshots.at(-1)?.liveChat).toBeUndefined();
+    expect(snapshots.at(-1)?.summary?.sessionId).toBe("forked");
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/kill")).toBe(false);
+  });
+
+  test("a live Codex chat offers no fork, and Open Anyway adopts it as it is", async () => {
+    const adopt = { harness: "codex", agentSessionId: "01999a2b" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new")
+        return {
+          sessionId: "opened",
+          _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.fail("session/new", {
+      code: -32602,
+      message: "codex session 01999a2b was written 30s ago by a harness outside cmux",
+      data: { reason: "adopt.live", details: { signal: "recentWrite", agoSeconds: 30, canFork: false } },
+    });
+    const client = await connecting;
+    expect(snapshots.at(-1)?.liveChat).toEqual({ canFork: false });
+
+    ScriptedSocket.held = new Set();
+    await client.adoptLive("fork");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
+    await client.adoptLive("open");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.at(-1)?.params._meta.acpmux.adopt).toEqual({ ...adopt, ifLive: "open" });
+    expect(client.adopted).toBe("opened");
+  });
+
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
     let created = 0;
     ScriptedSocket.respond = ({ method, params }) => {
@@ -1432,6 +1507,53 @@ describe("direct client session state", () => {
     expect(await sending).toBe("trust.pending");
     expect(latest().rows.some((row) => row.text === "before trust")).toBe(false);
     expect(latest().connection).toBe("connected");
+  });
+
+  /// A sender that holds its prompt (the composer, `accepted`) learns when acpmux took it; a
+  /// refusal before that (remote guard, sandbox, a missing gesture) leaves no failed bubble,
+  /// because the prompt is still in the composer, and the transcript says why it did not go.
+  test("a held prompt refused before acpmux took it leaves no bubble and says why", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    let accepted = 0;
+    const sending = client.send("held", [], undefined, () => (accepted += 1)).catch(() => "refused");
+    await settle();
+    ScriptedSocket.current.fail("session/prompt", {
+      code: -32602,
+      message: "remote.mode_not_asking: this chat does not ask",
+      data: { reason: "remote.mode_not_asking" },
+    });
+    expect(await sending).toBe("refused");
+    expect(accepted).toBe(0);
+    expect(latest().rows.some((row) => row.kind === "user" && row.text === "held")).toBe(false);
+    expect(latest().rows.some((row) => row.kind === "notice" && row.text?.includes("remote.mode_not_asking"))).toBe(
+      true,
+    );
+    expect(latest().connection).toBe("connected");
+  });
+
+  /// A prompt acpmux held for the trust answer goes after Trust with the gesture its send kept: the
+  /// ticket rides beside its promptId (`_meta.cmuxGesture`), which the host strips.
+  test("a held prompt carries its kept gesture ticket beside its promptId", async () => {
+    const client = await connect();
+    void client.send("after trust", [], "p-held", undefined, "ticket-1").catch(() => undefined);
+    await settle();
+    const prompt = ScriptedSocket.current.sent.find((request) => request.method === "session/prompt");
+    expect(prompt?.params?._meta).toEqual({ acpmux: { promptId: "p-held" }, cmuxGesture: "ticket-1" });
+  });
+
+  /// A trust refusal names the folder acpmux asks about, so the pane can ask about it.
+  test("a trust refusal carries the folder acpmux named", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("before trust").catch((error: { cwd?: unknown }) => error.cwd);
+    await settle();
+    ScriptedSocket.current.fail("session/prompt", {
+      code: -32602,
+      message: "trust.pending: answer the trust question for the folder first (/agent-home/w)",
+      data: { reason: "trust.pending", cwd: "/agent-home/w" },
+    });
+    expect(await sending).toBe("/agent-home/w");
   });
 
   /// Any other failure names its reason on the bubble.

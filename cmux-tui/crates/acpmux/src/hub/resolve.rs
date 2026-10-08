@@ -45,7 +45,7 @@ impl Hub {
             cwd.and_then(|cwd| folder_profiles::resolve_for_session(cfg, &head, cwd, remote));
         let (resolved, profile, mut d, folder_root) = match folder {
             Some(found) => {
-                let (profile, root) = found.map_err(RpcError::invalid_params)?;
+                let (profile, root) = found.map_err(folder_refusal)?;
                 let d = crate::config::SessionDefaults {
                     model: profile.model.clone(),
                     effort: profile.effort.clone(),
@@ -108,8 +108,20 @@ pub(super) fn session_profile(
         return Ok(p.clone());
     }
     match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
-        Some(found) => found.map(|(profile, _)| profile),
+        Some(found) => found.map(|(profile, _)| profile).map_err(|e| e.message),
         None => Err(format!("unknown harness {harness:?}")),
+    }
+}
+
+/// A folder profile refusal as session/new answers it: invalid params with
+/// data {reason, harness, folder} when the app can act on it (its Trust
+/// question or Enable harness sheet).
+fn folder_refusal(refusal: folder_profiles::FolderRefusal) -> RpcError {
+    let error = RpcError::invalid_params(refusal.message);
+    match refusal.reason {
+        Some(reason) => error
+            .with_data(json!({"reason": reason, "harness": refusal.id, "folder": refusal.folder})),
+        None => error,
     }
 }
 
@@ -173,6 +185,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         permission_rules: None,
         tags: Default::default(),
         unread: false,
+        claude_unstored: false,
         last_turn: None,
         remote_origin: d.remote,
         session_env: Default::default(),

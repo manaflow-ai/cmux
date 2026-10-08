@@ -163,6 +163,7 @@
     "inbox_app.open_item",
     "inbox_app.previous_item",
     "inbox_app.snooze",
+    "integration.approval.get",
     "integration.complete",
     "integration.connect",
     "integration.list",
