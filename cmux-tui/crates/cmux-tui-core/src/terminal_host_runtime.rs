@@ -1925,6 +1925,7 @@ mod unix {
                 }
             }
         }
+        crate::host_exe::hold_in_use_lock();
         host_signals::install()
     }
 

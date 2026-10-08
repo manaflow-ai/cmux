@@ -405,6 +405,12 @@ mod host_self_errors;
 #[path = "loss_causes.rs"]
 mod loss_causes;
 
+#[path = "host_argv.rs"]
+mod host_argv;
+
+#[path = "orphan_hosts.rs"]
+mod orphan_hosts;
+
 #[path = "restored_end.rs"]
 mod restored_end;
 
