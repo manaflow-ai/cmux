@@ -193,7 +193,10 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     expect(resolved!.sso_team).toBeUndefined()
     expect(resolved!.grant_classes?.length).toBeGreaterThan(0)
     expect((await installOf(member.user, viaOtherSso))).toMatchObject({ revoked_at: null, sso_team: member.team })
-    expect((await installOf(member.user, otherTeamVm))).toMatchObject({ revoked_at: null, sso_team: owner.team })
+    // Bound to another team: that team's authority stays, this team's SSO goes.
+    const otherVm = await installOf(member.user, otherTeamVm)
+    expect(otherVm).toMatchObject({ revoked_at: null, bound_team: member.team })
+    expect(otherVm.sso_team).toBeUndefined()
   })
 
   it("puts every live team SSH certificate of the member on the revocation list at once and orphans their hosts", async () => {

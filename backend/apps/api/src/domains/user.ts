@@ -322,19 +322,26 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         let next = state
         const outbox: Array<OutboxItem> = []
         const revoked: Array<string> = []
+        const ssoDropped: Array<string> = []
+        // No authority derived from the team survives the removal: an install bound to the team is revoked; any
+        // other install the team's SSO authorized keeps working for the person but loses that SSO (never a sign-out).
         for (const cur of Object.values(state.installs)) {
-          // Bound to the team, or authorized by the team's SSO: no authority derived from the team survives the removal.
-          // (an install bound to another team, such as that team's VM, keeps the other team's authority).
-          const fromTeam = cur.bound_team === team || (cur.bound_team === undefined && cur.sso_team === team)
-          if (!fromTeam || cur.revoked_at !== null || cur.created_at > before) continue
-          const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
-          if (!r.ok) return r
-          next = r.state
-          outbox.push(...(r.outbox ?? []))
-          revoked.push(cur.id)
+          if (cur.revoked_at !== null || cur.created_at > before) continue
+          if (cur.bound_team === team) {
+            const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
+            if (!r.ok) return r
+            next = r.state
+            outbox.push(...(r.outbox ?? []))
+            revoked.push(cur.id)
+          } else if (cur.sso_team === team) {
+            const { sso_team: _dropped, ...kept } = next.installs[cur.id]!
+            next = { ...next, installs: { ...next.installs, [cur.id]: kept } }
+            outbox.push({ kind: "install.upsert", entity: cur.id, payload: { ...kept, public_jwk: undefined, user: state.user?.id } })
+            ssoDropped.push(cur.id)
+          }
         }
-        if (revoked.length === 0) return { ok: true, state, value: { revoked }, changed: false }
-        return { ok: true, state: next, value: { revoked }, outbox }
+        if (revoked.length === 0 && ssoDropped.length === 0) return { ok: true, state, value: { revoked, sso_dropped: ssoDropped }, changed: false }
+        return { ok: true, state: next, value: { revoked, sso_dropped: ssoDropped }, outbox }
       }
       case "user.team_index": {
         // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.

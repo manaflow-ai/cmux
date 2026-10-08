@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import { emailDomainOf } from "./auth.ts"
+import { emailDomainOf, withLiveSsoTeam } from "./auth.ts"
 import { unclaimableReason } from "./domains/team-domains.ts"
 import type { Env } from "./env.ts"
 import type { SignInRules } from "./team-do.ts"
@@ -105,7 +105,7 @@ export const withAnySsoSession = async (env: Env, principal: Principal): Promise
  */
 export const ssoGate = async (env: Env, principal: Principal): Promise<{ principal: Principal; refusal?: GateRefusal }> => {
   if ((principal.kind !== "session" && principal.kind !== "install") || !principal.user) return { principal }
-  let p = principal
+  let p = await withLiveSsoTeam(env, principal)
   for (const { team, domain } of await ssoTeams(env, principal)) {
     const rules = await signInRules(env, team, principal.user, domain)
     if (!rules.sso_required) continue
