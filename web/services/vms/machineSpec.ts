@@ -53,7 +53,7 @@ export function firstExceededPoolResource(input: {
 
 /** New machines start with this disk. Freestyle resizes disks grow-only. */
 export const VM_DISK_MB_DEFAULT = 32768;
-/** Freestyle Pro's documented per-VM disk ceiling. */
+/** Freestyle's global grow-only disk ceiling; each plan may cap below it. */
 export const VM_DISK_MB_MAX = 262144;
 /** User-facing disk sizes are aligned to whole GiB steps. */
 export const VM_DISK_MB_STEP = 4096;

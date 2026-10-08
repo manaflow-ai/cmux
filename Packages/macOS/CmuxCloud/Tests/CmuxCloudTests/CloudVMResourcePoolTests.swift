@@ -30,6 +30,17 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func decodesPerMachineReservationForResizeGates() throws {
+        let reservation = try #require(VMClient.decodeResourceReservation([
+            "vcpus": 8,
+            "memoryMb": 16 * 1024,
+            "diskMb": 128 * 1024,
+        ]))
+        #expect(reservation == CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024, diskMb: 128 * 1024))
+        #expect(VMClient.decodeResourceReservation(["vcpus": NSNull(), "memoryMb": 8192]) == nil)
+    }
+
+    @Test
     func memoryOverflowIsReportedBeforeVcpus() throws {
         let pool = try #require(CloudVMResourcePool(limits: Self.proLimits))
         #expect(pool.shortfall(vcpus: 4, memoryMb: 8192) == nil)

@@ -1461,6 +1461,45 @@ describe("VM Effect workflows", () => {
     expect(resizeCalls).toBe(0);
   });
 
+  test.each([
+    ["cpu", { cpu: 32 }, 16],
+    ["memory", { memoryMb: 64 * 1024 }, 32 * 1024],
+    ["storage", { storageMb: 256 * 1024 }, 128 * 1024],
+  ] as const)("rejects a Pro %s resize above its subscription ceiling before provider I/O", async (_resource, request, maximum) => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000145",
+      userId: "user-workflow-resize-plan",
+      billingTeamId: "team-workflow-resize-plan",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-resize-plan",
+      status: "running",
+    });
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { state: "awake" as const, sampledAt: Date.now(), cpus: 4, memoryTotalMb: 8 * 1024, diskTotalMb: 32 * 1024 };
+      }),
+      resize: () => Effect.sync(() => { providerCalls += 1; }),
+    };
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "pro",
+        ...request,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(error).toMatchObject({
+      _tag: "VmResizePlanLimitError",
+      max: maximum,
+      planId: "pro",
+    });
+    expect(providerCalls).toBe(0);
+  });
+
   test("rejects an unsupported port before attempting to resume a paused VM", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000130",

@@ -250,7 +250,11 @@ export function maxDiskMbForPlan(
 ): number {
   const normalized = normalizedPlanId(planId ?? "");
   const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const fallback = normalized === MAX_PLAN_ID ? 256 * 1024 : 128 * 1024;
+  const fallback = normalized === MAX_PLAN_ID
+    ? 256 * 1024
+    : normalized === GO_PLAN_ID
+      ? 16 * 1024
+      : 128 * 1024;
   const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
   return raw?.trim()
     ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`))

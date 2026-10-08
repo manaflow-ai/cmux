@@ -40,6 +40,8 @@ import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
+  maxDiskMbForPlan,
+  maxVcpusForPlan,
   upgradePlanForMemory,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -236,6 +238,12 @@ export async function GET(request: Request): Promise<Response> {
             null,
           ),
           memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          // Resize ceilings are part of the same plan contract as the create
+          // ladder. Native clients use these values to avoid offering a
+          // provider-valid size that the caller's plan cannot use.
+          maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
+          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
+          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
           // Ladder sizes the plan does not include, and the plan that sells
           // them, so a "new machine" dialog shows them locked with an upgrade
           // instead of hiding that larger machines exist.

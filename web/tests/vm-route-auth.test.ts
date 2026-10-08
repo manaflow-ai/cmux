@@ -585,6 +585,7 @@ describe("VM REST auth", () => {
       limits: {
         planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
         poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 20, usedMemoryMb: 40960,
+        maxDiskMb: 131072, maxMemoryMb: 32768, maxVcpus: 16,
       },
       vms: [
         { freeAccessExpiresAt: null, resources: { vcpus: 4, memoryMb: 8192 } },

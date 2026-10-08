@@ -79,7 +79,7 @@ cmux vm ls [--json]                    # alias: cmux vm list
 ```
 
 Socket `vm.list`. Text: a `NAME  LABEL  STATE  PROVIDER  IMAGE` table, then the plan meter (`N of M machines on the <plan> plan` when `limits.maxActiveVms` is set, `N machines on the <plan> plan, no limit` when it is absent) and, on free plans, when free cloud access expires. Empty: `No cloud VMs. Try: cmux vm new`.
-`--json`: `{vms: [{id, displayName?, status, provider, image, kind?, capabilities?: {snapshot, fork}, createdAt?, freeAccessExpiresAt?}], limits: {maxActiveVms, planId, memoryOptionsMb?, freeAccessWindowDays?, freeAccessExpiresAt?}, imageKinds?}`. Sidebar: the Machines panel list.
+`--json`: `{vms: [{id, displayName?, status, provider, image, kind?, capabilities?: {snapshot, fork}, resources?: {vcpus, memoryMb, diskMb?}, createdAt?, freeAccessExpiresAt?}], limits: {maxActiveVms, planId, memoryOptionsMb?, maxDiskMb?, maxMemoryMb?, maxVcpus?, poolVcpus?, poolMemoryMb?, usedVcpus?, usedMemoryMb?, freeAccessWindowDays?, freeAccessExpiresAt?}, imageKinds?}`. Sidebar: the Machines panel list.
 
 ### Lifecycle and safety
 
@@ -159,8 +159,9 @@ cmux vm resize <id> [--cpu <1|2|…|32>] [--memory <4|5|…|64>G] [--disk <4|8|�
 Grows CPU, memory, and/or persistent disk on the existing machine. CPU accepts
 1–32 vCPUs; memory accepts 4–64 GiB in whole-GiB steps; disk accepts 4–256 GiB
 in 4 GiB steps. Supply at least one dimension. Omitted dimensions stay unchanged,
-and every requested dimension must be at least its current size. Plan limits
-can further restrict these ranges.
+and every requested dimension must be at least its current size. `vm ls --json`
+publishes the current plan's `maxDiskMb`, `maxMemoryMb`, and `maxVcpus`; the CLI
+checks those ceilings before sending the resize and the server checks them again.
 
 Socket `vm.resize` accepts `{id, cpu?, memory_mb?, storage_mb?}` and returns the
 provider-confirmed `VMStats` object, including `cpus`, `memory_total_mb`, and

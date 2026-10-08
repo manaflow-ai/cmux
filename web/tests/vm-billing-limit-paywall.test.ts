@@ -5,6 +5,7 @@ import {
   defaultMemoryMbForPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
+  maxDiskMbForPlan,
   lockedMemoryOptionsMbForPlan,
   maxMemoryMbForPlan,
   maxVcpusForPlan,
@@ -14,6 +15,8 @@ import {
   vmFreeAccessWindowDays,
 } from "../services/vms/entitlements";
 import { vmActiveLimitExceededResponse, vmFreeAccessExpiredResponse } from "../services/vms/routeHelpers";
+
+const GB = 1024;
 
 async function body(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
@@ -84,6 +87,7 @@ describe("Cloud VM memory allowance", () => {
       expect(defaultMemoryMbForPlan(planId, {})).toBe(8192);
       expect(maxMemoryMbForPlan(planId, {})).toBe(32768);
       expect(maxVcpusForPlan(planId, {})).toBe(16);
+      expect(maxDiskMbForPlan(planId, {})).toBe(128 * GB);
       expect(lockedMemoryOptionsMbForPlan(planId, {})).toEqual({
         memoryOptionsMb: [65536],
         upgradePlanId: "max",
@@ -94,14 +98,20 @@ describe("Cloud VM memory allowance", () => {
     expect(defaultMemoryMbForPlan("max", {})).toBe(8192);
     expect(maxMemoryMbForPlan("max", {})).toBe(65536);
     expect(maxVcpusForPlan("max", {})).toBe(32);
+    expect(maxDiskMbForPlan("max", {})).toBe(256 * GB);
     expect(memoryOptionsMbForPlan("max", {})).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
     expect(lockedMemoryOptionsMbForPlan("max", {})).toEqual({ memoryOptionsMb: [], upgradePlanId: null });
+    expect(maxDiskMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_DISK_MB: "65536" })).toBe(64 * GB);
+    // Per-plan overrides can tighten a tier, never expand it beyond the
+    // product ceiling.
+    expect(maxDiskMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_DISK_MB: "262144" })).toBe(128 * GB);
   });
 
   test("Go is capped at one 2 vCPU, 4 GB, 16 GB VM", () => {
     expect(maxActiveVmsForPlan("go", {})).toBe(1);
     expect(maxMemoryMbForPlan("go", {})).toBe(4096);
     expect(maxVcpusForPlan("go", {})).toBe(2);
+    expect(maxDiskMbForPlan("go", {})).toBe(16 * GB);
     expect(memoryOptionsMbForPlan("go", {})).toEqual([4096]);
     expect(lockedMemoryOptionsMbForPlan("go", {})).toEqual({
       memoryOptionsMb: [8192, 16384, 24576, 32768, 65536],

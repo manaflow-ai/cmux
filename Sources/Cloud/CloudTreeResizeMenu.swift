@@ -9,34 +9,62 @@ struct CloudTreeResizeMenu {
         let submenu = NSMenu()
         submenu.autoenablesItems = false
 
-        let diskMenu = NSMenu(); diskMenu.autoenablesItems = false
-        for gib in [64, 128, 256] {
-            let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
-            let entry = CloudTreeMenuItem(title: title) { action.resizeDisk(id, gib) }
-            if let current = machine.stats?.diskTotalMb, current >= gib * 1024 { entry.isEnabled = false }
-            diskMenu.addItem(entry)
+        if !action.resizeDiskOptionsGiB.isEmpty {
+            let diskMenu = NSMenu(); diskMenu.autoenablesItems = false
+            let currentDiskMb = machine.resourceReservation?.diskMb ?? machine.stats?.diskTotalMb
+            for gib in action.resizeDiskOptionsGiB {
+                let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
+                let entry = CloudTreeMenuItem(title: title) { action.resizeDisk(id, gib) }
+                if gib > action.resizeDiskMaximumGiB ||
+                    (currentDiskMb.map { $0 >= gib * 1024 } ?? false) {
+                    entry.isEnabled = false
+                }
+                diskMenu.addItem(entry)
+            }
+            submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseDisk", defaultValue: "Increase Disk"), menu: diskMenu))
         }
-        submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseDisk", defaultValue: "Increase Disk"), menu: diskMenu))
 
-        let cpuMenu = NSMenu(); cpuMenu.autoenablesItems = false
-        let cpuTargets = action.resizeCPUOptions.isEmpty ? [2, 4, 8, 16, 32] : action.resizeCPUOptions
-        for cpu in cpuTargets {
-            let title = String(format: String(localized: "machines.menu.resizeToVCPUs", defaultValue: "Increase to %d vCPUs"), cpu)
-            let entry = CloudTreeMenuItem(title: title) { action.resizeCPU(id, cpu) }
-            if let current = machine.stats?.cpus, current >= cpu { entry.isEnabled = false }
-            cpuMenu.addItem(entry)
+        if !action.resizeCPUOptions.isEmpty {
+            let cpuMenu = NSMenu(); cpuMenu.autoenablesItems = false
+            let currentCPUs = machine.resourceReservation?.vcpus ?? machine.stats?.cpus
+            let currentCPUsInPool = machine.usesResourcePool ? (currentCPUs ?? 0) : 0
+            for cpu in action.resizeCPUOptions {
+                let title = String(format: String(localized: "machines.menu.resizeToVCPUs", defaultValue: "Increase to %d vCPUs"), cpu)
+                let entry = CloudTreeMenuItem(title: title) { action.resizeCPU(id, cpu) }
+                let exceedsPool = if currentCPUs == nil {
+                    action.resizeResourcePool != nil
+                } else {
+                    cpu > (action.resizeResourcePool?.freeVcpus ?? Int.max) + currentCPUsInPool
+                }
+                if cpu > action.resizeCPUMaximum ||
+                    (currentCPUs.map { $0 >= cpu } ?? false) || exceedsPool {
+                    entry.isEnabled = false
+                }
+                cpuMenu.addItem(entry)
+            }
+            submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseCPU", defaultValue: "Increase CPU"), menu: cpuMenu))
         }
-        submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseCPU", defaultValue: "Increase CPU"), menu: cpuMenu))
 
-        let memoryMenu = NSMenu(); memoryMenu.autoenablesItems = false
-        let memoryTargets = action.resizeMemoryOptionsGiB.isEmpty ? [8, 16, 24, 32, 64] : action.resizeMemoryOptionsGiB
-        for gib in memoryTargets {
-            let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
-            let entry = CloudTreeMenuItem(title: title) { action.resizeMemory(id, gib) }
-            if let current = machine.stats?.memoryTotalMb, current >= gib * 1024 { entry.isEnabled = false }
-            memoryMenu.addItem(entry)
+        if !action.resizeMemoryOptionsGiB.isEmpty {
+            let memoryMenu = NSMenu(); memoryMenu.autoenablesItems = false
+            let currentMemoryMb = machine.resourceReservation?.memoryMb ?? machine.stats?.memoryTotalMb
+            let currentMemoryMbInPool = machine.usesResourcePool ? (currentMemoryMb ?? 0) : 0
+            for gib in action.resizeMemoryOptionsGiB {
+                let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
+                let entry = CloudTreeMenuItem(title: title) { action.resizeMemory(id, gib) }
+                let exceedsPool = if currentMemoryMb == nil {
+                    action.resizeResourcePool != nil
+                } else {
+                    gib * 1024 > (action.resizeResourcePool?.freeMemoryMb ?? Int.max) + currentMemoryMbInPool
+                }
+                if gib > action.resizeMemoryMaximumGiB ||
+                    (currentMemoryMb.map { $0 >= gib * 1024 } ?? false) || exceedsPool {
+                    entry.isEnabled = false
+                }
+                memoryMenu.addItem(entry)
+            }
+            submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseMemory", defaultValue: "Increase Memory"), menu: memoryMenu))
         }
-        submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseMemory", defaultValue: "Increase Memory"), menu: memoryMenu))
 
         let root = NSMenuItem(
             title: String(localized: "cloud.operation.kind.resize", defaultValue: "Resize machine"),

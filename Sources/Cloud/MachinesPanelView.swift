@@ -424,13 +424,19 @@ struct MachinesPanelView: View {
                 viewModel?.finishOptimisticRename()
             }
         )
-        // The list endpoint is authoritative for the caller's plan-sized
-        // memory ladder. Feed it into the menu so Pro users do not select a
-        // Max-only size and wait for a server rejection.
-        let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
-        machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
+        // Keep the standard targets visible and gray out sizes above the
+        // server-advertised plan ceilings. Missing fields use the accepted
+        // ladder and plan ID, so an older response still gates each tier.
+        machineActions.resizeDiskMaximumGiB = viewModel.maxDiskMb.map { max(0, $0 / 1_024) } ?? viewModel.resizeFallbackMaxDiskGiB
+        // Older control planes may send maxMemoryMb before maxVcpus. Derive
+        // the same floor used by the server instead of exposing a Max-only
+        // CPU target while the vCPU field is absent.
+        machineActions.resizeCPUMaximum = viewModel.maxVcpus
+            ?? viewModel.maxMemoryMb.map { max(1, $0 / 2_048) }
+            ?? max(1, viewModel.resizeFallbackMaxMemoryMb / 2_048)
+        machineActions.resizeMemoryMaximumGiB = viewModel.maxMemoryMb.map { max(0, $0 / 1_024) }
+            ?? max(0, viewModel.resizeFallbackMaxMemoryMb / 1_024)
+        machineActions.resizeResourcePool = viewModel.resourcePool
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(

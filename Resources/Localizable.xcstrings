@@ -522447,7 +522447,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 1–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe server enforces plan limits and returns the provider-confirmed resources.\nAdd --json for the structured result."
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."
           }
         },
         "de": {

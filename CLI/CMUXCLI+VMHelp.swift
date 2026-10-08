@@ -48,6 +48,89 @@ extension CMUXCLI {
         return gib * 1024
     }
 
+    /// The list response carries the caller's plan ceilings. Validate them
+    /// before sending a provider mutation so the CLI has the same affordance
+    /// gate as the sidebar. The backend repeats these checks transactionally.
+    static func validateCloudVMResizePlan(
+        diskMb: Int?,
+        cpu: Int?,
+        memoryMb: Int?,
+        limits: [String: Any]
+    ) throws {
+        // Older app/control-plane pairs may omit the limits object entirely.
+        // Keep the client-side gate conservative in that case instead of
+        // accidentally allowing a Max-only request through to the provider.
+        let planID = (limits["planId"] as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "pro"
+        let maxMemoryFromLadder = (limits["memoryOptionsMb"] as? [Any])?.compactMap(positiveCloudVMLimit).max()
+        let maxMemoryMb = positiveCloudVMLimit(limits["maxMemoryMb"])
+            ?? maxMemoryFromLadder
+            ?? (planID == "max" ? 64 * 1_024 : planID == "go" ? 4 * 1_024 : 32 * 1_024)
+        let maxVcpus = positiveCloudVMLimit(limits["maxVcpus"])
+            // The vcpusByMemoryMb map also contains locked Max rows, so its
+            // largest value is not a safe fallback for a Pro response. The
+            // server derives this ceiling from the accepted memory ceiling.
+            ?? max(1, maxMemoryMb / 2_048)
+        let maxDiskMb = positiveCloudVMLimit(limits["maxDiskMb"]) ?? {
+            switch planID.lowercased() {
+            case "max": return 256 * 1_024
+            case "go": return 16 * 1_024
+            default: return 128 * 1_024
+            }
+        }()
+        if let diskMb, diskMb > maxDiskMb {
+            throw cloudVMResizePlanError(planID: planID, resource: "disk", requested: diskMb, maximum: maxDiskMb)
+        }
+        if let cpu, cpu > maxVcpus {
+            throw cloudVMResizePlanError(planID: planID, resource: "CPU", requested: cpu, maximum: maxVcpus)
+        }
+        if let memoryMb, memoryMb > maxMemoryMb {
+            throw cloudVMResizePlanError(planID: planID, resource: "memory", requested: memoryMb, maximum: maxMemoryMb)
+        }
+    }
+
+    private static func positiveCloudVMLimit(_ raw: Any?) -> Int? {
+        guard let number = raw as? NSNumber,
+              number.doubleValue.isFinite,
+              number.doubleValue == Double(number.intValue),
+              number.intValue > 0 else { return nil }
+        return number.intValue
+    }
+
+    private static func cloudVMResizePlanError(
+        planID: String,
+        resource: String,
+        requested: Int,
+        maximum: Int
+    ) -> CLIError {
+        let requestedText = resource == "CPU" ? "\(requested) vCPUs" : "\(requested / 1024) GiB"
+        let maximumText = resource == "CPU" ? "\(maximum) vCPUs" : "\(maximum / 1024) GiB"
+        let planName: String
+        switch planID.lowercased() {
+        case "pro": planName = "cmux Pro"
+        case "max": planName = "cmux Max"
+        case "team": planName = "cmux Team"
+        case "founders", "founders-edition": planName = "cmux Founder's Edition"
+        case "go": planName = "cmux Go"
+        case "free": planName = "cmux Free"
+        default: planName = planID
+        }
+        let upgrade: String
+        if planID.lowercased() == "max" {
+            upgrade = "Choose a smaller size."
+        } else if planID.lowercased() == "go" &&
+                    ((resource == "memory" && requested <= 32 * 1_024) ||
+                     (resource == "CPU" && requested <= 16) ||
+                     (resource == "disk" && requested <= 128 * 1_024)) {
+            upgrade = "Upgrade to cmux Pro to use this size."
+        } else {
+            upgrade = "Upgrade to cmux Max to use larger sizes."
+        }
+        return CLIError(message: "vm resize: the \(planName) plan cannot resize \(resource) to \(requestedText); its maximum is \(maximumText). \(upgrade)")
+    }
+
     private static func parseCloudVMGiB(_ raw: String) -> Int? {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let number = normalized.hasSuffix("gib") ? String(normalized.dropLast(3))
@@ -65,7 +148,8 @@ extension CMUXCLI {
         Grow an existing Cloud VM in place. Specify at least one resource:
         CPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.
         Memory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.
-        The server enforces plan limits and returns the provider-confirmed resources.
+        The CLI checks your plan's limits before the request; the server enforces them again
+        and returns the provider-confirmed resources.
         Add --json for the structured result.
         """)
     }
@@ -93,6 +177,13 @@ extension CMUXCLI {
                 defaultValue: "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."
             ))
         }
+        let limits = (try client.sendV2(method: "vm.list", responseTimeout: 60)["limits"] as? [String: Any]) ?? [:]
+        try Self.validateCloudVMResizePlan(
+            diskMb: diskMb,
+            cpu: cpu,
+            memoryMb: memoryMb,
+            limits: limits
+        )
         var params: [String: Any] = ["id": vmId]
         if let diskMb { params["storage_mb"] = diskMb }
         if let cpu { params["cpu"] = cpu }

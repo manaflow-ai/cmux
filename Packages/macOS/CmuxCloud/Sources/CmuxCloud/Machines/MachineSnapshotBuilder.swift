@@ -50,6 +50,8 @@ public enum MachineSnapshotBuilder: Sendable {
             slug: summary.slug,
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
+            resourceReservation: summary.resourceReservation,
+            usesResourcePool: ["running", "provisioning"].contains(summary.status.lowercased()),
             privateAddress: summary.preferredPrivateAddress
         )
         snapshot.agentUpdates = summary.agentUpdates

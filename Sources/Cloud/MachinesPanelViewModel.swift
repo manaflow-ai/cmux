@@ -149,6 +149,29 @@ final class MachinesPanelViewModel: ObservableObject {
     /// these on every local recompute without another round trip.
     var lastLimits: VMPlanLimits?
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
+    var maxDiskMb: Int? { lastLimits?.maxDiskMb }
+    var maxMemoryMb: Int? { lastLimits?.maxMemoryMb }
+    var maxVcpus: Int? { lastLimits?.maxVcpus }
+    var resourcePool: CloudVMResourcePool? { lastLimits?.resourcePool }
+    /// Conservative resize ceilings for control planes that predate the
+    /// explicit max* fields. The accepted memory ladder is the best fallback
+    /// because it already reflects Go, Pro, Team, and Max.
+    var resizeFallbackMaxMemoryMb: Int {
+        if let ladderMax = memoryOptionsMb.max(), ladderMax > 0 { return ladderMax }
+        switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "max": return 64 * 1_024
+        case "go": return 4 * 1_024
+        case "free": return 8 * 1_024
+        default: return 32 * 1_024
+        }
+    }
+    var resizeFallbackMaxDiskGiB: Int {
+        switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "max": return 256
+        case "go": return 16
+        default: return 128
+        }
+    }
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }

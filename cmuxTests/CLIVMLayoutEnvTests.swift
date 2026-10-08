@@ -1102,6 +1102,84 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(log.methods.isEmpty, "invalid resize arguments must not reach the app: \(log.methods)")
     }
 
+    func testVMResizeChecksPlanCeilingsBeforeSendingMutation() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plan-gate",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "32", "--memory", "64G", "--disk", "256G"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "pro",
+                    "maxDiskMb": 128 * 1024,
+                    "maxMemoryMb": 32 * 1024,
+                    "maxVcpus": 16,
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("cmux Pro"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("maximum is 128 GiB"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
+    }
+
+    func testVMResizeSendsEveryAllowedDimensionAfterPlanPreflight() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plan-allowed",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "16", "--memory", "32G", "--disk", "128G"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [],
+                    "limits": [
+                        "planId": "pro",
+                        "maxDiskMb": 128 * 1024,
+                        "maxMemoryMb": 32 * 1024,
+                        "maxVcpus": 16,
+                    ],
+                ]
+            case "vm.resize":
+                return [
+                    "cpus": 16,
+                    "memory_total_mb": 32 * 1024,
+                    "disk_total_mb": 128 * 1024,
+                ]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        let params = log.params(ofFirst: "vm.resize")
+        XCTAssertEqual(params?["id"] as? String, "brave-otter")
+        XCTAssertEqual(params?["cpu"] as? Int, 16)
+        XCTAssertEqual(params?["memory_mb"] as? Int, 32 * 1024)
+        XCTAssertEqual(params?["storage_mb"] as? Int, 128 * 1024)
+    }
+
+    func testVMResizeDoesNotInferProCPUsFromLockedMaxRows() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plan-locked-cpu",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "32"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "pro",
+                    "maxMemoryMb": 32 * 1024,
+                    "maxVcpus": NSNull(),
+                    "vcpusByMemoryMb": ["32768": 16, "65536": 32],
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("maximum is 16 vCPUs"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], log.methods.description)
+    }
+
     func testVMVerbHelpPrintsThatVerbsUsageWithoutASocket() throws {
         let cliPath = try bundledCLIPath()
         // Help never resolves a socket: point at a path nothing listens on.

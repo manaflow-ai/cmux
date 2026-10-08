@@ -34,6 +34,9 @@ extension VMClient {
                     freeAccessWindowDays: freeAccessWindowDays,
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    maxDiskMb: Self.decodePositiveInt(rawLimits["maxDiskMb"]),
+                    maxMemoryMb: Self.decodePositiveInt(rawLimits["maxMemoryMb"]),
+                    maxVcpus: Self.decodePositiveInt(rawLimits["maxVcpus"]),
                     lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
                     memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
@@ -67,6 +70,7 @@ extension VMClient {
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.createdBy = VMCreator(vmResponse: dict)
                 summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
+                summary.resourceReservation = Self.decodeResourceReservation(dict["resources"])
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
