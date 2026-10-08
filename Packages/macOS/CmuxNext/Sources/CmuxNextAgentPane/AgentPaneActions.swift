@@ -33,7 +33,13 @@ extension ActionRegistry {
     /// target). Returns false when the descriptor is missing from the catalog.
     @discardableResult
     public func bindAgentPaneInspector(toggle: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
-        bind(.toggleAcpInspector, invoke: toggle)
+        bind(.toggleAcpInspector, invoke: { [weak self] invocation in
+            guard ActionRunScope.viewChangeAllowed() else {
+                self?.refuse(AgentPaneView.inspectorNeedsFocus)
+                return
+            }
+            toggle(invocation)
+        })
     }
 }
 
