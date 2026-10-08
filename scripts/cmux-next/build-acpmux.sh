@@ -13,24 +13,27 @@ usage() {
   sed -n '2,9p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-acpmux.sh [--output PATH] [--cached-only] [--print-path]
+Usage: build-acpmux.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+  --check-build-allowed  exit 0 when this host may build acpmux on a miss
 Environment:
   CMUX_NEXT_ACPMUX_ARCHS  space/comma-separated arm64 and/or x86_64 (default: host)
   CMUX_NEXT_ACPMUX_CACHE  cache root (default: cmux-tui/target/hosted/acpmux)
 USAGE
 }
 
+# A build host may run Cargo on a miss: CI, a fleet build (CMUX_FLEET_BUILD_TAG)
+# or an nx-remote job on a build host (NX_JOB_ID). A developer Mac never does.
+build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 cached_only=0
 print_path=0
 output=""
 build_root=""
-cleanup() { [[ -z "$build_root" ]] || rm -rf "$build_root"; }
-trap cleanup EXIT
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output="${2:?missing path after --output}"; shift 2 ;;
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
+    --check-build-allowed) build_allowed; exit $? ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -98,8 +101,8 @@ if [[ "$cached_only" -eq 1 ]]; then
   exit 1
 fi
 
-[[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}" ]] || {
-  echo "error: acpmux is not cached; build it on CI/fleet and set CMUX_NEXT_ACPMUX_BIN" >&2
+build_allowed || {
+  echo "error: acpmux is not cached; build it on CI, the fleet or nx-remote, or set CMUX_NEXT_ACPMUX_BIN" >&2
   exit 1
 }
 
@@ -116,12 +119,15 @@ done
 echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-tui toolchain"
 (cd "$source_root/cmux-tui" && rustup target add "${rust_targets[@]}")
 
-build_root="$(mktemp -d "${TMPDIR:-/tmp}/cmux-acpmux-build.XXXXXX")"
-mkdir -p "$cache_dir"
+# A persistent target dir in the tree's own (ignored) cmux-tui/target: the
+# next commit of a warm tree or fleet slot compiles incrementally instead of
+# all 200+ crates (cx-t3e5). Cargo locks it against concurrent builds.
+build_root="${CMUX_NEXT_ACPMUX_TARGET_DIR:-$source_root/cmux-tui/target/acpmux-app}"
+mkdir -p "$build_root" "$cache_dir"
 built_slices=()
 for arch in $archs; do
   target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
-  target_dir="$build_root/$target"
+  target_dir="$build_root"
   echo "==> building acpmux ($source_mode $source_commit, $target)"
   (cd "$source_root/cmux-tui" && CARGO_TARGET_DIR="$target_dir" cargo build \
     --locked --release --package acpmux --target "$target")
