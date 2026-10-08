@@ -47,8 +47,15 @@ export type ArmMeasurement = {
   strip?: string;
 };
 
-function settleStats(samples: readonly number[]) {
-  if (!samples.length) return { settleCount: 0, settleP50: 0, settleP95: 0, settleMax: 0 };
+type SettleStats = {
+  settleCount: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
+};
+
+function settleStats(samples: readonly number[]): SettleStats {
+  if (!samples.length) return { settleCount: 0 };
   const sorted = [...samples].sort((a, b) => a - b);
   const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
   const round = (value: number) => Math.round(value * 10) / 10;
