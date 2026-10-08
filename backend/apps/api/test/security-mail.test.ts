@@ -3,11 +3,11 @@ import type { Env } from "../src/env.ts"
 import { deliverSecurityMail } from "../src/security-mail.ts"
 
 /** Security notices by email (H11: lowering the text confirmation level notifies the owner) through Resend. */
-const item = (id: number, to: string | undefined = "owner@example.com") => ({
+const item = (id: number, to: string | null = "owner@example.com") => ({
   id,
   op: "mail.security_notice",
   key: `mail:lowered:user_1:${id}`,
-  params: { user: "user_1", template: "text_confirm_lowered", locale: "en", title: "Level lowered", body: "From Strict to Off", install: "inst_1", at: 1, ...(to ? { to } : {}) }
+  params: { user: "user_1", template: "text_confirm_lowered", locale: "en", title: "Level lowered", body: "From Strict to Off", install: "inst_1", at: 1, ...(to === null ? {} : { to }) }
 })
 const env = (over: Partial<Env> = {}) => ({ RESEND_API_KEY: "re_test", HOME_INVITE_FROM: "cmux <security@cmux.test>", ...over }) as unknown as Env
 
@@ -31,7 +31,7 @@ describe("security notice email", () => {
   it("dead-letters at once when mail is not configured or there is no verified address", async () => {
     const never = (async () => { throw new Error("must not send") }) as unknown as typeof fetch
     expect(await deliverSecurityMail(env({ RESEND_API_KEY: undefined }), [item(1)], never)).toMatchObject({ done: [], dead: [1], reason: "mail.not_configured" })
-    expect(await deliverSecurityMail(env(), [item(2, undefined)], never)).toMatchObject({ done: [], dead: [2] })
+    expect(await deliverSecurityMail(env(), [item(2, null)], never)).toMatchObject({ done: [], dead: [2] })
   })
 
   it("a refused request is dead; a rate limit or server error throws (counted, capped retries)", async () => {

@@ -4,8 +4,8 @@ import type { ConfirmLevel } from "../mux/confirm-level.ts"
 
 /**
  * Security notices for the text confirmation level: one feed item (FeedDO
- * pushes it to every device of the owner) and one email (contract for the
- * backend lead's mail path), in the owner's locale. Never a text message: a
+ * pushes it to every device of the owner) and one email to the verified
+ * address (sent by the owner's outbox drain through Resend), in the owner's locale. Never a text message: a
  * person who took over the number must not be the one who is told.
  */
 type Strings = Readonly<Record<string, Readonly<Record<string, { readonly value: string }>>>>
@@ -18,8 +18,11 @@ const t = (key: string, locale: string, vars: Readonly<Record<string, string>> =
 }
 const LEVEL_KEY: Readonly<Record<ConfirmLevel, string>> = { strict: "level.strict", "destructive-only": "level.destructiveOnly", off: "level.off" }
 
+/** Outbox target class of the security email: not an object; the owner's drain sends it through Resend. */
+export const SECURITY_MAIL_TARGET = "Mail"
+
 export const securityNotice = (
-  env: { readonly user: string; readonly locale?: string },
+  env: { readonly user: string; readonly locale?: string; readonly email?: string | null },
   kind: "lowered" | "key_added",
   seq: number,
   info: { readonly from?: ConfirmLevel; readonly to?: ConfirmLevel; readonly install: string; readonly at: number }
@@ -32,11 +35,14 @@ export const securityNotice = (
   const key = `${kind}:${env.user}:${seq}`
   return [
     { kind: "feed.post", entity: `notice:${key}`, payload: { type: "notice", kind: "notice", title, body, priority: "high" }, target: { class: "FeedDO", name: env.user } },
-    {
-      kind: "mail.security_notice",
-      entity: `mail:${key}`,
-      payload: { user: env.user, template: `text_confirm_${kind}`, locale, title, body, install: info.install, at: info.at },
-      target: { class: "MailerDO", name: env.user }
-    }
+    // Only to a verified address; without one the feed notice is the only one.
+    ...(env.email
+      ? [{
+          kind: "mail.security_notice",
+          entity: `mail:${key}`,
+          payload: { user: env.user, to: env.email, template: `text_confirm_${kind}`, locale, title, body, install: info.install, at: info.at },
+          target: { class: SECURITY_MAIL_TARGET, name: env.user }
+        }]
+      : [])
   ]
 }

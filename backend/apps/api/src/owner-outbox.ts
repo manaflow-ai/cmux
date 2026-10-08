@@ -3,6 +3,7 @@ import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.t
 import type { Env } from "./env.ts"
 import { isTransientError } from "./projection.ts"
 import { projectRows } from "./projection-targets.ts"
+import { deliverSecurityMail, SECURITY_MAIL_CLASS } from "./security-mail.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 export const DEAD_REPLAY_MS = 24 * 3600_000
@@ -11,12 +12,15 @@ export const DEAD_REPLAY_MS = 24 * 3600_000
  * Transient (backoff forever) or poison (counts toward dead letter) for a failed outbox delivery.
  * PlanetScale errors are classified by SQLSTATE (isTransientError); a DO target only by the
  * runtime's own `retryable`/`overloaded` flags, never by message text (security review P2).
+ * Security mail (channel `Mail:<user>`) is always poison: its retries are capped.
  */
 export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
   if (channel === "") return isTransientError(e) ? "transient" : "poison"
+  if (channel.startsWith(`${SECURITY_MAIL_CLASS}:`)) return "poison"
   const flags = e as { retryable?: unknown; overloaded?: unknown } | null
   if (flags?.retryable === true || flags?.overloaded === true) return "transient"
-  if (e instanceof Error && e.message.startsWith("no binding for ")) return "transient"
+  // A missing binding is a deploy error, not an outage: counted (dead letter after
+  // OUTBOX_MAX_ATTEMPTS, replayed a day later), never retried forever.
   return "poison"
 }
 
@@ -29,7 +33,9 @@ export const drainOutboxChannels = async <S>(
   env: Env,
   targetNamespace: (className: string) => DurableObjectNamespace | undefined,
   /** The PlanetScale projector (a fake in tests). */
-  project: (env: Env, stream: string, rows: Parameters<typeof projectRows>[2]) => ReturnType<typeof projectRows> = projectRows
+  project: (env: Env, stream: string, rows: Parameters<typeof projectRows>[2]) => ReturnType<typeof projectRows> = projectRows,
+  /** The security mail sender (a fake in tests). */
+  mail: typeof deliverSecurityMail = deliverSecurityMail
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
@@ -51,6 +57,14 @@ export const drainOutboxChannels = async <S>(
         } else {
           const batch = groupTargets(rows)[0]!
           outbox.markSent(batch.superseded, Date.now())
+          if (batch.class === SECURITY_MAIL_CLASS) {
+            const res = await mail(env, batch.items)
+            outbox.markSent(res.done, Date.now())
+            for (const id of res.dead) outbox.deadLetter(id, Date.now())
+            if (res.dead.length > 0) console.error(JSON.stringify({ msg: "security mail dead-lettered", stream: engine.stream, count: res.dead.length, reason: res.reason ?? "mail.refused" }))
+            outbox.succeeded(channel)
+            continue
+          }
           const ns = targetNamespace(batch.class)
           if (!ns) throw new Error(`no binding for ${batch.class}`)
           const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
