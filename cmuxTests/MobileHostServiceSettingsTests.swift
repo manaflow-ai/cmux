@@ -80,8 +80,9 @@ struct MobileHostServiceSettingsTests {
                 id: "retired-tcp", kind: .tailscale,
                 endpoint: .hostPort(host: "100.64.0.1", port: 1234))],
             activeConnectionCount: 2, lastErrorDescription: nil,
-            pendingPortChange: true, tailscaleIsRunning: true, tailscalePort: 58465,
-            localSocketAddresses: ["192.168.1.2:58465", "[fd00::2]:58465", "192.168.1.2:58465"])
+            pendingPortChange: true,
+            localSocketAddresses: ["192.168.1.2:58465", "[fd00::2]:58465", "192.168.1.2:58465"],
+            tailscaleIsRunning: true, tailscalePort: 58465)
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
         #expect(snapshot.routes.map(\.endpoint) == ["192.168.1.2:58465", "[fd00::2]:58465"])
         #expect(snapshot.routes.allSatisfy { $0.kindLabel == "Tailscale" })
