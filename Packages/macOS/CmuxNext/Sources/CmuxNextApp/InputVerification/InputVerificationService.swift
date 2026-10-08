@@ -38,11 +38,7 @@ final class InputVerificationService {
         // M1: a mirror write outside daemon apply and the intent overlay is
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
-        let surfaces = services.surfaceInvariant
-        services.cache.onPresentationChange = {
-            surfaces.noteChange()
-            monitor.noteChange()
-        }
+        services.cache.presentationChanges.subscribe("input-monitor") { [weak monitor] in monitor?.noteChange() }
         startNoActivateGuard()
     }
 
