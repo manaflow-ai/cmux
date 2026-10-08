@@ -910,7 +910,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 isDark: palette.colorScheme == .dark
             )
             let entryColor: NSColor
-            if model.isActive {
+            if palette.usesSelectedText {
                 entryColor = explicitColor != nil
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)

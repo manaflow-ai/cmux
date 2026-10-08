@@ -109,8 +109,13 @@ extension SidebarGlassSelection {
     /// active row and active group header look (multi-selection and custom
     /// selection colours paint other fills).
     static func wearsLightPill(_ fill: CALayer?, for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> Bool {
-        guard let color = fill?.backgroundColor, usesStockLightLook(colorScheme, defaults: defaults) else { return false }
-        return color == self.fill(for: colorScheme, defaults: defaults).cgColor
+        isLightPill(fill?.backgroundColor, for: colorScheme, defaults: defaults)
+    }
+
+    /// True when `color` is the stock light pill's base fill.
+    static func isLightPill(_ color: CGColor?, for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> Bool {
+        guard let color, usesStockLightLook(colorScheme, defaults: defaults) else { return false }
+        return color == fill(for: colorScheme, defaults: defaults).cgColor
     }
 
     /// The stock light pill's glass, over the fill view's base (white at the
@@ -200,4 +205,17 @@ extension UserDefaults {
     @objc dynamic var sidebarRowHover: Bool {
         object(forKey: SidebarGlassSelection.rowHoverKey) as? Bool ?? true
     }
+}
+
+extension SidebarRowPalette {
+    /// True while the active row wears the stock light glass pill. Text
+    /// then takes one colour on every row: titles are the pill's near-black
+    /// on all rows and secondary lines keep their resting colour on the
+    /// pill, so the pill alone marks the active row.
+    var usesLightPillText: Bool {
+        SidebarGlassSelection.isLightPill(selectedBackground.cgColor, for: colorScheme)
+    }
+
+    /// Whether secondary lines take the selected foreground.
+    var usesSelectedText: Bool { model.isActive && !usesLightPillText }
 }
