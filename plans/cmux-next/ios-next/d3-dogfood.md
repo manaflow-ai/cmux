@@ -1,8 +1,9 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
 Status: parity refresh on `feat-cmux-next-ios` implementation baseline
-`cff9e2e9cff22df187c664b542c8047deba34d8b`, including the C9 pane-composition seam, direct and
-WebRTC cancellation tests, and the split link benchmark harness. Plan: [PLAN.md](PLAN.md) D3.
+`8189a7fad29`, including the C9 pane-composition seam, direct and WebRTC cancellation tests, the
+split link benchmark harness, cancellation-safe teardown, and provenance-safe report artifacts.
+Plan: [PLAN.md](PLAN.md) D3.
 The exact-head fleet archive job `a439f2f1083073248164673e` produced tag
 `nxios-cff-c9-d2-v1` with artifact digest
 `sha256:ad26dc3b97ae13418b2038028cabf9783710c57456c48d1ec6abf6eaf22fd7a7`. This is device-archive

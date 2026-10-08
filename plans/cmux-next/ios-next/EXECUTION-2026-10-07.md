@@ -27,7 +27,7 @@ silently queue.
 ## Current evidence and selected work
 
 The refreshed D3 matrix at the current implementation baseline
-`cff9e2e9cff22df187c664b542c8047deba34d8b` reports 86 of 98 parity rows done, with one
+`8189a7fad29` reports 86 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), three seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
