@@ -14,9 +14,10 @@ does not contain the Linux Chromium or VA-API implementation.
 - The VA-API helper logs `vaInitialize failed: unknown libva error`.
 - The browser then emits Chromium's `[DanglingPtr]` report and terminates with
   `SIGTRAP`.
-- The exact nightly artifact is recorded in
-  [`out/perf-incident-18578/issue.json`](../../out/perf-incident-18578/issue.json).
-  The downloaded archive SHA-256 is
+- The exact nightly artifact was downloaded while investigating the public
+  [issue report](https://github.com/manaflow-ai/cmux/issues/18578). The local
+  provenance copy is `out/perf-incident-18578/issue.json` and is intentionally
+  not part of this documentation commit. The downloaded archive SHA-256 is
   `657efc619c3606e17b415b49ded1d46f8c0f0fb8b1e4dbb3b459483e839e013a`.
   The unpacked `chrome` ELF has Build ID
   `fb6c9c717a8041795a8bf391f63fa3847c947de9`.
