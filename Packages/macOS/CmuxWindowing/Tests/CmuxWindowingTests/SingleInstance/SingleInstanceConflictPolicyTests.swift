@@ -25,13 +25,14 @@ struct SingleInstanceConflictPolicyTests {
         )
     }
 
-    @Test("the same bundle relaunching itself replaces the older instance")
-    func sameBundleReplaces() {
+    @Test("a same-bundle relaunch leaves the existing instance alone")
+    func sameBundleYields() {
         let sameWithSlash = URL(fileURLWithPath: "/Applications/./cmux.app/", isDirectory: true)
         #expect(
             SingleInstanceConflictPolicy(environment: [:]).action(currentBundleURL: stable, existingBundleURL: sameWithSlash)
-                == .replaceExisting
+                == .yieldToExisting
         )
+        #expect(SingleInstanceConflictPolicy.isSameBundle(stable, sameWithSlash))
     }
 
     @Test("the explicit override restores replace-anything")
