@@ -38,7 +38,7 @@ public struct SSHTmuxWindow: Hashable, Sendable {
             && bytes.dropFirst().allSatisfy { (48...57).contains($0) }
     }
 
-    static func validID(_ value: String, prefix: Character) -> Bool {
+    public static func isValidID(_ value: String, prefix: Character) -> Bool {
         guard let byte = prefix.asciiValue else { return false }
         return validID(value, prefix: byte)
     }

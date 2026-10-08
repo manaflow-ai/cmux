@@ -260,3 +260,24 @@ routing, and unknown active-pane refusal. Swift parsing and diff checks pass; na
 live SSH layout changes, and per-pane renderer/input integration remain unverified. This seam does
 not promote C9 parity: pane snapshot multiplexing, resize arbitration, lifecycle mutation receipts,
 and reconnect-safe renderer composition still need implementation.
+
+### Explicit tmux lifecycle mutation seam (2026-10-07)
+
+`SSHTmuxLifecycleMutation` and `SSHTmuxLifecycleMutating` define the smallest safe
+lifecycle boundary for modern tmux windows. The seam carries only host-issued `$session`
+and `@window` ids plus the server PID/start epoch; create, rename and kill operations
+reject malformed ids, stale/unrepresentable epochs, control characters and oversized
+window names. Parameters have canonical `JSONValue` forms (`ssh.tmux.window.create`,
+`ssh.tmux.window.rename`, `ssh.tmux.window.kill`) for durable owner records, and
+idempotency keys are bounded to printable ASCII. `SSHTmuxLifecycleReceipt` returns the
+owner revision and replay bit so reconnect retries can settle without repeating a
+mutation.
+
+This is an owner protocol, not an SSH command executor. An implementation must check the
+epoch immediately before applying the mutation and persist the operation fingerprint and
+idempotency key before returning an applied receipt; an interrupted raw SSH command must
+remain indeterminate. The existing `SSHWorkspaceChannel` remains read-only until a host
+owner supplies this durable adapter, so this slice cannot claim create/rename/kill runtime
+parity. Three focused tests cover wire round trips, hostile fields and bounds; Swift
+parsing, mobile concurrency/crash guards and diff checks are the verification gate while
+native execution and live SSH lifecycle behavior remain unverified.
