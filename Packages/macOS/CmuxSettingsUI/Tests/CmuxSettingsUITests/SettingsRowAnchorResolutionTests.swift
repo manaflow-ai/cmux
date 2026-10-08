@@ -219,6 +219,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:workspaceColors:palette",
         "setting:sidebarAppearance:sidebar-liquid-glass",
         "setting:sidebarAppearance:sidebar-glass-blur",
+        "setting:sidebarAppearance:sidebar-row-hover",
         "setting:sidebarAppearance:sidebar-peek-reveal",
         "setting:sidebarAppearance:sidebar-peek-disabled",
         "setting:sidebarAppearance:sidebar-row-density",
