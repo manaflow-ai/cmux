@@ -641,6 +641,37 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["shell-b"])
     }
 
+    @Test func rejectedClearPaneTitleDoesNotOverwriteANewerLiveTitle() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows(["@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs"])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 5, index: 0, title: "shell-b"),
+        ]])
+
+        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
+        let panePanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: "build", propagateToCloud: false
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 99, lines: [], isError: false
+        ))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: nil, propagateToCloud: false
+        ))
+
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "cmux_title_all", paneId: 5, value: "newer-title"
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 100, lines: ["can't find pane"], isError: true
+        ))
+
+        #expect(harness.workspace.panelCustomTitles[panePanel.id] == nil)
+        #expect(try harness.surfaceTitles() == ["newer-title"])
+    }
+
     @Test func liveTmuxPaneRetitleUpdatesTheMirroredSurfaceTitle() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }

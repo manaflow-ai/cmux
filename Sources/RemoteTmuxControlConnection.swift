@@ -766,15 +766,14 @@ final class RemoteTmuxControlConnection {
             proc.executableURL = URL(fileURLWithPath: transportExecutable)
             proc.arguments = transportArgv
         }
-        proc.environment = transportProfile.childProcessEnvironment(
-            inheriting: ProcessInfo.processInfo.environment
-        )
         // SSH forwards TERM when allocating the remote PTY. The GUI process can
         // inherit an unsuitable value (for example from a launcher shell), which
         // makes tmux reject the control client before it emits %enter. The mirror
         // protocol needs a broadly available terminal definition rather than the
         // launcher's terminal type.
-        var environment = ProcessInfo.processInfo.environment
+        var environment = transportProfile.childProcessEnvironment(
+            inheriting: ProcessInfo.processInfo.environment
+        )
         environment["TERM"] = "xterm-256color"
         proc.environment = environment
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()

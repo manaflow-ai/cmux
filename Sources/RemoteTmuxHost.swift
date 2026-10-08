@@ -408,6 +408,16 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return trimmed
     }
 
+    /// Builds a line-safe `select-pane -T` command for one tmux pane.
+    ///
+    /// The title is validated and format-escaped before shell quoting so the
+    /// caller cannot accidentally turn a literal title into a tmux expansion.
+    static func selectPaneTitleCommand(paneID: Int, title: String) -> String? {
+        guard paneID >= 0,
+              let title = controlModeCommandPaneTitle(title) else { return nil }
+        return "select-pane -t %\(paneID) -T \(shellSingleQuoted(tmuxFormatLiteral(title)))"
+    }
+
     /// Validates a name already received from tmux. Unlike
     /// ``controlModeCommandName(_:)``, this preserves surrounding spaces because
     /// tmux is the source of truth for confirmed session/window names.

@@ -351,14 +351,11 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         completion: @escaping (Bool) -> Void
     ) -> Bool {
         guard windowIdByPane[tmuxPaneID] != nil,
-              let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
+              let command = RemoteTmuxHost.selectPaneTitleCommand(paneID: tmuxPaneID, title: title),
               connection.connectionState == .connected else {
             return false
         }
-        return connection.sendTracked(
-            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))",
-            completion: completion
-        )
+        return connection.sendTracked(command, completion: completion)
     }
 
     func rebuild() {

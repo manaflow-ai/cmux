@@ -11,12 +11,9 @@ extension RemoteTmuxWindowMirror {
     ) -> Bool {
         guard !isTornDown,
               panelsByPaneId[tmuxPaneID] != nil,
-              let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
+              let command = RemoteTmuxHost.selectPaneTitleCommand(paneID: tmuxPaneID, title: title),
               let connection else { return false }
-        return connection.sendTracked(
-            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))",
-            completion: completion
-        )
+        return connection.sendTracked(command, completion: completion)
     }
 
     struct PendingControlPaneFocusRequest {
