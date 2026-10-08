@@ -5,6 +5,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { makeUserDomain, type UserState } from "../src/domains/user.ts"
 import { deliverKrlNotices, type KrlRetry } from "../src/user-krl.ts"
+import { clearSignInRules } from "../src/policy-gate.ts"
 
 /**
  * cx-44j.51: what a team removal leaves behind. (1) A machine created under the team's SSO and bound
@@ -66,6 +67,8 @@ describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
       return real.call(this, entity, ...rest)
     }
     try {
+      // user.ensure above cached this team's rules for 30 s; ask TeamDO again.
+      clearSignInRules()
       const res = await call("/v1/read", { op: "install.list", params: {} })
       expect(res.status).toBe(503)
       expect(await res.json()).toMatchObject({ code: "owner.unreachable", retryable: true })
