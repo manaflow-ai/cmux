@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto"
-import type { Domain, Principal, ReduceResult } from "@cmux/ownership"
+import type { Domain, OutboxItem, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
-import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
+import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
@@ -30,6 +30,13 @@ export interface UserState extends PushTargetsState, ChiefsState {
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
    */
   readonly ssh_revoke_pending?: Readonly<Record<string, { readonly user: string; readonly teams: ReadonlyArray<string>; readonly at: number }>>
+  /**
+   * Verified addresses this account had before an email change, with the change time (cx-44j.45):
+   * security notices also go to each one for PREVIOUS_EMAIL_WINDOW_MS (14 days), so a takeover
+   * that starts by changing the email still reaches the owner. Entries past the window are dropped
+   * at the next change.
+   */
+  readonly previous_emails?: ReadonlyArray<{ readonly email: string; readonly changed_at: number }>
   /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
   readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
 }
@@ -170,12 +177,23 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           personal_team: p.team
         }
         const same = JSON.stringify(state.user) === JSON.stringify(profile)
+        // A verified address that is replaced (or stops being verified) is told, and keeps getting
+        // security notices for 14 days (cx-44j.45). The new address is never told by this notice.
+        const oldVerified = state.user?.email_verified && state.user.email ? state.user.email : null
+        const newVerified = profile.email_verified && profile.email ? profile.email : null
+        let next: UserState = { ...state, user: profile }
+        let notices: ReadonlyArray<OutboxItem> = []
+        if (oldVerified && oldVerified !== newVerified) {
+          const kept = (state.previous_emails ?? []).filter((e) => ctx.now < e.changed_at + PREVIOUS_EMAIL_WINDOW_MS && e.email !== oldVerified && e.email !== newVerified)
+          next = { ...next, previous_emails: [...kept, { email: oldVerified, changed_at: ctx.now }] }
+          notices = homeUser.emailChangedNotice({ user: profile.id, locale: "en", emails: [...kept.map((e) => e.email), oldVerified] }, ctx.now)
+        }
         return {
           ok: true,
-          state: { ...state, user: profile },
+          state: next,
           value: profile,
           changed: !same,
-          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }]
+          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }, ...notices]
         }
       }
       case "install.register":

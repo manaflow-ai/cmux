@@ -45,6 +45,6 @@ describe("verified email change", () => {
     const r = ensure(s, session("c@example.com"), t0 + 2000)
     // The takeover victim (a) keeps getting notices; b is told as well.
     expect(mails(r.outbox).map((m) => m.to).sort()).toEqual(["a@example.com", "b@example.com"])
-    expect(confirmEnv(r.state, "", t0 + 3000).emails.sort()).toEqual(["a@example.com", "b@example.com", "c@example.com"])
+    expect([...(confirmEnv(r.state, "", t0 + 3000).emails ?? [])].sort()).toEqual(["a@example.com", "b@example.com", "c@example.com"])
   })
 })
