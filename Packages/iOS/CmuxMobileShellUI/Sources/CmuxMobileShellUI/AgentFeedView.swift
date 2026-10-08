@@ -230,7 +230,9 @@ struct AgentFeedView: View {
             }
         }
         .modifier(AgentFeedPerformanceModifier(
-            observer: performanceObserver, isActive: isActive, itemCount: items.count
+            observer: performanceObserver,
+            isActive: isActive && composeContext == nil && readingItem == nil,
+            itemCount: items.count
         ))
         .listStyle(.plain)
         .accessibilityIdentifier("AgentFeedScrollContainer")
