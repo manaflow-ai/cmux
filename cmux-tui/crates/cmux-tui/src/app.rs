@@ -97,6 +97,8 @@ use crate::ui::graphics_writer::{
     GraphicsCompletion, GraphicsProcessing, GraphicsResponseFilter, GraphicsWriter,
     GraphicsWriterShutdown, StdoutLock, graphics_fence_channel,
 };
+mod pairing_confirm;
+
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
     ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
@@ -19733,19 +19735,8 @@ impl App {
     }
 
     fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        match key.code {
-            // Approval is explicit: the Enter that ends a command line typed
-            // while the dialog appeared must not admit a browser, and neither
-            // may a shell chord such as Ctrl+Y (yank) or Alt+Y.
-            KeyCode::Char('y') | KeyCode::Char('Y')
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER) =>
-            {
-                self.resolve_pairing(true)
-            }
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
-            _ => {}
+        if let Some(approve) = pairing_confirm::decision(&key) {
+            self.resolve_pairing(approve);
         }
         Ok(RenderAction::Draw)
     }
@@ -39989,47 +39980,6 @@ mod tests {
     }
 
     #[test]
-    fn enter_does_not_approve_a_rendered_pairing_dialog() {
-        // A dialog can appear while the user types in a terminal; the Enter
-        // that ends their command line must not admit a browser. Approval is
-        // an explicit `y` (or the Approve button).
-        let mux = Mux::new("pairing-explicit-confirm-test", SurfaceOptions::default());
-        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
-        let mut app = test_app(Session::Local(mux));
-        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
-        let action =
-            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
-        app.render_action(&mut terminal, action).unwrap();
-
-        for (code, modifiers) in [
-            (KeyCode::Enter, KeyModifiers::NONE),
-            (KeyCode::Char(' '), KeyModifiers::NONE),
-            (KeyCode::Char('y'), KeyModifiers::CONTROL),
-            (KeyCode::Char('y'), KeyModifiers::ALT),
-            (KeyCode::Char('y'), KeyModifiers::SUPER),
-        ] {
-            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(code, modifiers)))).unwrap();
-            assert_eq!(
-                app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
-                Some(challenge.id),
-                "{code:?} {modifiers:?} closed the pairing dialog"
-            );
-            assert!(decision.try_recv().is_err(), "{code:?} {modifiers:?} approved a pairing request");
-        }
-
-        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
-            KeyCode::Char('y'),
-            KeyModifiers::NONE,
-        ))))
-        .unwrap();
-        assert!(app.pairing_dialog.is_none());
-        assert!(matches!(
-            decision.recv_timeout(Duration::from_secs(1)),
-            Ok(cmux_tui_core::PairingDecision::Approved { .. })
-        ));
-    }
-
-    #[test]
     fn enter_cannot_approve_an_unrendered_replacement_pairing_dialog() {
         let mux = Mux::new("pairing-key-replacement-barrier-test", SurfaceOptions::default());
         let (first, first_decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
@@ -46789,7 +46739,7 @@ mod tests {
         assert!(app.owner_shutdown_requested());
     }
 
-    fn test_app(session: Session) -> App {
+    pub(super) fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
 
