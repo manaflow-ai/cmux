@@ -58,7 +58,7 @@ actor AccountMacDirectoryClient {
             signWithdrawal: (@Sendable (Data) async throws -> Data)? = nil,
             now: @escaping @Sendable () -> Date = { Date() },
             sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
-                try await Task.sleep(for: .seconds(max(0, seconds)))
+                try await ContinuousClock().sleep(for: .seconds(max(0, seconds)))
             },
             journal: IrxJournal? = nil
         ) {

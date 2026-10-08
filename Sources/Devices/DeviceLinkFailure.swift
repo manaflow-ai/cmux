@@ -45,8 +45,9 @@ struct DeviceLinkFailure: Equatable, Sendable {
         )
     }
 
-    /// Maps a dial or session error to its failure class. `hostName` names the
-    /// other Mac in refusals that are about that Mac's decision.
+    /// Maps a dial or session error to its failure class. The host name is
+    /// intentionally not included in admission messages: it can contain a
+    /// user-provided device name that must not be echoed into UI text.
     static func classify(_ error: any Error, hostName: String) -> DeviceLinkFailure {
         if let denial = error as? IrxAdmissionDenied {
             return admission(denial.code, hostName: hostName)
@@ -96,22 +97,26 @@ struct DeviceLinkFailure: Equatable, Sendable {
 
     /// The host's admission verdict travels in the QUIC close reason. Every
     /// code is mapped here, so a new code cannot fall into the retry loop.
-    private static func admission(_ code: IrxCloseCode, hostName: String) -> DeviceLinkFailure {
+    private static func admission(_ code: IrxCloseCode, hostName _: String) -> DeviceLinkFailure {
+        // Keep the localized strings' grammatical placeholder while using a
+        // fixed label. Device names are display metadata and are not trusted
+        // to be safe user-facing disclosure in a refusal message.
+        let genericHostName = "The other Mac"
         switch code {
         case .invalidGrant:
             return DeviceLinkFailure(kind: .hostDenied, code: code.rawValue, message: String(
                 format: String(localized: "devices.link.error.hostDenied", defaultValue: "%@ has not authorized this Mac. Update cmux on both Macs, then refresh."),
-                hostName
+                genericHostName
             ))
         case .grantExpired:
             return DeviceLinkFailure(kind: .hostDenied, code: code.rawValue, message: String(
                 format: String(localized: "devices.link.error.hostGrantExpired", defaultValue: "%@ no longer holds an authorization for this Mac. Refresh to try again."),
-                hostName
+                genericHostName
             ))
         case .revoked:
             return DeviceLinkFailure(kind: .hostDenied, code: code.rawValue, message: String(
                 format: String(localized: "devices.link.error.hostRevoked", defaultValue: "%@ revoked this Mac’s access."),
-                hostName
+                genericHostName
             ))
         case .identityMismatch:
             return DeviceLinkFailure(kind: .identity, code: code.rawValue, message: DeviceLinkError.identityMismatch.localizedDescription)

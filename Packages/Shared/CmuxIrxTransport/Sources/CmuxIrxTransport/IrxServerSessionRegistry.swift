@@ -8,7 +8,8 @@ public actor IrxServerSessionRegistry {
     private typealias Entry = (
         session: String,
         connection: IrxConnection,
-        stillAuthorized: @Sendable (_ remoteEndpointIDHex: String) -> Bool
+        stillAuthorized: @Sendable (_ remoteEndpointIDHex: String) -> Bool,
+        accountAdmitted: Bool
     )
     private var sessionsByDevice: [String: Entry] = [:]
     private let journal: IrxJournal
@@ -25,7 +26,8 @@ public actor IrxServerSessionRegistry {
         deviceID: String,
         sessionID: String,
         connection: IrxConnection,
-        stillAuthorized: @escaping @Sendable (_ remoteEndpointIDHex: String) -> Bool = { _ in true }
+        stillAuthorized: @escaping @Sendable (_ remoteEndpointIDHex: String) -> Bool = { _ in true },
+        accountAdmitted: Bool = false
     ) async -> Bool {
         // Admission and registration are separate async phases. Re-check the
         // atomically readable list immediately before publishing the session
@@ -40,7 +42,8 @@ public actor IrxServerSessionRegistry {
             return false
         }
         let previous = sessionsByDevice.updateValue(
-            (session: sessionID, connection: connection, stillAuthorized: stillAuthorized),
+            (session: sessionID, connection: connection, stillAuthorized: stillAuthorized,
+                accountAdmitted: accountAdmitted),
             forKey: deviceID)
         if let previous {
             journal.record(
@@ -97,7 +100,7 @@ public actor IrxServerSessionRegistry {
     /// from the list is cut NOW, not at its next admission).
     public func closeAll(
         code: IrxCloseCode,
-        matching shouldClose: @Sendable (_ remoteEndpointIDHex: String) -> Bool
+        matching shouldClose: @Sendable (_ remoteEndpointIDHex: String, _ accountAdmitted: Bool) -> Bool
     ) async {
         // Snapshot before awaiting connection shutdown. Actor reentrancy can
         // admit or replace sessions while a close is in flight, and mutating
@@ -105,7 +108,7 @@ public actor IrxServerSessionRegistry {
         // collection and skip entries.
         let entries = Array(sessionsByDevice)
         for (deviceID, entry) in entries
-        where shouldClose(entry.connection.remoteEndpointIDHex) {
+        where shouldClose(entry.connection.remoteEndpointIDHex, entry.accountAdmitted) {
             journal.record(
                 "registry", "list-enforced-close",
                 [

@@ -10,6 +10,28 @@ import Foundation
 /// from this Mac's own team cache, so a revoked or replaced local device never
 /// dials through the account route.
 struct IrxAccountMacPeerAuthorization: Sendable {
+    /// Indexes one immutable account snapshot for endpoint and installation lookups.
+    /// Building it once keeps discovery linear in the number of account rows.
+    struct Index: Sendable {
+        let byEndpoint: [String: [V2DeviceRecord]]
+        let byInstallation: [String: [V2DeviceRecord]]
+
+        init(_ directory: AccountMacDirectory) {
+            var endpoints: [String: [V2DeviceRecord]] = [:]
+            var installations: [String: [V2DeviceRecord]] = [:]
+            for record in directory.macs {
+                endpoints[record.descriptor.endpointID.lowercased(), default: []].append(record)
+                installations[Self.installationKey(record.descriptor.identity), default: []].append(record)
+            }
+            byEndpoint = endpoints
+            byInstallation = installations
+        }
+
+        private static func installationKey(_ identity: V2Identity) -> String {
+            identity.deviceID.lowercased() + "\u{0}" + identity.buildTag
+        }
+    }
+
     let deviceID: String
     let tag: String
     let endpointID: String
@@ -36,7 +58,8 @@ struct IrxAccountMacPeerAuthorization: Sendable {
         account: AccountMacDirectorySnapshot?,
         cache: V2CachedState,
         localIdentity: V2Identity,
-        now: Date
+        now: Date,
+        index: Index? = nil
     ) throws -> V2DeviceRecord {
         guard cache.formatVersion == 2, cache.identity == localIdentity,
               let own = cache.device, own.descriptor.identity == localIdentity else {
@@ -47,15 +70,13 @@ struct IrxAccountMacPeerAuthorization: Sendable {
               account.directory.userID == localIdentity.userID,
               account.directory.supportsAccountPeers,
               account.isFresh(at: now) else { throw IrxMacPeerAuthorization.Failure.staleDirectory }
-        let matches = account.directory.macs.filter { $0.descriptor.endpointID == endpointID }
+        let lookup = index ?? Index(account.directory)
+        let matches = lookup.byEndpoint[endpointID.lowercased()] ?? []
         guard !matches.isEmpty else { throw IrxMacPeerAuthorization.Failure.unavailable }
         guard matches.count == 1, let peer = matches.first else { throw IrxMacPeerAuthorization.Failure.identityMismatch }
         // One installation has one account row. Two rows naming the same
         // device and build are ambiguous, and neither is authority.
-        let sameInstallation = account.directory.macs.filter {
-            $0.descriptor.identity.deviceID.lowercased() == peer.descriptor.identity.deviceID.lowercased()
-                && $0.descriptor.identity.buildTag == peer.descriptor.identity.buildTag
-        }
+        let sameInstallation = lookup.byInstallation[Self.installationKey(peer.descriptor.identity)] ?? []
         guard sameInstallation.count == 1 else { throw IrxMacPeerAuthorization.Failure.identityMismatch }
         guard !peer.revoked else { throw IrxMacPeerAuthorization.Failure.revoked }
         let device = peer.descriptor
@@ -76,5 +97,9 @@ struct IrxAccountMacPeerAuthorization: Sendable {
             throw IrxMacPeerAuthorization.Failure.notDiscoverable
         }
         return peer
+    }
+
+    private static func installationKey(_ identity: V2Identity) -> String {
+        identity.deviceID.lowercased() + "\u{0}" + identity.buildTag
     }
 }

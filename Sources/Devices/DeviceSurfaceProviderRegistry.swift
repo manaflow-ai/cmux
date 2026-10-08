@@ -42,6 +42,10 @@ final class DeviceSurfaceProviderRegistry {
     private var availabilityObserver: CloudFeatureAvailabilityObserver?
     private var accessObserver: NSObjectProtocol?
     private var policyObserver: NSObjectProtocol?
+    /// Serializes retirement of team-scoped automatic clients across switches.
+    /// The task is retained so an old client cannot outlive the registry's
+    /// lifecycle without its stop being observed.
+    private var automaticClientShutdownTask: Task<Void, Never>?
     typealias DirectoryFactory = @MainActor (
         AuthCoordinator, AuthenticatedSessionIdentity, String?, any DeviceLinkAuthorizationSource, DeviceIrxClient?
     ) -> DeviceDirectory
@@ -168,7 +172,7 @@ final class DeviceSurfaceProviderRegistry {
             directory?.stop()
             directory = nil
             lastDirectoryStamp = nil
-            if let client = runtime?.automaticClient { Task { await client.stop() } }
+            if let client = runtime?.automaticClient { scheduleAutomaticClientStop(client) }
             runtime = nil
             for (instance, provider) in providers {
                 provider.stop()
@@ -216,6 +220,7 @@ final class DeviceSurfaceProviderRegistry {
         guard let previous = directory else { return }
         let carried = previous.carriedState()
         let oldClient = runtime?.automaticClient
+        let carriedStamp = previous.directoryStamp
         if let directoryObserver { notificationCenter.removeObserver(directoryObserver) }
         directoryObserver = nil
         self.teamID = teamID
@@ -227,12 +232,12 @@ final class DeviceSurfaceProviderRegistry {
         let next = makeDirectory(auth, identity, teamID, authorization, runtime.automaticClient)
         next.adopt(carried)
         directory = next
-        lastDirectoryStamp = nil
+        lastDirectoryStamp = carriedStamp
         // Links move to the new runtime before the old client stops, so a
         // session ending under the old team is already a stale generation.
         for provider in providers.values { provider.link.replaceRuntime(runtime) }
         previous.stop()
-        if let oldClient { Task { await oldClient.stop() } }
+        if let oldClient { scheduleAutomaticClientStop(oldClient) }
         directoryObserver = notificationCenter.addObserver(
             forName: DeviceDirectory.didChangeNotification,
             object: next,
@@ -242,6 +247,15 @@ final class DeviceSurfaceProviderRegistry {
         }
         next.start()
         reconcile()
+    }
+
+    /// Retires an automatic client in order, without discarding its async stop.
+    private func scheduleAutomaticClientStop(_ client: DeviceIrxClient) {
+        let previous = automaticClientShutdownTask
+        automaticClientShutdownTask = Task { [previous] in
+            await previous?.value
+            await client.stop()
+        }
     }
 
     /// Settings › Devices "Open": show this device's row in the Devices tab,

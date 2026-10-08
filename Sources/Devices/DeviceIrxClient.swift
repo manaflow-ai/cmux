@@ -15,10 +15,16 @@ actor DeviceIrxClient {
     }
 
     /// Returns whether an authoritative verified-session failure retires its endpoint slot.
-    nonisolated static func shouldReleaseVerifiedSession(after failure: IrxMacPeerAuthorization.Failure) -> Bool {
+    nonisolated static func shouldReleaseVerifiedSession(
+        after failure: IrxMacPeerAuthorization.Failure,
+        source: DeviceDirectorySource? = nil
+    ) -> Bool {
         switch failure {
         case .staleDirectory:
-            return false
+            // A stale team directory is a temporary lease gap. An account
+            // directory going nil is an authoritative route withdrawal, so
+            // retire its endpoint slot and let discovery redial later.
+            return source == .account
         case .unavailable, .revoked, .notDiscoverable, .identityMismatch:
             return true
         }
@@ -268,6 +274,11 @@ actor DeviceIrxClient {
         await reconcile(releaseAll: false)
     }
 
+    /// Whether a complete account snapshot has been installed for this client.
+    /// A team switch uses this to keep carried account rows visible until the
+    /// replacement client has an authoritative answer.
+    func hasAccountDirectorySnapshot() -> Bool { latestAccount != nil }
+
     private func reconcile(releaseAll: Bool) async {
         let cache = latestCache
         let account = latestAccount
@@ -288,7 +299,7 @@ actor DeviceIrxClient {
                     ), source: source, cache: cache, account: account, localIdentity: cache.identity, now: permissionNow())
                     return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
                 } catch let failure as IrxMacPeerAuthorization.Failure {
-                    return Self.shouldReleaseVerifiedSession(after: failure)
+                    return Self.shouldReleaseVerifiedSession(after: failure, source: source)
                 } catch {
                     return false
                 }

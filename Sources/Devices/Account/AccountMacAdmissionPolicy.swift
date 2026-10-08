@@ -1,6 +1,5 @@
 import CmuxIrxTransport
 import Foundation
-import os
 
 /// The host runtime's rules for combining the team authority with the
 /// same-user Mac authority. Kept free of runtime state so each rule is tested
@@ -72,26 +71,5 @@ enum AccountMacAdmissionPolicy {
                 .isDisjoint(with: ["cmux.mac-devices.v1", "cmux.mac-host.v1"]),
               let ticket = cache.ticket, ticket.expiresAt > Int(now.timeIntervalSince1970) else { return nil }
         return AccountMacDirectoryClient.Credentials(device: record.descriptor, ticket: ticket)
-    }
-}
-
-/// Live sessions the host admitted through the account authority, by endpoint,
-/// so enforcement applies the account rule to exactly those sessions.
-final class AccountAdmittedSessions: Sendable {
-    private let sessions = OSAllocatedUnfairLock(initialState: [String: Set<String>]())
-
-    func insert(endpoint: String, session: String) {
-        sessions.withLock { _ = $0[endpoint, default: []].insert(session) }
-    }
-
-    func remove(endpoint: String, session: String) {
-        sessions.withLock { all in
-            all[endpoint]?.remove(session)
-            if all[endpoint]?.isEmpty == true { all[endpoint] = nil }
-        }
-    }
-
-    func contains(_ endpoint: String) -> Bool {
-        sessions.withLock { $0[endpoint] != nil }
     }
 }

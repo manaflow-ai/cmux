@@ -23,7 +23,7 @@ extension DeviceIrxClient {
     /// Resolves an exact Mac intent.
     ///
     /// With no `source`, a device whose qualifying account row exists (listed,
-    /// cross-team, unambiguous: its latest publish came from another team)
+    /// cross-team, unambiguous, and absent from the current team directory)
     /// resolves only in the account directory, the same row discovery shows;
     /// any other key for that device, such as the team record's old key, is
     /// refused. Every other device resolves in the team directory exactly as
@@ -44,7 +44,8 @@ extension DeviceIrxClient {
                 throw IrxMacPeerAuthorization.Failure.staleDirectory
             }
             let record = try IrxAccountMacPeerAuthorization(intent).resolve(
-                account: account, cache: cache, localIdentity: localIdentity, now: now)
+                account: account, cache: cache, localIdentity: localIdentity, now: now,
+                index: IrxAccountMacPeerAuthorization.Index(account.directory))
             return DeviceResolvedMacTarget(record: record, source: .account, relayURLs: account.directory.relayURLs)
         }
         if source == .account { return try fromAccount() }
@@ -78,28 +79,37 @@ extension DeviceIrxClient {
         now: Date
     ) -> V2DeviceRecord? {
         guard let account, teamDirectoryIsFresh(cache: cache, localIdentity: localIdentity, now: now) else { return nil }
-        let candidates = account.directory.macs.filter {
-            $0.descriptor.identity.deviceID.lowercased() == deviceID.lowercased()
-                && $0.descriptor.identity.buildTag == tag
-        }
+        let index = IrxAccountMacPeerAuthorization.Index(account.directory)
+        let installationKey = deviceID.lowercased() + "\u{0}" + tag
+        let candidates = index.byInstallation[installationKey] ?? []
         guard candidates.count == 1, let row = candidates.first,
               (try? CmxIrohPeerIdentity(endpointID: row.descriptor.endpointID)) != nil else { return nil }
+        guard !(cache.directory?.devices.contains {
+            $0.descriptor.identity.deviceID.lowercased() == deviceID.lowercased()
+                && $0.descriptor.identity.buildTag == tag
+        } ?? false) else { return nil }
         return try? IrxAccountMacPeerAuthorization(deviceID: deviceID, tag: tag, endpointID: row.descriptor.endpointID)
-            .resolve(account: account, cache: cache, localIdentity: localIdentity, now: now)
+            .resolve(account: account, cache: cache, localIdentity: localIdentity, now: now,
+                index: index)
     }
 
     /// Projects authorized Macs from the team and account directories into one
     /// list, deduplicated by (device, build tag). A qualifying account row
-    /// (listed, cross-team, unambiguous) replaces the team row; every other
-    /// device keeps its team row.
+    /// (listed, cross-team, unambiguous) fills a key absent from the current
+    /// team directory; a current-team row remains authoritative.
     static func displayBindings(cache: V2CachedState, account: AccountMacDirectorySnapshot?, now: Date) -> [DeviceDiscoveredMac] {
         let team = displayBindings(cache: cache, now: now)
         guard let account, teamDirectoryIsFresh(cache: cache, localIdentity: cache.identity, now: now) else { return team }
+        let teamKeys = Set(team.map { $0.deviceID + "\u{0}" + $0.tag })
+        let accountIndex = IrxAccountMacPeerAuthorization.Index(account.directory)
         let accountRows: [DeviceDiscoveredMac] = account.directory.macs.compactMap { record in
             let device = record.descriptor
+            let key = device.identity.deviceID.lowercased() + "\u{0}" + device.identity.buildTag
+            guard !teamKeys.contains(key) else { return nil }
             let intent = IrxAccountMacPeerAuthorization(deviceID: device.identity.deviceID,
                 tag: device.identity.buildTag, endpointID: device.endpointID)
-            guard (try? intent.resolve(account: account, cache: cache, localIdentity: cache.identity, now: now)) != nil,
+            guard (try? intent.resolve(account: account, cache: cache, localIdentity: cache.identity, now: now,
+                index: accountIndex)) != nil,
                   let endpoint = try? CmxIrohPeerIdentity(endpointID: device.endpointID) else { return nil }
             let expiry = min(now.addingTimeInterval(1800),
                 Date(timeIntervalSince1970: Double(account.directory.permissionExpiresAt)))
@@ -114,10 +124,9 @@ extension DeviceIrxClient {
         }
         guard !accountRows.isEmpty else { return team }
         // Every account row here already qualifies (listed, cross-team,
-        // unambiguous), so the Mac's latest publish came from another team and
-        // its row replaces the team row for the same device and build. That
-        // team row is the key the Mac held while it was in this team. Dialing
-        // resolves the same way (resolveTarget), so display and dial agree.
+        // unambiguous), and it fills only a key the current team did not name.
+        // Dialing resolves the same way (resolveTarget), so display and dial
+        // agree even while the account service catches up with a team switch.
         func key(_ mac: DeviceDiscoveredMac) -> String { mac.deviceID + "\u{0}" + mac.tag }
         var byKey: [String: DeviceDiscoveredMac] = [:]
         for row in accountRows { byKey[key(row)] = row }

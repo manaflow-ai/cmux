@@ -463,14 +463,6 @@ struct AccountMacAdmissionPolicyTests {
             #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: false,
                 account: account, allowsMacAccess: allowsMacAccess) == nil)
         }
-        let sessions = AccountAdmittedSessions()
-        #expect(!sessions.contains(F.peerKey))
-        sessions.insert(endpoint: F.peerKey, session: "s1")
-        sessions.insert(endpoint: F.peerKey, session: "s2")
-        sessions.remove(endpoint: F.peerKey, session: "s1")
-        #expect(sessions.contains(F.peerKey))
-        sessions.remove(endpoint: F.peerKey, session: "s2")
-        #expect(!sessions.contains(F.peerKey))
     }
 
     @Test("The account directory runs only while the flag is on, observed on, and no withdrawal is in flight")
@@ -504,8 +496,8 @@ struct AccountMacDiscoveryTests {
         F.record(F.identity(device: "peer", team: "A"), endpoint: F.staleKey)
     }
 
-    @Test("A Mac that switched teams with pairing on shows and dials its new cross-team endpoint")
-    func switchedMacShowsAndDialsAccountEndpoint() throws {
+    @Test("A current team row remains authoritative over a stale account row")
+    func currentTeamRowRemainsAuthoritative() throws {
         // Pairing on: the old team record keeps cmux.mac-host.v1, so team A
         // still lists peer validly under the key it used while in team A.
         let cache = F.cache(teamDevices: [staleTeamPeer])
@@ -513,19 +505,19 @@ struct AccountMacDiscoveryTests {
         let merged = DeviceIrxClient.displayBindings(cache: cache, account: F.account(), now: F.now)
         #expect(merged.count == 1)
         let row = try #require(merged.first)
-        #expect(row.endpointID.endpointID == F.peerKey)
-        #expect(row.bindingID == "B-peer")
-        #expect(row.controlPlaneSupportsMacPeers)
-        // The dial resolves the shown endpoint on the account directory...
+        #expect(row.endpointID.endpointID == F.staleKey)
+        #expect(row.bindingID == "A-peer")
+        #expect(!row.controlPlaneSupportsMacPeers)
         let shown = IrxMacPeerAuthorization(deviceID: row.deviceID, tag: row.tag, endpointID: row.endpointID.endpointID)
         let target = try DeviceIrxClient.resolveTarget(intent: shown, source: nil, cache: cache,
             account: F.account(), localIdentity: F.selfIdentity, now: F.now)
-        #expect(target.source == .account)
-        #expect(target.record.deviceRecordID == "B-peer")
-        // ...and never falls back to the team record's old key for that Mac.
-        let oldKey = IrxMacPeerAuthorization(deviceID: "peer", tag: "default", endpointID: F.staleKey)
+        #expect(target.source == .team)
+        #expect(target.record.deviceRecordID == "A-peer")
+        // The stale account endpoint is not allowed to take ownership while
+        // the current team still names this device and build.
+        let accountKey = IrxMacPeerAuthorization(deviceID: "peer", tag: "default", endpointID: F.peerKey)
         #expect(throws: IrxMacPeerAuthorization.Failure.unavailable) {
-            try DeviceIrxClient.resolveTarget(intent: oldKey, source: nil, cache: cache,
+            try DeviceIrxClient.resolveTarget(intent: accountKey, source: nil, cache: cache,
                 account: F.account(), localIdentity: F.selfIdentity, now: F.now)
         }
     }
@@ -640,7 +632,7 @@ struct AccountMacDiscoveryTests {
         }
     }
 
-    @Test("Ambiguous account rows never replace the team row; a cross-team row at the same key takes the account source")
+    @Test("The current team row stays authoritative when an account row has the same key")
     func ambiguousAccountRowsKeepTeam() throws {
         let cache = F.cache(teamDevices: [staleTeamPeer])
         let twoRows = F.account(macs: [F.record(F.peerIdentity, endpoint: F.peerKey),
@@ -649,7 +641,8 @@ struct AccountMacDiscoveryTests {
         #expect(merged.map(\.bindingID) == ["A-peer"])
         let sameEndpoint = F.account(macs: [F.record(F.peerIdentity, endpoint: F.staleKey)])
         let replaced = DeviceIrxClient.displayBindings(cache: cache, account: sameEndpoint, now: F.now)
-        #expect(replaced.map(\.bindingID) == ["B-peer"])
+        #expect(replaced.map(\.bindingID) == ["A-peer"])
+        #expect(replaced.first?.endpointID.endpointID == F.staleKey)
     }
 
     @Test("An older account directory never replaces a newer one in the outgoing client")

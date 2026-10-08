@@ -644164,6 +644164,72 @@
               "state": "translated",
               "value": "チーム横断のマイデバイス"
             }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Moji uređaji među timovima"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mine enheder på tværs af teams"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "I miei dispositivi tra i team"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ឧបករណ៍​របស់​ខ្ញុំ​ឆ្លងកាត់​ក្រុម"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mine enheter på tvers av team"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Moje urządzenia między zespołami"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Meus dispositivos entre equipes"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Мои устройства между командами"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "อุปกรณ์ของฉันข้ามทีม"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ekipler arası cihazlarım"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Мої пристрої між командами"
+            }
           }
         }
       },
@@ -644223,6 +644289,72 @@
             "stringUnit": {
               "state": "translated",
               "value": "異なるチームを選択していても、同じアカウントでサインインしている Mac を見つけて接続します。"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Pronalaži i poveži svoje Mac računare prijavljene na isti nalog čak i kada su izabrali različite timove."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Finder og forbinder dine Mac-computere, der er logget ind på den samme konto, selv når de har valgt forskellige teams."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Trova e connette i tuoi Mac che hanno effettuato l’accesso allo stesso account anche se hanno scelto team diversi."
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ស្វែងរក និងភ្ជាប់ Mac របស់អ្នកដែលបានចូលគណនីដូចគ្នា ទោះបីជាពួកវាជ្រើសរើសក្រុមផ្សេងគ្នាក៏ដោយ។"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Finner og kobler til Mac-ene dine som er logget på samme konto, selv når de har valgt ulike team."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Znajduje i łączy Twoje Maki zalogowane na to samo konto, nawet jeśli wybrały różne zespoły."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Encontra e conecta seus Macs conectados à mesma conta, mesmo quando escolheram equipes diferentes."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Находит и подключает ваши Mac, вошедшие в одну учётную запись, даже если они выбрали разные команды."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ค้นหาและเชื่อมต่อ Mac ของคุณที่ลงชื่อเข้าใช้บัญชีเดียวกัน แม้จะเลือกทีมที่แตกต่างกัน"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Farklı ekipler seçmiş olsalar bile aynı hesapta oturum açmış Mac’lerinizi bulur ve bağlar."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Знаходить і підключає ваші Mac, що ввійшли в один обліковий запис, навіть якщо вони вибрали різні команди."
             }
           }
         }

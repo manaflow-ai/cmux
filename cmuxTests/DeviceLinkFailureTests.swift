@@ -30,6 +30,8 @@ struct DeviceLinkFailureTests {
     @Test("A verified device session retires when the current directory removes its endpoint")
     func verifiedSessionRetiresAfterDirectoryRemoval() {
         #expect(!DeviceIrxClient.shouldReleaseVerifiedSession(after: .staleDirectory))
+        #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .staleDirectory, source: .account))
+        #expect(!DeviceIrxClient.shouldReleaseVerifiedSession(after: .staleDirectory, source: .team))
         #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .unavailable))
         #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .revoked))
     }
@@ -67,13 +69,14 @@ struct DeviceLinkFailureTests {
         }
     }
 
-    @Test("A host admission refusal names the Mac, keeps its code, and does not retry")
+    @Test("A host admission refusal keeps its code without echoing the device name")
     func hostAdmissionRefusal() {
         let failure = DeviceLinkFailure.classify(IrxAdmissionDenied(code: .invalidGrant), hostName: host)
         #expect(failure.kind == .hostDenied)
         #expect(!failure.isRetryable)
         #expect(failure.code == "invalid-grant")
-        #expect(failure.message.contains(host))
+        #expect(!failure.message.contains(host))
+        #expect(failure.message.contains("The other Mac"))
         #expect(!failure.message.contains("online"), "the Mac answered, so the row must not tell the person to check that it is online")
     }
 

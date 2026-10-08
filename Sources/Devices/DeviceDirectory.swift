@@ -238,8 +238,24 @@ final class DeviceDirectory {
                 do {
                     let bindings = try await automaticClient.discoverMacs()
                     let stamp = await automaticClient.directoryStamp()
+                    let accountReady = await automaticClient.hasAccountDirectorySnapshot()
                     guard !Task.isCancelled else { return }
-                    self.authenticatedMacs = bindings
+                    if accountReady {
+                        self.authenticatedMacs = bindings
+                    } else {
+                        // A replacement team client can answer with its team
+                        // rows before the account socket has produced a
+                        // complete snapshot. Keep carried rows whose key is
+                        // absent from that team answer until the account
+                        // directory becomes authoritative.
+                        let teamKeys = Set(bindings.map { $0.deviceID + "\u{0}" + $0.tag })
+                        var merged = bindings
+                        for carried in self.authenticatedMacs {
+                            let key = carried.deviceID + "\u{0}" + carried.tag
+                            if !teamKeys.contains(key) { merged.append(carried) }
+                        }
+                        self.authenticatedMacs = merged
+                    }
                     self.directoryStamp = stamp
                     self.registryError = nil
                 } catch {

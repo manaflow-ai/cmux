@@ -103,8 +103,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var accountDirectoryTask: Task<Void, Never>?
     /// Builds a dormant account client for this generation's key and scope.
     private var accountClientFactory: (@MainActor () -> AccountMacDirectoryClient)?
-    /// Live sessions admitted through the account authority, by endpoint.
-    private let accountSessions = AccountAdmittedSessions()
     private var accountDirectoryEnabled = false
     /// Flag-off withdrawals in flight; no account client starts meanwhile, so
     /// a quick off-on flip cannot publish a row the withdrawal then deletes.
@@ -905,15 +903,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token), let admission, let registry else { return }
         let legacyCurrent = legacyService?.listCurrent
         let accountAdmission = AccountMacDirectoryFeature.isEnabled() ? accountAdmission : nil
-        let accountSessions = self.accountSessions
         let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
             $0.device.descriptor.metadata.platform == .mac
         }.map { $0.device.descriptor.endpointID } ?? [])
         let allowsMacAccess = MobileRemoteControlPolicy.allowsIncomingAccess()
-        await registry.closeAll(code: .revoked, matching: { endpoint in
+        await registry.closeAll(code: .revoked, matching: { endpoint, accountAdmitted in
             if !allowsMacAccess, macEndpoints.contains(endpoint) { return true }
             if let closes = AccountMacAdmissionPolicy.sessionCloses(endpoint: endpoint,
-                accountAdmitted: accountSessions.contains(endpoint),
+                accountAdmitted: accountAdmitted,
                 account: accountAdmission, allowsMacAccess: allowsMacAccess) {
                 return closes
             }
@@ -1106,15 +1103,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
         // Recorded before registry admission: enforcement can run at any await
         // below and must already apply the account rule to this session.
-        let accountSessions = self.accountSessions
-        let sessionEndpoint = peer.endpointIDHex
-        if accountAdmitted { accountSessions.insert(endpoint: sessionEndpoint, session: sessionID) }
-        defer { if accountAdmitted { accountSessions.remove(endpoint: sessionEndpoint, session: sessionID) } }
         let registered = await registry.admit(
             deviceID: peer.bindingID,
             sessionID: sessionID,
             connection: irx,
-            stillAuthorized: stillAuthorized
+            stillAuthorized: stillAuthorized,
+            accountAdmitted: accountAdmitted
         )
         guard registered, isCurrent(token) else {
             await irx.close(code: .revoked, origin: .local)
