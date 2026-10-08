@@ -90,6 +90,8 @@ public final class SidebarModel {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// `sidebar.groupByComputer`: a header per computer; off, one list.
+    public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -299,6 +301,7 @@ public final class SidebarModel {
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         showWorkspaceTabs = preferences.showWorkspaceTabs
         workspaceRow = preferences.workspaceRow
+        groupsByComputer = preferences.groupsByComputer
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
@@ -313,6 +316,7 @@ public final class SidebarModel {
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.workspaceRow = workspaceRow
+        o.flattensMachines = !groupsByComputer
         o.now = Calendar.current.startOfDay(for: Date())
         return o
     }

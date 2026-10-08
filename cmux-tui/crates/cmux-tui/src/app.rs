@@ -25368,7 +25368,6 @@ mod tests {
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
-    use crossbeam_channel::Receiver;
     use serde_json::Value;
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -25376,6 +25375,7 @@ mod tests {
     use std::sync::mpsc::Receiver as StdReceiver;
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
+    use {crate::local_actor::TuiMuxOps, crossbeam_channel::Receiver};
 
     use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{
