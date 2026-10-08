@@ -759,6 +759,10 @@ path = "tests/test_lan_product_source.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cloud_upgrade_rollout_retirement.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 

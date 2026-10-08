@@ -560398,55 +560398,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."
+            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Turn this on to enable Cloud work; an administrator can still disable Cloud with a managed policy."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu. Cloud-Maschinen erfordern außerdem ein Remote-Rollout; solange diese Option deaktiviert ist, bleiben Cloud-Tunnel und Flottenabfrage aus."
+            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu. Aktiviere diese Option, um Cloud zu nutzen; ein Administrator kann Cloud weiterhin über eine verwaltete Richtlinie deaktivieren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail. Les machines cloud nécessitent aussi un déploiement à distance ; si cette option est désactivée, le tunnel Cloud et l’interrogation de la flotte restent arrêtés."
+            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail. Activez cette option pour utiliser Cloud ; un administrateur peut toujours désactiver Cloud avec une règle gérée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة. وتتطلب الأجهزة السحابية أيضًا طرحًا عن بُعد؛ وعند إيقاف هذا الخيار يظل نفق Cloud واستطلاع الأسطول متوقفين."
+            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة. فعّل هذا الخيار لاستخدام Cloud؛ ويمكن للمسؤول تعطيل Cloud من خلال سياسة مُدارة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo. Las máquinas en la nube también requieren un despliegue remoto; con esta opción desactivada, el túnel de Cloud y el sondeo de la flota permanecen desactivados."
+            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo. Activa esta opción para usar Cloud; un administrador aún puede desactivar Cloud mediante una política gestionada."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。雲端機器也需要遠端推出才能使用；關閉此選項時，Cloud 通道和機群輪詢都會保持停用。"
+            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。開啟此選項即可使用 Cloud；管理員仍可透過受管理政策停用 Cloud。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。云主机还需要远程推出才能使用；关闭此选项时，Cloud 隧道和机群轮询都会保持停用。"
+            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。开启此选项即可使用 Cloud；管理员仍可通过受管理政策停用 Cloud。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 클라우드 머신을 추가합니다. 클라우드 머신은 원격 출시도 필요하며, 이 옵션이 꺼져 있으면 Cloud 터널과 플릿 폴링도 꺼진 상태로 유지됩니다."
+            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 Cloud 머신을 추가합니다. 이 옵션을 켜야 Cloud를 사용할 수 있으며, 관리자는 관리 정책으로 Cloud를 계속 비활성화할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。クラウドマシンにはリモートでの提供開始も必要です。この設定がオフの間は、Cloud トンネルとフリートのポーリングも停止したままです。"
+            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。この設定をオンにするとCloudを使えます。管理者は管理ポリシーでCloudを引き続き無効にできます。"
           }
         }
       }
