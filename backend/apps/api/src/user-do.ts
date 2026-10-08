@@ -493,6 +493,6 @@ export class UserDO extends OwnerDO<UserState> {
     // A chief token only for an unarchived chief of this user.
     if (agent !== undefined && (!chiefActive(now, agent) || inst.kind === "vm")) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    return { ok: true, user: now.user.id, team: inst.kind === "vm" && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}) }
+    return { ok: true, user: now.user.id, team: (inst.kind === "vm" || inst.kind === "daemon") && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}) }
   }
 }

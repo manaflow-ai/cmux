@@ -63,7 +63,7 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
+import { SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -337,6 +337,8 @@ async function configureSshd(ctx: Ctx): Promise<void> {
   const { effective, ss, pam } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
   const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss), ...sshdPamProblems(pam)];
   if (problems.length > 0) throw new Error(`sshd policy:\n${problems.join("\n")}`);
+  await writeGuestFile(vm, `/etc/systemd/system/${SSH_SYNC_UNIT}`, sshSyncUnit(), 0o644);
+  await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --quiet ${SSH_SYNC_UNIT}`);
 }
 
 /** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */

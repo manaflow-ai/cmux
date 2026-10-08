@@ -26,6 +26,29 @@ export const SSHD_PAM_FILE = "/etc/pam.d/sshd";
  */
 export const SSH_TRUST_CMD = `${CURRENT_BIN}/cmux host team-ssh`;
 export const SSHD_PRINCIPALS_COMMAND = `${SSH_TRUST_CMD} principals %u`;
+/**
+ * The team trust sync (`cmux host team-ssh sync`): on a team VM that the bind (vm-image.md 6b) gave an
+ * install, it reads team_vm.ssh_ca every 30 s and applies it; on every other machine it blocks on
+ * inotify until a team binding appears (no wakeups).
+ */
+export const SSH_SYNC_UNIT = "cmux-team-ssh-sync.service";
+export function sshSyncUnit(): string {
+  return [
+    "[Unit]",
+    "Description=cmux team SSH trust sync (idle until the team VM bind)",
+    "After=network-online.target",
+    "",
+    "[Service]",
+    `ExecStart=${SSH_TRUST_CMD} sync`,
+    "Restart=always",
+    "RestartSec=5",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+    "",
+  ].join("\n");
+}
+
 /** Runs last in the sshd PAM stack (after pam_systemd sets XDG_SESSION_ID). `required`: an unrecorded certificate session is refused. */
 export const SSHD_PAM_LINE = `session required pam_exec.so quiet ${SSH_TRUST_CMD} session-open`;
 

@@ -143,10 +143,6 @@ pub fn commit(paths: &Paths, instance: &str, bound: &TeamBound) -> Result<(), St
     if bound.api_origin != bound.env.api_origin() {
         return Err("api origin is not this environment's".into());
     }
-    // RED: the enroll and clone checks are missing.
-    write_json(paths, TEAM_BOUND_FILE, bound)?;
-    return Ok(());
-    #[allow(unreachable_code)]
     let key = read_json::<Value>(paths, TEAM_KEY_FILE).ok_or("no team key: enroll first")?;
     let enrolled =
         read_json::<EnrollRecord>(paths, TEAM_ENROLL_FILE).ok_or("no enroll on this clone")?;
