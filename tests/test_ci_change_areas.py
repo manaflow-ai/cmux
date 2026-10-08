@@ -3311,6 +3311,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         assert f"      - {job_name}" not in block
 
     assert "if: ${{ !cancelled() }}" in block
+    assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
