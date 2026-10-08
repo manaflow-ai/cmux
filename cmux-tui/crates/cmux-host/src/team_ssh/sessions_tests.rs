@@ -9,7 +9,7 @@ use crate::config::Paths;
 #[derive(Default)]
 struct FakeHost {
     procs: BTreeMap<u32, (u64, &'static str)>,
-    revoked: Vec<&'static str>,
+    revoked: Vec<String>,
     check_fails: bool,
     end_fails: bool,
     ended: RefCell<Vec<u32>>,
@@ -26,7 +26,7 @@ impl Host for FakeHost {
         if self.check_fails {
             return Err(io::Error::other("ssh-keygen failed"));
         }
-        Ok(self.revoked.iter().any(|r| *r == cert))
+        Ok(self.revoked.iter().any(|r| r.as_str() == cert))
     }
     fn end(&self, record: &SessionRecord) -> io::Result<()> {
         if self.end_fails {
@@ -52,16 +52,29 @@ fn record(pid: u32, start_time: u64, cert: &str) -> SessionRecord {
 #[test]
 fn only_a_live_recorded_sshd_process_with_a_revoked_certificate_is_ended() {
     let host = FakeHost {
-        procs: BTreeMap::from([(10, (500, "sshd")), (11, (900, "sshd")), (12, (700, "bash")), (13, (800, "sshd-session"))]),
-        revoked: vec!["cert-revoked"],
+        procs: BTreeMap::from([
+            (10, (500, "sshd")),
+            (11, (900, "sshd")),
+            (12, (700, "bash")),
+            (13, (800, "sshd-session")),
+        ]),
+        revoked: vec!["cert-revoked".into()],
         ..FakeHost::default()
     };
     let krl = Path::new("/krl");
     let j = |r: SessionRecord| judge(&host, krl, &r).expect("judge");
     assert_eq!(j(record(10, 500, "cert-revoked")), Verdict::End);
-    assert_eq!(j(record(13, 800, "cert-revoked")), Verdict::End, "OpenSSH 9.8+ session process name");
+    assert_eq!(
+        j(record(13, 800, "cert-revoked")),
+        Verdict::End,
+        "OpenSSH 9.8+ session process name"
+    );
     assert_eq!(j(record(10, 500, "cert-ok")), Verdict::Keep);
-    assert_eq!(j(record(11, 500, "cert-revoked")), Verdict::Forget, "pid reused: start time differs");
+    assert_eq!(
+        j(record(11, 500, "cert-revoked")),
+        Verdict::Forget,
+        "pid reused: start time differs"
+    );
     assert_eq!(j(record(12, 700, "cert-revoked")), Verdict::Forget, "pid is not sshd");
     assert_eq!(j(record(99, 1, "cert-revoked")), Verdict::Forget, "process gone");
 }
@@ -70,12 +83,14 @@ fn only_a_live_recorded_sshd_process_with_a_revoked_certificate_is_ended() {
 fn reap_ends_revoked_sessions_and_drops_dead_records_but_keeps_the_rest() {
     let dir = tempfile::tempdir().expect("tempdir");
     let paths = Paths::new(dir.path());
-    for r in [record(10, 500, "cert-revoked"), record(11, 1, "cert-revoked"), record(12, 600, "cert-ok")] {
+    for r in
+        [record(10, 500, "cert-revoked"), record(11, 1, "cert-revoked"), record(12, 600, "cert-ok")]
+    {
         save(&paths, &r).expect("save");
     }
     let host = FakeHost {
         procs: BTreeMap::from([(10, (500, "sshd")), (11, (2, "sshd")), (12, (600, "sshd"))]),
-        revoked: vec!["cert-revoked"],
+        revoked: vec!["cert-revoked".into()],
         ..FakeHost::default()
     };
     let out = reap(&paths, &host);
@@ -92,7 +107,12 @@ fn failures_keep_the_record_and_are_reported() {
     let paths = Paths::new(dir.path());
     save(&paths, &record(10, 500, "cert-revoked")).expect("save");
     let procs = BTreeMap::from([(10, (500, "sshd"))]);
-    let host = FakeHost { procs: procs.clone(), revoked: vec!["cert-revoked"], end_fails: true, ..FakeHost::default() };
+    let host = FakeHost {
+        procs: procs.clone(),
+        revoked: vec!["cert-revoked".into()],
+        end_fails: true,
+        ..FakeHost::default()
+    };
     let out = reap(&paths, &host);
     assert_eq!(out.errors.len(), 1);
     assert_eq!(load_all(&paths).len(), 1, "an unended session stays recorded for the next pass");
@@ -132,7 +152,20 @@ mod linux {
         let ks = key.to_str().expect("path");
         let ca = dir.join("ca");
         keygen(&["-q", "-t", "ed25519", "-N", "", "-f", ks]);
-        keygen(&["-q", "-s", ca.to_str().expect("ca"), "-I", name, "-n", "cmux", "-z", &serial.to_string(), "-V", "+10m", &format!("{ks}.pub")]);
+        keygen(&[
+            "-q",
+            "-s",
+            ca.to_str().expect("ca"),
+            "-I",
+            name,
+            "-n",
+            "cmux",
+            "-z",
+            &serial.to_string(),
+            "-V",
+            "+10m",
+            &format!("{ks}.pub"),
+        ]);
         let text = std::fs::read_to_string(format!("{ks}-cert.pub")).expect("cert");
         text.split(' ').take(2).collect::<Vec<_>>().join(" ")
     }
@@ -151,7 +184,15 @@ mod linux {
         std::fs::create_dir_all(krl.parent().expect("parent")).expect("dir");
         let spec = work.join("spec");
         std::fs::write(&spec, "serial: 7\n").expect("spec");
-        keygen(&["-q", "-k", "-f", krl.to_str().expect("krl"), "-s", work.join("ca.pub").to_str().expect("pub"), spec.to_str().expect("spec")]);
+        keygen(&[
+            "-q",
+            "-k",
+            "-f",
+            krl.to_str().expect("krl"),
+            "-s",
+            work.join("ca.pub").to_str().expect("pub"),
+            spec.to_str().expect("spec"),
+        ]);
 
         let mut target = fake_sshd(&work);
         let mut innocent = fake_sshd(&work);

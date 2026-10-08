@@ -57,7 +57,9 @@ fn valid_ca_line(line: &str) -> bool {
 pub fn verify(snapshot: &Snapshot) -> Result<Verified, String> {
     for line in &snapshot.trusted_ca_keys {
         if !valid_ca_line(line) {
-            return Err("trusted_ca_keys: each entry must be one ssh-ed25519 public key line".into());
+            return Err(
+                "trusted_ca_keys: each entry must be one ssh-ed25519 public key line".into()
+            );
         }
     }
     if snapshot.krl.len() > MAX_KRL_BYTES / 3 * 4 + 4 {
@@ -89,8 +91,6 @@ pub fn verify(snapshot: &Snapshot) -> Result<Verified, String> {
 /// backend drops expired serials from the KRL without a new version).
 pub fn decide(current: Option<&TrustState>, next: &Verified) -> Result<(), String> {
     let Some(current) = current else { return Ok(()) };
-    let _ = (current, next); // RED: no monotonic check yet.
-    return Ok(());
     if next.krl_version < current.krl_version {
         return Err(format!(
             "krl_version {} is older than the applied {}",
@@ -110,8 +110,6 @@ pub fn decide(current: Option<&TrustState>, next: &Verified) -> Result<(), Strin
 /// [`STALE_AFTER_SECS`] (and not from the future).
 pub fn fresh(state: Option<&TrustState>, now: u64) -> Result<(), &'static str> {
     let Some(state) = state else { return Err("no trust state: nothing was applied") };
-    let _ = (state, now); // RED: no staleness bound yet.
-    return Ok(());
     if state.synced_at > now.saturating_add(FUTURE_SKEW_SECS) {
         return Err("trust state is from the future");
     }
@@ -135,12 +133,12 @@ pub fn principals_output(state: Option<&TrustState>, now: u64, file: &str) -> St
     if fresh(state, now).is_err() {
         return String::new();
     }
-    file.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .fold(String::new(), |mut out, line| {
+    file.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).fold(
+        String::new(),
+        |mut out, line| {
             out.push_str(line);
             out.push('\n');
             out
-        })
+        },
+    )
 }

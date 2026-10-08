@@ -63,7 +63,10 @@ fn principals_fail_closed_when_trust_is_stale_missing_or_from_the_future() {
     let synced = 1_000;
     let s = state(1, 1, synced);
     assert_eq!(principals_output(Some(&s), synced, file), "alice\nalice-agents\n");
-    assert_eq!(principals_output(Some(&s), synced + STALE_AFTER_SECS, file), "alice\nalice-agents\n");
+    assert_eq!(
+        principals_output(Some(&s), synced + STALE_AFTER_SECS, file),
+        "alice\nalice-agents\n"
+    );
     assert_eq!(principals_output(Some(&s), synced + STALE_AFTER_SECS + 1, file), "");
     assert_eq!(principals_output(None, synced, file), "");
     assert_eq!(principals_output(Some(&s), synced - 61, file), "", "sync time 61 s ahead");

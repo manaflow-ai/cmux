@@ -35,7 +35,9 @@ fn split_root(args: &[String]) -> Result<(Paths, Vec<String>), String> {
 }
 
 fn usage(msg: &str) -> u8 {
-    eprintln!("cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap [--root DIR]");
+    eprintln!(
+        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap [--root DIR]"
+    );
     2
 }
 
