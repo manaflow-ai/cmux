@@ -212,8 +212,9 @@ impl TabDragIds {
 impl Mux {
     /// Move a tab into a new split beside `pane`: one atomic, undoable (on
     /// the same screen) command for a drop on a pane edge.
-    pub fn move_tab_to_split(
+    pub fn move_tab_to_split_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         pane: PaneId,
         edge: TabDropEdge,
@@ -221,7 +222,12 @@ impl Mux {
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         validate_split_ratio(ratio)?;
-        self.commit_tab_drag(surface, TabDragDestination::Split { pane, edge, ratio }, transaction)
+        self.commit_tab_drag(
+            actor,
+            surface,
+            TabDragDestination::Split { pane, edge, ratio },
+            transaction,
+        )
     }
 
     /// `move-tab-to-split` with `respawn`: split the tab's own pane, which
@@ -319,7 +325,7 @@ impl Mux {
             }
         };
         let guard = SourceGuard { pane: source, tabs: [fresh.id, surface] };
-        match self.commit_tab_drag_guarded(surface, destination, transaction, Some(guard)) {
+        match self.commit_tab_drag_guarded(actor, surface, destination, transaction, Some(guard)) {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
                 if let Err(close) = self.close_surface_as(actor, fresh.id) {
@@ -334,8 +340,10 @@ impl Mux {
     }
 
     /// Move a tab into a new strip column on the screen containing `pane`.
-    pub fn move_tab_to_column(
+    #[allow(clippy::too_many_arguments)]
+    pub fn move_tab_to_column_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         pane: PaneId,
         after_column: Option<SplitId>,
@@ -345,6 +353,7 @@ impl Mux {
     ) -> anyhow::Result<TabDragOutcome> {
         let width = validated_column_width(width)?;
         self.commit_tab_drag(
+            actor,
             surface,
             TabDragDestination::Column { pane, after_column, width, dock },
             transaction,
@@ -353,17 +362,19 @@ impl Mux {
 
     fn commit_tab_drag(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         destination: TabDragDestination,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        self.commit_tab_drag_guarded(surface, destination, transaction, None)
+        self.commit_tab_drag_guarded(actor, surface, destination, transaction, None)
     }
 
     /// [`Self::commit_tab_drag`], refused (before anything changes) unless
     /// `guard`'s pane holds exactly its tabs when the commit runs.
     fn commit_tab_drag_guarded(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         destination: TabDragDestination,
         transaction: Option<String>,
@@ -379,7 +390,7 @@ impl Mux {
         let mux = Arc::clone(self);
         let mut committed = None;
         let commit = self.commit_resource_mutation_plan(
-            &WorkspaceMutation::daemon_local("cmux-tui-tab-drag"),
+            &WorkspaceMutation::local("cmux-tui-tab-drag", actor.clone()),
             "tab.drag",
             &fingerprint,
             None,
