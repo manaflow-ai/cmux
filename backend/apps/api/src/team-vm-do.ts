@@ -114,13 +114,15 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (state.pending && state.pending.retry_at <= now) await this.reconcile()
     await this.drainRegistry()
     await this.binder.pass(now)
-    await pauseRetired(this.taintDeps)
+    // After any running provider pass: a start that read the state before a rebuild must not resume the old VM after its pause.
+    await this.inflight
+    await pauseRetired(this.taintDeps, now)
   }
 
   // Taint after a member removal (cx-q4f3): team-vm-taint-run.ts.
   private get taintDeps(): TaintRunDeps {
     const driver = () => (providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore))
-    return { state: () => this.boundEngine?.currentState, driver, submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile() }
+    return { state: () => this.boundEngine?.currentState, driver, refusal: () => providerRefusal(this.env), submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile() }
   }
 
   /** RPC from TeamDO's certificate issue: the taint of a team that has a VM record (never creates one). */
@@ -451,6 +453,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     drop_registry?: boolean
     reset_registry_seed?: boolean
     guest_mode?: FakeGuestMode
+    fail_pause?: number
   }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
@@ -467,6 +470,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
+    if (cmd.fail_pause !== undefined) this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`), this.sqlStore.exec(`INSERT OR REPLACE INTO fake_pause_ctl (id, fail) VALUES (1, ?)`, cmd.fail_pause)
     return this.sqlStore.exec<{ creates: number; starts: number }>(`SELECT creates, starts FROM fake_ctl WHERE id = 1`)[0]!
   }
 

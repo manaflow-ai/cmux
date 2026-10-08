@@ -3,7 +3,7 @@ import { TeamVmBindInstallParams, TeamVmDriverResultParams, TeamVmEnsureAwake, T
 import { Schema, Exit } from "effect"
 import { admit, decodeParams, reject } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
-import { reduceMemberRemoved, reduceRebuildRequested, reduceRetired, reduceTaintAccepted, taintBlocks, type TeamVmRetired, type TeamVmTaint } from "./team-vm-taint.ts"
+import { pauseWakeAt, reduceMemberRemoved, reduceRebuildRequested, reduceRetired, reduceTaintAccepted, taintBlocks, type TeamVmRetired, type TeamVmTaint } from "./team-vm-taint.ts"
 
 export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
 export type ProviderState = "starting" | "running" | "pausing" | "paused" | "stopped"
@@ -198,6 +198,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
       case "team_vm.rebuild_requested":
         return reduceRebuildRequested(state, params, ctx)
       case "team_vm.retired_paused":
+      case "team_vm.retired_pause_failed":
       case "team_vm.retired_deleted":
         return reduceRetired(state, op, params, ctx)
 
@@ -211,8 +212,9 @@ export const teamVmDomain: Domain<TeamVmState> = {
 export const teamVmWakeAt = (state: TeamVmState): number | null => {
   const times = Object.values(state.leases).map((l) => l.expires_at)
   if (state.pending) times.push(state.pending.retry_at)
-  // A retired VM not yet paused is retried by the alarm.
-  if ((state.retired ?? []).some((r) => r.state === "pausing")) times.push(state.updated_at + 60_000)
+  // A retired VM not yet paused is retried by the alarm, with backoff.
+  const pause = pauseWakeAt(state)
+  if (pause !== null) times.push(pause)
   return times.length ? Math.min(...times) : null
 }
 

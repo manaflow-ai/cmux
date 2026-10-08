@@ -32,14 +32,16 @@ export const vmAdminExternal = async (deps: VmAdminDeps, p: Principal, frame: { 
   if (p.kind !== "session" || p.agent || (role !== "owner" && role !== "admin")) return fail("auth.forbidden", "only team owners and admins act on the team VM, in a person's session")
   const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
-  const d = decodeParams<{ epoch?: number; vm?: string }>(def, frame.params)
+  const d = decodeParams<{ epoch?: number; vm?: string; users?: ReadonlyArray<string> }>(def, frame.params)
   if (!d.ok) return fail(d.code, d.message)
   // The caller's identity scopes the key, so two owners' requests never share a replay.
   const key = `${p.identity}|${frame.idempotency_key}`
   const req: AdminRequest =
     frame.op === "team_vm.retired.delete"
       ? { action: "delete", by: p.user, vm: d.value.vm!, key }
-      : { action: frame.op === "team_vm.rebuild" ? "rebuild" : "accept", by: p.user, epoch: d.value.epoch!, key }
+      : frame.op === "team_vm.rebuild"
+        ? { action: "rebuild", by: p.user, epoch: d.value.epoch!, key }
+        : { action: "accept", by: p.user, epoch: d.value.epoch!, users: d.value.users ?? [], key }
   let r: AdminReply
   try {
     r = await deps.teamVm.adminAction(deps.team, req)

@@ -177,7 +177,7 @@ export const TeamVmJournalRead = def({
   mcp: { expose: "never", group: "team" }
 })
 
-const adminErrors = [...mutationErrors, "team_vm.not_tainted", "team_vm.stale_epoch", "selector.not_found", "team_vm.not_configured", "team_vm.plan_gate_missing", "team_vm.in_use", "team_vm.not_in_ledger", "owner.unreachable"] as const
+const adminErrors = [...mutationErrors, "team_vm.not_tainted", "team_vm.stale_taint", "team_vm.retired_full", "team_vm.stale_epoch", "selector.not_found", "team_vm.not_configured", "team_vm.plan_gate_missing", "team_vm.in_use", "team_vm.not_in_ledger", "owner.unreachable"] as const
 
 export const TeamVmTaintAccept = def({
   name: "team_vm.taint.accept",
@@ -186,7 +186,8 @@ export const TeamVmTaintAccept = def({
   risk: "destructive",
   target: "team",
   principals: ["session"],
-  params: Schema.Struct({ epoch: Schema.Int }),
+  /** The tainted epoch and exactly the removed members `team_vm.status` showed (a removal since then is refused). */
+  params: Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))).check(Schema.isMaxLength(1000)) }),
   result: Schema.Struct({ epoch: Schema.Int, accepted_by: Schema.String, accepted_at: Schema.Int }),
   errors: [...adminErrors],
   docs: "Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.",
@@ -204,7 +205,7 @@ export const TeamVmRebuild = def({
   params: Schema.Struct({ epoch: Schema.Int }),
   result: Schema.Struct({ retired: Schema.String, epoch: Schema.Int }),
   errors: [...adminErrors],
-  docs: "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, its install revoked and its logins refused, until an owner deletes it with team_vm.retired.delete (copy its files off first). Owners and admins only, in a person's session; audited.",
+  docs: "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
   cli: { path: "team vm rebuild", visible: true },
   mcp: { expose: "never", group: "team" }
 })
@@ -257,7 +258,7 @@ export const TeamVmMemberRemovedParams = Schema.Struct({
   /** The latest `valid_before` of any team SSH certificate the member got (ms). */
   cert_valid_before: Schema.Int
 })
-export const TeamVmTaintAcceptedParams = Schema.Struct({ epoch: Schema.Int, by: Schema.String })
+export const TeamVmTaintAcceptedParams = Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String), by: Schema.String })
 export const TeamVmRebuildRequestedParams = Schema.Struct({ epoch: Schema.Int, by: Schema.String })
 export const TeamVmRetiredParams = Schema.Struct({ vm: Schema.String })
 
@@ -286,5 +287,6 @@ export const teamVmInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("team_vm.taint_accepted", TeamVmTaintAcceptedParams, "Internal: an owner or admin accepted the taint of this epoch (checked and audited by TeamDO)."),
   internal("team_vm.rebuild_requested", TeamVmRebuildRequestedParams, "Internal: an owner or admin asked for a new VM at the next epoch (checked and audited by TeamDO)."),
   internal("team_vm.retired_paused", TeamVmRetiredParams, "Internal: the provider paused a retired VM."),
+  internal("team_vm.retired_pause_failed", TeamVmRetiredParams, "Internal: pausing a retired VM failed; the alarm retries with backoff."),
   internal("team_vm.retired_deleted", TeamVmRetiredParams, "Internal: an owner deleted a retired VM.")
 ]

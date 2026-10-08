@@ -3,8 +3,8 @@
  *
  * `ssh_cert_holders` keeps, per member, the latest `valid_before` of any team SSH certificate this
  * team ever issued them. Unlike the issued log (`ssh_certs`, dropped 24 h after expiry) it is never
- * pruned while the person is a member, so a removal still knows that a member who last logged in
- * weeks ago once held root on the current VM.
+ * pruned (a re-join keeps it; the VM creation time makes an old entry harmless), so a removal still
+ * knows that a member who last logged in weeks ago once held root on the current VM.
  */
 
 export const ensureHolderTable = (sql: SqlStorage) => {
@@ -31,12 +31,6 @@ export const lastCertValidBefore = (sql: SqlStorage, user: string): number | nul
   const logged = sql.exec<{ v: number | null }>(`SELECT max(valid_before) AS v FROM ssh_certs WHERE user = ?`, user).toArray()[0]?.v ?? null
   if (held === null) return logged
   return logged === null ? held : Math.max(held, logged)
-}
-
-/** After the removal's taint notice is committed: a re-join starts a fresh record. */
-export const forgetHolder = (sql: SqlStorage, user: string) => {
-  ensureHolderTable(sql)
-  sql.exec(`DELETE FROM ssh_cert_holders WHERE user = ?`, user)
 }
 
 /** What TeamVmDO.taintStatus answers (team-vm-taint-run.ts TaintSummary). */

@@ -287,10 +287,19 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
   const key = await parseUserKey(params.public_key)
   if (!key) throw new Refusal("team_vm.ssh_key_invalid", "public_key must be one ssh-ed25519 or ecdsa-sha2-nistp256 authorized_keys line")
   const bound = { hash, fingerprint: await keyFingerprint(key) }
+  // A team VM tainted by a member removal: an owner's or admin's own (non-agent) certificates only, each audited (cx-q4f3).
+  // Checked before a crash resume too, so a certificate prepared before the taint is not signed after it.
+  const taint = await certTaintGate(deps.vmTaint, !p.agent && isAdmin(deps.state(), user, deps.rows))
+  if (taint.refuse && taint.unreachable) throw new Refusal("owner.unreachable", "the team VM record did not answer; try again", true)
+  if (taint.refuse) throw new Refusal("team_vm.tainted", "the team VM is tainted by a member removal; an owner or admin must accept the risk or rebuild it")
+  const audited = <T extends { serial: number }>(v: T): T => {
+    if (taint.audit) committed(deps.submitSystem("team_vm.taint_audit", { action: "cert_issued_while_tainted", by: user, epoch: taint.audit.epoch, tainted_by: taint.audit.users, serial: v.serial }, `taint-cert:${v.serial}`))
+    return v
+  }
   const row = deps.sql.exec<{ body: string }>(`SELECT body FROM ssh_prepared WHERE identity = ? AND idem = ?`, p.identity, idem).toArray()[0]
   if (row) {
     const again = await resume(deps, p, params, idem, key, JSON.parse(row.body) as Prepared, bound)
-    if (again) return again
+    if (again) return audited(again)
   }
   const cls = classFor(deps.state(), p, params, deps.rows)
   const since = deps.now() - RATE_WINDOW_MS
@@ -303,10 +312,6 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
   const named = deps.state().vm_accounts?.[user]
   if (!named) throw new Refusal("auth.forbidden", "not a member of this team")
   if (cls === "human") await assertPresence(deps, p, idem, key, linuxUserFor(named, "human"), minutes, params.presence!)
-  // A team VM tainted by a member removal: owners and admins only, each certificate audited (cx-q4f3).
-  const taint = await certTaintGate(deps.vmTaint, isAdmin(deps.state(), user, deps.rows))
-  if (taint.refuse && taint.unreachable) throw new Refusal("owner.unreachable", "the team VM record did not answer; try again", true)
-  if (taint.refuse) throw new Refusal("team_vm.tainted", "the team VM is tainted by a member removal; an owner or admin must accept the risk or rebuild it")
   await ensureCa(deps, user, null)
   // A rotation during the signing await makes this certificate one of the old CA; sign again with the new one.
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -362,11 +367,7 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
       forget(deps.sql, p.identity, idem, serial)
       throw e
     }
-    if (value && taint.audit) {
-      const t = { action: "cert_issued_while_tainted", by: user, epoch: taint.audit.epoch, tainted_by: taint.audit.users, serial: value.serial }
-      committed(deps.submitSystem("team_vm.taint_audit", t, `taint-cert:${value.serial}`))
-    }
-    if (value) return value
+    if (value) return audited(value)
     // The CA rotated during signing: this certificate would be one of the old CA; sign again with the new one.
     forget(deps.sql, p.identity, idem, serial)
   }

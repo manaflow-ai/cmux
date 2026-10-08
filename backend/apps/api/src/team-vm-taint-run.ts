@@ -1,5 +1,5 @@
 import type { OwnerFrame } from "@cmux/ownership"
-import { currentTaint, taintBlocks, type TeamVmTaint } from "./domains/team-vm-taint.ts"
+import { currentTaint, pausingRetired, taintBlocks, type TeamVmTaint } from "./domains/team-vm-taint.ts"
 import type { TeamVmState } from "./domains/team-vm.ts"
 import { DriverError, type TeamVmDriver } from "./team-vm-driver.ts"
 
@@ -10,6 +10,8 @@ import { DriverError, type TeamVmDriver } from "./team-vm-driver.ts"
 export interface TaintRunDeps {
   readonly state: () => TeamVmState | undefined
   readonly driver: () => TeamVmDriver | null
+  /** Why this deployment may not call the provider (production plan gate), else null. */
+  readonly refusal: () => string | null
   readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
   /** The DO's ledger-checked delete (never the current VM). */
   readonly deleteVm: (id: string, by: string) => Promise<{ ok: true } | { ok: false; code: string; message: string }>
@@ -18,7 +20,7 @@ export interface TaintRunDeps {
 }
 
 export type AdminRequest =
-  | { readonly action: "accept"; readonly by: string; readonly epoch: number; readonly key: string }
+  | { readonly action: "accept"; readonly by: string; readonly epoch: number; readonly users: ReadonlyArray<string>; readonly key: string }
   | { readonly action: "rebuild"; readonly by: string; readonly epoch: number; readonly key: string }
   | { readonly action: "delete"; readonly by: string; readonly vm: string; readonly key: string }
 
@@ -30,7 +32,12 @@ export interface TaintSummary {
   readonly taint: TeamVmTaint | null
 }
 
-export const taintSummary = (s: TeamVmState): TaintSummary => ({ blocks: taintBlocks(s), taint: currentTaint(s) })
+export const taintSummary = (s: TeamVmState): TaintSummary => {
+  if (taintBlocks(s)) return { blocks: true, taint: currentTaint(s) }
+  // A rebuilt VM still running until the provider confirms its pause blocks like its taint did.
+  const r = pausingRetired(s)
+  return r ? { blocks: true, taint: { epoch: r.epoch, at: r.at, users: r.tainted_by, accepted_by: null, accepted_at: null } } : { blocks: false, taint: currentTaint(s) }
+}
 
 const outcome = (frames: ReadonlyArray<OwnerFrame>): { ok: true; value: Record<string, unknown> } | { ok: false; code: string; message: string } => {
   const f = frames.find((x) => x.t === "result" || x.t === "reject")
@@ -44,10 +51,13 @@ export const adminAction = async (d: TaintRunDeps, req: AdminRequest): Promise<A
   if (!s) return { ok: false, code: "owner.unreachable", message: "team VM record not open" }
   const taintedBy = currentTaint(s)?.users ?? []
   if (req.action === "accept") {
-    const r = outcome(d.submitSystem("team_vm.taint_accepted", { epoch: req.epoch, by: req.by }, `taint-accept:${req.key}`).frames)
+    const r = outcome(d.submitSystem("team_vm.taint_accepted", { epoch: req.epoch, users: req.users, by: req.by }, `taint-accept:${req.key}`).frames)
     return r.ok ? { ...r, tainted_by: taintedBy, epoch: req.epoch } : r
   }
   if (req.action === "rebuild") {
+    // Without a provider the new VM cannot be made nor the old one paused: refuse before anything changes.
+    const refused = d.refusal() ?? (d.driver() ? null : "team_vm.not_configured")
+    if (refused) return { ok: false, code: refused, message: "no team VM provider is available on this deployment" }
     const r = outcome(d.submitSystem("team_vm.rebuild_requested", { epoch: req.epoch, by: req.by }, `rebuild:${req.key}`).frames)
     if (!r.ok) return r
     // The new VM is created now; the alarm finishes a slow provider. The old one is paused next.
@@ -63,19 +73,21 @@ export const adminAction = async (d: TaintRunDeps, req: AdminRequest): Promise<A
   return r.ok ? { ok: true, value: { vm: row.vm, deleted: true }, tainted_by: row.tainted_by, epoch: row.epoch } : r
 }
 
-/** Pauses every retired VM the provider has not paused yet; a failure is retried by the alarm. */
-export const pauseRetired = async (d: TaintRunDeps): Promise<void> => {
-  const pausing = (d.state()?.retired ?? []).filter((r) => r.state === "pausing")
-  if (pausing.length === 0) return
+/** Pauses every retired VM due for a try; a failure is committed and retried by the alarm with backoff. */
+export const pauseRetired = async (d: TaintRunDeps, now: number = Date.now()): Promise<void> => {
+  const due = (d.state()?.retired ?? []).filter((r) => r.state === "pausing" && (r.pause_retry_at ?? r.at) <= now)
+  if (due.length === 0) return
   const driver = d.driver()
-  if (!driver) return
-  for (const r of pausing) {
+  for (const r of due) {
+    const attempt = r.pause_attempts ?? 0
     try {
+      if (!driver) throw new DriverError("team_vm.not_configured", "no team VM provider", false)
       await driver.pauseVm(r.vm)
     } catch (e) {
       // A VM deleted outside cmux is as good as paused: nothing of it runs.
       if (!(e instanceof DriverError && e.code === "team_vm.vm_missing")) {
-        console.warn(JSON.stringify({ msg: "team vm retired pause failed", vm: r.vm, error: String(e) }))
+        console.warn(JSON.stringify({ msg: "team vm retired pause failed", vm: r.vm, attempt: attempt + 1, error: e instanceof DriverError ? e.code : String(e) }))
+        d.submitSystem("team_vm.retired_pause_failed", { vm: r.vm }, `retired-pause-failed:${r.vm}:${attempt}`)
         continue
       }
     }

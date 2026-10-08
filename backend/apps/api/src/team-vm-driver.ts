@@ -235,6 +235,11 @@ export class FakeDriver implements TeamVmDriver {
 
   async pauseVm(id: string) {
     this.maybeFail()
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`)
+    if ((this.sql.exec<{ fail: number }>(`SELECT fail FROM fake_pause_ctl WHERE id = 1`)[0]?.fail ?? 0) > 0) {
+      this.sql.exec(`UPDATE fake_pause_ctl SET fail = fail - 1 WHERE id = 1`)
+      throw new DriverError("team_vm.provider_failed", "fake pause failure", false)
+    }
     if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "pause VM: 404", true)
     this.sql.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, id)
   }

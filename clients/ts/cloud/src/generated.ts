@@ -2666,7 +2666,7 @@ export interface CloudOps {
       readonly released: boolean
     }
   }
-  /** Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, its install revoked and its logins refused, until an owner deletes it with team_vm.retired.delete (copy its files off first). Owners and admins only, in a person's session; audited. */
+  /** Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited. */
   readonly "team_vm.rebuild": {
     readonly params: {
       readonly epoch: number
@@ -2764,6 +2764,7 @@ export interface CloudOps {
   readonly "team_vm.taint.accept": {
     readonly params: {
       readonly epoch: number
+      readonly users: ReadonlyArray<string>
     }
     readonly result: {
       readonly epoch: number

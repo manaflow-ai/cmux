@@ -46880,7 +46880,9 @@
         "team_vm.not_in_ledger",
         "team_vm.not_tainted",
         "team_vm.plan_gate_missing",
+        "team_vm.retired_full",
         "team_vm.stale_epoch",
+        "team_vm.stale_taint",
         "validation.invalid"
       ],
       "owner": "cloud:TeamDO",
@@ -46905,7 +46907,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, its install revoked and its logins refused, until an owner deletes it with team_vm.retired.delete (copy its files off first). Owners and admins only, in a person's session; audited.",
+      "docs": "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -47005,7 +47007,9 @@
         "team_vm.not_in_ledger",
         "team_vm.not_tainted",
         "team_vm.plan_gate_missing",
+        "team_vm.retired_full",
         "team_vm.stale_epoch",
+        "team_vm.stale_taint",
         "validation.invalid"
       ],
       "owner": "cloud:TeamDO",
@@ -48259,6 +48263,18 @@
               "name": "int64"
             }
           },
+          "users": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -48314,7 +48330,9 @@
         "team_vm.not_in_ledger",
         "team_vm.not_tainted",
         "team_vm.plan_gate_missing",
+        "team_vm.retired_full",
         "team_vm.stale_epoch",
+        "team_vm.stale_taint",
         "validation.invalid"
       ],
       "owner": "cloud:TeamDO",
@@ -48346,10 +48364,20 @@
         "properties": {
           "epoch": {
             "type": "integer"
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 1000
           }
         },
         "required": [
-          "epoch"
+          "epoch",
+          "users"
         ],
         "additionalProperties": true,
         "$defs": {}
