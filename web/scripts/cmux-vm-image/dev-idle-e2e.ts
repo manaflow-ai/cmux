@@ -121,7 +121,7 @@ class Api {
 async function signin(credentials: Record<string, string>): Promise<string> {
   const res = await fetch(`${STACK}/api/v1/auth/password/sign-in`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ?? "" },
+    headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": DEV_STACK_PROJECT, ...(credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ? { "x-stack-publishable-client-key": credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY } : {}) },
     body: JSON.stringify({ email: credentials.CMUX_DOGFOOD_STACK_EMAIL, password: credentials.CMUX_DOGFOOD_STACK_PASSWORD }),
   });
   const body = (await res.json()) as { access_token?: string };

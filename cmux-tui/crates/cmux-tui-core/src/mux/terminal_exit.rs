@@ -426,7 +426,7 @@ impl Mux {
         else {
             return Ok(false);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
         let fingerprint = json!({
             "operation":"terminal.exit.detach",
             "terminal_id":terminal_id,

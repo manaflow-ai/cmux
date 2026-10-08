@@ -6,11 +6,15 @@ import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
+import { runLedgered } from "./integrations/external-ledger.ts"
+import { approvalLedger, deliverAnswers, expireApprovals, gateRiskyOp, type GateHost, needsApproval, postIntegrationApproval, runApproved, withApprovalClass } from "./integrations/approval-gate.ts"
+import { approvalView, createApprovalTable, nextApprovalAt, pruneApprovals, APPROVAL_RETENTION_MS } from "./integrations/approvals.ts"
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 
@@ -55,11 +59,13 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createRevocationTable(sql)
     createWatchTable(sql)
     createFallbackTable(sql)
+    createApprovalTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
     if (!principal.team || (state.owner !== null && state.owner !== principal.team)) return { ok: false, code: "auth.forbidden", message: "not this team's connections" }
     if (op === "integration.policy.get") return { ok: true, value: policyOf(state), revision: "" }
+    if (op === "integration.approval.get") return approvalView(this.ctx.storage.sql, principal, _params, Date.now())
     if (op !== "integration.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     const connections = Object.values(state.connections)
       .filter((c) => mayUse(c, principal))
@@ -75,6 +81,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** The external-effect ledger keeps the same 7-day replay window as the op ledger. */
   protected override onPrune(before: number): void {
     this.ctx.storage.sql.exec(`DELETE FROM external_calls WHERE created_at < ?`, before)
+    pruneApprovals(this.ctx.storage.sql, Date.now() - APPROVAL_RETENTION_MS)
     // A refused op's target connection is gone or no longer pending by then.
     const ids = new Set(Object.keys(this.boundEngine?.currentState.connections ?? {}))
     for (const r of this.ctx.storage.sql.exec<{ key: string }>(`SELECT key FROM refused_system_ops WHERE at < ?`, before).toArray()) {
@@ -93,7 +100,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
     if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
-    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql), nextResealAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
+    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql), nextResealAt(this.ctx.storage.sql), nextApprovalAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -163,6 +170,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     await this.revokeAtProviders(now)
     await runWatchWork(this.watchHost(), engine.currentState.connections, now)
     await resealFallbacks(this.ctx.storage.sql, this.env, this.http, engine.currentState.connections, now)
+    expireApprovals(this.ctx.storage.sql, now)
+    pruneApprovals(this.ctx.storage.sql, now - APPROVAL_RETENTION_MS)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break
@@ -212,11 +221,6 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   private openCredential = (c: Connection): Promise<Credential> => loadCredential(this.ctx.storage.sql, this.env, this.http, c)
 
   /**
-   * An op with an external effect: `integration.complete` or a provider op.
-   * The Worker authenticated the principal and, for complete, verified the
-   * signed state and that it names this principal.
-   */
-  /**
    * RPC from TeamDO, once per team: returns the integration fields this
    * projection enforces and, in the same commit, locks them as source
    * team_policy, so from then on only TeamDO's pushes change them (review P1-1).
@@ -248,49 +252,55 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return rej ? { ok: false, message: rej.message, managed_by: null } : { ok: true, managed_by: managedBy(policyOf(engine.currentState).source) }
   }
 
+  /**
+   * An op with an external effect: `integration.complete` or a provider op.
+   * The Worker authenticated the principal and, for complete, verified the
+   * signed state and that it names this principal.
+   */
   async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<ExternalReply> {
     const engine = this.bind(entity)
     const identity = principal.identity
     const key = frame.idempotency_key
-    const tx = engine.txTag(identity, key)
-    const base = { op: frame.op, transaction: tx, idempotency_key: key, stream: engine.stream, sequence: 0 }
-    const fail = (code: string, message: string, retryable = false, replayed = false): ExternalReply => ({ ...base, ok: false, error: { code, message, retryable }, replayed })
-
-    const denied = connectionsDomain.authorize!(engine.currentState, frame.op, frame.params, principal)
-    if (denied) return fail(denied.code, denied.message)
+    const base = { op: frame.op, transaction: engine.txTag(identity, key), idempotency_key: key, stream: engine.stream, sequence: 0 }
+    const fail = (code: string, message: string, details?: unknown, retryable = false): ExternalReply => ({ ...base, ok: false, error: { code, message, retryable, ...(details === undefined ? {} : { details }) }, replayed: false })
     const def = cloudOpByName.get(frame.op)
     if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
+    // G8: a risky op from anyone but the person's session waits for the person's approval; the
+    // approval stands in for the risk class the caller's grant lacks, nothing else.
+    const gated = needsApproval(def, principal)
+    const denied = connectionsDomain.authorize!(engine.currentState, frame.op, frame.params, gated ? withApprovalClass(principal, def.risk) : principal)
+    if (denied) return fail(denied.code, denied.message)
     const decoded = decodeParams<Record<string, unknown>>(def, frame.params)
     if (!decoded.ok) return fail(decoded.code, decoded.message)
     const params = decoded.value
-
-    // Ledger for external effects: decided keys replay; an interrupted call is indeterminate.
-    const sql = this.ctx.storage.sql
-    const hash = sha256(canonicalJson({ op: frame.op, params }))
-    const prior = sql.exec<{ params_hash: string; status: string; reply: string | null }>(`SELECT params_hash, status, reply FROM external_calls WHERE identity = ? AND idempotency_key = ?`, identity, key).toArray()[0]
-    if (prior) {
-      if (prior.params_hash !== hash) return fail("idempotency.conflict", "idempotency key reused with different params")
-      if (prior.status === "done" && prior.reply) return { ...(JSON.parse(prior.reply) as ExternalReply), replayed: true }
-      return fail("mutation.indeterminate", "an earlier attempt with this key was interrupted; check the provider before retrying with a new key", false, true)
+    if (gated) {
+      const g = await gateRiskyOp(this.gateHost(), def, principal, params, identity, key, Date.now())
+      if (g.kind === "replay") return { ...(g.reply as ExternalReply), replayed: true }
+      return fail(g.code, g.message, g.details, g.retryable)
     }
-    sql.exec(`INSERT INTO external_calls (identity, idempotency_key, op, params_hash, status, reply, created_at) VALUES (?, ?, ?, ?, 'pending', NULL, ?)`, identity, key, frame.op, hash, Date.now())
+    return this.runLedgered(principal, frame, params, identity, key)
+  }
 
-    let reply: ExternalReply
-    try {
-      const value = frame.op === "integration.complete" ? await this.complete(principal, params, frame) : await this.callProvider(principal, frame.op, params)
-      // Plain JSON only: a provider field that is absent (undefined) must not break the HTTP encoder.
-      reply = { ...base, ok: true, value: JSON.parse(JSON.stringify(value ?? null)) as unknown, replayed: false, sequence: engine.currentSeq }
-    } catch (e) {
-      if (e instanceof ProviderError) reply = fail(e.code === "needs_reauth" ? "integration.unavailable" : e.code, e.message, e.retryable && e.code !== "mutation.indeterminate")
-      else {
-        console.error(JSON.stringify({ msg: "external op failed", op: frame.op, stream: engine.stream, error: e instanceof Error ? e.name : "unknown" }))
-        reply = fail("operation.failed", "the operation failed")
-      }
-    }
-    // Retryable failures (rate limits, provider 5xx) release the key so the same request may run again.
-    if (!reply.ok && reply.error?.retryable) sql.exec(`DELETE FROM external_calls WHERE identity = ? AND idempotency_key = ?`, identity, key)
-    else sql.exec(`UPDATE external_calls SET status = 'done', reply = ? WHERE identity = ? AND idempotency_key = ?`, JSON.stringify(reply), identity, key)
-    return reply
+  private gateHost = (): GateHost => ({
+    sql: this.ctx.storage.sql,
+    checkUsable: (p, op, params) => this.usableFor(p, op, params),
+    postApproval: (user, key, prompt, ms) => postIntegrationApproval(this.env, user, this.boundEntity()!, prompt, ms, key),
+    armAlarm: () => this.scheduleAlarm()
+  })
+
+  /** Answers from the user's FeedDO (G8) run here (they call the provider); other items go to the engine. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const answers = items.filter((i) => i.op === "integration.approval.answered")
+    const rest = items.filter((i) => i.op !== "integration.approval.answered")
+    const done: Array<number> = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : (this.bind(entity), [])
+    const allowed = (p: Principal, op: string, params: unknown) => !connectionsDomain.authorize!(this.boundEngine!.currentState, op, params, p)
+    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, runApproved(this.env, allowed, (p, row) => this.runLedgered(p, { op: row.op }, row.params, approvalLedger(row).identity, approvalLedger(row).key)))))
+    return { done }
+  }
+
+  /** The external-effect ledger (integrations/external-ledger.ts) around one provider call or OAuth completion. */
+  private runLedgered(principal: Principal, frame: { op: string; redirect_uri?: string; state?: { conn: string; provider: string } }, params: Record<string, unknown>, identity: string, key: string): Promise<ExternalReply> {
+    return runLedgered(this.ctx.storage.sql, this.boundEngine!, frame.op, params, identity, key, () => (frame.op === "integration.complete" ? this.complete(principal, params, frame) : this.callProvider(principal, frame.op, params)))
   }
 
   private async complete(principal: Principal, params: Record<string, unknown>, frame: { redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<Connection> {
@@ -428,7 +438,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     }
   }
 
-  private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
+  /** Throws unless this principal may run this provider op on this connection now (G8 checks this before asking). */
+  private usableFor(principal: Principal, op: string, params: Record<string, unknown>) {
     const provider = providerForOp(op)
     const c = this.boundEngine!.currentState.connections[String(params.connection)]
     if (!provider || !c || !mayUse(c, principal) || c.provider !== provider) throw new ProviderError("provider.error", "connection not found for this provider")
@@ -437,6 +448,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (provider === "github" && typeof params.repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), params.repo)) {
       throw new ProviderError("policy.denied", `this connection may not act on ${params.repo} (team policy or the linking user's access)`)
     }
+    return { provider, c }
+  }
+
+  private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
+    const { provider, c } = this.usableFor(principal, op, params)
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
     // With granular consent a user may have granted fewer scopes than were asked for.
