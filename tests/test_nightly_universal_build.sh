@@ -38,7 +38,7 @@ if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
   in_build && /^      - name:/ { in_build=0 }
   in_build && /notary_test_flags=\(build\)/ { saw_default=1 }
-  in_build && /notary_test_flags=\([^)]*build\)/ && ! /notary_test_flags=\(build\)/ { saw_notary=1 }
+  in_build && /notary_test_flags=/ && /OTHER_SWIFT_FLAGS/ && /build\)/ { saw_notary=1 }
   in_build && /"\$\{notary_test_flags\[@\]\}" build/ { saw_unsafe_empty_expansion=1 }
   END { exit !(saw_default && saw_notary && !saw_unsafe_empty_expansion) }
 ' "$WORKFLOW_FILE"; then
