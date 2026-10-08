@@ -2,6 +2,108 @@ import Darwin
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testLocalTmuxDetachedStartReportsStableIdentityAndRecreatesKilledSession() throws {
+        let cliPath = try bundledCLIPath()
+        let root = makeLocalTmuxTestRoot("detached-recreate")
+        let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
+        let stateURL = root.appendingPathComponent("generation", isDirectory: false)
+        let sessionName = "detached-recreate"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertEqual(chmod(root.path, 0o700), 0)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeTmux = """
+        #!/bin/sh
+        command_name=
+        target=
+        previous=
+        for argument in "$@"; do
+          if [ "$previous" = "-t" ]; then target=$argument; fi
+          case "$argument" in
+            has-session|display-message|new-session|set-option|set-window-option|if-shell|list-clients) command_name=$argument ;;
+          esac
+          previous=$argument
+        done
+        case "$command_name" in
+          set-option|set-window-option|if-shell|list-clients) exit 0 ;;
+          has-session)
+            case "${FAKE_TMUX_GENERATION}:$target" in
+              1:=detached-recreate|1:'$1'|2:'$2') exit 0 ;;
+              *) exit 1 ;;
+            esac
+            ;;
+          new-session)
+            printf '%s\\n' "$FAKE_TMUX_GENERATION" > "$FAKE_TMUX_STATE"
+            exit 0
+            ;;
+          display-message)
+            if [ "$FAKE_TMUX_GENERATION" = "2" ]; then
+              printf 'detached-recreate\\t$2\\t22222222-2222-2222-2222-222222222222\\t2\\n'
+            else
+              printf 'detached-recreate\\t$1\\t11111111-1111-1111-1111-111111111111\\t1\\n'
+            fi
+            exit 0
+            ;;
+          *) exit 0 ;;
+        esac
+        """
+        try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
+        XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_LOCAL_TMUX_BIN"] = fakeTmuxURL.path
+        environment["CMUX_LOCAL_TMUX_STATE_DIR"] = root.path
+        environment["FAKE_TMUX_GENERATION"] = "1"
+        environment["FAKE_TMUX_STATE"] = stateURL.path
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+
+        func runJSON(_ arguments: [String]) throws -> [String: Any] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 10
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            return try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                result.stdout
+            )
+        }
+
+        let first = try runJSON([
+            "local-tmux", "start", sessionName, "--cwd", root.path, "--detached", "--json",
+        ])
+        let logicalID = try XCTUnwrap(first["id"] as? String)
+        XCTAssertEqual(first["session_id"] as? String, logicalID)
+        XCTAssertEqual(first["tmux_session_id"] as? String, "$1")
+        XCTAssertTrue(first["surface_id"] is NSNull)
+        XCTAssertEqual(first["state"] as? String, "detached")
+
+        // Model an explicit `tmux kill-session` followed by a fresh session
+        // with the same name. The cmux start command is the recovery intent.
+        environment["FAKE_TMUX_GENERATION"] = "2"
+        let second = try runJSON([
+            "local-tmux", "start", sessionName, "--cwd", root.path, "--detached", "--json",
+        ])
+        XCTAssertEqual(second["id"] as? String, logicalID)
+        XCTAssertEqual(second["session_id"] as? String, logicalID)
+        XCTAssertEqual(second["tmux_session_id"] as? String, "$2")
+        XCTAssertTrue(second["surface_id"] is NSNull)
+
+        let status = try runJSON([
+            "local-tmux", "status", sessionName, "--json",
+        ])
+        XCTAssertEqual(status["id"] as? String, logicalID)
+        XCTAssertEqual(status["session_name"] as? String, sessionName)
+        XCTAssertEqual(status["tmux_session_id"] as? String, "$2")
+        XCTAssertEqual(status["live"] as? Bool, true)
+        XCTAssertTrue(status["surface_id"] is NSNull)
+    }
+
     func testLocalTmuxOldUUIDCannotControlReplacementSession() throws {
         let cliPath = try bundledCLIPath()
         let root = makeLocalTmuxTestRoot("replacement")
