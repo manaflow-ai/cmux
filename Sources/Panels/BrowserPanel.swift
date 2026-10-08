@@ -3342,6 +3342,11 @@ final class BrowserPanel: Panel, ObservableObject {
             WindowBrowserSlotView.hosting(webView)?.clearLinkHoverURLs()
             self.isMainFrameProvisionalNavigationActive = false
             self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
+            NotificationCenter.default.post(
+                name: .browserMainFrameDidCommit,
+                object: self,
+                userInfo: ["surfaceId": self.id]
+            )
             self.automationNavigationCoordinator.didCommit(
                 instanceID: boundWebViewInstanceID,
                 navigationID: navigation.map { ObjectIdentifier($0) }
