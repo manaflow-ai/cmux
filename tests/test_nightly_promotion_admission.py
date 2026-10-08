@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Regression coverage for the nightly-next promotion admission lookup.
+
+The source cmux-next push requests promotion immediately after its Release
+compile job succeeds. GitHub can briefly omit that just-finished run from the
+head-SHA workflow list, so the admission check must retry before rejecting an
+otherwise valid promotion.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
+SHA = "a" * 40
+
+
+HARNESS = r"""
+const scenario = JSON.parse(process.env.SCENARIO);
+const calls = { runs: 0, jobs: 0, updates: 0 };
+const failed = [];
+const notices = [];
+const sourceRun = {
+  id: 123,
+  head_sha: scenario.sha,
+  head_branch: 'feat-cmux-next',
+  event: 'push',
+};
+const actions = {
+  listWorkflowRuns: Symbol('listWorkflowRuns'),
+  listJobsForWorkflowRun: Symbol('listJobsForWorkflowRun'),
+};
+const github = {
+  rest: {
+    actions,
+    git: {
+      getRef: async ({ ref }) => ({ data: { object: { sha: ref === 'heads/feat-cmux-next' ? scenario.sha : 'b'.repeat(40) } } }),
+    },
+    repos: {
+      compareCommitsWithBasehead: async () => ({ data: { status: 'ahead' } }),
+    },
+  },
+  paginate: async (method, params) => {
+    if (method === actions.listWorkflowRuns) {
+      calls.runs += 1;
+      if (calls.runs <= scenario.emptyRuns) return [];
+      return [sourceRun];
+    }
+    if (method === actions.listJobsForWorkflowRun) {
+      calls.jobs += 1;
+      return [{
+        name: scenario.jobName,
+        conclusion: scenario.jobConclusion,
+      }];
+    }
+    throw new Error(`unexpected pagination method for ${JSON.stringify(params)}`);
+  },
+};
+const writer = {
+  rest: {
+    git: {
+      updateRef: async () => { calls.updates += 1; },
+      createRef: async () => { calls.updates += 1; },
+    },
+  },
+};
+const core = {
+  setFailed: (message) => failed.push(message),
+  notice: (message) => notices.push(message),
+};
+const processForScript = {
+  env: {
+    REQUESTED_SHA: scenario.sha,
+    DEBOUNCE: 'false',
+    MIN_INTERVAL_HOURS: '0',
+    APP_TOKEN: 'fixture',
+  },
+};
+const context = { repo: { owner: 'manaflow-ai', repo: 'cmux' } };
+const run = new Function('github', 'context', 'core', 'process', 'getOctokit',
+  `return (async () => {\n${scenario.script}\n})();`);
+const originalSetTimeout = global.setTimeout;
+global.setTimeout = (callback) => { callback(); return 0; };
+run(github, context, core, processForScript, () => writer).then(() => {
+  global.setTimeout = originalSetTimeout;
+  console.log(JSON.stringify({ calls, failed, notices }));
+}).catch((error) => {
+  global.setTimeout = originalSetTimeout;
+  console.error(error);
+  process.exit(1);
+});
+"""
+
+
+def promotion_script() -> str:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["promote-nightly-next"]["steps"]
+    return next(step["with"]["script"] for step in steps if step.get("name") == "Move nightly-next")
+
+
+def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str) -> dict:
+    scenario = {
+        "script": promotion_script(),
+        "sha": SHA,
+        "emptyRuns": empty_runs,
+        "jobName": job_name,
+        "jobConclusion": job_conclusion,
+    }
+    env = {**os.environ, "SCENARIO": json.dumps(scenario)}
+    result = subprocess.run(
+        ["node", "-e", HARNESS],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr)
+    return json.loads(result.stdout)
+
+
+def test_admission_retries_a_temporarily_missing_source_run() -> None:
+    result = run_admission(
+        empty_runs=1,
+        job_name="cmux-next Release compile (Xcode 26)",
+        job_conclusion="success",
+    )
+    assert result["failed"] == []
+    assert result["calls"]["runs"] >= 2
+    assert result["calls"]["updates"] == 1
+    assert any("retry" in notice.lower() for notice in result["notices"])
+
+
+def test_admission_still_rejects_a_missing_successful_release_compile() -> None:
+    result = run_admission(
+        empty_runs=0,
+        job_name="cmux-next checks",
+        job_conclusion="success",
+    )
+    assert result["calls"]["updates"] == 0
+    assert result["failed"]
+    assert "no cmux-next.yml push run" in result["failed"][0]
+
+
+def main() -> None:
+    test_admission_retries_a_temporarily_missing_source_run()
+    test_admission_still_rejects_a_missing_successful_release_compile()
+    print("PASS: nightly promotion admission")
+
+
+if __name__ == "__main__":
+    main()
