@@ -63,7 +63,15 @@ public enum RbControl: Hashable, Sendable {
                             disposition: try r.string("disposition"), userGesture: try r.bool("user_gesture"))
         case "rb.open_tab.result":
             self = .openTabResult(request: try r.uint64("request"), tab: r.optionalString("tab"), refused: r.optionalString("refused"))
-        case "rb.navigate": self = .navigate(request: try r.uint64("request"), url: try r.string("url"))
+        case "rb.navigate":
+            // The original rb/1 vector carried a URL-only navigate message;
+            // C2 added a request id so the host can answer asynchronously.
+            // Preserve the legacy shape verbatim until all peers speak C2.
+            if let request = try r.optionalUInt64("request") {
+                self = .navigate(request: request, url: try r.string("url"))
+            } else {
+                self = .unmodeled(json)
+            }
         case "rb.navigate.result":
             let refused: RbNavigateRefusal?
             if r.isNull("refused") {

@@ -52,6 +52,15 @@ struct RbJSONReader {
         return out
     }
 
+    /// Reads an optional unsigned integer while preserving the distinction
+    /// between a missing field and a malformed value. This is useful for
+    /// vectors that contain an older shape of a message whose newer form
+    /// carries a request identifier.
+    func optionalUInt64(_ key: String) throws(RdWireError) -> UInt64? {
+        guard object[key] != nil else { return nil }
+        return try uint64(key)
+    }
+
     func array(_ key: String) throws(RdWireError) -> [JSONValue] {
         guard case .array(let value)? = object[key] else { throw RdWireError("\(key): expected array") }
         return value
