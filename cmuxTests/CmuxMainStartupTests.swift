@@ -9,8 +9,8 @@ import Testing
 
 @Suite(.serialized)
 struct CmuxMainStartupTests {
-    @Test
     /// Verifies the policy helper defaults to fatal while preserving overrides.
+    @Test
     func exceptionCrashPolicyDefaultsToFatalAndPreservesExplicitOverrides() throws {
         let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -24,8 +24,8 @@ struct CmuxMainStartupTests {
         #expect(!defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
     }
 
-    @Test
     /// Verifies production startup observes the fatal policy before workers or the app.
+    @Test
     func productionStartupInstallsPolicyBeforeWorkerAndApp() throws {
         let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
         let defaults = try #require(RecordingCrashPolicyDefaults(suiteName: suiteName))
