@@ -6616,7 +6616,7 @@ def test_lag_consumer_does_not_checkout_or_update_source_submodules() -> None:
         step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
     )
 
-    assert checkout.get("with", {}).get("submodules") != "recursive"
+    assert checkout.get("with", {}).get("submodules") in (None, False, "false")
     assert all("git submodule update" not in step.get("run", "") for step in job["steps"])
 
 
