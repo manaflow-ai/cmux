@@ -330,7 +330,7 @@ extension Workspace {
                 skipsRemoteTerminals: remoteTerminalStartupCommand() != nil
             )
             : [:]
-        defer { claudeBackgroundAttachRestoresByStablePanelID = [:] }
+        defer { claudeBackgroundAttachRestoresByStablePanelID = nil }
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
             snapshot.panels.filter { $0.type == .terminal }.count == 1
@@ -1632,13 +1632,17 @@ extension Workspace {
             )
             // A Claude background session lives on in Claude's daemon. One pane
             // reattaches its viewer; no pane starts `claude --resume` as a
-            // second writer. The workspace pass planned this before any pane.
+            // second writer. A workspace restore pass plans every pane up
+            // front; a single reopened or Dock-restored panel is planned here.
             let claudeBackgroundRestore = autoResumeAgentSessions &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
                 restoredRemotePTYSessionID == nil &&
                 restoredHibernation == nil &&
                 snapshot.terminal?.isRemoteTerminal != true
-                ? claudeBackgroundAttachRestoresByStablePanelID[snapshot.id]
+                ? (claudeBackgroundAttachRestoresByStablePanelID ?? Self.claudeBackgroundAttachRestores(
+                    panels: [snapshot],
+                    skipsRemoteTerminals: remoteStartupCommand != nil
+                ))[snapshot.id]
                 : nil
             let claudeBackgroundAttach = claudeBackgroundRestore?.attach
             let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
@@ -8683,8 +8687,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// so autosave reads a pane's argv once per foreground process.
     var claudeBackgroundViewerObservationsByPanelId: [UUID: ClaudeBackgroundViewerObservation] = [:]
 
-    /// Background-session reattach decisions for the restore pass in progress.
-    var claudeBackgroundAttachRestoresByStablePanelID: [UUID: ClaudeBackgroundAttachRestore] = [:]
+    /// Background-session reattach decisions for the workspace restore pass in
+    /// progress; nil outside a pass, where `createPanel` plans its one panel.
+    var claudeBackgroundAttachRestoresByStablePanelID: [UUID: ClaudeBackgroundAttachRestore]?
 
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).

@@ -130,29 +130,31 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
         return Int(info.kp_proc.p_un.__p_starttime.tv_sec)
     }
 
-    private static func procStartFormatter(_ format: String) -> DateFormatter {
+    /// Reads and writes `procStart` with single spaces (`Sat Oct 3 18:52:39 2026`).
+    /// DateFormatter is thread-safe for formatting and parsing on macOS 10.9+.
+    private nonisolated(unsafe) static let procStartFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = format
+        formatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
         return formatter
-    }
+    }()
 
     /// Parses Claude's `procStart` (`Sat Oct  3 18:52:39 2026`, UTC).
     public static func parseProcStart(_ value: String) -> Int? {
         let collapsed = value.split(separator: " ").joined(separator: " ")
-        return procStartFormatter("EEE MMM d HH:mm:ss yyyy")
-            .date(from: collapsed)
-            .map { Int($0.timeIntervalSince1970) }
+        return procStartFormatter.date(from: collapsed).map { Int($0.timeIntervalSince1970) }
     }
 
-    /// Renders a start time the way Claude records `procStart` (ctime layout, UTC).
+    /// Renders a start time the way Claude records `procStart` (ctime layout,
+    /// UTC): a one-digit day is padded with a second space.
     public static func formatProcStart(_ seconds: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
-        let head = procStartFormatter("EEE MMM").string(from: date)
-        let day = procStartFormatter("d").string(from: date)
-        let tail = procStartFormatter("HH:mm:ss yyyy").string(from: date)
-        return "\(head) \(day.count == 1 ? " " + day : day) \(tail)"
+        var words = procStartFormatter
+            .string(from: Date(timeIntervalSince1970: TimeInterval(seconds)))
+            .split(separator: " ")
+            .map(String.init)
+        if words.count == 5, words[2].count == 1 { words[2] = " " + words[2] }
+        return words.joined(separator: " ")
     }
 
     private static func processLooksLikeClaude(_ processID: Int) -> Bool {
@@ -356,10 +358,17 @@ public struct ClaudeBackgroundSessionAttach: Sendable {
         guard tail.first == "attach" else { return nil }
         let words = Array(tail.dropFirst())
         let positionals = words.filter { !$0.hasPrefix("-") }
-        let hasValueOptions = words.contains { $0.hasPrefix("-") && !$0.contains("=") }
-        // `claude attach` takes one target; an option may consume the word
-        // after it, so with options present the target is the last word.
-        let target = hasValueOptions ? positionals.last : (positionals.count == 1 ? positionals.first : nil)
+        // `claude attach` takes one target. A bare `--flag` may consume the
+        // next word as its value, so prefer the one positional no option
+        // precedes (`attach <id> --opt value`, `attach --opt value <id>`); a
+        // lone positional after a boolean flag (`attach --flag <id>`) still counts.
+        let unclaimed = words.indices.filter { index in
+            !words[index].hasPrefix("-") &&
+                !(index > 0 && words[index - 1].hasPrefix("-") && !words[index - 1].contains("="))
+        }.map { words[$0] }
+        let target = unclaimed.count == 1
+            ? unclaimed.first
+            : (unclaimed.isEmpty && positionals.count == 1 ? positionals.first : nil)
         guard let reference = target?.trimmingCharacters(in: .whitespacesAndNewlines),
               !reference.isEmpty,
               !containsControlCharacter(reference) else {
