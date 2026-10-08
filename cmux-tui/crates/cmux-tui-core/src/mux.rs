@@ -3580,9 +3580,15 @@ impl Mux {
                     )?;
                     self.emit_terminal_registry_changed(&registry, revision);
                     terminal = Some(imported);
-                } else if orphan_hosts::host_may_live(&record_path, &record) {
-                    terminal =
-                        Some(self.recover_orphan_terminal(&record, &mut recovery_workspace)?);
+                } else if orphan_hosts::recoverable(&options, &record_path, &record) {
+                    match self.recover_orphan_terminal(&record, &mut recovery_workspace) {
+                        Ok(recovered) => terminal = Some(recovered),
+                        Err(error) => {
+                            // The host and its record stay for a later start.
+                            eprintln!("cmux-tui: terminal {terminal_id} not recovered: {error:#}");
+                            continue;
+                        }
+                    }
                 } else {
                     if !cleanup_terminal_host_record(&record, &record_path) {
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
@@ -4155,13 +4161,13 @@ impl Mux {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
-                    let terminal = mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .terminal_record(&terminal_id)
-                        .ok()
-                        .flatten();
+                    // A failed read proves nothing about the host: retry.
+                    let Ok(terminal) =
+                        mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                    else {
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
+                    };
                     let Some(terminal) = terminal else {
                         if cleanup_terminal_host_record(&record, &record_path) {
                             break;

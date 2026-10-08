@@ -2,10 +2,10 @@
 //! (cx-0tgl LC). Ending one would end its shell, and with it whatever the
 //! user ran there.
 //!
-//! A live host whose registry row is gone (the registry was lost or reset)
-//! is recovered: the owner creates one workspace for every such host of
-//! this start and imports each as a terminal there, placed on adoption like
-//! a Cloud snapshot's template terminal. A host proven dead, or one whose
+//! A live, placed host whose registry row is gone (the registry was lost or
+//! reset) is recovered: the owner creates one workspace for every such host
+//! of this start and imports each as a terminal there, placed on adoption
+//! like a Cloud snapshot's template terminal ([`recoverable`] says which). A host proven dead, or one whose
 //! terminal the user closed (tombstoned) or that already exited, is cleaned
 //! up as before. Not covered: a live host whose incarnation the registry no
 //! longer names (a crash-window case); the registry forbids a live
@@ -25,13 +25,21 @@ pub(super) fn placed_on_adoption(terminal: &RegistryTerminal) -> bool {
     is_template_terminal(terminal) || terminal.launch_spec == recovered_terminal_launch_spec()
 }
 
-/// The host may still run its shell (live, or not provably dead).
+/// A host without a registry row that the owner recovers instead of ending:
+/// it is proven live, it was placed (its record names a workspace; a
+/// prelaunched host that was never activated has none and runs no shell),
+/// it left no exit sidecar, and this is not a Cloud template start (whose
+/// fresh registry claims its warm host first and ends the others).
 #[cfg(unix)]
-pub(super) fn host_may_live(
+pub(super) fn recoverable(
+    options: &SurfaceOptions,
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
 ) -> bool {
-    terminal_host_record_liveness(record_path, record) != TerminalHostLiveness::Dead
+    !options.adopt_template_terminal
+        && !record.workspace_key.is_empty()
+        && !record_path.with_extension("exit").exists()
+        && terminal_host_record_liveness(record_path, record) == TerminalHostLiveness::Live
 }
 
 impl Mux {
@@ -69,6 +77,7 @@ impl Mux {
             &recovered,
         )?;
         self.emit_terminal_registry_changed(&registry, revision);
+        drop(registry);
         eprintln!(
             "cmux-tui: terminal {} had a live host but no registry row; recovered it into \
              workspace {}",
