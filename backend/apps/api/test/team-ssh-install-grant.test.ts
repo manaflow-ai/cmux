@@ -21,7 +21,7 @@ describe("team SSH certificates for install tokens (grant gate, workerd)", () =>
       expect(r.value).toMatchObject({ class: "agent", principals: ["lawrence-agents"] })
       const c = await readCert(r.value.certificate, r.value.ca_public_key)
       expect(c.verified).toBe(true)
-      expect(c.critical).toEqual({ "force-command": "cmux team restricted-shell" })
+      expect(c.critical).toEqual({ "force-command": "/opt/cmux/current/bin/cmux team restricted-shell" })
       // Still never a full shell for an install token.
       expect((await t.op(t.install(t.owner, classes, kind, id), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
     }

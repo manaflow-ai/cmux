@@ -24,6 +24,7 @@ use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
+use crate::user_settings::NewWorkspacePlacement;
 
 const OPERATION: &str = "closed.reopen";
 
@@ -564,7 +565,10 @@ impl Mux {
             screens.first().map_or((TerminalSpawnOptions::new(None, Vec::new()), None), |screen| {
                 self.first_terminal_spawn(screen)
             });
-        let first = self.new_workspace_with_spawn_as(actor, name, spawn, None)?;
+        // Created last, so the row `restore_placement` drops in the reopen
+        // commit moves no other row; the closed row's place comes back.
+        let first = NewWorkspacePlacement::Bottom
+            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, None))?;
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;

@@ -12,6 +12,8 @@ import {
   SSH_KRL_FILE,
   splitSshdBakeOutput,
   sshdDropIn,
+  sshdBakeCommand,
+  SSH_AGENT_FORCE_COMMAND,
   sshdListenProblems,
   sshdPamProblems,
   sshdPolicyProblems,
@@ -34,7 +36,7 @@ const GOOD = [
   "authorizedprincipalscommanduser nobody",
   `revokedkeys ${SSH_KRL_FILE}`,
   "usepam yes",
-  "allowusers cmux",
+  "allowgroups cmux-ssh",
 ].join("\n");
 
 const edit = (key: string, value: string | null) =>
@@ -42,6 +44,31 @@ const edit = (key: string, value: string | null) =>
     .filter((line) => !line.startsWith(`${key} `))
     .concat(value === null ? [] : [`${key} ${value}`])
     .join("\n");
+
+describe("team VM login groups (cx-embr)", () => {
+  test("agent users get the restricted shell from sshd itself, in a Match block that ends the drop-in", () => {
+    const lines = sshdDropIn("cmux").trimEnd().split("\n");
+    const match = lines.indexOf("Match Group cmux-agents");
+    expect(match).toBeGreaterThan(0);
+    expect(lines.slice(match)).toEqual([
+      "Match Group cmux-agents",
+      `  ForceCommand ${SSH_AGENT_FORCE_COMMAND}`,
+      "  DisableForwarding yes",
+      "  PermitTTY no",
+      "  PermitUserRC no",
+    ]);
+    expect(SSH_AGENT_FORCE_COMMAND).toBe("/opt/cmux/current/bin/cmux team restricted-shell");
+    expect(lines).toContain("AllowGroups cmux-ssh");
+    expect(lines.some((line) => line.startsWith("AllowUsers"))).toBe(false);
+  });
+
+  test("the bake makes both groups and puts the work user in the login group", () => {
+    const bake = sshdBakeCommand("cmux");
+    expect(bake).toContain("groupadd --system cmux-ssh");
+    expect(bake).toContain("groupadd --system cmux-agents");
+    expect(bake).toContain("usermod --append --groups cmux-ssh 'cmux'");
+  });
+});
 
 describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () => {
   test("the effective config of a correct install has no problems", () => {
@@ -75,8 +102,9 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
   });
 
   test("only the work user may log in", () => {
-    expect(sshdPolicyProblems(edit("allowusers", null), "cmux")).toContain("allowusers is missing, want cmux");
-    expect(sshdPolicyProblems(edit("allowusers", "cmux root"), "cmux")).toContain("allowusers is cmux root, want cmux");
+    expect(sshdPolicyProblems(edit("allowgroups", null), "cmux")).toContain("allowgroups is missing, want cmux-ssh");
+    expect(sshdPolicyProblems(edit("allowgroups", "cmux-ssh root"), "cmux")).toContain("allowgroups is cmux-ssh root, want cmux-ssh");
+    expect(sshdPolicyProblems(`${GOOD}\nallowusers cmux`, "cmux")).toContain("allowusers is cmux, want none (AllowGroups cmux-ssh decides)");
   });
 
   test("sshd listens on loopback only (the link forwards the ssh service to it)", () => {
