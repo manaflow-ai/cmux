@@ -1,4 +1,6 @@
 use std::collections::{HashMap, VecDeque};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -725,6 +727,10 @@ pub struct BrowserSurface {
     navigation_hold: Mutex<navigation_hold::NavigationHold>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
+    /// Navigation commit waits that ran out their deadline: a test observes
+    /// that a path never waited for an epoch, without timing it.
+    #[cfg(test)]
+    navigation_commit_wait_timeouts: AtomicUsize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1080,6 +1086,8 @@ pub(crate) fn new_surface_with_resource_identity(
         navigation_hold: Mutex::default(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
+        #[cfg(test)]
+        navigation_commit_wait_timeouts: AtomicUsize::new(0),
     }));
     start_browser_worker(
         surface.clone(),
@@ -3925,7 +3933,13 @@ impl BrowserSurface {
         // Command acknowledgment does not mean the document committed. The
         // ingress navigation event owns this barrier and may arrive after the
         // short synchronous wait on a slow page.
-        let _ = self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT);
+        let committed =
+            self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT);
+        #[cfg(test)]
+        if !committed {
+            self.navigation_commit_wait_timeouts.fetch_add(1, Ordering::AcqRel);
+        }
+        let _ = committed;
     }
 
     fn finish_navigation_command<T>(
@@ -10222,7 +10236,6 @@ mod tests {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let (post_navigate_delay_tx, post_navigate_delay_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
@@ -10235,7 +10248,6 @@ mod tests {
                 &mut ws,
                 json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
             );
-            let navigate_response_at = Instant::now();
             for expected in [
                 "Page.getFrameTree",
                 "Page.stopScreencast",
@@ -10247,9 +10259,6 @@ mod tests {
                 "Page.getFrameTree",
             ] {
                 let request = read_ws_json(&mut ws);
-                if expected == "Page.getFrameTree" {
-                    post_navigate_delay_tx.send(navigate_response_at.elapsed()).unwrap();
-                }
                 assert_eq!(request["method"], expected);
                 let result = match expected {
                     "Page.getFrameTree" => json!({
@@ -10287,8 +10296,6 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         let result = browser.navigate_blocking("https://example.test#same-document");
-        let post_navigate_delay =
-            post_navigate_delay_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let state = browser.state.lock().unwrap();
         let pending_frame_epoch = state.pending_frame_epoch;
         let pending_navigation_epoch = state.pending_navigation_epoch;
@@ -10308,9 +10315,10 @@ mod tests {
             Some(2),
             "the unchanged document must regain authority through freshly captured pixels"
         );
-        assert!(
-            post_navigate_delay < super::NAVIGATION_COMMIT_WAIT / 2,
-            "loaderless same-document navigation waited {post_navigate_delay:?} for an epoch that cannot advance"
+        assert_eq!(
+            browser.navigation_commit_wait_timeouts.load(Ordering::Acquire),
+            0,
+            "loaderless same-document navigation waited out an epoch that cannot advance"
         );
     }
 
