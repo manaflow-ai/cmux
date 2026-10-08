@@ -19,6 +19,11 @@ struct WebKitChallengeTests {
         #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false) == D.askCredentials)
         #expect(WebKitTab.decide(method: digest, failures: 2, trusted: false, excepted: false) == D.askCredentials)
         #expect(WebKitTab.decide(method: basic, failures: 5, trusted: false, excepted: false) == D.cancel, "stop asking after 5 failures")
+        // A remembered password is used without asking, but only on the first try:
+        // after a failure the user is asked again.
+        #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false, proposed: true) == D.useProposedCredential)
+        #expect(WebKitTab.decide(method: basic, failures: 1, trusted: false, excepted: false, proposed: true) == D.askCredentials)
+        #expect(WebKitTab.decide(method: trust, failures: 0, trusted: false, excepted: false, proposed: true) == D.defaultHandling)
         #expect(WebKitTab.decide(method: trust, failures: 0, trusted: true, excepted: false) == D.defaultHandling)
         #expect(WebKitTab.decide(method: trust, failures: 0, trusted: false, excepted: false) == D.defaultHandling,
                 "WebKit fails the load with the certificate error, which shows the interstitial")

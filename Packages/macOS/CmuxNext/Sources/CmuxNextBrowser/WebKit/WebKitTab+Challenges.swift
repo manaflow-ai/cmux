@@ -10,7 +10,7 @@ import WebKit
 extension WebKitTab: BrowserCertificateBypassing {
     typealias ChallengeDecision = WebKitChallengeDecision
 
-    static func decide(method: String, failures: Int, trusted: Bool, excepted: Bool) -> ChallengeDecision {
+    static func decide(method: String, failures: Int, trusted: Bool, excepted: Bool, proposed: Bool = false) -> ChallengeDecision {
         WebKitChallengeDecision(method: method, failures: failures, trusted: trusted, excepted: excepted)
     }
 
@@ -21,7 +21,7 @@ extension WebKitTab: BrowserCertificateBypassing {
         let space = challenge.protectionSpace
         switch Self.decide(method: space.authenticationMethod, failures: challenge.previousFailureCount, trusted: false,
                            excepted: false) {
-        case .defaultHandling, .useServerTrust:
+        case .defaultHandling, .useServerTrust, .useProposedCredential:
             completionHandler(.performDefaultHandling, nil)
         case .cancel:
             completionHandler(.cancelAuthenticationChallenge, nil)
@@ -54,6 +54,8 @@ extension WebKitTab: BrowserCertificateWarningRevoking {
 enum WebKitChallengeDecision: Equatable {
     case defaultHandling
     case askCredentials
+    /// A remembered credential WebKit proposes (the user checked "Remember password").
+    case useProposedCredential
     case useServerTrust
     case cancel
 
