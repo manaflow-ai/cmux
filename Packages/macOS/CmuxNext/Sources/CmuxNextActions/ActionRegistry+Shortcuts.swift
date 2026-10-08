@@ -17,7 +17,7 @@ extension ActionRegistry {
     /// (`⌘1…9`).
     public func shortcutKeycaps(for id: ActionID) -> [String]? {
         let id = canonicalID(for: id)
-        if let chord = chordOverrides[id] {
+        if let chord = chordOverrides[id] ?? LeaderLayer(registry: self).shownDefaultChord(for: id) {
             guard isDigitFamily(id, chord.second) else { return chord.keycaps }
             return chord.first.keycaps + chord.second.modifierGlyphs + ["1…9"]
         }
@@ -40,7 +40,7 @@ extension ActionRegistry {
     /// Compact text for `id`'s shortcut (`⇧⌘P`), or nil.
     public func shortcutDisplay(for id: ActionID) -> String? {
         let id = canonicalID(for: id)
-        if let chord = chordOverrides[id] { return shortcutDisplay(chord, for: id) }
+        if let chord = chordOverrides[id] ?? LeaderLayer(registry: self).shownDefaultChord(for: id) { return shortcutDisplay(chord, for: id) }
         guard let caps = shortcutKeycaps(for: id) else { return nil }
         let isSequence = shortcutOverrides[id] == nil && descriptor(for: id)?.shortcutLabel != nil
         return caps.joined(separator: isSequence ? " " : "")
@@ -86,35 +86,20 @@ extension ActionRegistry {
         return groups.values.filter { $0.count > 1 }.sorted { $0[0].rawValue < $1[0].rawValue }
     }
 
-    struct ShortcutIndex {
-        var byShortcut: [Shortcut: [ActionID]] = [:]
-        var digitFamilies: [Shortcut: [ActionID]] = [:]
-        /// Chords by first key, then second key.
-        var chords: [Shortcut: [Shortcut: [ActionID]]] = [:]
-        /// Numbered-family chords by first key, then the second key's `1`.
-        var chordDigitFamilies: [Shortcut: [Shortcut: [ActionID]]] = [:]
-    }
-
     func currentShortcutIndex() -> ShortcutIndex {
         if let shortcutIndex { return shortcutIndex }
         var index = ShortcutIndex()
         var ids = descriptors.map(\.id)
         ids += actions.map(\.id).filter { descriptorIndexByID[$0] == nil }
-        for id in ids {
-            if let chord = chordOverrides[id] {
+        for id in ids where disabledFeature(for: id) == nil { // DisabledFeatures: no key, chord or leader row
+            if let chord = effectiveChord(for: id) {
                 if isDigitFamily(id, chord.second) {
                     index.chordDigitFamilies[chord.first, default: [:]][chord.second, default: []].append(id)
                 } else {
                     index.chords[chord.first, default: [:]][chord.second, default: []].append(id)
                 }
-                continue
             }
-            guard let shortcut = effectiveShortcut(for: id) else { continue }
-            if isDigitFamily(id, shortcut) {
-                index.digitFamilies[Shortcut("1", modifiers: shortcut.modifiers), default: []].append(id)
-            } else {
-                index.byShortcut[shortcut, default: []].append(id)
-            }
+
         }
         shortcutIndex = index
         return index

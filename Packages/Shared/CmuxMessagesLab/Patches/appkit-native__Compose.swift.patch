@@ -1,0 +1,103 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
+@@ -8,6 +8,9 @@
+     var onSend: () -> Void = {}
+     var onEscape: () -> Void = {}
+     var onPasteImage: (NSImage) -> Void = { _ in }
++    /// cmux: the host's attachment intake reads the pasteboard first
++    /// (files and pictures, Home's type rule); true when it took the paste.
++    var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+     /// Marked (IME) text changed. UITextView reports marked text through
+     /// `textViewDidChange`, so the draft (and the field height) follows the
+     /// composition; NSTextView does not post a text change for it.
+@@ -17,6 +20,15 @@
+     /// container origin to whole points, which put the text 0.24 pt higher
+     /// than Catalyst's (measured by the text probe's first baseline).
+     override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textContainerInset.height) }
++
++    /// cmux: the caret's NSTextInsertionIndicator shows no effects view. Its
++    /// glass bubble (input source, dictation, caps lock) sits just left of the
++    /// caret, which is 7 pt into the field, so it covered the "+" glass. The
++    /// text view adds (and rebuilds) its indicators as subviews.
++    override func didAddSubview(_ subview: NSView) {
++        super.didAddSubview(subview)
++        (subview as? NSTextInsertionIndicator)?.automaticModeOptions.remove(.showEffectsView)
++    }
+ 
+     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+@@ -166,6 +178,7 @@
+ 
+     override func paste(_ sender: Any?) {
+         let pb = pasteboard
++        if onPastePasteboard(pb) { return }  // cmux
+         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
+         super.paste(sender)
+     }
+@@ -253,7 +266,8 @@
+     var onSendPulse: ((CFTimeInterval) -> Void)?
+ 
+     static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
+-    static var textWidth: CGFloat { fieldWidth(Metrics.current.width) - 24 }
++    /// cmux: per view (several Home tabs), from this compose bar's width.
++    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
+     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
+     static let font = Fixture.bodyFont
+     static let maxLines = 8
+@@ -266,19 +280,20 @@
+         default: return .limited
+         }
+     }()
+-    static func lines(_ text: String) -> Int {
++    /// cmux: per view (several Home tabs): this compose bar's width and its own memo.
++    func lines(_ text: String) -> Int {
+         // One-entry memo: every compose update asks again for the same draft (a send asks for "").
+         let w = textWidth
+         // The empty field (every send and every commit after it) has its own entry: the one-entry
+         // memo held the last typed draft, so each send typeset " " again.
+         if text.isEmpty, let e = emptyLinesMemo, e.0 == w { return e.1 }
+         if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
+-        let n = min(maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: font).lines.count)
++        let n = min(ComposeView.maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count)
+         if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
+         return n
+     }
+-    private static var linesMemo: (String, CGFloat, Int)?
+-    private static var emptyLinesMemo: (CGFloat, Int)?
++    private var linesMemo: (String, CGFloat, Int)?
++    private var emptyLinesMemo: (CGFloat, Int)?
+     /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
+     /// commit asked for one).
+     private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+@@ -485,11 +500,11 @@
+         fmt.opaque = false
+         let ph = placeholder
+         placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
+-            TextDraw.line(ph, font: ComposeView.font, color: NSColor(white: 123 / 255, alpha: 1), x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
++            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+         }.cgImage
+         placeholderLayer.contentsScale = fmt.scale
+         waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
+-            NSColor(white: 144 / 255, alpha: 1).setFill()
++            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
+             // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
+             // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
+             // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
+@@ -550,7 +565,7 @@
+         placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
+         waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
+         CATransaction.commit()
+-        let h = ComposeView.height(lines: ComposeView.lines(d.text), chips: false) + strip.height
++        let h = ComposeView.height(lines: lines(d.text), chips: false) + strip.height  // cmux: per view
+         let old = fieldHeight
+         fieldHeight = h
+         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
+@@ -630,7 +645,7 @@
+             alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
+         }
+         let f = fieldRect
+-        let tl = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: ComposeView.textWidth, font: ComposeView.font)
++        let tl = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: textWidth, font: ComposeView.font)
+         let row = CGFloat(max(0, tl.lines.count - 1))
+         let last = text.isEmpty ? "" : (text.components(separatedBy: "\n").last ?? "")
+         let cx = f.minX + 12 + TextDraw.width(last, font: ComposeView.font, kern: Fixture.bodyKern)

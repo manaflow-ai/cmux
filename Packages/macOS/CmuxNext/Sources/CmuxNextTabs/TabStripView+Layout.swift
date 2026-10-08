@@ -95,22 +95,23 @@ extension TabStripView {
         startAnimating()
     }
 
+    /// Chrome's separator rule (`TabSeparatorVisibility`) over the tabs in the
+    /// row: the selected, hovered and dragged tabs hide the separators on
+    /// both sides, and the last tab's separator is the line before +. A drop
+    /// gap counts as the dragged tab. Members collapsed into a group chip are
+    /// out of the row and draw none; a chip is a neutral neighbor.
     func updateSeparators() {
-        let slots = result.slots.filter { $0.width > 0.5 || !$0.isCollapsed }
-        let selected = model.selectedID
-        func emphasized(_ slot: TabLayoutSlot) -> Bool {
-            let id = slot.id
-            return id == selected || id == hoveredID || id == drag?.id || id == Self.placeholderID || slot.isGroupChip || slot.isCollapsed
-        }
-        for (index, slot) in slots.enumerated() {
-            guard let cell = cells[slot.id] else { continue }
-            guard index + 1 < slots.count else {
-                cell.showsSeparator = false
-                continue
-            }
-            let next = slots[index + 1]
-            cell.showsSeparator = !emphasized(slot) && !emphasized(next) && slot.isPinned == next.isPinned
-                && slot.groupID == next.groupID
+        let row = result.slots.filter { !$0.isCollapsed }
+        func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
+        let visible = TabSeparatorVisibility.visibleSeparators(
+            tabCount: row.count,
+            selected: index(of: model.selectedID),
+            hovered: index(of: hoveredID),
+            dragged: index(of: drag?.id) ?? index(of: Self.placeholderID)
+        )
+        let shown = Set(visible.map { row[$0].id })
+        for slot in result.slots {
+            cells[slot.id]?.showsSeparator = shown.contains(slot.id)
         }
     }
 
@@ -142,22 +143,49 @@ extension TabStripView {
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
         updateFadeMask()
+        // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
+        geometryDidChange()
     }
 
+    /// Fades the strip's ends only while tabs are hidden beyond them: none
+    /// on the leading edge at offset 0, none on the trailing edge at the
+    /// end, none when every tab fits (rubber band past an end included). An
+    /// edge's band fades in or out with the Motion `hover` token (a short
+    /// crossfade under Reduce Motion, per the Motion policy); the mask comes off once no edge is faded, so a
+    /// strip that fits renders with no offscreen pass.
     func updateFadeMask() {
         let width = viewportWidth
-        let edges = TabScrollMath.fadedEdges(offset: scroll.value, contentWidth: result.contentWidth, viewportWidth: width)
-        guard width > 0, edges.leading || edges.trailing else {
-            if tabsClip.layer?.mask != nil { tabsClip.layer?.mask = nil }
-            return
-        }
-        let fade = min(metrics.scrollFadeWidth / width, 0.5)
+        let edges = width > 0
+            ? TabScrollMath.fadedEdges(offset: scroll.value, contentWidth: result.contentWidth, viewportWidth: width)
+            : (leading: false, trailing: false)
+        let fade = min(metrics.scrollFadeWidth / max(width, 1), 0.5)
         fadeMask.frame = tabsClip.bounds
+        fadeMask.locations = [0, NSNumber(value: Double(fade)), NSNumber(value: Double(1 - fade)), 1]
+        guard edges != fadedEdges else { return }
+        let wasFaded = fadedEdges.leading || fadedEdges.trailing
+        let isFaded = edges.leading || edges.trailing
+        fadedEdges = edges
         let opaque = NSColor.black.cgColor
         let clear = NSColor.clear.cgColor
-        fadeMask.colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
-        fadeMask.locations = [0, NSNumber(value: Double(fade)), NSNumber(value: Double(1 - fade)), 1]
-        if tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
+        let colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
+        if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
+        let animates = window != nil && (wasFaded || isFaded)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !(self.fadedEdges.leading || self.fadedEdges.trailing) else { return }
+                if self.tabsClip.layer?.mask != nil { self.tabsClip.layer?.mask = nil }
+            }
+        }
+        if animates {
+            // A freshly installed mask starts from fully opaque, not from
+            // the colors it had when it came off.
+            Motion.set(fadeMask, "colors", to: colors, fade: .hover, from: wasFaded ? nil : [opaque, opaque, opaque, opaque])
+        } else {
+            fadeMask.removeAnimation(forKey: "colors")
+            Motion.transaction(nil) { fadeMask.colors = colors }
+        }
+        CATransaction.commit()
     }
 
     // MARK: - Animation
@@ -191,12 +219,9 @@ extension TabStripView {
         if autoscrollDuringDrag(dt) { active = true }
         scroll.step(dt)
         if !scroll.isSettled { active = true }
+        // Tabs sliding under a still pointer update hover (applyFrames ->
+        // geometryDidChange).
         applyFrames()
-        if drag == nil, groups.drag == nil, pressedCloseID == nil, let window {
-            // Tabs sliding under a still pointer update hover, as in Chrome.
-            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            if bounds.contains(point) { updateHover(at: point) }
-        }
         if !active { MotionTrace.end("tabs") }
         return active
     }

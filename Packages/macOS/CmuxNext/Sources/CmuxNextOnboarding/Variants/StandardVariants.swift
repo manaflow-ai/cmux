@@ -23,7 +23,7 @@ struct StandardImport: OnboardingScreenVariant {
     static let surface = OnboardingSurface.fullGlass
     static let transition = OnboardingTransition.crossfade
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
-        OnboardingScaffold.make(title: OnboardingStrings.importTitle, subtitle: OnboardingStrings.importSubtitle,
+        return OnboardingScaffold.make(title: OnboardingStrings.importTitle, subtitle: nil,
                                 body: ImportStepView(model: context.model.importer), context: context)
     }
 }

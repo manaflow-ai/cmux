@@ -71,8 +71,10 @@ final class TabDragSession: NSObject {
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
         let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale)
-        let motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
+        var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
                                         rectSpring: Motion.spring(.track), morphSpring: Motion.spring(.appear))
+        // The card unfolds once its content preview arrives (`loadThumbnail`).
+        motion.hasPreview = false
         let windowFrame = window?.window?.frame ?? .zero
         let source = Source(
             item: item, payload: payload, pane: pane, window: window, screenFrame: frame, grabOffset: grabOffset,
@@ -116,8 +118,11 @@ final class TabDragSession: NSObject {
         guard let tab else { return }
         let cache = services.cache
         Task { [weak drag] in
-            let image = await cache?.previewImage(for: tab, maxPixelSize: CGSize(width: 640, height: 640))
-            drag?.ghost.setThumbnail(image)
+            let image = await cache?.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true)
+            guard let drag, let image else { return }
+            drag.ghost.setThumbnail(image)
+            drag.motion.hasPreview = true
+            drag.link?.activate()
         }
     }
 
@@ -131,10 +136,18 @@ final class TabDragSession: NSObject {
         }
         let index = first.flatMap { id in ordered.firstIndex { $0.id.rawValue == id } }
         let group: String? = if case .tab = item, let index { ordered[index].groupID?.rawValue } else { nil }
-        return TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
-                              sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
-                              draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
-                              sourceGroupID: group)
+        var context = TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
+                                     sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
+                                     draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
+                                     sourceGroupID: group)
+        if case .group = item { context.isGroupDrag = true }
+        // A single daemon tab of a kind that can respawn, on a daemon that
+        // splits a pane with its only tab by spawning a fresh one there.
+        if case .tab(let id) = item, let tab = pane.pane.tabs.first(where: { $0.id == id }),
+           TabMoves.respawn(for: tab, in: pane.pane, services: pane.services) != nil {
+            context.respawnsOnSplit = pane.services.machines.daemon(forPane: pane.pane).supports(DaemonCapabilities.shared.tabSplitRespawn)
+        }
+        return context
     }
 
     /// The resolver's view of `drag` now: the source pane's tabs can change
@@ -166,6 +179,7 @@ final class TabDragSession: NSObject {
             return nil
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
+            drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
             return nil
         case .leftMouseDown:
@@ -194,13 +208,18 @@ final class TabDragSession: NSObject {
         drag.point = point
         drag.samplePointer(point, at: CACurrentMediaTime())
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
-        let hit = hitTest(point, drag: drag)
-        if let previous = drag.winner, previous.provider !== hit.winner?.provider {
+        let context = liveContext(drag)
+        let hit = hitTest(point, drag: drag, context: context)
+        // The layout adapter's preview is ended by `outline`, so a move from
+        // a pane zone to a strip slot animates instead of fading out and in.
+        if let previous = drag.winner, previous.provider !== hit.winner?.provider, !(previous.provider is LayoutTabDropTarget) {
             previous.provider.dropExited()
         }
         drag.winner = hit.winner
-        drag.outcome = TabDragResolver.outcome(for: hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
-                                               context: liveContext(drag))
+        drag.resolution = TabDragResolver.resolve(hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
+                                                  context: context)
+        drag.outcome = drag.resolution.outcome
+        TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
         present(drag)
         wake(drag)
     }
@@ -210,33 +229,42 @@ final class TabDragSession: NSObject {
         var winner: Winner?
     }
 
-    func hitTest(_ point: CGPoint, drag: Drag) -> Hit {
+    /// The first surface that answers at `point` wins, whatever its verdict:
+    /// a stay or a refusal is previewed too, never skipped (tab-dnd). The
+    /// sidebar and the layout answer for every point of their window.
+    func hitTest(_ point: CGPoint, drag: Drag, context: TabDragContext) -> Hit {
+        drag.noTargetReason = nil
         guard let controller = window(at: point) else { return Hit() }
         guard let payload = drag.source.payload else { return Hit(window: controller) }
         // A tab never crosses between an incognito window and a normal one:
         // that window offers no drop target.
         if let source = drag.source.window?.state.id, services.windows.isIncognito(window: source)
             != services.windows.isIncognito(window: controller.state.id) {
+            drag.noTargetReason = RefusalStrings.incognitoMismatch
             return Hit(window: controller)
         }
+        let layout = adapters(for: controller, drag: drag).layout
+        layout.removingPane = context.emptiesSourcePane ? LayoutPaneID(context.sourcePaneID) : nil
         for provider in providers(in: controller, near: point, drag: drag) {
             guard let proposal = provider.dropHitTest(screenPoint: point, payload: payload) else { continue }
             drag.touched[ObjectIdentifier(provider)] = provider
-            if TabDragResolver.accepts(proposal.kind, context: liveContext(drag)) {
-                return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
-            }
-            provider.dropExited()
+            return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
         }
         return Hit(window: controller)
     }
 
     /// Frontmost app window containing `point`; nil outside all of them.
+    /// Chromium page windows, the overlay panel and the ghost are looked
+    /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
         let controllers = services.windows.controllers
-        for window in NSApp.orderedWindows where window.isVisible && !window.isMiniaturized && window.frame.contains(point) {
-            if let controller = controllers.first(where: { $0.window === window }) { return controller }
+        let ordered = NSApp.orderedWindows.map { window in
+            TabDragWindowPick.Candidate(frame: window.frame,
+                                        controllerID: controllers.first { $0.window === window }.map { $0.state.id },
+                                        isVisible: window.isVisible && !window.isMiniaturized)
         }
-        return nil
+        guard let id = TabDragWindowPick.frontmost(at: point, in: ordered) else { return nil }
+        return controllers.first { $0.state.id == id }
     }
 
     /// Drop targets of `controller` in priority order: sidebar, the strips

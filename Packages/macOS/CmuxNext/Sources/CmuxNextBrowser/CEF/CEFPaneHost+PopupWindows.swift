@@ -110,11 +110,11 @@ extension CEFRuntime {
     }
 
     private func adoptPopupWindow(window: Int32, browser: Int32) {
-        guard browser != 0, tabsByBrowser[browser] == nil, !adoptions.isClosed(browser) else {
-            notePopupWindow("window=\(window) browser=\(browser) skipped: known=\(tabsByBrowser[browser] != nil) closed=\(adoptions.isClosed(browser))")
+        guard browser != 0, tabsByBrowser[browser] == nil, !orphans.ledger.isClosed(browser) else {
+            notePopupWindow("window=\(window) browser=\(browser) skipped: known=\(tabsByBrowser[browser] != nil) closed=\(orphans.ledger.isClosed(browser))")
             return
         }
-        unplaced[browser] = nil
+        orphans.unplaced[browser] = nil
         let opener = popupWindowOpener()
         notePopupWindow("window=\(window) browser=\(browser) adopt opener=\(opener?.state.url?.absoluteString ?? "none") "
                         + "shown=\(opener?.host.hostView.window != nil) last=\(lastShownHost?.visibleTab != nil)")
@@ -158,5 +158,5 @@ extension NSView {
 
 extension CEFRuntime {
     /// The latest popup window events (`debug.cef` `popup_windows`).
-    func notePopupWindow(_ event: String) { windowRequestLog.notePopupWindow(event) }
+    func notePopupWindow(_ event: String) { windowRequests.log.notePopupWindow(event) }
 }

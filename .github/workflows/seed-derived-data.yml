@@ -211,7 +211,11 @@ jobs:
           # compile slot does. glaeda pins this job (one it does not know) to
           # root 1, and the trusted runner runs nothing else, so the root is
           # this job's alone.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          if [ -x scripts/ci/canonical-build-root.sh ]; then
+            root="$(scripts/ci/canonical-build-root.sh --print-root)"
+          else
+            root="${CMUX_CI_CANONICAL_ROOT:?canonical root resolver is unavailable}"
+          fi
           if [ -n "$CMUX_SEED_ROOT" ]; then
             case "$CMUX_SEED_ROOT:$MATRIX_POOL" in
               [2-9]:"$TRUSTED_POOL") ;;
@@ -247,6 +251,9 @@ jobs:
           scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
+          if [ -z "$CMUX_SEED_ROOT" ]; then
+            echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
+          fi
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -370,7 +377,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          resolved="$CMUX_CI_CANONICAL_ROOT/src/.ci-source-packages"
           test -d "$resolved/.package-cache"
           rsync -a --delete "$resolved/" .ci-source-packages/
           python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -493,45 +500,25 @@ jobs:
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
 
       # Publish the product exactly as ci-macos.yml compile admission does
-      # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
-      # rewrite Build/Products, so these follow "Save seed". Only a main push
+      # (tests/test_seed_derived_data.py pins the copy). Relocation rewrites
+      # Build/Products, so these follow "Save seed". Only a main push
       # is a producer pull requests trust; a dispatch of
-      # this workflow publishes no product: staging, packaging and upload run
+      # this workflow publishes no product: packaging and upload run
       # on a main push only. A failure here
       # costs pull requests the adoption, never the seed. The product does not
       # depend on the width, so only the first
       # pool (decide's publisher) publishes it, under the one artifact name
       # admission looks up. When that pool skips, its seed's commit has these
       # build inputs, and so the product pull requests already adopt.
-      - name: Stage compiled package frameworks
-        id: stage-products
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.pool == needs.decide.outputs.publisher
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
-          stable="/private/tmp/cmux-app-host-package-frameworks"
-          mkdir -p "$stable"
-          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-          test -n "$framework_source"
-          framework_root="$(dirname "$framework_source")"
-          rsync -aL "$framework_root/" "$stable/"
-          if [ -L "$products/PackageFrameworks" ]; then
-            rm "$products/PackageFrameworks"
-          fi
-          mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
-          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
-
       - name: Package compiled app-host test product
         id: package-products
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.stage-products.outcome == 'success'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.pool == needs.decide.outputs.publisher
         continue-on-error: true
         run: |
           set -euo pipefail
           # Fresh manifests embed the canonical checkout. Stamp that producer
           # before relocating into this job's workspace, as admission does.
-          (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
+          (cd "$CMUX_CI_CANONICAL_ROOT/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
           python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"

@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 
-/// The thin scrollbar under the column strip (sticky-column.md, B1 to B5):
+/// The thin scrollbar under the column strip (dock-column.md, B1 to B5):
 /// a neutral thumb showing the visible range, no track color. Dragging the
 /// thumb scrolls, a click beside it pages. `auto` fades it in while the
 /// strip scrolls or the pointer is over it and out after a one-shot
@@ -33,13 +33,15 @@ final class StripScrollbarView: NSView {
     private var isHovered = false
     private var drag: (grab: CGFloat, width: CGFloat)?
     private(set) var isShown = false
-    private let hideTimer = DemandTimer(owner: "Layout.stripScrollbar.hide")
+    private let hideTimer: DemandTimer
 
     /// Idle time before `auto` fades out.
     static let idleDelay: Duration = .milliseconds(1200)
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    /// `hideClock` runs the `auto` fade-out deadline.
+    init(hideClock: any Clock<Duration>) {
+        hideTimer = DemandTimer(owner: "Layout.stripScrollbar.hide", clock: hideClock)
+        super.init(frame: .zero)
         wantsLayer = true
         layer?.addSublayer(thumb)
         thumb.opacity = 0

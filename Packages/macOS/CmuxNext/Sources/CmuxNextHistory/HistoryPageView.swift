@@ -31,7 +31,7 @@ struct HistoryPageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().overlay(colors.separator)
+            HairlineDivider(color: colors.separator)
             if model.groups.isEmpty {
                 Text(model.text.isEmpty ? HistoryStrings.empty : HistoryStrings.emptySearch)
                     .font(Font(Typography.body)).foregroundStyle(colors.tertiary)
@@ -46,38 +46,82 @@ struct HistoryPageView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Metrics.panelInset * 1.5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(HistoryStrings.title).font(Font(Typography.title)).foregroundStyle(colors.primary)
-                Spacer()
-                Menu(HistoryStrings.groupBy) {
-                    ForEach(HistoryGrouping.allCases, id: \.self) { grouping in
-                        Button(HistoryStrings.grouping(grouping)) { model.grouping = grouping }
-                    }
-                }
-                .menuStyle(.borderlessButton).fixedSize().foregroundStyle(colors.secondary)
-                Menu(HistoryStrings.clear) {
-                    ForEach(HistoryRange.allCases, id: \.self) { range in
-                        Button(HistoryStrings.range(range), role: .destructive) { model.clear(range) }
-                    }
-                }
-                .menuStyle(.borderlessButton).fixedSize().foregroundStyle(colors.secondary)
-            }
+            titleRow
             TextField(HistoryStrings.searchPlaceholder, text: $model.text)
                 .textFieldStyle(.roundedBorder).font(Font(Typography.subtitle)).focused($searchFocused)
                 .onKeyPress(.downArrow) { model.moveSelection(1); return .handled }
                 .onKeyPress(.upArrow) { model.moveSelection(-1); return .handled }
                 .onSubmit { if let entry = model.entry(id: model.selection) ?? model.flatEntries.first { model.open(entry) } }
-            HStack(spacing: Metrics.panelInset) {
+            HistoryFilterLayout(horizontalSpacing: Metrics.panelInset * 1.5, verticalSpacing: 4) {
                 ForEach(HistoryPageModel.Filter.allCases, id: \.self) { filter in
                     Button(HistoryStrings.filter(filter)) { model.filter = filter }
                         .buttonStyle(.plain).font(Font(Typography.bodyEmphasized))
-                        .padding(.horizontal, Metrics.panelInset * 1.5).padding(.vertical, Metrics.panelInset / 2)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                         .foregroundStyle(model.filter == filter ? colors.primary : colors.secondary)
-                        .background(model.filter == filter ? colors.selection : .clear, in: Capsule())
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(model.filter == filter ? colors.primary : .clear)
+                                .frame(height: 2)
+                        }
                 }
             }
+            .padding(.vertical, 3)
         }
         .padding(Metrics.panelInset * 3)
+    }
+
+    private var titleRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: Metrics.panelInset * 1.5) {
+                title
+                Spacer(minLength: 0)
+                titleActions
+            }
+            VStack(alignment: .leading, spacing: Metrics.panelInset) {
+                title
+                titleActions
+            }
+        }
+    }
+
+    private var title: some View {
+        Text(HistoryStrings.title)
+            .font(Font(Typography.title))
+            .foregroundStyle(colors.primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var titleActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Metrics.panelInset * 1.5) {
+                groupMenu
+                clearMenu
+            }
+            VStack(alignment: .leading, spacing: Metrics.panelInset / 2) {
+                groupMenu
+                clearMenu
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var groupMenu: some View {
+        Menu(HistoryStrings.groupBy) {
+            ForEach(HistoryGrouping.allCases, id: \.self) { grouping in
+                Button(HistoryStrings.grouping(grouping)) { model.grouping = grouping }
+            }
+        }
+        .menuStyle(.borderlessButton).fixedSize().foregroundStyle(colors.secondary)
+    }
+
+    private var clearMenu: some View {
+        Menu(HistoryStrings.clear) {
+            ForEach(HistoryRange.allCases, id: \.self) { range in
+                Button(HistoryStrings.range(range), role: .destructive) { model.clear(range) }
+            }
+        }
+        .menuStyle(.borderlessButton).fixedSize().foregroundStyle(colors.secondary)
     }
 
     private var list: some View {

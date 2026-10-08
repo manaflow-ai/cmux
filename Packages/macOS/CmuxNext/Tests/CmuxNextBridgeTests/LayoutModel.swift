@@ -29,6 +29,8 @@ nonisolated struct LayoutModel: Hashable, Sendable {
     var workspaces: [Workspace]
     /// Ids for panes and workspaces an outcome creates.
     var nextID = 0
+    /// Tabs an outcome created explicitly (a respawn).
+    var created: Set<String> = []
 
     init(workspaces: [Workspace]) {
         self.workspaces = workspaces
@@ -71,7 +73,7 @@ nonisolated struct LayoutModel: Hashable, Sendable {
     /// Applies `outcome` for a drag of `tab`. Returns nil when the outcome
     /// names a target that does not exist (the daemon rejects it; the
     /// layout is unchanged). Panes and workspaces left empty close.
-    func applying(_ outcome: TabDragOutcome, dragging tab: String) -> LayoutModel? {
+    func applying(_ outcome: TabDragOutcome, dragging tab: String, respawns: Bool = false) -> LayoutModel? {
         var model = self
         guard model.location(of: tab) != nil else { return nil }
         switch outcome {
@@ -93,12 +95,22 @@ nonisolated struct LayoutModel: Hashable, Sendable {
             let count = model.workspaces[w].panes[p].tabs.count
             model.workspaces[w].panes[p].tabs.insert(tab, at: min(max(index, 0), count))
         case .newSplit(let paneID, _):
-            guard model.location(pane: paneID) != nil else { return nil }
+            guard let target = model.location(pane: paneID) else { return nil }
+            // Splitting the tab's own pane with its only tab: the owner
+            // spawns a new tab of the same kind there (an explicit creation).
+            if respawns, let source = model.location(of: tab), source == target,
+               model.workspaces[source.workspace].panes[source.pane].tabs == [tab] {
+                let fresh = model.makeID("t")
+                model.workspaces[source.workspace].panes[source.pane].tabs = [fresh]
+                model.created.insert(fresh)
+                model.workspaces[source.workspace].panes.insert(model.makePane([tab]), at: source.pane + 1)
+                return model
+            }
             model.remove(tab)
             // Splitting a pane that just closed (its only tab left) is a loss.
             guard let (w, p) = model.location(pane: paneID) else { return nil }
             model.workspaces[w].panes.insert(model.makePane([tab]), at: p + 1)
-        case .newColumn:
+        case .newColumn, .newDock:
             guard let (w, _) = model.location(of: tab) else { return nil }
             model.remove(tab)
             let target = min(w, model.workspaces.count - 1)
@@ -143,7 +155,7 @@ nonisolated enum LayoutInvariants {
     /// pane or workspace. Empty when all hold.
     static func violations(before: LayoutModel, after: LayoutModel) -> [String] {
         var found: [String] = []
-        let old = before.allTabs, new = after.allTabs
+        let old = before.allTabs, new = after.allTabs.filter { !after.created.contains($0) || before.created.contains($0) }
         if Set(old) != Set(new) {
             found.append("I1 tabs lost \(Set(old).subtracting(new).sorted()) added \(Set(new).subtracting(old).sorted())")
         }

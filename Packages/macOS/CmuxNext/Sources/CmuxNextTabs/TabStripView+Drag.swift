@@ -5,11 +5,11 @@ import QuartzCore
 extension TabStripView {
     // MARK: - Drag reorder
 
-    func beginDrag(_ press: Press) {
+    func beginDrag(_ press: TabStripPress) {
         guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
         let local = convert(press.start, to: tabsClip)
         let contentX = local.x + scroll.value
-        drag = Drag(
+        drag = TabStripDrag(
             id: press.id,
             grabOffset: contentX - m.x.value,
             originalIndex: index,
@@ -22,7 +22,7 @@ extension TabStripView {
         )
         self.press = nil
         setHovered(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
         installEscapeMonitor()
         updateSeparators()
@@ -79,7 +79,7 @@ extension TabStripView {
 
     /// Fraction of the dragged tab's width it must travel past a group's
     /// trailing edge to join or leave the group.
-    static let groupJoinHysteresis: CGFloat = 0.3
+    static var groupJoinHysteresis: CGFloat { TabTunables.groupJoinHysteresis.value }
 
     /// Scrolls an overflowing strip while a dragged tab sits in an edge fade.
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
@@ -87,8 +87,9 @@ extension TabStripView {
         let local = convert(point, to: tabsClip).x
         let edge = metrics.scrollFadeWidth
         var speed: CGFloat = 0
-        if local < edge { speed = -(edge - local) * 14 }
-        if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * 14 }
+        let gain = TabTunables.autoscrollGain.value
+        if local < edge { speed = -(edge - local) * gain }
+        if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
         let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scroll.value else { return false }

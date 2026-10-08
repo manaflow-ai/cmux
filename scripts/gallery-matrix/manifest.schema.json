@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.app/schemas/gallery-matrix-manifest.json",
+  "title": "cmux UI gallery matrix manifest",
+  "description": "A list of deterministic gallery screenshots to render. Each case opens a gallery stage (frame.html) whose query is its params: the gallery's URL contract (webviews/src/gallery/env.ts), the same keys the shell, the native gallery and webviews/scripts/gallery/manifest.ts use.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "path_or_url"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "minLength": 1
+      },
+      "path_or_url": {
+        "type": "string",
+        "minLength": 1
+      },
+      "params": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        },
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "Gallery entry id (dotted lower kebab case)."
+          },
+          "variant": {
+            "type": "string",
+            "description": "Variant name (lower kebab case)."
+          },
+          "locale": {
+            "type": "string",
+            "description": "One of the 21 shipped languages, or en-XA / ar-XB."
+          },
+          "theme": {
+            "type": "string",
+            "description": "A shipped Ghostty theme's name."
+          },
+          "colorScheme": {
+            "enum": [
+              "auto",
+              "light",
+              "dark"
+            ]
+          },
+          "fontFamily": {
+            "type": "string"
+          },
+          "fontSize": {
+            "type": "number",
+            "minimum": 0
+          },
+          "density": {
+            "enum": [
+              "comfortable",
+              "compact"
+            ]
+          },
+          "scale": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "width": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "height": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "reducedMotion": {
+            "type": [
+              "boolean",
+              "string",
+              "number"
+            ]
+          },
+          "highContrast": {
+            "type": [
+              "boolean",
+              "string",
+              "number"
+            ]
+          },
+          "dynamicSize": {
+            "enum": [
+              "default",
+              "large",
+              "xlarge"
+            ]
+          },
+          "windowKey": {
+            "enum": [
+              "key",
+              "inactive"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

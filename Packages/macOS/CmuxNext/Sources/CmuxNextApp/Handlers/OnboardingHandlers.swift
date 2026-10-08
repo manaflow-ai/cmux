@@ -10,8 +10,16 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("palette.welcomeChecklist", run: { _ in services.onboarding.show() })
+        // Help menu, palette and Settings: one handler.
+        registry.bind("onboarding.continueSetup", run: { _ in services.onboarding.continueSetup() })
+        registry.bind("palette.importClassicSessions", run: { _ in services.onboarding.show(step: .classicSessions) })
+        registry.bind("importAndSync.show", run: { _ in services.onboarding.show() })
         registry.bind("palette.onboardingGallery", run: { _ in services.onboarding.showGallery() })
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        // No path argument: only the person's own pick in the open panel brings passwords in.
+        registry.bind("password.importCSV", run: { invocation in
+            try PasswordCSVFiles(services: services).chooseImport(profile: BookmarkResolver(services: services).profile(invocation))
+        })
         registry.bind("palette.makeDefaultTerminal", run: { _ in
             let apps = services.onboarding.defaultApps
             registry.track(Task { @MainActor in

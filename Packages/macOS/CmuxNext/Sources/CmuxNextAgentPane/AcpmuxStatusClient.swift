@@ -16,26 +16,84 @@ nonisolated enum AcpmuxStatusClient {
     /// The endpoint of the daemon listening on `socketPath`. Throws
     /// `.unreachable` when nothing answers there (start one then).
     @concurrent static func endpoint(socketPath: String, deadline: Duration = .seconds(2)) async throws -> AcpmuxWebEndpoint {
-        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
-        defer { connection.cancel() }
-        let webURL = try await withAgentPaneDeadline(deadline, label: "acpmux status", onTimeout: { connection.cancel() }) {
-            try await exchange(on: connection)
-        }
-        guard let webURL, let endpoint = AcpmuxWebEndpoint(webURL: webURL) else {
-            throw Failure.noWebSocket
-        }
-        return endpoint
+        try await status(socketPath: socketPath, deadline: deadline).endpoint()
     }
 
-    /// The status reply's `webUrl`, nil when the daemon reports none (its
-    /// WebSocket listener failed to bind).
-    private static func exchange(on connection: NWConnection) async throws -> String? {
+    /// The running daemon's `_acpmux/status`. Throws `.unreachable` when
+    /// nothing answers there.
+    @concurrent static func status(socketPath: String, deadline: Duration = .seconds(2)) async throws -> AcpmuxStatus {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline)
+        return AcpmuxStatus(result)
+    }
+
+    /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
+    /// (nil when the answer is not a plan this build reads).
+    @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
+                                     deadline: Duration = .seconds(2)) async throws -> AcpmuxChatOpenPlan? {
+        var params: [String: any Sendable] = ["key": key]
+        if let cwd { params["cwd"] = cwd }
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_open", params: params, deadline: deadline)
+        return AcpmuxChatOpenPlan(result: result)
+    }
+
+    /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
+    /// running for the next daemon. With `endAgents` (Quit Everything) they
+    /// end, except the agents of `keepSessions`.
+    @concurrent static func shutdown(socketPath: String, endAgents: Bool = false, keepSessions: [String] = [],
+                                     deadline: Duration = .seconds(2)) async throws {
+        let params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
+    }
+
+    /// `_acpmux/sessions`: every session's summary.
+    @concurrent static func sessions(socketPath: String, deadline: Duration) async throws -> ResultBox {
+        ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
+    }
+
+    /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
+    /// daemon's Web mode fields, its free config ids and, for a known session with a string value,
+    /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when
+    /// the daemon cannot answer (no socket, no such op, an error).
+    @concurrent static func webModes(socketPath: String, sessionId: String?, configId: String?, value: String?,
+                                     deadline: Duration = .seconds(2)) async -> AcpmuxWebModes? {
+        var params: [String: any Sendable] = [:]
+        if let sessionId { params["sessionId"] = sessionId }
+        if let configId { params["configId"] = configId }
+        if let value { params["value"] = value }
+        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/web_modes", params: params, deadline: deadline),
+              let fields = result["modeFields"] as? [String], let free = result["freeConfigIds"] as? [String] else { return nil }
+        return AcpmuxWebModes(modeFields: Set(fields), freeConfigIds: Set(free),
+                              asks: (result["session"] as? [String: Any])?["asks"] as? Bool)
+    }
+
+    /// `_acpmux/harness_enable {folder, id}` without sha256 (unix socket): the Enable harness
+    /// prompt. Writes nothing. Nil when the daemon refuses (no trusted answer, an invalid file, no
+    /// such profile) or cannot answer.
+    @concurrent static func harnessEnablePrompt(socketPath: String, folder: String, id: String,
+                                                deadline: Duration = .seconds(5)) async -> AgentPaneHarnessEnablePrompt? {
+        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/harness_enable",
+                                           params: ["folder": folder, "id": id], deadline: deadline) else { return nil }
+        return AgentPaneHarnessEnablePrompt(result: result)
+    }
+
+    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+                             deadline: Duration) async throws -> [String: Any] {
+        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        defer { connection.cancel() }
+        let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
+            ResultBox(try await exchange(method, params: params, on: connection))
+        }
+        return box.value
+    }
+
+    /// `initialize`, then `method`; returns its result.
+    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-agent-pane", "version": "1"], "clientCapabilities": [:]],
         ]
-        let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/status", "params": [:]]
+        let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
         var payload = Data()
         for request in [initialize, status] {
             payload += try JSONSerialization.data(withJSONObject: request)
@@ -50,7 +108,7 @@ nonisolated enum AcpmuxStatusClient {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let reply = try reply(to: 2, in: Data(line)) { return reply["webUrl"] as? String }
+                if let reply = try reply(to: 2, in: Data(line)) { return reply }
             }
             if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
         }
@@ -105,5 +163,42 @@ nonisolated enum AcpmuxStatusClient {
                 }
             }
         }
+    }
+}
+
+/// A JSON result handed across the deadline boundary.
+nonisolated struct ResultBox: @unchecked Sendable {
+    let value: [String: Any]
+    init(_ value: [String: Any]) { self.value = value }
+}
+
+/// The fields of `_acpmux/status` the app reads.
+nonisolated struct AcpmuxStatus: Sendable, Equatable {
+    var webURL: String?
+    var build: String?
+    var pid: Int32?
+    /// The daemon runs agents under agent hosts: a restart keeps them.
+    var agentHosts: Bool
+
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false) {
+        self.webURL = webURL
+        self.build = build
+        self.pid = pid
+        self.agentHosts = agentHosts
+    }
+
+    init(_ result: [String: Any]) {
+        webURL = result["webUrl"] as? String
+        build = result["build"] as? String
+        pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
+        agentHosts = (result["agentHosts"] as? Bool) ?? false
+    }
+
+    /// The WebSocket endpoint; `.noWebSocket` when the listener failed to bind.
+    func endpoint() throws -> AcpmuxWebEndpoint {
+        guard let webURL, let endpoint = AcpmuxWebEndpoint(webURL: webURL) else {
+            throw AcpmuxStatusClient.Failure.noWebSocket
+        }
+        return endpoint
     }
 }

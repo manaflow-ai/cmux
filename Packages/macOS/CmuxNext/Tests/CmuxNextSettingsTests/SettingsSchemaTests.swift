@@ -11,11 +11,13 @@ import Testing
 /// applies when the key is absent.
 @Suite struct SettingsSchemaTests {
     static let densities: Set<String> = ["compact", "comfortable"]
+    /// The metrics the schema lists (the App passes every `MetricKey`).
+    static let metrics: Set<String> = Set(LayoutMetricSetting.ranges.keys)
 
     static func diagnostics(for value: JSONValue, at path: [String]) -> [SettingsDiagnostic] {
         var root = JSONValue.object([:])
         root = Self.setting(value, at: path, in: root)
-        return CmuxConfigSnapshot.parse(root, validDensities: densities, validMetrics: []).diagnostics
+        return CmuxConfigSnapshot.parse(root, validDensities: densities, validMetrics: metrics).diagnostics
     }
 
     static func setting(_ value: JSONValue, at path: [String], in root: JSONValue) -> JSONValue {
@@ -26,35 +28,60 @@ import Testing
     }
 
     static func validSamples(_ descriptor: SettingDescriptor) -> [JSONValue] {
-        switch descriptor.kind {
+        // Chat roots are stricter than a folder list (no `~/`, no protected
+        // folders); the export's samples for that row are the one source.
+        if descriptor.path == ChatSettings.rootsPath { return SettingsSchemaSamples.samples(for: descriptor).accept }
+        return switch descriptor.kind {
         case .choice(let choices): choices.map { .string($0.value) }
         case .choiceOrNumber(let choices, let number): choices.map { .string($0.value) } + [.number(number.range.upperBound)]
         case .toggle: [true, false]
         case .number(let number): [.number(number.range.lowerBound), .number(number.range.upperBound)]
         case .color: ["#112233", "#11223344"]
         case .sound: ["default", "none", "Glass"]
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            ["", "https://search.example/?q=%s", "https://search.example/find?q={searchTerms}"]
         case .url: ["", "https://example.com/start", "example.com"]
-        case .hostList: [[], ["mail.google.com", "*.figma.com"]]
+        case .hostList: [[], ["mail.google.com", "*.example.com"]]
+        case .folderList where descriptor.path == ChatSettings.rootsPath: [[], ["/Users/ada/src", "/opt/chat"]]
+        case .folderList: [[], ["/Users/ada/src", "~/notes"]]
         case .timeRange: [["start": "22:00", "end": "07:30"]]
+        case .theme: ["Nord", "light:Rose Pine Dawn,dark:Rose Pine", "Theme From A Newer Ghostty"]
+        case .fontFamily: ["SF Mono", "JetBrains Mono"]
+        case .numberList(let number): [[], [.number(number.range.lowerBound), .number(number.range.upperBound)]]
+        case .stringMap: [[:], ["*": "★", "Work": ""]]
+        case .stringList: [[], ["ws-1", "ws-2"]]
+        case .orderedChoices(let choices): [[], .array(choices.reversed().map { .string($0.value) })]
         }
     }
 
     static func invalidSamples(_ descriptor: SettingDescriptor) -> [JSONValue] {
-        switch descriptor.kind {
+        if descriptor.path == ChatSettings.rootsPath { return SettingsSchemaSamples.samples(for: descriptor).refuse }
+        return switch descriptor.kind {
         case .choice: ["__not_a_choice__", 3]
         case .choiceOrNumber: ["__not_a_choice__", false]
         case .toggle: ["yes", 1]
         case .number(let number): ["wide", .number(number.range.upperBound + 100)]
         case .color: ["blue", 7]
         case .sound: [5]
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            ["https://search.example/", "example.com", "not an address %s", 4]
         case .url: ["not an address", "ftp://example.com", 4]
         case .hostList: ["mail.google.com", [1]]
+        case .folderList: ["/Users/ada/src", ["relative/path"], [1]]
         case .timeRange: [["start": "25:00", "end": "07:00"], "22:00-07:00"]
+        case .theme: ["Nord\nfont-size = 40", "light:Nord,night:Nord", 7]
+        case .fontFamily: ["Mono = 1", "\"Quoted\"", 12]
+        case .numberList(let number): [.number(number.range.lowerBound), [.number(number.range.upperBound + 1)], ["1"]]
+        case .stringMap: ["★", ["Work": 1]]
+        case .stringList: ["ws-1", [1], [""]]
+        case .orderedChoices: ["directory", ["__not_a_choice__"], [1]]
         }
     }
 
+    /// cmux-next's parser checks the keys cmux-next reads; cmux-browser validates its own keys
+    /// against the export (`accepts` and `refuses`).
     @Test func everyAllowedValueLoadsWithoutADiagnostic() {
-        for descriptor in SettingsSchema.all {
+        for descriptor in SettingsSchema.all where descriptor.isShownInCmuxNext {
             for value in Self.validSamples(descriptor) {
                 #expect(descriptor.accepts(value), "\(descriptor.id) = \(value)")
                 let found = Self.diagnostics(for: value, at: descriptor.path).filter { $0.path.hasPrefix(descriptor.id) }
@@ -64,7 +91,7 @@ import Testing
     }
 
     @Test func everyRefusedValueLoadsWithADiagnosticAtItsKey() {
-        for descriptor in SettingsSchema.all {
+        for descriptor in SettingsSchema.all where descriptor.isShownInCmuxNext {
             for value in Self.invalidSamples(descriptor) {
                 #expect(!descriptor.accepts(value), "\(descriptor.id) = \(value)")
                 let found = Self.diagnostics(for: value, at: descriptor.path).filter { $0.path.hasPrefix(descriptor.id) }
@@ -95,7 +122,7 @@ import Testing
         let ids = SettingsSchema.all.map(\.id)
         #expect(Set(ids).count == ids.count)
         for descriptor in SettingsSchema.all {
-            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor))
+            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor) == descriptor.isShownOnSettingsPage)
         }
     }
 

@@ -65,6 +65,18 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
         }
 
+        // `showWorkspaceTabs` lists every workspace's tabs, except those
+        // the user collapsed with the row's disclosure.
+        func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+            o.showWorkspaceTabs && !o.collapsedWorkspaces.contains(ws.id)
+        }
+
+        func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+            guard o.showWorkspaceTabs else { return nil }
+            if ws.tabs.isEmpty { return .empty }
+            return o.collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
+        }
+
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y
@@ -103,7 +115,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil
+                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
+                    titlesProjects: section.machine != nil && machineCount == 1
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
@@ -127,13 +140,26 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    let h = m.height(for: ws)
+                    let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now)
+                    let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: false, childCount: 0, groupColor: nil
+                        isCollapsed: false, childCount: 0, groupColor: nil,
+                        tabDisclosure: disclosure(ws), content: content
                     ))
                     y += h + m.rowSpacing
+                    if listsTabs(ws) {
+                        for tab in ws.tabs {
+                            rows.append(SidebarRow(
+                                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
+                                group: nil, workspace: ws.id, siblingIndex: 0, parentIndex: nil,
+                                isLastInGroup: false, isCollapsed: false, childCount: 0,
+                                groupColor: nil, tabKind: tab.kind
+                            ))
+                            y += m.tabRowHeight + m.rowSpacing
+                        }
+                    }
                 case let .group(group):
                     let groupCollapsed = group.isCollapsed && !filtering
                     rows.append(SidebarRow(
@@ -145,14 +171,27 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     guard !groupCollapsed else { continue }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        let h = m.height(for: ws)
+                        let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now)
+                    let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: childIndex == entry.children.count - 1,
-                            isCollapsed: false, childCount: 0, groupColor: group.color
+                            isCollapsed: false, childCount: 0, groupColor: group.color,
+                            tabDisclosure: disclosure(ws), content: content
                         ))
                         y += h + m.rowSpacing
+                        if listsTabs(ws) {
+                            for tab in ws.tabs {
+                                rows.append(SidebarRow(
+                                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
+                                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
+                                    isLastInGroup: false, isCollapsed: false, childCount: 0,
+                                    groupColor: group.color, tabKind: tab.kind
+                                ))
+                                y += m.tabRowHeight + m.rowSpacing
+                            }
+                        }
                     }
                     openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
                     y += m.groupBottomPadding

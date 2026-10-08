@@ -1,0 +1,408 @@
+//! Tests for `spring.rs`.
+
+use super::*;
+
+fn ms(s: f64) -> f64 {
+    (s * 1000.).round()
+}
+
+/// Visible end and 120 Hz rest from plans/cmux-next/motion.md.
+const TABLE: [(MotionSpring, f64, f64); 9] = [
+    (MotionSpring::Move, 192., 250.),
+    (MotionSpring::Appear, 175., 225.),
+    (MotionSpring::Disappear, 142., 200.),
+    (MotionSpring::Settle, 175., 342.),
+    (MotionSpring::Scroll, 208., 267.),
+    (MotionSpring::Screen, 208., 267.),
+    (MotionSpring::Track, 117., 167.),
+    (MotionSpring::Selection, 142., 200.),
+    (MotionSpring::Panel, 142., 283.),
+];
+
+#[test]
+fn tokens_match_the_spec() {
+    for (token, visible, rest) in TABLE {
+        let p = token.base();
+        let v = ms(p.visible_end_at(120.));
+        let r = ms(p.rest_time(200., 120.));
+        assert!((v - visible).abs() <= 1., "{token:?} visible end {v} ms, spec {visible} ms");
+        assert!((r - rest).abs() <= 1., "{token:?} rest {r} ms, spec {rest} ms");
+        println!("{token:?}: visible end {v} ms (spec {visible}), rest {r} ms (spec {rest})");
+    }
+    // Structural ordering: disappear < appear < move.
+    let ve = |t: MotionSpring| t.base().visible_end();
+    assert!(ve(MotionSpring::Disappear) < ve(MotionSpring::Appear));
+    assert!(ve(MotionSpring::Appear) < ve(MotionSpring::Move));
+}
+
+#[test]
+fn fade_tokens_match_the_spec() {
+    let p = MotionPolicy::default();
+    assert_eq!(p.fade(MotionFade::Hover), 0.08);
+    assert_eq!(p.fade(MotionFade::Focus), 0.10);
+    assert_eq!(p.fade(MotionFade::FadeIn), 0.12);
+    assert_eq!(p.fade(MotionFade::FadeOut), 0.08);
+    // MotionTunables.swift:38-39.
+    assert_eq!(p.fade(MotionFade::Highlight), 1.2);
+    assert_eq!(p.fade(MotionFade::Launch), 0.24);
+    // Transitions stay short; only the highlight's fade-out is long.
+    for t in MotionFade::ALL.into_iter().filter(|t| *t != MotionFade::Highlight) {
+        assert!(p.fade(t) <= 0.24, "{t:?}");
+    }
+    // `launch` stays under 400 ms at normal speed (MotionTunables.swift:39).
+    assert!(MotionPolicy::new(MotionSpeed::Normal, false).fade(MotionFade::Launch) < 0.4);
+}
+
+#[test]
+fn spring_settles_without_visible_overshoot() {
+    for token in MotionSpring::ALL {
+        let mut s = Spring::new(0., token);
+        s.set_target(200.);
+        let policy = MotionPolicy::default();
+        let mut peak = 0f32;
+        let mut frames = 0;
+        while s.step(1. / 120., &policy) {
+            peak = peak.max(s.value());
+            frames += 1;
+            assert!(frames < 120, "{token:?} never settled");
+        }
+        assert_eq!(s.value(), 200.);
+        assert_eq!(s.velocity(), 0.);
+        let overshoot = peak - 200.;
+        // Damping 0.9 overshoots ~0.1 pt; settle/panel (0.85) ~0.8 pt.
+        assert!(overshoot < 1.0, "{token:?} overshoot {overshoot}");
+    }
+}
+
+#[test]
+fn closed_form_matches_the_stepper() {
+    for token in MotionSpring::ALL {
+        let p = token.base();
+        let mut s = SpringValue::new(0.);
+        s.target = 1.;
+        for frame in 1..=60 {
+            s.step(1. / 120., p);
+            let exact = p.step_response(frame as f64 / 120.);
+            let err = (s.value as f64 - exact).abs();
+            // Semi-implicit Euler leads the exact curve slightly in the
+            // first frames of the stiffest springs.
+            assert!(err < 0.04, "{token:?} frame {frame} error {err}");
+        }
+    }
+}
+
+#[test]
+fn retarget_keeps_position_and_velocity() {
+    let policy = MotionPolicy::default();
+    let mut s = Spring::new(0., MotionSpring::Move);
+    s.set_target(200.);
+    for _ in 0..6 {
+        s.step(1. / 120., &policy);
+    }
+    let (x, v) = (s.value(), s.velocity());
+    assert!(x > 0. && x < 200. && v > 0.);
+    // Reverse mid-flight: nothing jumps, momentum carries for a moment.
+    s.set_target(-100.);
+    assert_eq!((s.value(), s.velocity()), (x, v));
+    s.step(1. / 120., &policy);
+    // One frame moves no more than the largest frame of the first move.
+    assert!((s.value() - x).abs() < 20., "continuous: {} -> {}", x, s.value());
+    while s.step(1. / 120., &policy) {}
+    assert_eq!(s.value(), -100.);
+}
+
+#[test]
+fn follow_and_release_carry_pointer_velocity() {
+    let policy = MotionPolicy::default();
+    let mut s = Spring::new(0., MotionSpring::Move);
+    for i in 0..10 {
+        s.follow(i as f32 * 10., i as f64 / 120.);
+    }
+    // 10 pt per 1/120 s = 1200 pt/s.
+    assert_eq!(s.value(), 90.);
+    assert!((s.velocity() - 1200.).abs() < 50., "{}", s.velocity());
+    s.release(9. / 120. + 0.01);
+    assert_eq!(s.active_token(), MotionSpring::Settle);
+    s.set_target(90.);
+    s.step(1. / 120., &policy);
+    assert!(s.value() > 90., "release carries velocity past the drop point");
+    while s.step(1. / 120., &policy) {}
+    assert_eq!(s.value(), 90.);
+    assert_eq!(s.token, MotionSpring::Move, "settle is for one release only");
+
+    // A pointer that stopped before release lands from rest.
+    let mut s = Spring::new(0., MotionSpring::Move);
+    s.follow(0., 0.);
+    s.follow(10., 0.01);
+    s.release(0.2);
+    assert_eq!(s.velocity(), 0.);
+}
+
+#[test]
+fn moves_to_zero_use_disappear() {
+    let mut s = Spring::new(120., MotionSpring::Appear);
+    s.set_target(0.);
+    assert_eq!(s.active_token(), MotionSpring::Disappear);
+    s.set_target(100.);
+    assert_eq!(s.active_token(), MotionSpring::Appear);
+}
+
+/// Steps `s` to rest at 120 Hz and checks every frame against a bare
+/// integrator tuned by `token`: the spring really ran that token.
+fn assert_runs_token(s: Spring, token: MotionSpring) {
+    assert_runs_token_while(s, token, |_| true);
+}
+
+/// As `assert_runs_token`, checking only the frames that start while
+/// `checked` holds; the rest still has to settle.
+fn assert_runs_token_while(mut s: Spring, token: MotionSpring, checked: impl Fn(&Spring) -> bool) {
+    let policy = MotionPolicy::default();
+    let mut reference = s.state;
+    let mut frames = 0;
+    loop {
+        if !checked(&s) {
+            while s.step(1. / 120., &policy) {
+                frames += 1;
+                assert!(frames < 120, "never settled");
+            }
+            break;
+        }
+        assert_eq!(s.active_token(), token, "frame {frames}");
+        let moving = s.step(1. / 120., &policy);
+        reference.step(1. / 120., policy.spring(token));
+        if !moving {
+            break;
+        }
+        assert_eq!(s.state, reference, "frame {frames}");
+        frames += 1;
+        assert!(frames < 120, "never settled");
+    }
+    assert_eq!(s.value(), s.target());
+}
+
+#[test]
+fn positions_to_zero_and_below_keep_their_token() {
+    for token in [MotionSpring::Move, MotionSpring::Scroll, MotionSpring::Settle] {
+        for target in [0., -0.0005, -80.] {
+            let mut s = Spring::position(120., token);
+            assert_eq!(s.kind, SpringKind::Position);
+            assert_eq!(s.epsilon, GEOMETRY_EPSILON);
+            s.set_target(target);
+            assert_eq!(s.active_token(), token, "{token:?} to {target}");
+            assert_runs_token(s, token);
+        }
+    }
+    // From below 0 up to 0, and with the kind set on an existing spring.
+    let mut s = Spring::new(-40., MotionSpring::Move).with_kind(SpringKind::Position);
+    s.set_target(0.);
+    assert_runs_token(s, MotionSpring::Move);
+}
+
+#[test]
+fn sizes_to_zero_still_use_disappear() {
+    assert_eq!(SpringKind::default(), SpringKind::Size);
+    for mut s in [
+        Spring::new(120., MotionSpring::Move),
+        Spring::new(120., MotionSpring::Appear).with_kind(SpringKind::Size),
+        Spring::unit(1., MotionSpring::Appear),
+    ] {
+        assert_eq!(s.kind, SpringKind::Size);
+        s.set_target(0.);
+        assert_eq!(s.active_token(), MotionSpring::Disappear);
+        // Until the collapse first reaches 0; the ~0.1% overshoot below 0
+        // then returns on `token`, as before `SpringKind` (and in Swift).
+        assert_runs_token_while(s, MotionSpring::Disappear, |s| s.value() > s.target());
+    }
+    // Growing from 0 is not a disappear.
+    let mut s = Spring::new(0., MotionSpring::Appear);
+    s.set_target(80.);
+    assert_runs_token(s, MotionSpring::Appear);
+}
+
+#[test]
+fn position_retarget_through_zero_is_continuous() {
+    let policy = MotionPolicy::default();
+    let mut s = Spring::position(0., MotionSpring::Move);
+    s.set_target(200.);
+    for _ in 0..6 {
+        s.step(1. / 120., &policy);
+    }
+    let (x, v) = (s.value(), s.velocity());
+    assert!(x > 0. && x < 200. && v > 0.);
+    s.set_target(-100.);
+    assert_eq!((s.value(), s.velocity()), (x, v), "no jump on retarget");
+    let mut next = s;
+    next.step(1. / 120., &policy);
+    // One frame moves no more than the largest frame of the first move.
+    assert!((next.value() - x).abs() < 20., "continuous: {x} -> {}", next.value());
+    // Through 0 and below on `move` all the way, from the same state.
+    assert_runs_token(s, MotionSpring::Move);
+
+    // A drag released toward a negative offset settles, then moves again,
+    // and stays a position throughout.
+    let mut s = Spring::position(0., MotionSpring::Move);
+    for i in 0..10 {
+        s.follow(-(i as f32) * 10., i as f64 / 120.);
+    }
+    s.release(9. / 120. + 0.01);
+    s.set_target(-120.);
+    assert_eq!(s.active_token(), MotionSpring::Settle);
+    while s.step(1. / 120., &policy) {}
+    assert_eq!((s.value(), s.token, s.kind), (-120., MotionSpring::Move, SpringKind::Position));
+}
+
+#[test]
+fn normal_scales_time_by_one_and_a_half() {
+    let fast = MotionPolicy::new(MotionSpeed::Fast, false);
+    let normal = MotionPolicy::new(MotionSpeed::Normal, false);
+    let f = fast.spring(MotionSpring::Move);
+    let n = normal.spring(MotionSpring::Move);
+    assert!((n.response - f.response * 1.5).abs() < 1e-9);
+    assert_eq!(n.damping_fraction, f.damping_fraction);
+    assert!((n.visible_end() / f.visible_end() - 1.5).abs() < 0.03);
+    assert!((normal.fade(MotionFade::Hover) - 0.12).abs() < 1e-9);
+}
+
+#[test]
+fn off_applies_everything_in_one_frame() {
+    let off = MotionPolicy::new(MotionSpeed::Off, false);
+    assert!(!off.animates_movement() && !off.animates_fades() && !off.animates_loops());
+    let mut s = Spring::new(0., MotionSpring::Move);
+    s.set_target(200.);
+    assert!(!s.step(1. / 120., &off));
+    assert_eq!(s.value(), 200.);
+    let mut f = Fade::new(0., MotionFade::FadeIn);
+    f.set_target(1., &off);
+    assert_eq!(f.value(), 1.);
+    assert!(!f.step(0.));
+    assert_eq!(off.spring_duration(MotionSpring::Move), 0.);
+    // Off wins over Reduce Motion: no crossfade either.
+    let both = MotionPolicy::new(MotionSpeed::Off, true);
+    assert_eq!(both.fade(MotionFade::Crossfade), 0.);
+    assert_eq!(off.period(MotionLoop::Spinner), None);
+}
+
+#[test]
+fn reduce_motion_snaps_movement_and_caps_fades() {
+    let reduced = MotionPolicy::new(MotionSpeed::Normal, true);
+    assert!(!reduced.animates_movement());
+    assert!(reduced.animates_fades());
+    assert_eq!(reduced.period(MotionLoop::Pulse), None);
+    let mut s = Spring::new(0., MotionSpring::Screen);
+    s.set_target(500.);
+    assert!(!s.step(1. / 120., &reduced));
+    assert_eq!(s.value(), 500.);
+    for t in MotionFade::ALL {
+        assert!(reduced.fade(t) <= 0.1 + 1e-9, "{t:?}");
+        assert!(reduced.fade(t) > 0.);
+    }
+    assert_eq!(reduced.spring_duration(MotionSpring::Move), 0.);
+}
+
+/// `CAMediaTimingFunction(name: .easeOut)` sampled through Core
+/// Animation's own solver (`_solveForInput:`, macOS 26) at these times.
+#[test]
+fn ease_out_is_core_animation_ease_out() {
+    const CA_EASE_OUT: [(f32, f32); 15] = [
+        (0.00, 0.000000),
+        (0.05, 0.082247),
+        (0.10, 0.160572),
+        (0.20, 0.308373),
+        (0.25, 0.378140),
+        (0.30, 0.445186),
+        (0.40, 0.570880),
+        (0.50, 0.684643),
+        (0.60, 0.785140),
+        (0.70, 0.870423),
+        (0.75, 0.906535),
+        (0.80, 0.937718),
+        (0.90, 0.982973),
+        (0.95, 0.995525),
+        (1.00, 1.000000),
+    ];
+    for (t, expected) in CA_EASE_OUT {
+        let got = ease_out(t);
+        assert!((got - expected).abs() < 1e-5, "t {t}: {got} vs Core Animation {expected}");
+    }
+    assert_eq!(EASE_OUT_CONTROL_POINTS, [0., 0., 0.58, 1.]);
+    // Clamped outside 0..=1 and monotonic inside.
+    assert_eq!((ease_out(-1.), ease_out(2.)), (0., 1.));
+    let mut last = 0.;
+    for i in 1..=1000 {
+        let v = ease_out(i as f32 / 1000.);
+        assert!(v >= last, "monotonic at {i}");
+        last = v;
+    }
+}
+
+/// `CAMediaTimingFunction(name: .easeInEaseOut)` sampled through Core
+/// Animation's own solver (`_solveForInput:`, macOS 26).
+#[test]
+fn ease_in_ease_out_is_core_animation_ease_in_ease_out() {
+    const CA_EASE_IN_EASE_OUT: [(f32, f32); 15] = [
+        (0.00, 0.000000),
+        (0.05, 0.004830),
+        (0.10, 0.019722),
+        (0.20, 0.081660),
+        (0.25, 0.129162),
+        (0.30, 0.187396),
+        (0.40, 0.331884),
+        (0.50, 0.500000),
+        (0.60, 0.668116),
+        (0.70, 0.812604),
+        (0.75, 0.870838),
+        (0.80, 0.918340),
+        (0.90, 0.980278),
+        (0.95, 0.995170),
+        (1.00, 1.000000),
+    ];
+    for (t, expected) in CA_EASE_IN_EASE_OUT {
+        let got = ease_in_ease_out(t);
+        assert!((got - expected).abs() < 1e-5, "t {t}: {got} vs Core Animation {expected}");
+    }
+    assert_eq!(EASE_IN_EASE_OUT_CONTROL_POINTS, [0.42, 0., 0.58, 1.]);
+    assert_eq!((ease_in_ease_out(-1.), ease_in_ease_out(2.)), (0., 1.));
+    let mut last = 0.;
+    for i in 1..=1000 {
+        let v = ease_in_ease_out(i as f32 / 1000.);
+        assert!(v >= last, "monotonic at {i}");
+        last = v;
+    }
+}
+
+#[test]
+fn fade_is_ease_out_and_retargets_from_the_presented_value() {
+    let policy = MotionPolicy::default();
+    let mut f = Fade::new(0., MotionFade::FadeIn);
+    f.set_target(1., &policy);
+    assert!(f.step(0.03));
+    let mid = f.value();
+    // Ease-out: a quarter of the time covers more than a quarter.
+    assert!(mid > 0.25 && mid < 1.);
+    f.set_target_with(0., MotionFade::FadeOut, &policy);
+    assert_eq!(f.value(), mid, "no jump on retarget");
+    assert!(f.step(0.01));
+    assert!(f.value() < mid);
+    assert!(!f.step(0.08));
+    assert_eq!(f.value(), 0.);
+    // Same target while moving does not restart the curve.
+    f.set_target(1., &policy);
+    f.step(0.06);
+    let v = f.value();
+    f.set_target(1., &policy);
+    f.step(0.06);
+    assert_eq!(f.value(), 1.);
+    assert!(v < 1.);
+}
+
+#[test]
+fn stalled_frames_do_not_teleport() {
+    let p = MotionSpring::Move.base();
+    let mut s = SpringValue::new(0.);
+    s.target = 200.;
+    s.step(5., p);
+    let mut t = SpringValue::new(0.);
+    t.target = 200.;
+    t.step(0.1, p);
+    assert_eq!(s, t);
+}

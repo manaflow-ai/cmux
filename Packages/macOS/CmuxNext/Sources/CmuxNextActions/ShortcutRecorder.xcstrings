@@ -531,127 +531,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Numbered shortcuts are edited in cmux.json (shortcuts.bindings.%@)."
+            "value": "Numbered shortcuts are edited in cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تُعدَّل الاختصارات المرقمة في cmux.json (shortcuts.bindings.%@)."
+            "state": "translated",
+            "value": "تُعدَّل الاختصارات المرقمة في cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Numerisane prečice se uređuju u cmux.json (shortcuts.bindings.%@)."
+            "value": "Numerisane prečice se uređuju u cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nummererede genveje redigeres i cmux.json (shortcuts.bindings.%@)."
+            "value": "Nummererede genveje redigeres i cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nummerierte Kurzbefehle werden in cmux.json bearbeitet (shortcuts.bindings.%@)."
+            "state": "translated",
+            "value": "Nummerierte Kurzbefehle werden in cmux-next.json bearbeitet (shortcuts.bindings.%@)."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Los atajos numerados se editan en cmux.json (shortcuts.bindings.%@)."
+            "state": "translated",
+            "value": "Los atajos numerados se editan en cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les raccourcis numérotés se modifient dans cmux.json (shortcuts.bindings.%@)."
+            "state": "translated",
+            "value": "Les raccourcis numérotés se modifient dans cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le scorciatoie numerate si modificano in cmux.json (shortcuts.bindings.%@)."
+            "value": "Le scorciatoie numerate si modificano in cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "番号付きショートカットは cmux.json で編集します（shortcuts.bindings.%@）。"
+            "state": "translated",
+            "value": "番号付きショートカットは cmux-next.json で編集します（shortcuts.bindings.%@）。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្លូវកាត់មានលេខត្រូវកែក្នុង cmux.json (shortcuts.bindings.%@)។"
+            "value": "ផ្លូវកាត់មានលេខត្រូវកែក្នុង cmux-next.json (shortcuts.bindings.%@)។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "번호 단축키는 cmux.json에서 편집합니다(shortcuts.bindings.%@)."
+            "state": "translated",
+            "value": "번호 단축키는 cmux-next.json에서 편집합니다(shortcuts.bindings.%@)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nummererte hurtigtaster redigeres i cmux.json (shortcuts.bindings.%@)."
+            "value": "Nummererte hurtigtaster redigeres i cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skróty numerowane edytuje się w cmux.json (shortcuts.bindings.%@)."
+            "value": "Skróty numerowane edytuje się w cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Atalhos numerados são editados em cmux.json (shortcuts.bindings.%@)."
+            "value": "Atalhos numerados são editados em cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нумерованные сочетания меняются в cmux.json (shortcuts.bindings.%@)."
+            "value": "Нумерованные сочетания меняются в cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปุ่มลัดแบบมีหมายเลขแก้ไขใน cmux.json (shortcuts.bindings.%@)"
+            "value": "ปุ่มลัดแบบมีหมายเลขแก้ไขใน cmux-next.json (shortcuts.bindings.%@)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Numaralı kısayollar cmux.json içinde düzenlenir (shortcuts.bindings.%@)."
+            "value": "Numaralı kısayollar cmux-next.json içinde düzenlenir (shortcuts.bindings.%@)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нумеровані комбінації змінюються в cmux.json (shortcuts.bindings.%@)."
+            "value": "Нумеровані комбінації змінюються в cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phím tắt đánh số được sửa trong cmux.json (shortcuts.bindings.%@)."
+            "value": "Phím tắt đánh số được sửa trong cmux-next.json (shortcuts.bindings.%@)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "编号快捷键在 cmux.json 中编辑（shortcuts.bindings.%@）。"
+            "state": "translated",
+            "value": "编号快捷键在 cmux-next.json 中编辑（shortcuts.bindings.%@）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "編號快速鍵在 cmux.json 中編輯（shortcuts.bindings.%@）。"
+            "state": "translated",
+            "value": "編號快速鍵在 cmux-next.json 中編輯（shortcuts.bindings.%@）。"
           }
         }
       }

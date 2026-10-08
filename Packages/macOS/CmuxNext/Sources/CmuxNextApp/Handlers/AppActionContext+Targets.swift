@@ -12,14 +12,18 @@ import os
 extension AppActionContext {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
-    /// Logs every refusal; keyboard and menu runs also beep. Control-socket
-    /// runs get the reason back, and the palette shows it on the command's
-    /// row (`ActionRegistry.reportingRefusal`), so neither beeps.
+    /// Logs every refusal; keyboard and menu runs also show the reason in
+    /// a short HUD at the bottom of the active window (`RefusalHUD`).
+    /// Control-socket runs get the reason back, and the palette shows it on
+    /// the command's row (`ActionRegistry.reportingRefusal`), so neither
+    /// shows the HUD.
     func observeRefusals() {
         let registry = registry
-        registry.refusalObserver = { reason in
+        let services = services
+        registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
-            if !registry.refusalHasCaller { NSSound.beep() }
+            guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
+            services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
 
@@ -31,16 +35,46 @@ extension AppActionContext {
         return nil
     }
 
+    /// Whether a refusal shows the HUD: never for a navigation no-op
+    /// (R136, quiet) and never when a caller (CLI, socket, palette) shows or
+    /// returns the reason itself.
+    nonisolated static func showsNotice(quiet: Bool, hasCaller: Bool) -> Bool {
+        !quiet && !hasCaller
+    }
+
+    /// A navigation or focus move with no target (R136): callers get the
+    /// reason, a keyboard or menu run shows nothing.
+    @discardableResult
+    func refuseQuietly<T>(_ reason: String) -> T? {
+        registry.refuse(reason, quiet: true)
+        return nil
+    }
+
+    /// Statement form of ``refuseQuietly(_:)-generic``.
+    func refuseQuietly(_ reason: String) {
+        registry.refuse(reason, quiet: true)
+    }
+
+    /// An explicit target that names nothing (`not_found` on the socket).
+    @discardableResult
+    func notFound<T>(_ reason: String) -> T? {
+        registry.refuseNotFound(reason)
+        return nil
+    }
+
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
     func refuse(_ reason: String) {
         registry.refuse(reason)
     }
 
     /// Reason closure for `bind(_:unavailable:invoke:)` while the daemon
-    /// lacks `capability`.
+    /// lacks `capability`. It reads the daemon the action commands when
+    /// availability is asked (`activeDaemon`), not the one active at bind.
     func needs(_ capability: String) -> @MainActor () -> String? {
-        let daemon = services.activeDaemon
-        return { daemon.supports(capability) ? nil : daemon.missingCapabilityMessage(capability) }
+        { [services] in
+            let daemon = services.activeDaemon
+            return daemon.supports(capability) ? nil : daemon.missingCapabilityMessage(capability)
+        }
     }
 
     func connection() -> DaemonConnection? {
@@ -54,6 +88,11 @@ extension AppActionContext {
     }
 
     // MARK: Explicit targets
+
+    /// Whether `invocation` names a tab or pane (target or argument).
+    func namesPane(_ invocation: ActionInvocation) -> Bool {
+        explicitTarget(invocation, kinds: [.tab, .pane]) != nil
+    }
 
     private func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
         for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
@@ -85,17 +124,17 @@ extension AppActionContext {
     func tab(_ invocation: ActionInvocation) -> (pane: PaneController, id: StripTabID)? {
         guard let pane = paneController(invocation) else { return nil }
         if let target = explicitTarget(invocation, kinds: [.tab]) { return (pane, StripTabID(target.id)) }
-        guard let id = pane.stripModel.selectedID else { return refuse(RefusalStrings.focusedPaneHasNoTab) }
+        guard let id = pane.stripModel.selectedID else { return refuseQuietly(RefusalStrings.focusedPaneHasNoTab) }
         return (pane, id)
     }
 
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            return services.locateTab(target.id) ?? refuse(RefusalStrings.noTab(target.id))
+            return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
-        guard let tab = pane.tab(id) else { return refuse(RefusalStrings.sessionLocalTab(id.rawValue)) }
+        guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }
         return (tab, pane.pane)
     }
 
@@ -103,7 +142,7 @@ extension AppActionContext {
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
             let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-            return panes.first { $0.id == target.id } ?? refuse(RefusalStrings.noPaneID(target.id))
+            return panes.first { $0.id == target.id } ?? notFound(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
         return paneController(invocation)?.pane
@@ -112,7 +151,7 @@ extension AppActionContext {
     /// The daemon workspace named by a `workspace` argument.
     func workspaceArgument(_ invocation: ActionInvocation) -> WorkspaceModel? {
         guard let ref = invocation["workspace"]?.targetValue else { return refuse(RefusalStrings.workspaceArgumentRequired) }
-        return services.workspace(id: ref.id) ?? refuse(RefusalStrings.noWorkspace(ref.id))
+        return services.workspace(id: ref.id) ?? notFound(RefusalStrings.noWorkspace(ref.id))
     }
 
     /// The focused window's workspace content, required for layout actions.

@@ -21,6 +21,15 @@ struct TerminalCopyModeBindingTests {
     }
 }
 
+@MainActor
+private final class QuitMenuProbe: NSObject {
+    var invocations = 0
+
+    @objc func quit(_ sender: Any?) {
+        invocations += 1
+    }
+}
+
 /// Copy mode on a live surface: the action toggles it on the targeted
 /// terminal, plain keys stay in it before the shell sees them, Command
 /// chords pass through to app shortcuts, and q or Esc leaves. Needs
@@ -67,7 +76,7 @@ struct TerminalCopyModeTests {
         view.keyDown(with: try Self.key("j", keyCode: 38))
         view.keyDown(with: try Self.key("v", keyCode: 9))
         #expect(view.isCopyModeActive)
-        #expect(view.copyModeConsumedKeyUps == [38, 9])
+        #expect(view.copyMode.consumedKeyUps == [38, 9])
         view.keyDown(with: try Self.key("q", keyCode: 12))
         #expect(!view.isCopyModeActive)
         #expect(!view.hasSelection)
@@ -78,18 +87,46 @@ struct TerminalCopyModeTests {
         #expect(view.toggleCopyMode())
         view.keyDown(with: try Self.key("\u{1b}", keyCode: 53))
         #expect(!view.isCopyModeActive)
-        #expect(view.handleCopyModeKeyUp(try Self.key("\u{1b}", keyCode: 53)))
-        #expect(!view.handleCopyModeKeyUp(try Self.key("\u{1b}", keyCode: 53)))
+        #expect(view.copyMode.handleKeyUp(try Self.key("\u{1b}", keyCode: 53)))
+        #expect(!view.copyMode.handleKeyUp(try Self.key("\u{1b}", keyCode: 53)))
     }
 
     @Test func commandChordsPassThroughAndKeepTheMode() throws {
         let (_, _, view) = try Self.terminal()
         #expect(view.toggleCopyMode())
-        view.copyMode?.input.countPrefix = 3
-        #expect(!view.handleCopyModeKeyDown(try Self.key("c", keyCode: 8, flags: .command)))
+        view.copyMode.session?.input.countPrefix = 3
+        #expect(!view.copyMode.handleKeyDown(try Self.key("c", keyCode: 8, flags: .command)))
         #expect(view.isCopyModeActive)
-        #expect(view.copyMode?.input == CopyModeInputState())
+        #expect(view.copyMode.session?.input == CopyModeInputState())
         view.exitCopyMode()
+    }
+
+    @Test func commandQIsClaimedByTheAppBeforeTerminalForwarding() throws {
+        #expect(KeyRouter.menuKeyEquivalentAllowedAfterDispatch(.system, eventWasDecided: true))
+        let (services, _, view) = try Self.terminal()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        // ARC owns this fixture; close must not release it again during animation teardown.
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(view))
+        defer { window.close() }
+
+        let probe = QuitMenuProbe()
+        services.registry.unbind("quit")
+        services.registry.bind("quit") { probe.invocations += 1 }
+        services.registry.menuKeyEquivalentGate = { [weak services] id in
+            services?.keyRouter.allowsMenuKeyEquivalent(id) ?? false
+        }
+        let menu = MainMenu.make(registry: services.registry)
+        let previousMenu = NSApp.mainMenu
+        NSApp.mainMenu = menu
+        defer { NSApp.mainMenu = previousMenu }
+
+        let event = try Self.key("q", keyCode: 12, flags: [.command])
+        #expect(view.performKeyEquivalent(with: event))
+        #expect(probe.invocations == 1)
     }
 }
 

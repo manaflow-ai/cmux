@@ -10,19 +10,21 @@ import Testing
     struct Corpus {
         let items: [PaletteItem]
         var index: PaletteSearchIndex
+        let ranker: PaletteRanker
 
         init(_ items: [PaletteItem], visible: [Bool]? = nil) {
             self.items = items
             index = PaletteSearchIndex(items: items, visibleWhenQueryEmpty: visible)
+            ranker = PaletteRanker()
         }
 
         mutating func rank(_ query: String, frecency: FrecencyStore, now: Date, showsRecent: Bool = false) -> [(section: Int?, ids: [String])] {
-            PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
+            ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
                 .map { section in (section.sectionIndex, section.rows.map { items[$0.index].id }) }
         }
 
         mutating func topID(_ query: String, frecency: FrecencyStore, now: Date) -> String? {
-            PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
+            ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
                 .flatMap(\.rows)
                 .max { $0.score < $1.score }
                 .map { items[$0.index].id }
@@ -79,8 +81,9 @@ import Testing
         var corpus = index
         let top = corpus.rank("cmd d split", frecency: FrecencyStore(), now: now).flatMap(\.ids).prefix(3)
         #expect(top.contains("shortcut:splitRight"))
-        // Every catalog action with a default shortcut or label is listed.
-        let expected = ActionCatalog.all.filter { $0.defaultShortcut != nil || $0.shortcutLabel != nil }.count
+        // Every catalog action with a default shortcut, label or chord (the
+        // Cmd-J leader's) is listed.
+        let expected = ActionCatalog.all.filter { $0.defaultShortcut != nil || $0.shortcutLabel != nil || $0.defaultChord != nil }.count
         #expect(index.items.count == expected)
     }
 

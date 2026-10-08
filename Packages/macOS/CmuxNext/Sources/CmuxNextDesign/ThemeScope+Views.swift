@@ -44,11 +44,17 @@ enum ThemeScopeRegistry {
 /// against the app theme.
 @MainActor
 enum ThemeContext {
-    private static var stack: [ThemeTokens] = []
+    private static var stack: [(tokens: ThemeTokens, selection: BackdropSelection?)] = []
 
-    static var active: ThemeTokens? { stack.last }
+    static var active: ThemeTokens? { stack.last?.tokens }
+    /// The active scope's background image (inherited from the app), or
+    /// the app's outside a scope: with an image the window is see-through
+    /// at any `background-opacity` (`WindowBackdrop`).
+    static var activeBackdropSelection: BackdropSelection? {
+        stack.last.map(\.selection) ?? ThemeScope.app.backdropSelection
+    }
 
-    static func push(_ tokens: ThemeTokens) { stack.append(tokens) }
+    static func push(_ tokens: ThemeTokens, selection: BackdropSelection?) { stack.append((tokens, selection)) }
     static func pop() { stack.removeLast() }
 }
 
@@ -75,7 +81,8 @@ extension NSView {
     /// (`viewDidChangeEffectiveAppearance`, `updateLayer`, `draw`,
     /// `layout`).
     public func performWithTheme<T>(_ body: () -> T) -> T {
-        ThemeContext.push(themeScope.tokens)
+        let scope = themeScope
+        ThemeContext.push(scope.tokens, selection: scope.backdropSelection)
         defer { ThemeContext.pop() }
         var result: T?
         effectiveAppearance.performAsCurrentDrawingAppearance { result = body() }
@@ -90,8 +97,11 @@ extension NSWindow {
 
     /// A panel shown for `view` (hover card, editor, popover window) draws in
     /// `view`'s scope, like the window under it.
+    /// A panel always draws at full strength: it adopts the nearest scope
+    /// without a chrome emphasis (an unfocused pane's subtle strip scope
+    /// gives way to its pane's).
     public func adoptThemeScope(of view: NSView) {
-        view.themeScope.adopt(self)
+        view.themeScope.fullStrength.adopt(self)
     }
 }
 

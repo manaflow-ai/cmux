@@ -3,7 +3,7 @@ import CmuxNextActions
 import Testing
 
 /// Bookmark actions (plans/cmux-next/bookmarks.md section 3): every verb has
-/// a `bookmark …` CLI name, the bar toggle owns Chrome's Cmd-Shift-B, Cmd-D
+/// a `bookmark …` CLI name, the bar toggle owns Cmd-Shift-B, Cmd-D
 /// stays Split Right, and the bar's menus reference only these verbs.
 @Suite struct BookmarkActionTests {
     let catalog = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
@@ -38,5 +38,23 @@ import Testing
         }
         #expect(ActionMenuContext.bookmark.targetKind == .bookmark)
         #expect(ActionTargetRef(parsing: "bookmark:bm_0123456789abcdef0123456789abcdef")?.kind == .bookmark)
+    }
+
+    /// cx-k9go: a bookmark's menu copies its address (Chrome's Copy), the
+    /// palette offers it with a bookmark query, and a folder's menu leaves
+    /// it out.
+    @MainActor @Test func aBookmarkMenuCopiesItsLinkAndAFolderMenuDoesNot() {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        for id in ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .bookmark)) {
+            registry.bind(id, invoke: { _ in })
+        }
+        ActionTargetVisibility.hide("bookmark.copyLink", in: registry) { $0.target?.id == "folder" }
+        func titles(_ id: String) -> [String] {
+            registry.makeContextMenu(for: .bookmark, target: ActionTargetRef(kind: .bookmark, id: id)).items.map(\.title)
+        }
+        #expect(titles("bm").contains("Copy Bookmark Link"))
+        #expect(!titles("folder").contains("Copy Bookmark Link"))
+        #expect(catalog["bookmark.copyLink"]?.surfacePlan.cli == .exempt(.clipboard))
     }
 }

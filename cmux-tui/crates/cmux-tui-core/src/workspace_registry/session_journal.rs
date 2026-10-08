@@ -4,15 +4,15 @@ use flate2::bufread::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{BufRead, BufReader, Read, Result as IoResult};
+use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
-pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
-pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
@@ -26,7 +26,7 @@ pub enum JournalClass {
 }
 
 impl JournalClass {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::State => "state",
             Self::Observation => "observation",
@@ -45,7 +45,7 @@ pub enum JournalReplayPolicy {
 }
 
 impl JournalReplayPolicy {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Required => "required",
             Self::Advisory => "advisory",
@@ -64,7 +64,7 @@ pub enum JournalSensitivity {
 }
 
 impl JournalSensitivity {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Public => "public",
             Self::Metadata => "metadata",
@@ -75,14 +75,12 @@ impl JournalSensitivity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalProducer {
     pub kind: String,
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalAuthority {
     pub principal_id: String,
     pub lease_id: String,
@@ -97,8 +95,11 @@ pub struct JournalSubject {
     pub id: String,
 }
 
+/// Decoding tolerates unknown fields: a sealed segment written by a newer
+/// daemon must stay readable (P8 landing 2c); so do `JournalProducer` and
+/// `JournalAuthority` (stored only). Limits: `JournalSubject` stays strict (it
+/// is also `JournalIngress` wire input) and a new enum variant still breaks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SessionJournalRecord {
     pub sequence: u64,
     pub event_id: String,
@@ -399,28 +400,30 @@ impl JournalRestoreCursor {
     }
 }
 
-pub(super) struct JournalAppend<'a> {
-    pub(super) event_id: &'a str,
-    pub(super) schema_version: u32,
-    pub(super) kind: &'a str,
-    pub(super) class: JournalClass,
-    pub(super) replay: JournalReplayPolicy,
-    pub(super) occurred_at_ms: u64,
-    pub(super) producer: &'a JournalProducer,
-    pub(super) authority: Option<&'a JournalAuthority>,
-    pub(super) causation_id: Option<&'a str>,
-    pub(super) correlation_id: Option<&'a str>,
-    pub(super) causation_depth: u16,
-    pub(super) subjects: &'a [JournalSubject],
-    pub(super) sensitivity: JournalSensitivity,
-    pub(super) payload: &'a Value,
-    pub(super) content: Option<&'a [u8]>,
-    pub(super) resource_revision: Option<u64>,
-    pub(super) previous_resource_revision: Option<u64>,
+pub(crate) struct JournalAppend<'a> {
+    pub(crate) event_id: &'a str,
+    pub(crate) schema_version: u32,
+    pub(crate) kind: &'a str,
+    pub(crate) class: JournalClass,
+    pub(crate) replay: JournalReplayPolicy,
+    pub(crate) occurred_at_ms: u64,
+    pub(crate) producer: &'a JournalProducer,
+    pub(crate) authority: Option<&'a JournalAuthority>,
+    pub(crate) causation_id: Option<&'a str>,
+    pub(crate) correlation_id: Option<&'a str>,
+    pub(crate) causation_depth: u16,
+    pub(crate) subjects: &'a [JournalSubject],
+    pub(crate) sensitivity: JournalSensitivity,
+    pub(crate) payload: &'a Value,
+    pub(crate) content: Option<&'a [u8]>,
+    pub(crate) resource_revision: Option<u64>,
+    pub(crate) previous_resource_revision: Option<u64>,
+    /// [`crate::Actor::wire`] of the caller; stored beside the record JSON.
+    pub(crate) actor: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ResourceEffectJournalState {
+pub(crate) enum ResourceEffectJournalState {
     Succeeded,
     Failed,
     Indeterminate,
@@ -436,7 +439,7 @@ impl ResourceEffectJournalState {
     }
 }
 
-pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let subject_index_existed = transaction.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM sqlite_master
@@ -466,6 +469,7 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            content BLOB,
            resource_revision INTEGER UNIQUE,
            previous_resource_revision INTEGER,
+           actor TEXT,
            CHECK(
              (resource_revision IS NULL AND previous_resource_revision IS NULL)
              OR (
@@ -565,7 +569,7 @@ fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyho
     Ok(())
 }
 
-pub(super) fn ensure_journal_event_index_schema(
+pub(crate) fn ensure_journal_event_index_schema(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let columns = {
@@ -682,7 +686,7 @@ pub(super) fn ensure_journal_event_index_schema(
     Ok(())
 }
 
-pub(super) fn migrate_resource_events_to_session_journal(
+pub(crate) fn migrate_resource_events_to_session_journal(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     create_session_journal_schema(transaction)?;
@@ -752,6 +756,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
     }
@@ -803,6 +808,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
             &result,
             &changes,
             0,
+            false,
         )?;
     }
     if has_resource_events {
@@ -812,7 +818,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn append_resource_journal_record(
+pub(crate) fn append_resource_journal_record(
     transaction: &Transaction<'_>,
     revision: u64,
     previous_revision: u64,
@@ -834,10 +840,11 @@ pub(super) fn append_resource_journal_record(
         result,
         changes,
         unix_epoch_ms()?,
+        true,
     )
 }
 
-pub(super) fn append_resource_effect_journal_record(
+pub(crate) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
     operation: &str,
@@ -919,6 +926,7 @@ pub(super) fn append_resource_effect_journal_record(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: ledger_actor(transaction, idempotency_key)?.as_deref(),
         },
     )?;
     Ok(())
@@ -936,8 +944,19 @@ fn append_resource_journal_record_at(
     result: &Value,
     changes: &Value,
     occurred_at_ms: u64,
+    with_current_state: bool,
 ) -> anyhow::Result<()> {
     validate_identifier("journal operation", operation)?;
+    // Every upsert carries the state fields a fresh snapshot shows, whatever
+    // path produced it (state-ownership.md: clients rebuild from events).
+    // Migrated legacy revisions keep their stored changes: today's state
+    // tables do not describe the session at those revisions.
+    let mut decorated = changes.clone();
+    if with_current_state {
+        crate::state::values::decorate_changes(transaction, &mut decorated)?;
+        crate::state::closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
+    }
+    let changes = &decorated;
     let kind = semantic_journal_kind(operation);
     let session_id = transaction.query_row(
         "SELECT value FROM meta WHERE key = 'session_public_id'",
@@ -959,6 +978,7 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
+    let actor = resource_record_actor(transaction, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {
@@ -979,12 +999,13 @@ fn append_resource_journal_record_at(
             content: None,
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
+            actor: actor.as_deref(),
         },
     )?;
     Ok(())
 }
 
-pub(super) fn append_journal_record(
+pub(crate) fn append_journal_record(
     transaction: &Transaction<'_>,
     append: &JournalAppend<'_>,
 ) -> anyhow::Result<u64> {
@@ -1010,8 +1031,9 @@ pub(super) fn append_journal_record(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
-           sensitivity, payload_json, content, resource_revision, previous_resource_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+           sensitivity, payload_json, content, resource_revision, previous_resource_revision, actor
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                  ?19)",
         params![
             append.event_id,
             i64::from(append.schema_version),
@@ -1045,6 +1067,7 @@ pub(super) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
+            append.actor,
         ],
     )?;
     let sequence = transaction.last_insert_rowid();
@@ -1288,7 +1311,7 @@ impl WorkspaceRegistry {
     }
 }
 
-pub(super) fn query_session_journal_after(
+pub(crate) fn query_session_journal_after(
     connection: &Connection,
     sequence: u64,
     limit: usize,
@@ -1360,7 +1383,7 @@ fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
     u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
-pub(super) fn query_session_journal_sequences(
+pub(crate) fn query_session_journal_sequences(
     connection: &Connection,
     sequences: &[u64],
 ) -> anyhow::Result<Vec<SessionJournalRecord>> {
@@ -1595,28 +1618,6 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         );
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
-}
-
-struct DigestReader<R> {
-    inner: R,
-    hasher: Sha256,
-    bytes_read: usize,
-}
-impl<R: Read> DigestReader<R> {
-    fn new(inner: R) -> Self {
-        Self { inner, hasher: Sha256::new(), bytes_read: 0 }
-    }
-    fn finish(self) -> (R, usize, sha2::digest::Output<Sha256>) {
-        (self.inner, self.bytes_read, self.hasher.finalize())
-    }
-}
-impl<R: Read> Read for DigestReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-        let n = self.inner.read(buf)?;
-        self.bytes_read = self.bytes_read.saturating_add(n);
-        self.hasher.update(&buf[..n]);
-        Ok(n)
-    }
 }
 
 fn archived_records_after(
@@ -1865,7 +1866,7 @@ fn encode_bytes_hex(bytes: &[u8]) -> String {
     encoded
 }
 
-pub(super) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
+pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
     let mut archived = record.clone();
     if let Some(bytes) = record.terminal_output.as_deref()
         && let Some(payload) = archived.payload.as_object_mut()
@@ -2021,7 +2022,7 @@ fn collect_subjects(value: &Value, subjects: &mut BTreeSet<JournalSubject>) {
     }
 }
 
-pub(super) fn expand_topology_subjects(
+pub(crate) fn expand_topology_subjects(
     transaction: &Transaction<'_>,
     subjects: &mut BTreeSet<JournalSubject>,
 ) -> anyhow::Result<()> {
@@ -2072,7 +2073,7 @@ pub(super) fn expand_topology_subjects(
     Ok(())
 }
 
-pub(super) fn terminal_topology_subjects_batch(
+pub(crate) fn terminal_topology_subjects_batch(
     transaction: &Transaction<'_>,
     terminal_ids: impl IntoIterator<Item = String>,
 ) -> anyhow::Result<HashMap<String, Vec<JournalSubject>>> {
@@ -2174,397 +2175,14 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    #[test]
-    fn resource_record_is_typed_scoped_and_append_only() {
-        let mut registry = WorkspaceRegistry::in_memory("journal").unwrap();
-        let workspace_id = format!("ws_{}", "1".repeat(32));
-        let pane_id = format!("pane_{}", "2".repeat(32));
-        let result = serde_json::json!({"workspace_id":workspace_id});
-        let changes = serde_json::json!([{
-            "kind":"upsert",
-            "resource":"pane",
-            "id":pane_id,
-            "value":{"workspace_id":workspace_id,"pane_id":pane_id}
-        }]);
-        let tx = registry.connection.transaction().unwrap();
-        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
-        append_resource_journal_record(
-            &tx,
-            1,
-            0,
-            "test-client",
-            "focus-one",
-            "pane.focus",
-            None,
-            &result,
-            &changes,
-        )
-        .unwrap();
-        tx.commit().unwrap();
+mod actors;
+mod digest_reader;
+use digest_reader::DigestReader;
+#[cfg(test)]
+mod actor_tests;
 
-        let page = registry.session_journal_after(0, 10).unwrap();
-        assert_eq!(page.head_sequence, 1);
-        assert_eq!(page.records.len(), 1);
-        let record = &page.records[0];
-        assert_eq!(record.kind, "pane.focus");
-        assert_eq!(record.class, JournalClass::State);
-        assert_eq!(record.replay, JournalReplayPolicy::Required);
-        assert_eq!(record.correlation_id.as_deref(), Some("focus-one"));
-        assert_eq!(record.resource_revision, Some(1));
-        assert_eq!(record.previous_resource_revision, Some(0));
-        assert!(
-            record
-                .subjects
-                .iter()
-                .any(|subject| { subject.kind == "workspace" && subject.id == workspace_id })
-        );
-        assert!(
-            record.subjects.iter().any(|subject| subject.kind == "pane" && subject.id == pane_id)
-        );
-        let indexed = registry
-            .connection
-            .query_row(
-                "SELECT COUNT(*) FROM journal_subject_index
-                 WHERE kind = 'pane' AND id = ?1 AND sequence = 1",
-                [&pane_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap();
-        assert_eq!(indexed, 1);
-
-        let update = registry
-            .connection
-            .execute("UPDATE session_journal SET kind = 'pane.changed' WHERE sequence = 1", []);
-        assert!(update.unwrap_err().to_string().contains("append-only"));
-        let delete = registry.connection.execute("DELETE FROM session_journal", []);
-        assert!(delete.unwrap_err().to_string().contains("append-only"));
-        let delete_index = registry.connection.execute("DELETE FROM journal_subject_index", []);
-        assert!(delete_index.unwrap_err().to_string().contains("append-only"));
-    }
-
-    #[test]
-    fn migration_marks_incomplete_history_and_preserves_retained_events() {
-        let mut registry = WorkspaceRegistry::in_memory("migration").unwrap();
-        let tx = registry.connection.transaction().unwrap();
-        tx.execute_batch(
-            "DROP TABLE session_journal;
-             CREATE TABLE resource_events (
-               revision INTEGER PRIMARY KEY NOT NULL,
-               previous_revision INTEGER NOT NULL,
-               origin TEXT NOT NULL,
-               idempotency_key TEXT NOT NULL,
-               deltas_json TEXT NOT NULL
-             );
-             UPDATE meta SET value = '4' WHERE key = 'resource_revision';",
-        )
-        .unwrap();
-        let result = serde_json::json!({"focused":true});
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES('test', 'focus-four', 'pane.focus', '{}', ?1, 4)",
-            [canonical_json(&result).unwrap()],
-        )
-        .unwrap();
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(4, 3, 'test', 'focus-four', '[]')",
-            [],
-        )
-        .unwrap();
-        migrate_resource_events_to_session_journal(&tx).unwrap();
-        tx.commit().unwrap();
-
-        let page = registry.session_journal_after(0, 10).unwrap();
-        assert_eq!(page.records.len(), 2);
-        assert_eq!(page.records[0].kind, "session.journal.migrated");
-        assert_eq!(page.records[0].payload["history_complete"], false);
-        assert_eq!(page.records[1].kind, "pane.focus");
-        assert_eq!(page.records[1].resource_revision, Some(4));
-        assert_eq!(registry.resource_events_after(3).unwrap().batches.len(), 1);
-    }
-
-    #[test]
-    fn migration_marks_projection_only_legacy_history_incomplete() {
-        let mut registry = WorkspaceRegistry::in_memory("projection-only-migration").unwrap();
-        let tx = registry.connection.transaction().unwrap();
-        tx.execute_batch(
-            "DROP TABLE session_journal;
-             UPDATE meta SET value = '7' WHERE key = 'resource_revision';",
-        )
-        .unwrap();
-        migrate_resource_events_to_session_journal(&tx).unwrap();
-        tx.commit().unwrap();
-
-        let page = registry.session_journal_after(0, 10).unwrap();
-        assert_eq!(page.records.len(), 1);
-        assert_eq!(page.records[0].kind, "session.journal.migrated");
-        assert_eq!(page.records[0].payload["source"], "projection_only");
-        assert_eq!(page.records[0].payload["resource_head_revision"], "7");
-        assert_eq!(page.records[0].payload["history_complete"], false);
-    }
-
-    #[test]
-    fn journal_cursor_and_page_limits_fail_closed() {
-        let registry = WorkspaceRegistry::in_memory("limits").unwrap();
-        assert_eq!(registry.session_journal_head().unwrap(), 0);
-        assert!(registry.session_journal_after(1, 1).unwrap_err().to_string().contains("ahead"));
-        assert!(registry.session_journal_after(0, 0).unwrap_err().to_string().contains("positive"));
-        assert!(
-            registry
-                .session_journal_after(0, MAX_JOURNAL_PAGE_SIZE + 1)
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds")
-        );
-    }
-
-    #[test]
-    fn persistent_reader_observes_commits_on_an_independent_connection() {
-        let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
-        let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
-        let database_path = registry.session_journal_database_path().unwrap();
-        let reader = SessionJournalReader::open(&database_path).unwrap();
-        assert_eq!(reader.after(0, 1).unwrap().head_sequence, 0);
-
-        let workspace_id = format!("ws_{}", "1".repeat(32));
-        let result = serde_json::json!({"workspace_id":workspace_id});
-        let tx = registry.connection.transaction().unwrap();
-        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
-        append_resource_journal_record(
-            &tx,
-            1,
-            0,
-            "reader-test",
-            "reader-commit",
-            "workspace.focus",
-            None,
-            &result,
-            &serde_json::json!([]),
-        )
-        .unwrap();
-        tx.commit().unwrap();
-
-        assert_eq!(registry.session_journal_head().unwrap(), 1);
-        let page = reader.after(0, 1).unwrap();
-        assert_eq!(page.head_sequence, 1);
-        assert_eq!(page.records[0].kind, "workspace.focus");
-        let matching = reader
-            .after_subjects(0, 1, &[JournalSubject { kind: "workspace".into(), id: workspace_id }])
-            .unwrap();
-        assert_eq!(matching.scanned_through, 1);
-        assert_eq!(matching.records.len(), 1);
-        let absent = reader
-            .after_subjects(
-                0,
-                1,
-                &[JournalSubject { kind: "agent_tree".into(), id: "agenttree_absent".into() }],
-            )
-            .unwrap();
-        assert_eq!(absent.scanned_through, 1);
-        assert!(absent.records.is_empty());
-        drop(reader);
-        drop(registry);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn archived_segment_metadata_is_verified_before_replay() {
-        let mut registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
-        let result = serde_json::json!({"focused":true});
-        let tx = registry.connection.transaction().unwrap();
-        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
-        append_resource_journal_record(
-            &tx,
-            1,
-            0,
-            "segment-test",
-            "segment-record-1",
-            "pane.focus",
-            None,
-            &result,
-            &serde_json::json!([]),
-        )
-        .unwrap();
-        tx.commit().unwrap();
-
-        let records = registry.session_journal_after(0, 10).unwrap().records;
-        let uncompressed = serde_json::to_vec(&records).unwrap();
-        let digest = Sha256::digest(&uncompressed);
-        let mut encoder =
-            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-        encoder.write_all(&uncompressed).unwrap();
-        let compressed = encoder.finish().unwrap();
-        registry
-            .connection
-            .execute(
-                "INSERT INTO journal_segments(
-                   segment_id, start_sequence, end_sequence, record_count, codec, content,
-                   uncompressed_bytes, sha256, sealed_at_ms
-                 ) VALUES('segment_bad_metadata', 1, 1, 2, 'gzip-json-v1', ?1, ?2, ?3, 1)",
-                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
-            )
-            .unwrap();
-        registry
-            .connection
-            .execute_batch(
-                "DROP TRIGGER session_journal_reject_delete;
-                 DELETE FROM session_journal;
-                 CREATE TRIGGER session_journal_reject_delete
-                   BEFORE DELETE ON session_journal
-                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
-            )
-            .unwrap();
-
-        let error = registry.session_journal_after(0, 10).unwrap_err();
-        assert!(error.to_string().contains("record count"), "{error:#}");
-    }
-
-    #[test]
-    fn archived_segment_rejects_trailing_compressed_data() {
-        let mut trailing_encoder =
-            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-        trailing_encoder.write_all(b"ignored").unwrap();
-        let trailing_member = trailing_encoder.finish().unwrap();
-        let variants = [("gzip member", trailing_member), ("non-gzip bytes", b"trailing".to_vec())];
-
-        for (label, suffix) in variants {
-            let mut registry = WorkspaceRegistry::in_memory("segment-trailing").unwrap();
-            let result = serde_json::json!({"focused":true});
-            let tx = registry.connection.transaction().unwrap();
-            tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
-            append_resource_journal_record(
-                &tx,
-                1,
-                0,
-                "segment-test",
-                "segment-record-1",
-                "pane.focus",
-                None,
-                &result,
-                &serde_json::json!([]),
-            )
-            .unwrap();
-            tx.commit().unwrap();
-
-            let records = registry.session_journal_after(0, 10).unwrap().records;
-            let uncompressed = serde_json::to_vec(&records).unwrap();
-            let digest = Sha256::digest(&uncompressed);
-            let mut encoder =
-                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-            encoder.write_all(&uncompressed).unwrap();
-            let mut compressed = encoder.finish().unwrap();
-            compressed.extend_from_slice(&suffix);
-            registry
-                .connection
-                .execute(
-                    "INSERT INTO journal_segments(
-                       segment_id, start_sequence, end_sequence, record_count, codec, content,
-                       uncompressed_bytes, sha256, sealed_at_ms
-                     ) VALUES(?1, 1, 1, 1, 'gzip-json-v1', ?2, ?3, ?4, 1)",
-                    params![
-                        format!("segment_bad_trailing_{label}"),
-                        compressed,
-                        i64::try_from(uncompressed.len()).unwrap(),
-                        digest.as_slice()
-                    ],
-                )
-                .unwrap();
-            registry
-                .connection
-                .execute_batch(
-                    "DROP TRIGGER session_journal_reject_delete;
-                     DELETE FROM session_journal;
-                     CREATE TRIGGER session_journal_reject_delete
-                       BEFORE DELETE ON session_journal
-                     BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
-                )
-                .unwrap();
-
-            let error = registry.session_journal_after(0, 10).unwrap_err();
-            assert!(error.to_string().contains("trailing compressed data"), "{label}: {error:#}");
-        }
-    }
-
-    #[test]
-    fn restore_cursor_decodes_a_multi_page_segment_once() {
-        let root = std::env::temp_dir().join(format!("cmux-journal-cursor-{}", new_uuid_v4()));
-        let mut registry = WorkspaceRegistry::open(&root, "cursor").unwrap();
-        let workspace_id = format!("ws_{}", "1".repeat(32));
-        for sequence in 1..=4 {
-            let tx = registry.connection.transaction().unwrap();
-            tx.execute(
-                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-                [sequence.to_string()],
-            )
-            .unwrap();
-            append_resource_journal_record(
-                &tx,
-                sequence,
-                sequence - 1,
-                "cursor-test",
-                &format!("cursor-event-{sequence}"),
-                "workspace.focus",
-                None,
-                &serde_json::json!({"workspace_id":workspace_id}),
-                &serde_json::json!([]),
-            )
-            .unwrap();
-            tx.commit().unwrap();
-        }
-
-        let records = registry.session_journal_after(0, 10).unwrap().records;
-        let uncompressed = serde_json::to_vec(&records).unwrap();
-        let digest = Sha256::digest(&uncompressed);
-        let mut encoder =
-            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-        encoder.write_all(&uncompressed).unwrap();
-        let compressed = encoder.finish().unwrap();
-        registry
-            .connection
-            .execute(
-                "INSERT INTO journal_segments(
-                   segment_id, start_sequence, end_sequence, record_count, codec, content,
-                   uncompressed_bytes, sha256, sealed_at_ms
-                 ) VALUES('cursor-segment', 1, 4, 4, 'gzip-json-v1', ?1, ?2, ?3, 1)",
-                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
-            )
-            .unwrap();
-        registry
-            .connection
-            .execute_batch(
-                "DROP TRIGGER session_journal_reject_delete;
-                 DELETE FROM session_journal;
-                 CREATE TRIGGER session_journal_reject_delete
-                   BEFORE DELETE ON session_journal
-                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
-            )
-            .unwrap();
-
-        let reader =
-            SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
-        let mut cursor = reader.restore_cursor(0).unwrap();
-        assert!(!cursor.segments_exhausted);
-        assert_eq!(cursor.segment_content_load_count, 0);
-        let mut replayed = Vec::new();
-        loop {
-            let page = cursor.next_page(1).unwrap();
-            if page.records.is_empty() {
-                assert_eq!(page.head_sequence, 4);
-                break;
-            }
-            replayed.extend(page.records.into_iter().map(|record| record.sequence));
-        }
-        assert_eq!(cursor.segment_decode_count, 1);
-        assert_eq!(cursor.segment_content_load_count, 1);
-        cursor.finish().unwrap();
-        assert_eq!(replayed, [1, 2, 3, 4]);
-
-        drop(registry);
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+#[cfg(test)]
+pub(crate) use actors::journal_actor;
+pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};

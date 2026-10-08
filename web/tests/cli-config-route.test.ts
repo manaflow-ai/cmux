@@ -186,6 +186,19 @@ describe("CLI config route", () => {
     });
   });
 
+  test("omits the publishable key when the Stack project does not require one", async () => {
+    await withCliConfigEnvironment(
+      { ...testEnvironment, NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: undefined },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { auth: Record<string, unknown> };
+        expect(body.auth.projectId).toBe(testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID);
+        expect("publishableClientKey" in body.auth).toBe(false);
+      },
+    );
+  });
+
   test("returns 503 instead of advertising incomplete Stack configuration", async () => {
     await withCliConfigEnvironment(
       {

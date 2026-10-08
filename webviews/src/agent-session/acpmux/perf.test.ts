@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { AcpmuxPerf, droppedFrames, FrameRing, frameStats, intervalsOf, isBlank, median, percentile, typingSummary } from "./perf";
+import {
+  AcpmuxPerf,
+  droppedFrames,
+  FrameRing,
+  frameStats,
+  intervalsOf,
+  isBlank,
+  median,
+  percentile,
+  typingSummary,
+} from "./perf";
 
 describe("acpmux perf stats", () => {
   test("percentile index is round((n - 1) * p), as the native pane computes it", () => {
@@ -22,7 +32,15 @@ describe("acpmux perf stats", () => {
   test("frame stats from timestamps match the native fling_stats shape", () => {
     const timestamps = [0, 16, 32, 48, 80, 96];
     expect(intervalsOf(timestamps)).toEqual([16, 16, 16, 32, 16]);
-    expect(frameStats(timestamps, 16)).toEqual({ frames: 6, nominal_ms: 16, p50_ms: 16, p95_ms: 32, p99_ms: 32, max_ms: 32, dropped_frames: 1 });
+    expect(frameStats(timestamps, 16)).toEqual({
+      frames: 6,
+      nominal_ms: 16,
+      p50_ms: 16,
+      p95_ms: 32,
+      p99_ms: 32,
+      max_ms: 32,
+      dropped_frames: 1,
+    });
   });
 
   test("blank when the viewport extends past the mounted rows", () => {
@@ -67,10 +85,28 @@ describe("acpmux perf stats", () => {
   });
 
   test("typing summary reports p50, p95 and max per stage", () => {
-    expect(typingSummary([{ frame: 4, paint: 9 }, { frame: 2, paint: 7 }, { frame: 6, paint: 12 }])).toEqual({
+    expect(
+      typingSummary([
+        { frame: 4, paint: 9 },
+        { frame: 2, paint: 7 },
+        { frame: 6, paint: 12 },
+      ]),
+    ).toEqual({
       keys: 3,
       to_frame: { p50_ms: 4, p95_ms: 6, max_ms: 6 },
       to_paint: { p50_ms: 9, p95_ms: 12, max_ms: 12 },
     });
+  });
+
+  test("agent latency keeps the first token mark and reports composer readiness", () => {
+    const perf = new AcpmuxPerf();
+    perf.markAgent("handshakeStart");
+    perf.markAgent("handshakeReady");
+    perf.markAgent("composerReady");
+    perf.markAgent("firstToken");
+    const first = perf.agentLatency().first_token_ms;
+    perf.markAgent("firstToken");
+    expect(perf.agentLatency().first_token_ms).toBe(first);
+    expect(perf.agentLatency()).toHaveProperty("composer_ready_ms");
   });
 });

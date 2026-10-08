@@ -118,10 +118,22 @@ export class AcpWireLog {
         this.counters.errors += 1;
         this.lastError = `${request?.method ?? `request ${message.id}`}: ${String(message.error?.message ?? "error")}`;
       }
-      this.push({ dir: "in", kind: failed ? "error" : "response", method: request?.method, id: message.id, latencyMs, ...this.body(text) });
+      this.push({
+        dir: "in",
+        kind: failed ? "error" : "response",
+        method: request?.method,
+        id: message.id,
+        latencyMs,
+        ...this.body(text),
+      });
       return;
     }
-    this.push({ dir: "in", kind: "notification", method: typeof message?.method === "string" ? message.method : undefined, ...this.body(text) });
+    this.push({
+      dir: "in",
+      kind: "notification",
+      method: typeof message?.method === "string" ? message.method : undefined,
+      ...this.body(text),
+    });
   }
 
   /** A change of the socket: connecting, open, connected, close, error, reconnect scheduled, lost. */
@@ -129,10 +141,12 @@ export class AcpWireLog {
     if (event === "connected") this.counters.connects += 1;
     if (event === "close") this.counters.closes += 1;
     if (event === "reconnect scheduled") this.counters.reconnects += 1;
-    if (event === "error" || event === "connect failed") this.lastError = `${event}${detail?.message ? `: ${String(detail.message)}` : ""}`;
+    if (event === "error" || event === "connect failed")
+      this.lastError = `${event}${detail?.message ? `: ${String(detail.message)}` : ""}`;
     if (event === "close") {
       // Requests still out when the socket closes never get a reply.
-      for (const [id, request] of this.pending) this.push({ dir: "local", kind: "lifecycle", event: "abandoned", id, method: request.method });
+      for (const [id, request] of this.pending)
+        this.push({ dir: "local", kind: "lifecycle", event: "abandoned", id, method: request.method });
       this.pending.clear();
     }
     this.push({ dir: "local", kind: "lifecycle", event, detail });
@@ -157,7 +171,14 @@ export class AcpWireLog {
 
   /** The log as JSON Lines: a header line, then one line per entry, oldest first. */
   exportJsonl(header: Record<string, unknown> = {}): string {
-    const lines = [JSON.stringify({ type: "acp-wire-log", exportedAt: new Date(this.now()).toISOString(), ...header, stats: this.stats() })];
+    const lines = [
+      JSON.stringify({
+        type: "acp-wire-log",
+        exportedAt: new Date(this.now()).toISOString(),
+        ...header,
+        stats: this.stats(),
+      }),
+    ];
     for (const entry of this.log) lines.push(JSON.stringify(entry));
     return `${lines.join("\n")}\n`;
   }
@@ -177,7 +198,11 @@ export class AcpWireLog {
 
   private body(text: string): Pick<WireEntry, "size" | "text" | "truncated"> {
     const truncated = text.length > MAX_PAYLOAD_CHARS;
-    return { size: text.length, text: truncated ? text.slice(0, MAX_PAYLOAD_CHARS) : text, truncated: truncated || undefined };
+    return {
+      size: text.length,
+      text: truncated ? text.slice(0, MAX_PAYLOAD_CHARS) : text,
+      truncated: truncated || undefined,
+    };
   }
 
   private recordLatency(latencyMs: number): void {

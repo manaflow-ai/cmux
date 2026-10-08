@@ -3,12 +3,14 @@ public import CmuxNextDesign
 
 /// The onboarding window: a transparent window whose step variants draw
 /// their own Liquid Glass or opaque surface, with only a close button. Return continues, Escape skips the rest,
-/// Command-[ goes back. Closing it by any means ends the flow as skipped
-/// unless the last step finished it.
+/// Command-[ goes back. Only Skip (Escape) or Done ends the flow; closing
+/// the window otherwise leaves the first run unfinished, to resume later.
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
+    /// Set while the App closes the window itself (`closeForRebuild`).
+    private var closingForRebuild = false
 
     /// `variant` forces one screen design (the gallery's full-size preview).
     public init(model: OnboardingModel, variant: (any OnboardingScreenVariant.Type)? = nil) {
@@ -23,21 +25,19 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.title = OnboardingStrings.windowTitle
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.animationBehavior = .alertPanel
+        // The close button stays visible (Lane 20: every window of its own
+        // shows it); Escape and Skip also dismiss.
         // A fixed size: content never grows the window.
         window.contentMinSize = OnboardingMetrics.windowSize
         window.contentMaxSize = OnboardingMetrics.windowSize
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
-        ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
-        // The window is transparent; each variant's surface draws its own
-        // glass or opaque background (`OnboardingSurfaceView`).
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.contentView = OnboardingHostView(model: model, variant: variant)
+        // Kind `.onboarding`: a clear window with only a close button; each
+        // variant's surface draws its own glass or opaque background
+        // (`OnboardingSurfaceView`).
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model, variant: variant), scope: .app)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
@@ -58,8 +58,22 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         model.stepDidAppear()
     }
 
+    /// Closes the window for the App (a rebuild for another step), which is
+    /// not the person's "not now".
+    public func closeForRebuild() {
+        closingForRebuild = true
+        close()
+    }
+
+    /// Closes the window through its close button (the same AppKit path a
+    /// click on it takes): the person's "not now". Automation uses this.
+    public func closeWithCloseButton() {
+        guard let window else { return }
+        if let button = window.standardWindowButton(.closeButton) { button.performClick(nil) } else { window.performClose(nil) }
+    }
+
     public func windowWillClose(_ notification: Notification) {
-        model.finish(completed: false)
+        model.leave(notNow: !closingForRebuild)
         onClose?()
     }
 }
@@ -72,7 +86,9 @@ final class OnboardingWindow: NSWindow {
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch (event.keyCode, flags) {
-        case (36, []), (76, []): onKey?(.next)            // Return, Enter
+        // A held key repeats: only a fresh press moves on (it must not also accept the password consent).
+        case (36, []) where !event.isARepeat, (76, []) where !event.isARepeat: onKey?(.next)  // Return, Enter
+        case (36, []), (76, []): break
         case (33, .command): onKey?(.back)                 // Command-[
         default: super.keyDown(with: event)
         }

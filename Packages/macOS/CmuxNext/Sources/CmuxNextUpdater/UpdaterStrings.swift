@@ -20,11 +20,72 @@ nonisolated enum UpdaterStrings {
     static var checkFailed: String { text("updater.title.checkFailed", "Couldn't Check for Updates") }
     static var updateFailed: String { text("updater.title.updateFailed", "Update Failed") }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
+    static func managedChannel(_ channel: String) -> String {
+        format("updater.managed.channel", "Your organization keeps this Mac on the %@ channel.", channel)
+    }
+    static func updateRequired(_ version: String) -> String {
+        format("updater.required", "Your organization requires cmux %@ or newer.", version)
+    }
     static var startingDownload: String { text("updater.title.startingDownload", "Starting Download…") }
     static var downloading: String { text("updater.title.downloading", "Downloading Update") }
     static var preparing: String { text("updater.title.preparing", "Preparing Update") }
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
+
+    // Rollback
+    static var rollbackNothingKept: String { text("updater.rollback.nothingKept", "No previous version is kept on this Mac.") }
+    static func rollbackPredates(_ version: String) -> String {
+        format("updater.rollback.predates", "cmux %@ is from before rollback support, so cmux cannot check that it reads your data.", version)
+    }
+    static func rollbackStoreTooNew(_ version: String, _ store: String, _ stored: Int, _ readable: Int) -> String {
+        format("updater.rollback.storeTooNew", "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it.",
+               version, store, stored, readable)
+    }
+    static func rollbackUnknownStore(_ version: String, _ store: String) -> String {
+        format("updater.rollback.unknownStore", "cmux %1$@ does not know your %2$@ data. Rolling back would hide it.", version, store)
+    }
+    static func rollbackSignature(_ version: String) -> String {
+        format("updater.rollback.signature", "The kept cmux %@ is not signed by the cmux team, so it will not run.", version)
+    }
+
+    static var rollbackStoresUnknown: String {
+        text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
+    }
+
+    // Test feed
+    static var testFeedRefused: String {
+        text("updater.testFeed.refused", "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac).")
+    }
+    static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
+    static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
+
+
+    /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
+    /// the relaunch keeps terminals and agents (browser pages reload).
+    static var restartKeepsSessions: String {
+        text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
+    }
+
+    // The update card (UPDATE-CARD)
+    static func cardReady(_ version: String) -> String { format("updater.card.ready", "cmux %@ is ready", version) }
+    static var cardReadyNoVersion: String { text("updater.card.readyNoVersion", "An update is ready") }
+    static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
+    static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
+    static func downloadedHeadline(_ version: String) -> String {
+        format("updater.card.downloaded", "Update %@ downloaded. Click to restart and install.", version)
+    }
+    static var downloadedHeadlineNoVersion: String {
+        text("updater.card.downloadedNoVersion", "Update downloaded. Click to restart and install.")
+    }
+    static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
+    static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
+    static func moreChanges(_ count: Int) -> String {
+        count == 1 ? text("updater.card.oneMoreChange", "1 more change") : format("updater.card.moreChanges", "%ld more changes", count)
+    }
+
+    // The tips card (BOTTOM-LEFT-CARDS K1)
+    static var tipEyebrow: String { text("updater.tip.eyebrow", "Did you know?") }
+    static var tipDismiss: String { text("updater.tip.dismiss", "Hide This Tip") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

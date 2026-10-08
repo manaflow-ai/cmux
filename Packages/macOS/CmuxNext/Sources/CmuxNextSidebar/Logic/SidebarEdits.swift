@@ -17,10 +17,13 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile:
+        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
+             .openUpdateLink, .tryTip, .dismissTip, .layout, .toggleLayoutSection, .dropOnLayoutSection:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
+        case let .setGroupIcon(id, icon):
+            return mutateGroup(id, in: &sections) { $0.icon = icon.flatMap { WorkspaceIcon.parse($0) } }
         case let .closeGroup(id):
             return closeGroup(id, in: &sections)
         case let .reorder(ids, position):
@@ -29,8 +32,10 @@ public nonisolated enum SidebarEdits {
             return move(ids, toGroup: group, in: &sections)
         case let .reorderGroup(group, index):
             return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids):
-            return createGroup(id, name: name, color: color, workspaces: ids, in: &sections)
+        case let .createGroup(id, name, color, ids, anchor, collapsed):
+            guard createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections) else { return false }
+            if collapsed { _ = mutateGroup(id, in: &sections) { $0.isCollapsed = true } }
+            return true
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
@@ -49,6 +54,7 @@ public nonisolated enum SidebarEdits {
             return mutateWorkspaces(ids, in: &sections) { ws in
                 switch (ws.icon, color) {
                 case let (.symbol(name, _)?, color): ws.icon = .symbol(name, tint: color)
+                case (.emoji?, _): break // an emoji keeps its own colors
                 case let (_, color?): ws.icon = .swatch(color)
                 case (.swatch?, nil), (nil, nil): ws.icon = nil
                 }
@@ -164,19 +170,29 @@ public nonisolated enum SidebarEdits {
         name: String,
         color: GroupColor,
         workspaces ids: [WorkspaceID],
+        anchor target: WorkspaceID? = nil,
         in sections: inout [SidebarSection]
     ) -> Bool {
         let ordered = treeOrder(ids, in: sections)
-        guard let first = ordered.first, let anchor = locate(first, in: sections),
+        // The group forms at `target` (an onto-drop's target row), else at
+        // the first workspace in tree order.
+        guard let first = target.flatMap({ ordered.contains($0) ? $0 : nil }) ?? ordered.first,
+              let anchor = locate(first, in: sections),
               sections[anchor.section].machine != nil,
               locateGroup(id, in: sections) == nil else { return false }
         let s = anchor.section
-        // Only workspaces from the anchor's section join; nothing precedes the
-        // anchor in tree order, so removal does not shift the insertion index.
+        // Only workspaces from the anchor's section join. Loose members
+        // before the insertion point leave it, so it moves up by their count
+        // (emptied groups stay until the prune below).
         let sameSection = ordered.filter { locate($0, in: sections)?.section == s }
-        let insertion = anchor.child == nil ? anchor.node : anchor.node + 1
-        let removed = removeWorkspaces(Set(sameSection), from: &sections)
-        let group = SidebarGroup(id: id, name: name, color: color, workspaces: removed)
+        let joining = Set(sameSection)
+        var insertion = anchor.child == nil ? anchor.node : anchor.node + 1
+        insertion -= sections[s].nodes.prefix(insertion).count(where: { node in
+            if case let .workspace(ws) = node { return joining.contains(ws.id) }
+            return false
+        })
+        let removed = removeWorkspaces(joining, from: &sections)
+        let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
         sections[s].nodes.insert(.group(group), at: min(insertion, sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id)
         return true

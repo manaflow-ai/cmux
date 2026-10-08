@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -37,19 +38,56 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
-        let probe = frameProbe
+        registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
+        service.router.register(TabSearchControl.methods())
+        service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
         service.router.register(BookmarkControl.methods(services: services))
+        service.router.register(FeedControl.methods(services: services))
+        service.router.register(ServerReachControl.methods(services: services))
+        service.router.register(KeybindingControl.methods(services: services))
+        service.router.register(SettingsControl.methods(services: services))
+        service.router.register([
+            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
+            .async("resources") { [weak services] call in
+                let services = await MainActor.run { services }
+                return try await ResourceControl.run(call.params, services: services)
+            }.withDeadline(.fixed(ResourceControl.deadline)),
+            // Installed Chrome extensions, shortcuts and toolbar badges.
+            .mainActor("browser.extensions") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(ExtensionControl.report(services))
+            },
+            // Ghostty config keys and keybind actions cmux does not apply (R92).
+            GhosttyDiagnosticsControl().method,
+        ])
+        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
+        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        #if DEBUG
+        let probe = frameProbe
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            .mainActor("debug.page_host_pool") { [weak services] call in
+                .value(DebugPageHostPool.handle(call.params, services: services))
+            },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
             .mainActor("debug.focus") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
+            },
+            // Home per window and the local conversation projection (home.md).
+            .mainActor("debug.home") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHome.report(services: services))
+            },
+            // My pending and refused sends with the reason (no screenshot needed).
+            .mainActor("debug.home.delivery") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHome.delivery(services: services))
             },
             // Room, workspace and terminal theme scopes.
             .mainActor("debug.themes") { [weak services] _ in
@@ -84,31 +122,51 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.report(services: services))
             },
+            // The one hover card: machine phase, card window, timer, monitor.
+            .mainActor("debug.hover_cards") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
+            },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
             .mainActor("debug.pane_chrome") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaneChrome.report(services: services))
             },
-            // Sticky columns, the strip range and its scrollbar; `pane` +
-            // `sticky` changes a column (plans/cmux-next/sticky-column.md).
-            .mainActor("debug.sticky") { [weak services] call in
+            // Docked columns, the strip range and its scrollbar; `pane` +
+            // `dock` changes a column (plans/cmux-next/dock-column.md).
+            .mainActor("debug.dock") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugStickyColumns.handle(call.params, services: services))
+                return .value(DebugDockColumns.handle(call.params, services: services))
+            },
+            // Agent cursor visibility per browser tab (`target` narrows it).
+            .mainActor("debug.agent_cursor") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.report(call.params, services: services))
             },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
-            // `text: true` adds each terminal mirror's viewport text.
-            .mainActor("debug.surfaces") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(SurfaceDiagnosticsReport.make(services, includeText: call.params["text"]?.boolValue == true))
+            // `text: true` adds each terminal mirror's viewport text. DEBUG builds add each
+            // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
+            .async("debug.surfaces") { [weak services] call in
+                let includeText = call.params["text"]?.boolValue == true
+                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
+                    guard let services else { return nil }
+                    #if DEBUG
+                    let targets = SurfaceHostReport.targets(services)
+                    #else
+                    let targets: [SurfaceHostReport.Target] = []
+                    #endif
+                    return (SurfaceDiagnosticsReport.make(services, includeText: includeText), targets)
+                }
+                guard let (report, targets) = built else { return .null }
+                #if DEBUG
+                return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
+                #else
+                return report
+                #endif
             },
-            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
-            .async("resources") { [weak services] call in
-                let services = await MainActor.run { services }
-                return try await ResourceControl.run(call.params, services: services)
-            }.withDeadline(.fixed(ResourceControl.deadline)),
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
@@ -128,15 +186,35 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCrashes.report(services))
             },
-            // Installed Chrome extensions, shortcuts and toolbar badges.
-            .mainActor("browser.extensions") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(ExtensionControl.report(services))
-            },
         ])
+        #endif
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
+            .mainActor("debug.home.drive") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.drive(call.params, services: services))
+            },
+            .mainActor("debug.window_record") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowRecord.start(call.params, services: services))
+            },
+            .async("debug.shortcut_hints") { [weak services] call in
+                await DebugShortcutHintControl().handle(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(4))),
+            .mainActor("debug.showcase.seed") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugShowcase.seed(call.params, services: services))
+            },
+            .mainActor("debug.scene.list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(CaptureSceneRegistry(services: services).list())
+            },
+            .async("debug.scene.render") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                let registry = await MainActor.run { CaptureSceneRegistry(services: services) }
+                return await registry.render(call.params)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.webkit_inspector") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugWebInspector.handle(call.params, services: services))
@@ -146,17 +224,54 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPopups.report(call.params, services: services))
             },
+            // Scripted input into the real agent cursor stacks (visual checks).
+            .mainActor("debug.agent_cursor.demo") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursorDemo.handle(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
+            },
+            .mainActor("debug.palette.capture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            .mainActor("debug.omnibar_type") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.type(call.params, services: services))
+            },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
+            },
+            .mainActor("debug.home_native_fixture.open") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let attachments = call.params["attachments"]?.boolValue ?? false
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
+            },
+            // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
+            // files enter the shown Home composer through the same intake as
+            // a real drop, paste or pick (HomeNativeTranscriptView.attachFiles).
+            .mainActor("debug.home.attach") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.attach(call.params, services: services))
+            },
+            .mainActor("debug.window_list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowList.list(services: services))
+            },
+            .async("debug.window_snapshot") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugWindowSnapshot.captureAsync(call.params, services: services)
+            },
+            .mainActor("debug.window.focus") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugKey.focusWindow(call.params, services: services))
             },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -165,6 +280,10 @@ final class AppControl {
             .mainActor("debug.drop_highlight") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_rows") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarRows.report(services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -178,8 +297,21 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            .async("debug.new_tab") { [weak services] call in
+                await DebugNewTab.handle(call.params, services)
+            }.withDeadline(.fixed(.seconds(15))),
+            // R131: hover card retarget timing across the focused strip's tabs.
+            .async("debug.hover_sweep") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugHoverSweep.run(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
+            },
+            // The cookie import card on browser pages (cx-367y).
+            .mainActor("debug.cookie_prompt") { [weak services] call in
+                .value(services.map { DebugCookiePrompt.run(call.params, services: $0) } ?? .null)
             },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
@@ -199,14 +331,41 @@ final class AppControl {
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
+            // The file pages: tabs, recovery drafts, toasts, and the notice's Open.
+            .async("debug.filepages") { [weak services] call in
+                let services = await MainActor.run { services }
+                guard let services else { return .null }
+                return await DebugFilePages.run(call.params, services)
+            },
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // Every open cmux dialog (R96): list, fixtures, keys, presses.
+            .mainActor("debug.dialog") { [weak services] call in
+                .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
+            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
+            // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
+            // macOS (no sudo needed), `enabled: null` follows macOS again.
+            .mainActor("debug.low_power_mode") { call in
+                let mode = LowPowerMode.system
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
+            },
+            // Reduce Transparency as overlays follow it (toasts, menus): `enabled: bool`
+            // overrides macOS for this app only, `enabled: null` follows macOS again.
+            .mainActor("debug.reduce_transparency") { call in
+                let mode = ReduceTransparency.shared
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)])
+            },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
                 let end = ContinuousClock.now + .milliseconds(milliseconds)

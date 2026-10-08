@@ -1,0 +1,189 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/monaco",
+  "name": {
+    "en": "Monaco",
+    "ja": "Monaco"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "A full code editor (Monaco) for files and documents in cmux, with your terminal's font and colors, save, conflict handling, read-only mode, a diff view and an optional minimap.",
+    "ja": "cmuxのファイルとドキュメント向けの本格的なコードエディタ(Monaco)。ターミナルのフォントと色、保存、競合の処理、読み取り専用モード、差分表示、ミニマップ(任意)に対応します。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "developer-tools",
+    "productivity"
+  ],
+  "keywords": [
+    "editor",
+    "code",
+    "text",
+    "monaco"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js",
+    "web": {
+      "root": "web/",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "catalog": "catalog/monaco-catalog.json",
+  "cli": { "name": "monaco" },
+  "implements": {
+    "cmux.editor/1": {
+      "web": "web/index.html",
+      "title": {
+        "en": "Monaco",
+        "ja": "Monaco"
+      },
+      "symbol": "doc.text",
+      "types": [
+        "public.source-code",
+        "public.plain-text",
+        "public.json",
+        "net.daringfireball.markdown"
+      ],
+      "options": {
+        "capabilities": [
+          "diff",
+          "readOnly",
+          "multiCursor",
+          "decorations"
+        ],
+        "paneCommands": [
+          "save",
+          "revert",
+          "toggleReadOnly",
+          "focus"
+        ]
+      }
+    }
+  },
+  "scopes": {
+    "document:write": "Edit and save the files and documents you open with this editor.",
+    "workspace:write": "Open an editor pane when you run Open File."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "statusLine",
+        "header",
+        "bare"
+      ],
+      "default": "statusLine"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "fontFamily": {
+        "type": "string",
+        "default": "",
+        "title": "Font family",
+        "description": "Empty: the terminal font."
+      },
+      "fontSize": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 72,
+        "default": 0,
+        "title": "Font size",
+        "description": "0: the terminal font size."
+      },
+      "wordWrap": {
+        "type": "boolean",
+        "default": false,
+        "title": "Wrap long lines"
+      },
+      "lineNumbers": {
+        "type": "boolean",
+        "default": true,
+        "title": "Show line numbers"
+      },
+      "tabSize": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "title": "Tab size"
+      },
+      "minimap": {
+        "type": "boolean",
+        "default": false,
+        "title": "Show minimap"
+      },
+      "renderWhitespace": {
+        "type": "string",
+        "enum": [
+          "none",
+          "boundary",
+          "all"
+        ],
+        "default": "none",
+        "title": "Show whitespace"
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.editor/1",
+    "onOp:monaco.open",
+    "onOp:monaco.save",
+    "onOp:monaco.revert",
+    "onOp:monaco.toggle_read_only"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/",
+    "web/",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "openWith": [
+    {
+      "interface": "cmux.editor/1",
+      "types": [
+        "public.source-code",
+        "public.plain-text",
+        "public.json",
+        "net.daringfireball.markdown"
+      ],
+      "default": "ask"
+    }
+  ],
+  "handles": {
+    "document": {
+      "reason": "Edit the file you open with this editor.",
+      "rights": [
+        "read",
+        "write"
+      ],
+      "max": 64
+    }
+  },
+  "consumes": {
+    "ops": [
+      "document.open",
+      "document.edit",
+      "document.save",
+      "document.revert"
+    ],
+    "handles": [
+      "document"
+    ]
+  }
+}

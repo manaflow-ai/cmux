@@ -1,5 +1,5 @@
 /// One entry of a declared context menu.
-public enum ContextMenuEntry: Sendable, Hashable {
+public nonisolated enum ContextMenuEntry: Sendable, Hashable {
     case action(ActionID)
     case separator
     /// A submenu titled by an action's title (without its ellipsis).
@@ -8,35 +8,42 @@ public enum ContextMenuEntry: Sendable, Hashable {
     /// enumeration argument (Set Room Theme > Nord, Vesper, ...). Hovering
     /// an item previews it (`ActionRegistry.choicePreview`).
     case choices(ActionID)
+    /// A titled submenu of less used rows ("Move ▸").
+    case folder(MenuFolder, [ContextMenuEntry])
 }
 
-/// Right-click menus declared as ordered action ID lists per context. The
-/// registry renders them (`ActionRegistry.makeContextMenu`), so a menu never
-/// hand-builds titles, shortcuts, or enabled state.
-public struct ContextMenuCatalog {
-    public static let shared = Self()
-    public func entries(for context: ActionMenuContext) -> [ContextMenuEntry] {
-        switch context {
-        case .tab: tab
-        case .tabGroup: tabGroup
-        case .screen: screen
-        case .screenGroup: screenGroup
-        case .pane: pane
-        case .column: column
-        case .workspaceRow: workspaceRow
-        case .workspaceGroup: workspaceGroup
-        case .sidebarBackground: sidebarBackground
-        case .terminalSelection: terminalSelection
-        case .browserPage: browserPage
-        case .link: link
-        case .cloudMachine: cloudMachine
-        case .sshMachine: sshMachine
-        case .newTab: newTab
-        case .profile: profile
-        case .browserProfile: browserProfile
-        case .bookmark: bookmark
-        case .bookmarksBar: bookmarksBar
+/// Right-click menus generated from the actions' placements
+/// (`ActionDescriptor.surfacePlan.contextMenus`). No menu is a hand list:
+/// an action appears in a menu exactly when it declares a placement there,
+/// so a menu cannot drift from the catalog. The registry renders the
+/// entries (`ActionRegistry.makeContextMenu`) with titles, shortcuts and
+/// enabled state.
+public nonisolated struct ContextMenuCatalog: Sendable {
+    public static let shared = Self(descriptors: ActionCatalog.all)
+
+    private let menus: [ActionMenuContext: [ContextMenuEntry]]
+    private let labels: [ActionMenuContext: [ActionID: String]]
+
+    public init(descriptors: [ActionDescriptor]) {
+        var rows: [ActionMenuContext: [Row]] = [:]
+        var labels: [ActionMenuContext: [ActionID: String]] = [:]
+        for (index, descriptor) in descriptors.enumerated() {
+            for placement in descriptor.surfacePlan.contextMenus {
+                rows[placement.context, default: []].append(Row(id: descriptor.id, placement: placement, index: index))
+                if let label = placement.label { labels[placement.context, default: [:]][descriptor.id] = label }
+            }
         }
+        menus = rows.mapValues { Self.topLevel($0) }
+        self.labels = labels
+    }
+
+    public func entries(for context: ActionMenuContext) -> [ContextMenuEntry] {
+        menus[context] ?? []
+    }
+
+    /// The menu-only row titles of `context` (``ContextMenuPlacement/label``).
+    public func labels(for context: ActionMenuContext) -> [ActionID: String] {
+        labels[context] ?? [:]
     }
 
     /// Every action ID an entry list references, submenus included.
@@ -47,203 +54,105 @@ public struct ContextMenuCatalog {
             case .separator: []
             case .submenu(let id, let children): [id] + referencedIDs(children)
             case .choices(let id): [id]
+            case .folder(_, let children): referencedIDs(children)
             }
         }
     }
 
-    private func actions(_ ids: ActionID...) -> [ContextMenuEntry] {
-        ids.map { .action($0) }
+    /// The menu for `context` without `hidden` rows, inside folders too
+    /// (call-site filters: a page tab hides terminal themes). A folder left
+    /// empty disappears; the registry collapses separator runs.
+    public func entries(for context: ActionMenuContext, removing hidden: Set<ActionID>) -> [ContextMenuEntry] {
+        Self.removing(hidden, from: entries(for: context))
     }
 
-    private func colors(_ prefix: String) -> [ContextMenuEntry] {
-        ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
-            .map { .action(ActionID(rawValue: "\(prefix).color.\($0)")) }
-    }
-
-    /// The + button: one entry per tab kind. Chromium shows disabled, with
-    /// its reason, when this build has no CEF runtime.
-    var newTab: [ContextMenuEntry] {
-        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab", "palette.newAgentChat")
-    }
-
-    var tab: [ContextMenuEntry] {
-        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "reloadTab") + [.separator]
-        + actions("browser.openInChromium", "browser.openInWebKit", "browserProfile.moveTab", "browserProfile.duplicateTab") + [.separator]
-        + actions("renameTab", "palette.clearTabName", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute")
-        + [.choices("terminal.setTheme")] + actions("terminal.clearTheme")
-        + [.separator] + actions("tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab") + [.separator]
-        + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-                  "tab.moveToNewSplit", "tab.moveToNewColumn", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
-                  "palette.toggleFullWidthTab")
-        + [.separator] + actions("tab.showResources", "palette.copySurfaceID", "palette.copySurfaceLink", "palette.copyIdentifiers")
-        + [.separator] + actions("disconnectRemoteTab", "closeTabsToLeft", "closeTabsToRight", "closeOtherTabsInPane", "closeTab")
-    }
-
-    var tabGroup: [ContextMenuEntry] {
-        actions("tabGroup.newTab", "tabGroup.rename") + [.submenu("tabGroup.setColor", colors("tabGroup"))]
-        + actions("tabGroup.toggleCollapsed") + [.separator] + actions("tabGroup.save", "tabGroup.unsave") + [.separator]
-        + actions("tabGroup.moveLeft", "tabGroup.moveRight", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn", "tabGroup.moveToNewWorkspace",
-                  "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow")
-        + [.separator] + actions("tabGroup.ungroup", "tabGroup.close")
-    }
-
-    /// A screen tab in the bottom screen bar.
-    var screen: [ContextMenuEntry] {
-        actions("screen.new", "screen.duplicate") + [.separator]
-        + actions("screen.rename") + [.submenu("screen.setColor", colors("screen") + actions("screen.clearColor"))]
-        + actions("screen.setIcon", "screen.clearIcon", "screen.togglePin") + [.separator]
-        + actions("screenGroup.create", "screenGroup.addScreen", "screenGroup.removeScreen") + [.separator]
-        + actions("screen.moveLeft", "screen.moveRight", "screen.moveToWorkspace", "screen.moveToNewWorkspace", "screen.moveToNewWindow")
-        + [.separator] + actions("screen.close", "screen.closeOthers", "screen.closeToRight", "screen.closeToLeft")
-    }
-
-    /// A screen group chip in the screen bar.
-    var screenGroup: [ContextMenuEntry] {
-        actions("screenGroup.newScreen", "screenGroup.rename") + [.submenu("screenGroup.setColor", colors("screenGroup"))]
-        + actions("screenGroup.toggleCollapsed") + [.separator] + actions("screenGroup.save", "screenGroup.unsave") + [.separator]
-        + actions("screenGroup.moveLeft", "screenGroup.moveRight", "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace",
-                  "screenGroup.moveToNewWindow")
-        + [.separator] + actions("screenGroup.ungroup", "screenGroup.close")
-    }
-
-    var pane: [ContextMenuEntry] {
-        actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")
-        + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
-        + actions("palette.swapWithSession", "reconnectPane") + [.separator]
-        + actions("pane.moveToNewWorkspace", "remote.openTerminalHere") + [.separator]
-        + actions("column.makeSticky", "column.unstick", "column.toggleStickyOverlay") + [.separator]
-        + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
-    }
-
-    var column: [ContextMenuEntry] {
-        actions("newColumn", "newPaneAutoLayout", "splitDown") + [.separator]
-        + actions("column.widthOneThird", "column.widthHalf", "column.widthTwoThirds", "column.widthFull") + [.separator]
-        + actions("column.moveLeft", "column.moveRight", "equalizeSplits", "toggleSplitZoom") + [.separator]
-        + actions("column.makeSticky", "column.makeStickyLeft", "column.unstick", "column.toggleStickyOverlay")
-    }
-
-    var workspaceRow: [ContextMenuEntry] {
-        actions("workspace.newAbove", "workspace.newBelow", "workspace.newInGroup", "workspace.newInSameDirectory",
-                "workspace.duplicate", "workspace.duplicateTerminalsOnly")
-        + [.separator]
-        + actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
-                "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.setIcon", "workspace.clearIcon")
-        + [.choices("workspace.setTheme")] + actions("workspace.clearTheme",
-                "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
-                "notifications.toggleWorkspaceMute")
-        + [.separator]
-        + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "moveWorkspaceToWindow",
-                  "moveWorkspaceToNewWindow", "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup",
-                  "workspace.moveToRoom", "workspace.duplicateToRoom", "workspace.mergeInto")
-        + [.separator] + actions("browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault")
-        + [.separator]
-        + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "workspace.copyPath",
-                  "palette.copyWorkspaceID", "palette.copyWorkspaceLink")
-        + [.separator]
-        + actions("palette.closeOtherWorkspaces", "workspace.closeOthersInGroup", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
-                  "closeWorkspace")
-    }
-
-    var cloudMachine: [ContextMenuEntry] {
-        actions("cloudNewTerminal", "cloudOpenMachine", "cloudRenameMachine") + [.separator]
-        + actions("cloudCopyMachineID", "cloudCopyLink", "cloudCopyPort") + [.separator]
-        + actions("cloudResizeMachine", "palette.cloud.status", "palette.cloud.snapshot", "palette.cloud.fork") + [.separator]
-        + actions("cloudKillMachine")
-    }
-
-    /// An SSH machine's section header.
-    var sshMachine: [ContextMenuEntry] {
-        actions("remote.newWorkspace") + [.separator]
-        + actions("remote.reconnect", "remote.disconnect", "remote.install") + [.separator]
-        + actions("remote.forget")
-    }
-
-    /// A room dot in the sidebar.
-    var profile: [ContextMenuEntry] {
-        actions("room.newWindow", "room.newWorkspace") + [.separator]
-        + actions("room.rename")
-        + [.submenu("room.setColor", colors("room") + [.separator] + actions("room.clearColor"))]
-        + actions("room.setIcon", "room.clearIcon")
-        + [.choices("room.setTheme")] + actions("room.clearTheme", "room.setDefaults", "browserProfile.setRoomDefault",
-                                                  "browserProfile.clearRoomDefault") + [.separator]
-        + actions("room.moveLeft", "room.moveRight") + [.separator]
-        + actions("room.new") + [.separator] + actions("room.delete")
-    }
-
-    /// A browser profile: the omnibar's profile badge or a Settings row.
-    var browserProfile: [ContextMenuEntry] {
-        actions("browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace") + [.separator]
-        + actions("browserProfile.rename", "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon",
-                  "browserProfile.clearIcon") + [.separator]
-        + actions("browserProfile.manageExtensions") + [.separator]
-        + actions("browserProfile.new") + [.separator] + actions("browserProfile.delete")
-    }
-
-    /// A bookmark or folder on the bookmarks bar.
-    var bookmark: [ContextMenuEntry] {
-        actions("bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll") + [.separator]
-        + actions("bookmark.edit", "bookmark.remove") + [.separator]
-        + bookmarksBar
-    }
-
-    /// The bookmarks bar's empty area.
-    var bookmarksBar: [ContextMenuEntry] {
-        actions("bookmark.addPage", "bookmark.newFolder") + [.separator]
-        + actions("bookmark.toggleBar", "bookmark.manager")
-    }
-
-    var workspaceGroup: [ContextMenuEntry] {
-        actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")
-        + [.submenu("workspaceGroup.setColor", colors("workspaceGroup"))]
-        + actions("workspaceGroup.togglePin", "toggleFocusedWorkspaceGroupCollapsed") + [.separator]
-        + actions("workspaceGroup.markRead", "workspaceGroup.markUnread", "workspaceGroup.clearNotifications") + [.separator]
-        + actions("workspaceGroup.collapseAll", "workspaceGroup.expandAll") + [.separator]
-        + actions("workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToNewWindow",
-                  "workspaceGroup.moveToWindow", "workspaceGroup.moveToRoom")
-        + [.separator] + actions("workspaceGroup.editConfig") + [.separator]
-        + actions("workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces", "workspaceGroup.delete")
-    }
-
-    var sidebarBackground: [ContextMenuEntry] {
-        actions("newTab", "workspace.newAtTop", "workspace.newOnMachine", "newBrowserWorkspace", "openFolder", "newWorkspaceGroup", "room.new")
-        + [.separator]
-        + actions("workspace.sortByName", "workspace.sortByLastUsed", "workspace.sortByDirectory", "workspaceGroup.collapseAll",
-                  "workspaceGroup.expandAll") + [.separator]
-        + actions("newCloudWorkspace", "remote.connect") + [.separator] + actions("toggleSidebar")
-    }
-
-    var terminalSelection: [ContextMenuEntry] {
-        actions("terminalCopy", "terminalPaste", "terminal.selectAll", "useSelectionForFind") + [.separator]
-        + actions("splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom") + [.separator]
-        + actions("palette.forkAgentConversationRight", "palette.forkAgentConversationNewTab") + [.separator]
-        + actions("clearScreenKeepScrollback", "resetTerminal")
-    }
-
-    var browserPage: [ContextMenuEntry] {
-        actions("browserBack", "browserForward", "browserReload") + [.separator]
-        + actions("bookmark.addPage", "palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
-        + [.submenu("browser.pageInfo", pageInfo)] + actions("toggleBrowserDeveloperTools") + [.separator]
-        + actions("browser.extensions.menu", "browser.extensions.manage")
-    }
-
-    /// Every Page Info control (the omnibar's site information bubble).
-    var pageInfo: [ContextMenuEntry] {
-        actions("browser.pageInfo", "browser.pageInfo.connection", "browser.pageInfo.certificate") + [.separator]
-        + actions("browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions") + [.separator]
-        + actions("browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.deleteSiteData") + [.separator]
-        + actions("browser.pageInfo.siteSettings", "browser.pageInfo.aboutThisPage")
+    static func removing(_ hidden: Set<ActionID>, from entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+        var result: [ContextMenuEntry] = []
+        for entry in entries {
+            switch entry {
+            case .action(let id), .choices(let id):
+                if !hidden.contains(id) { result.append(entry) }
+            case .separator:
+                result.append(entry)
+            case .submenu(let id, let children):
+                if !hidden.contains(id) { result.append(.submenu(id, removing(hidden, from: children))) }
+            case .folder(let folder, let children):
+                let kept = removing(hidden, from: children)
+                if kept.contains(where: { if case .separator = $0 { false } else { true } }) { result.append(.folder(folder, kept)) }
+            }
+        }
+        return result
     }
 
     /// The cmux items after an engine's own page menu (Chromium lists Back,
     /// Forward and Reload itself): the page menu without that group.
     public var browserPageAfterEngineMenu: [ContextMenuEntry] {
         let navigation: Set<ActionID> = ["browserBack", "browserForward", "browserReload"]
-        var entries = browserPage.filter { if case .action(let id) = $0 { !navigation.contains(id) } else { true } }
+        var entries = entries(for: .browserPage).filter { if case .action(let id) = $0 { !navigation.contains(id) } else { true } }
         while case .separator? = entries.first { entries.removeFirst() }
         return entries
     }
 
-    var link: [ContextMenuEntry] {
-        actions("openLinkInNewTab", "openLinkInDefaultBrowser") + [.separator] + actions("terminalCopy")
+    private struct Row {
+        let id: ActionID
+        let placement: ContextMenuPlacement
+        let index: Int
+    }
+
+    /// A top-level menu: unfoldered rows plus one row per folder at the
+    /// folder's position. A folder with one row shows it inline.
+    private static func topLevel(_ rows: [Row]) -> [ContextMenuEntry] {
+        let roots = rows.filter { $0.placement.parent == nil }
+        // Folders follow their group's rows, in the group's last section.
+        var items: [(group: MenuGroup, folder: Int, rank: Int, index: Int, band: Int, entries: [ContextMenuEntry])] = []
+        var lastBand: [MenuGroup: Int] = [:]
+        func addRow(_ row: Row) {
+            let band = row.placement.rank / 100
+            lastBand[row.placement.group] = max(lastBand[row.placement.group] ?? band, band)
+            items.append((row.placement.group, 0, row.placement.rank, row.index, band, entries([row], all: rows)))
+        }
+        for row in roots where row.placement.folder == nil { addRow(row) }
+        var folders: [(MenuFolder, [Row])] = []
+        for folder in MenuFolder.allCases {
+            let members = roots.filter { $0.placement.folder == folder }
+            if members.count == 1, let only = members.first { addRow(only) } else if !members.isEmpty { folders.append((folder, members)) }
+        }
+        for (folder, members) in folders {
+            let index = MenuFolder.allCases.firstIndex(of: folder) ?? 0
+            items.append((folder.group, 1, index, index, lastBand[folder.group] ?? 0, [.folder(folder, entries(members, all: rows))]))
+        }
+        items.sort { ($0.group, $0.folder, $0.rank, $0.index) < ($1.group, $1.folder, $1.rank, $1.index) }
+        var result: [ContextMenuEntry] = []
+        var lastSection: (MenuGroup, Int)?
+        for item in items {
+            let section = (item.group, item.band)
+            if let lastSection, lastSection != section { result.append(.separator) }
+            lastSection = section
+            result += item.entries
+        }
+        return result
+    }
+
+    /// Orders `rows` by group, rank and catalog order, with a separator
+    /// between groups and between rank hundreds inside a group.
+    private static func entries(_ rows: [Row], all: [Row]) -> [ContextMenuEntry] {
+        let sorted = rows.sorted {
+            ($0.placement.group, $0.placement.rank, $0.index) < ($1.placement.group, $1.placement.rank, $1.index)
+        }
+        var result: [ContextMenuEntry] = []
+        var lastSection: (MenuGroup, Int)?
+        for row in sorted {
+            let section = (row.placement.group, row.placement.rank / 100)
+            if let lastSection, lastSection != section { result.append(.separator) }
+            lastSection = section
+            switch row.placement.style {
+            case .item: result.append(.action(row.id))
+            case .choices: result.append(.choices(row.id))
+            case .submenu:
+                let children = all.filter { $0.placement.parent == row.id }
+                result.append(.submenu(row.id, entries(children, all: all)))
+            }
+        }
+        return result
     }
 }

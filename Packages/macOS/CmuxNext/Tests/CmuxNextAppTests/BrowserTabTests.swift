@@ -43,7 +43,7 @@ struct BrowserTabTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { .notBundled }
-        browserTabs.create = { pane, url, engine, _ in
+        browserTabs.create = { pane, url, engine, _, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }
@@ -95,7 +95,7 @@ struct BrowserTabTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { .startFailed("no CEF here") }
-        browserTabs.create = { pane, url, engine, _ in
+        browserTabs.create = { pane, url, engine, _, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }
@@ -104,9 +104,10 @@ struct BrowserTabTests {
         #expect(registry.unavailableReason(for: "openBrowser.chromium") == "no CEF here")
         #expect(registry.canPerform("openBrowser.webkit"))
         let menu = registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: "pane:3"))
-        let chromium = try #require(menu.items.first { $0.title == "New Chromium Tab" })
+        let chromium = try #require(menu.items.first { $0.title == "New Browser Tab" })
         #expect(chromium.subtitle == "no CEF here")
-        #expect(menu.items.map(\.title) == ["New Terminal Tab", "New WebKit Tab", "New Chromium Tab", "New Tab with Browser Profile…", "New Agent Chat"])
+        #expect(menu.items.map(\.title) == ["New Terminal Tab", "New Browser Tab", "New Tab with Browser Profile…", "New Agent Chat",
+                                                "New Tab Page"])
 
         let pane = ActionTargetRef(kind: .pane, id: "pane:3")
         let refusal = registry.capturingRefusal {
@@ -162,6 +163,31 @@ struct BrowserTabTests {
         await Self.settle { false }
         #expect(sent == [BrowserRecordUpdate(url: "https://two.test/", title: "Two", favicon: .unchanged)])
         #expect(writer.recorded.url == "https://two.test/")
+        writer.cancel()
+    }
+
+    /// Quit sends a page change still waiting out the delay at once, and
+    /// only once: the record reopened at relaunch is the last page.
+    @Test func quitSendsAWaitingChangeNow() async throws {
+        let engine = MockBrowserEngine()
+        let page = engine.makeMockTab(BrowserTabConfiguration())
+        let gate = SleepGate()
+        var sent: [BrowserRecordUpdate] = []
+        let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(url: "about:blank"), delay: .milliseconds(500),
+                                         sleep: { _ in try await gate.wait() }) { update in
+            sent.append(update)
+            return true
+        }
+        page.load(URL(string: "https://last.test/")!)
+        page.simulate(.titleChanged("Last"))
+        await Self.settle { gate.waiters > 0 }
+        await writer.flushNow()
+        #expect(sent == [BrowserRecordUpdate(url: "https://last.test/", title: "Last", favicon: .unchanged)])
+        gate.releaseAll()
+        await Self.settle { false }
+        #expect(sent.count == 1, "the delayed write does not send it again")
+        await writer.flushNow()
+        #expect(sent.count == 1, "nothing waits after a flush")
         writer.cancel()
     }
 }

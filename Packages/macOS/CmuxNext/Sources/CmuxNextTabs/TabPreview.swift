@@ -7,16 +7,26 @@ public protocol TabPreviewProvider: AnyObject {
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage?
 }
 
-/// Chrome-like timing for the hover card.
+/// Timing for the hover card.
 public struct HoverCardPolicy: Equatable, Sendable {
     /// Delay over the narrowest tabs, where the card is the only way to read the title.
-    public var minimumDelay: Duration = .milliseconds(300)
+    public var minimumDelay: Duration
     /// Delay over full-width tabs, where the title is already readable.
-    public var maximumDelay: Duration = .milliseconds(800)
+    public var maximumDelay: Duration
     /// After a card hides, a new hover within this window shows immediately.
-    public var reshowWindow: Duration = .milliseconds(700)
+    public var reshowWindow: Duration
 
-    public init() {}
+    /// Delays default to 300 and 800 ms (`TabTunables`, overridable in Debug Settings).
+    public init() {
+        minimumDelay = Self.milliseconds(TabTunables.hoverCardMinimumDelay.value)
+        maximumDelay = Self.milliseconds(TabTunables.hoverCardMaximumDelay.value)
+        reshowWindow = .milliseconds(700)
+    }
+
+    /// Whole milliseconds, so 0.3 s is exactly `.milliseconds(300)`.
+    private static func milliseconds(_ seconds: Double) -> Duration {
+        .milliseconds(Int((seconds * 1000).rounded()))
+    }
 
     /// Delay before showing a card over a tab of `tabWidth`.
     public func showDelay(tabWidth: CGFloat, metrics: TabStripMetrics = .standard) -> Duration {

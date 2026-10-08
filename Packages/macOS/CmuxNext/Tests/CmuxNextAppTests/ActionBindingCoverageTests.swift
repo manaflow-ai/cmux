@@ -14,6 +14,27 @@ struct ActionBindingCoverageTests {
     static let savedGroupActions: Set<ActionID> = ["tabGroup.reopenSaved", "tabGroup.deleteSaved"]
 
     /// Services with every handler bound; no daemon, no windows.
+    /// Every catalog action has one owner: the app binds no id twice (diff-host S4 and R89 had both
+    /// bound openDiffViewer and palette.openDirectoryDiffViewer).
+    /// The check is this test, never a runtime trap (a Debug dogfood build must not crash at
+    /// launch); at runtime a double bind only logs a fault.
+    @Test func noActionIsBoundTwice() {
+        let services = Self.boundServices()
+        #expect(services.registry.duplicateBindings.isEmpty, "\(services.registry.duplicateBindings)")
+    }
+
+    /// tab.search (and its alias palette.goToTab) has one owner: a tab target reveals the tab; its
+    /// only argument is `query` (keybindings lead review).
+    @Test func tabSearchRevealsItsTabTarget() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "tab.search" })
+        #expect(descriptor.arguments.map(\.name) == ["query"])
+        let services = Self.boundServices()
+        // A tab target takes the reveal path, never the Search Tabs page's focus refusal.
+        let outcome = Self.run(services, "tab.search", target: ActionTargetRef(kind: .tab, id: "no-such-tab"))
+        #expect(outcome != .refused(TabSearchAppStrings.needsFocus), "\(outcome)")
+        #expect(Self.run(services, "tab.search") == .refused(TabSearchAppStrings.needsFocus))
+    }
+
     static func boundServices() -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -35,16 +56,18 @@ struct ActionBindingCoverageTests {
 
     @Test func unbuiltFeatureIsUnavailableWithReason() {
         let services = Self.boundServices()
-        #expect(Self.run(services, "toggleRightSidebar") == .refused("needs app capability right-sidebar"))
+        #expect(Self.run(services, "toggleRightSidebar") == .refused(RefusalStrings.notInThisVersion))
         #expect(!services.registry.canPerform("toggleRightSidebar"))
     }
 
     @Test func missingDaemonCapabilityIsUnavailableWithReason() {
         let services = Self.boundServices()
         let group = ActionTargetRef(kind: .workspaceGroup, id: "grp_1")
-        #expect(Self.run(services, "workspaceGroup.collapse", target: group) == .refused("needs daemon capability workspace-groups-v1"))
-        #expect(Self.run(services, "palette.markWorkspaceRead") == .refused("needs daemon capability notification-ack-v1"))
-        #expect(Self.run(services, "tabGroup.reopenSaved") == .refused("needs daemon capability tab-groups-v1"))
+        let cases: [(String, ActionTargetRef?)] = [("workspaceGroup.collapse", group), ("palette.markWorkspaceRead", nil), ("tabGroup.reopenSaved", nil)]
+        for (id, target) in cases {
+            let outcome = Self.run(services, id, target: target)
+            #expect(CapabilityRefusalTests.refusedByGate(outcome), "\(id): \(outcome)")
+        }
     }
 
     @Test func handlerRunsAndReportsBadTargets() {
@@ -52,7 +75,7 @@ struct ActionBindingCoverageTests {
         #expect(Self.run(services, "keepMacAwake") == .ran)
         #expect(Self.run(services, "keepMacAwake") == .ran)
         let missing = ActionTargetRef(kind: .workspace, id: "missing")
-        #expect(Self.run(services, "palette.copyWorkspaceID", target: missing) == .refused("no workspace to act on"))
+        #expect(Self.run(services, "palette.copyWorkspaceID", target: missing) == .notFound("no workspace missing"))
     }
 
     @Test func documentationTopicIsSanitized() {

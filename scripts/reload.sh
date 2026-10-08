@@ -7,10 +7,15 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
+# The configuration xcodebuild builds and the app it produces (Release: cmux.app).
+BUILD_CONFIGURATION="Debug"
+PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
@@ -663,8 +668,9 @@ if [[ -n "\$SOCKET_ARG" ]]; then
     if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
       # reload.sh links /tmp/cmux-<tag> to the DerivedData it built the tag into,
       # which is not the per-tag default when tags share one.
-      TAG_CLI_SUFFIX="Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      for TAG_CLI in "/tmp/cmux-\$TAG/\$TAG_CLI_SUFFIX" "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/\$TAG_CLI_SUFFIX"; do
+      TAG_CLI_SUFFIX="cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      for TAG_CLI in "/tmp/cmux-\$TAG"/Build/Products/{Debug,Release}/"\$TAG_CLI_SUFFIX" \
+        "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG"/Build/Products/{Debug,Release}/"\$TAG_CLI_SUFFIX"; do
         # /tmp is shared, so only trust a CLI this user owns.
         [[ -O "\$TAG_CLI" ]] || continue
         if live_cli_bundle "\$TAG_CLI" >/dev/null; then
@@ -911,6 +917,9 @@ Options:
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
+  --release              Build the Release configuration (optimized, no DEBUG) of
+                         this tagged app, for dogfooding real performance. The
+                         debug.* socket commands are compiled out.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -1014,6 +1023,29 @@ set_plist_url_scheme() {
     || true
 }
 
+# Prints the selected Xcode's version ("26.3"), or nothing when xcodebuild cannot say.
+selected_xcode_version() {
+  xcodebuild -version 2>/dev/null | awk 'NR == 1 && $1 == "Xcode" { print $2 }' || true
+}
+
+# Whether this reload skips the app's separate Swift module emission, given the
+# selected Xcode's version. CMUX_RELOAD_APP_EMIT_MODULE decides when it is set: 1
+# emits the module, 0 skips it. Unset, the module is skipped except on Xcode 26.2
+# and 26.3, where the build without it stops at the module merge with "type
+# mismatch of function ... but used in a swift module as ..." on SwiftUI views
+# whose body goes through an opaque return type.
+reload_skips_app_module_emission() {
+  local xcode_version="${1:-}"
+  case "${CMUX_RELOAD_APP_EMIT_MODULE:-}" in
+    1) return 1 ;;
+    0) return 0 ;;
+  esac
+  case "$xcode_version" in
+    26.2|26.2.*|26.3|26.3.*) return 1 ;;
+  esac
+  return 0
+}
+
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
@@ -1108,7 +1140,7 @@ tag_build_cleanup_paths() {
     derived="$(readlink "$link" 2>/dev/null || true)"
   fi
   if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
-    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
+    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app" "${derived%/}/Build/Products/Release/cmux DEV ${tag}.app"
     [[ -d "$own" ]] || return 0
   fi
   printf '%q ' "$own"
@@ -1119,7 +1151,30 @@ tag_build_cleanup_paths() {
 # argument is escaped with %q instead of being wrapped in quotes.
 print_tag_cleanup_commands() {
   local tag="$1" derived="${2:-}"
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
+  # Quit the app through its own quit path (scripts/lib/stop-app-instances.sh): exact
+  # PIDs from LaunchServices and the tag's executable, SIGTERM as a requested quit, never a
+  # pattern kill (no pkill or killall, coordinator rule c).
+  printf '  bash -c %q _ %q %q %q\n' 'source "$1" && cmux_stop_app_instances "$2" "$3"' \
+    "$SCRIPT_DIR/lib/stop-app-instances.sh" "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" \
+    "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
+  # keep running from the deleted bundle: stop the owner through the bundle's own binary
+  # before the rm. Never --end-terminals here: a pasted command cannot check that no
+  # terminal runs a job, so the terminal hosts keep running.
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  local -a roots=()
+  [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
+  roots+=("$own")
+  for root in "${roots[@]}"; do
+    for config in Debug Release; do
+      bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
+      printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
+    done
+  done
   printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
   printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
   printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
@@ -1149,7 +1204,7 @@ print_tag_cleanup_reminder() {
       continue
     fi
     # Only surface stale debug tag builds.
-    if [[ ! -d "$path/Build/Products/Debug" ]]; then
+    if [[ ! -d "$path/Build/Products/Debug" && ! -d "$path/Build/Products/Release" ]]; then
       continue
     fi
     if [[ "$seen" == *" $tag "* ]]; then
@@ -1240,6 +1295,10 @@ while [[ $# -gt 0 ]]; do
       export CMUX_DEV_BACKEND_MODE=remote
       shift
       ;;
+    --release)
+      BUILD_CONFIGURATION="Release"
+      shift
+      ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
       if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
@@ -1259,7 +1318,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cmux-tui-manifest-url)
-      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui pinned in scripts/cmux-next/cmux-tui.pin (CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
+      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui built from this checkout's cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
       exit 1
       ;;
     --derived-data)
@@ -1310,12 +1369,20 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# Release's product is cmux.app, which the tag step stages as the tagged app. It
+# bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
+# entitlements need a signing team, and the tagged app is signed ad hoc.
+if [[ "$BUILD_CONFIGURATION" == Release ]]; then
+  PRODUCT_APP_NAME="cmux"
+  export CMUX_NEXT_TUI_MODE=tree
+fi
+
 # Tagged builds normally compile the base product name and stage a distinct
 # tag-named bundle. An explicit base-name override removes that staging
 # boundary, so build-only would overwrite the bundle a running tagged process
 # can be executing from. Refuse that shape before any cleanup or build starts.
-if [[ "$BUILD_ONLY" -eq 1 && "$NAME_SET" -eq 1 && "$APP_NAME" == "$BASE_APP_NAME" ]]; then
-  echo "error: --build-only cannot use --name '$BASE_APP_NAME'; omit --name or choose a distinct tagged app name" >&2
+if [[ "$BUILD_ONLY" -eq 1 && "$NAME_SET" -eq 1 && "$APP_NAME" == "$PRODUCT_APP_NAME" ]]; then
+  echo "error: --build-only cannot use --name '$PRODUCT_APP_NAME'; omit --name or choose a distinct tagged app name" >&2
   exit 1
 fi
 
@@ -1389,14 +1456,11 @@ fi
 
 # feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
 # phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
-# pinned in scripts/cmux-next/cmux-tui.pin. No published release client exists
-# for these commits: the pinned binary is fetched (public URL, sha256-verified, no GitHub
-# credentials) before the build and checked in the bundle after it.
+# built from this checkout's own cmux-tui tree (pin-cmux-tui.sh --help). It
+# is fetched (public URL, sha256-verified, no GitHub credentials) before the
+# build, waiting while the artifacts workflow publishes a new tree, and the
+# bundle phase fails when it does not serve a capability the app relies on.
 # CMUX_NEXT_TUI_BIN=<path> bundles a local build instead.
-if [[ ! -f "$PWD/scripts/cmux-next/cmux-tui.pin" ]]; then
-  echo "error: scripts/cmux-next/cmux-tui.pin is missing; the cmux scheme cannot bundle cmux-tui" >&2
-  exit 1
-fi
 # cmux-next reads no web API origin, so a local reload provisions no shared
 # GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
 # cmux-ci passes one) still wins.
@@ -1427,6 +1491,51 @@ if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
+# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
+# tagged reload outside CI may reuse that commit-addressed cache, but never runs
+# Cargo on the developer machine.
+if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
+elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
+  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
+    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh"
+    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
+    echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  else
+    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
+    exit 1
+  fi
+fi
+
+# The Home Chief's brain host (Native/OptChat/optchat-chief, see
+# HomeBrainHost.swift). Fleet and CI builds compile it and require it in the
+# bundle; a local reload bundles a cached build when one exists and otherwise
+# builds an app whose Chief does not answer (never Cargo on the developer Mac).
+if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
+  if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-optchat-chief.sh"
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
+
+# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# app) are build output, not committed: they are built from the sources before
+# the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
+# tree skips the build in about a second. The Xcode "Verify web bundles" phase
+# refuses an app build that skipped this.
+if [[ -x "$PWD/scripts/cmux-next/build-web-bundles.sh" ]]; then
+  echo "==> cmux-next: web bundles"
+  "$PWD/scripts/cmux-next/build-web-bundles.sh" || exit 1
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -1477,9 +1586,9 @@ XCODEBUILD_TAG_APP_PATH=""
 TAG_APP_FINAL_PATH=""
 TAG_APP_STAGING_PATH=""
 if [[ -n "$DERIVED_DATA" ]]; then
-  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/Debug"
+  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}"
   if [[ -n "$TAG" ]]; then
-    XCODEBUILD_SOURCE_APP_NAME="$BASE_APP_NAME"
+    XCODEBUILD_SOURCE_APP_NAME="$PRODUCT_APP_NAME"
   fi
   XCODEBUILD_SOURCE_APP_PATH="${BUILD_PRODUCTS_DEBUG_DIR}/${XCODEBUILD_SOURCE_APP_NAME}.app"
   if [[ -n "$TAG" && "$APP_NAME" != "$XCODEBUILD_SOURCE_APP_NAME" ]]; then
@@ -1614,7 +1723,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
-  -configuration Debug
+  -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
 )
 if [[ -n "$DERIVED_DATA" ]]; then
@@ -1634,6 +1743,9 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$BUILD_CONFIGURATION" == Release ]]; then
+  XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
+fi
 # The helper is assembled before Xcode emits the host's processed Info.plist.
 # Pass the final tagged display name explicitly so its TCC entry matches the
 # app the user is dogfooding instead of falling back to the untagged product.
@@ -1671,6 +1783,28 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
+fi
+if reload_skips_app_module_emission "$(selected_xcode_version)"; then
+  # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
+  # which reload never builds) and no Objective-C includes its generated header.
+  # Xcode's integrated driver still emits the module in a separate job that
+  # type-checks every declaration in the app. The standalone driver with
+  # -no-emit-module-separately emits none, the same change #14364 made for
+  # cmuxTests; the app's Debug configuration generates no Objective-C header.
+  # Settings are per target, so packages and the CLI are unchanged. App edits
+  # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
+  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again. Xcode 26.2
+  # and 26.3 emit it without being asked; see reload_skips_app_module_emission.
+  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
+  XCODEBUILD_ARGS+=(
+    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INTEGRATED_DRIVER_cmux=NO
+    'SWIFT_INSTALL_MODULE=$(CMUX_RELOAD_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INSTALL_MODULE_cmux=NO
+  )
+  # shellcheck disable=SC2016
+  SWIFT_OTHER_FLAGS+=' $(CMUX_RELOAD_SWIFT_FLAGS_$(TARGET_NAME))'
+  XCODEBUILD_ARGS+=(CMUX_RELOAD_SWIFT_FLAGS_cmux=-no-emit-module-separately)
 fi
 if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
   XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
@@ -1843,22 +1977,22 @@ if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   exit 65
 fi
 
-FALLBACK_APP_NAME="$BASE_APP_NAME"
+FALLBACK_APP_NAME="$PRODUCT_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
 APP_EXECUTABLE_NAME="$SEARCH_APP_NAME"
 if [[ -n "$TAG" ]]; then
-  SEARCH_APP_NAME="$BASE_APP_NAME"
-  APP_EXECUTABLE_NAME="$BASE_APP_NAME"
+  SEARCH_APP_NAME="$PRODUCT_APP_NAME"
+  APP_EXECUTABLE_NAME="$PRODUCT_APP_NAME"
 fi
 if [[ -n "$DERIVED_DATA" ]]; then
-  APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${SEARCH_APP_NAME}.app"
+  APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}/${SEARCH_APP_NAME}.app"
   if [[ ! -d "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
-    APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${FALLBACK_APP_NAME}.app"
+    APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}/${FALLBACK_APP_NAME}.app"
     APP_EXECUTABLE_NAME="$FALLBACK_APP_NAME"
   fi
 else
   APP_BINARY="$(
-    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
+    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/${BUILD_CONFIGURATION}/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
     | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
     | sort -nr \
     | head -n 1 \
@@ -1869,7 +2003,7 @@ else
   fi
   if [[ -z "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
     APP_BINARY="$(
-      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
+      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/${BUILD_CONFIGURATION}/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
       | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
       | sort -nr \
       | head -n 1 \
@@ -2017,15 +2151,19 @@ else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
 fi
-# The Bundle cmux-tui phase already placed the pinned cmux-tui; refuse anything else.
+# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
+# RC, or none. Drop an ad-hoc helper an older build left in this app.
+"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
+# The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
+# with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
 cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
 case "$cmux_next_tui_source" in
-  pinned-hosted|override)
+  tree-hosted|tree-local-build|pinned-hosted|override)
     echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
     ;;
   *)
-    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the pinned hosted build; see $cmux_next_tui_version" >&2
+    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the same-tree hosted build; see $cmux_next_tui_version" >&2
     exit 1
     ;;
 esac
@@ -2041,6 +2179,9 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""
@@ -2054,20 +2195,12 @@ fi
 # that path first can make Bundle.module trap during startup while the old
 # process is still initializing.
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
-  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
-  pkill -f "$TAG_PROCESS_PATTERN" || true
-  for _ in {1..20}; do
-    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.1
-  done
-  # A startup process may not service its quit event yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; force only this tagged
-  # executable after the bounded graceful window.
-  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
+  # A startup process may not service its quit request yet. Do not replace the
+  # resource-bearing bundle while it is still mapped; the helper forces only
+  # this tag's executables after a bounded graceful window.
+  cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
+    "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2082,6 +2215,13 @@ if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   rm -rf "$TAG_APP_FINAL_PATH"
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  # xcodebuild registered its raw product under the tag's bundle id. Leave the
+  # tagged bundle as the only one, so a launch by bundle id (notification
+  # click, URL, Dock) never starts the raw copy without the tagged environment.
+  if [[ -n "${XCODEBUILD_SOURCE_APP_PATH:-}" && -d "$XCODEBUILD_SOURCE_APP_PATH" ]]; then
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+      -u "$XCODEBUILD_SOURCE_APP_PATH" >/dev/null 2>&1 || true
+  fi
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
@@ -2126,10 +2266,7 @@ fi
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
-    pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-    sleep 0.3
+    cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that
@@ -2235,7 +2372,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     # the user chooses Quit. A loaded plist with KeepAlive=false still survives
     # the invoking terminal/automation process, while a normal exit stays exited.
     # It also avoids LaunchServices reusing stale LSEnvironment values.
-    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
+    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1

@@ -61,14 +61,13 @@ extension SidebarListView {
 
     /// Ends a handed-off drag without an intent or a landing flight.
     func abandonDrag(_ drag: Drag) {
-        stopAutoscroll()
+        autoscroll.stop()
         self.drag = nil
         press?.cancelled = true
         drag.lift.removeFromSuperview()
         suppressed.subtract(drag.hiddenKeys)
         for key in drag.hiddenKeys { rowViews[key]?.alphaValue = 1 }
         reload(animated: true)
-        decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
 }
 

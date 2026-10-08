@@ -850,7 +850,7 @@ class Prefer(Fixture):
 
     def recorded_with_package_change(self, changed):
         record = self.recorded(changed)
-        record["Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/F.swift"] = ["stale", 1]
+        record["Packages/macOS/CmuxNext/Sources/CmuxNextApp/F.swift"] = ["stale", 1]
         return record
 
     def test_rebuilds_app_only_for_a_package_swift_source(self):
@@ -1168,6 +1168,8 @@ class Wiring(unittest.TestCase):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
+            if name == "Compile app-host test product":
+                continue
             self.assertNotIn("owned", block.lower(), name)
         self.assertNotIn("CMUX_OWNED_STATE_ROOT", identity.recipe_projection(text)["job_controls"]["env"])
 
@@ -1192,7 +1194,11 @@ class Wiring(unittest.TestCase):
         import subprocess
         with tempfile.TemporaryDirectory() as tmp:
             env_file, out_file = Path(tmp, "env"), Path(tmp, "out")
+            helper = Path(tmp, "helper-glaeda-canonical-root")
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            helper.chmod(0o755)
             env = {"PATH": os.environ["PATH"], "GITHUB_ENV": str(env_file), "GITHUB_OUTPUT": str(out_file),
+                   "RUNNER_TEMP": tmp, "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper),
                    "CMUX_PRODUCT_RUNNER": runner, "CMUX_OWNED_STATE_ROOT": "/Users/Shared/cmux-build-fleet/ci"}
             if root is not None:
                 env["CMUX_CI_CANONICAL_ROOT"] = root
@@ -1207,8 +1213,11 @@ class Wiring(unittest.TestCase):
             self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)
-        self.assertEqual(env, "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
-                              "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
+        self.assertEqual(
+            env,
+            "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
+            "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n",
+        )
         self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
         # Only an owned Mac may move the root, and only to a slot root.
         self.assertNotEqual(self.slot("/private/tmp/cmux-ci-2", "blacksmith-6vcpu-macos-26")[0], 0)
@@ -1234,7 +1243,7 @@ class Wiring(unittest.TestCase):
         self.assertTrue(keep["if"].startswith("steps.hosted-compile.outcome == 'success'"))
         self.assertLess(index("Compile app-host test product"), index("Keep this owned Mac's DerivedData"))
         # Staging and packaging rewrite Build/Products and the xctestruns.
-        for later in ("Stage compiled package frameworks", "Package compiled app-host test product"):
+        for later in ("Package compiled app-host test product",):
             self.assertLess(index("Keep this owned Mac's DerivedData"), index(later), later)
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
 

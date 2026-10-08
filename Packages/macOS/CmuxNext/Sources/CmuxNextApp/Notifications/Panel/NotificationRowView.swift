@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One notification in the panel: unread dot, title and time, the source
 /// workspace, the body (two lines), and a dismiss button. A click opens it;
@@ -107,9 +108,9 @@ final class NotificationRowView: NSView {
             lines.append(label)
         }
         if !row.body.isEmpty {
-            let body = Self.label(row.body, font: Typography.caption)
+            let body = Self.label(row.body, font: Typography.body)
             tinted.append((body, .secondary))
-            body.maximumNumberOfLines = 2
+            body.maximumNumberOfLines = 3
             // The list width less the dot, the close button and the gaps.
             body.preferredMaxLayoutWidth = NotificationsPanelView.listWidth - 4 * Metrics.space2 - Metrics.space2 - Metrics.space6
             body.lineBreakMode = .byTruncatingTail
@@ -123,8 +124,8 @@ final class NotificationRowView: NSView {
         for line in lines { line.widthAnchor.constraint(lessThanOrEqualTo: text.widthAnchor).isActive = true }
         header.widthAnchor.constraint(equalTo: text.widthAnchor).isActive = true
 
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: NotificationsPanelStrings.dismiss) ?? NSImage(),
-                             target: self, action: #selector(dismissPressed))
+        let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismissPressed))
+        close.setAccessibilityLabel(NotificationsPanelStrings.dismiss)
         close.isBordered = false
         self.close = close
         close.toolTip = NotificationsPanelStrings.dismiss

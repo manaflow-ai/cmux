@@ -47,10 +47,16 @@ const loaders: Record<string, () => Promise<{ default: unknown }>> = {
 };
 
 /// Languages by Shiki id and alias (shikiLanguages.ts). Pierre renders any other as plain text.
-export const bundledLanguages = Object.fromEntries(Object.entries(HIGHLIGHTED_LANGUAGES).flatMap(([id, aliases]) => [id, ...aliases].map((name) => [name, loaders[id]])));
+export const bundledLanguages = Object.fromEntries(
+  Object.entries(HIGHLIGHTED_LANGUAGES).flatMap(([id, aliases]) => [id, ...aliases].map((name) => [name, loaders[id]])),
+);
 
 /// No bundled themes: the pane registers its own (diffTheme.ts).
 export const bundledThemes: Record<string, () => Promise<{ default: unknown }>> = {};
 
-export const createHighlighter = createBundledHighlighter({ langs: bundledLanguages as never, themes: bundledThemes as never, engine: () => createJavaScriptRegexEngine() });
+export const createHighlighter = createBundledHighlighter({
+  langs: bundledLanguages as never,
+  themes: bundledThemes as never,
+  engine: () => createJavaScriptRegexEngine(),
+});
 export const { codeToHtml } = createSingletonShorthands(createHighlighter);

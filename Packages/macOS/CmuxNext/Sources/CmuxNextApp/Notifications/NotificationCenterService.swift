@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -26,9 +27,14 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
+    /// Mirrors arrivals into the feed (feed.md section 9, step 1); nil without a feed.
+    @ObservationIgnored var feedBridge: FeedNotificationBridge?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
+    /// Showcase captures seed the real daemon ledger without showing banners
+    /// or prompting for system authorization at launch.
+    @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
@@ -41,6 +47,9 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        ProgramStatusSeenStore.shared.persist(to: .standard)
+        desktopPostingEnabled = !services.environment.showcase
+        feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -52,8 +61,9 @@ final class NotificationCenterService {
                 for notification in fresh { self.arrived(notification) }
             }
         })
+        tasks.append(followViewedProgramStatus(store))
         tasks.append(Task { [weak self] in
-            for await count in Observations({ Self.unreadCount(store) }) {
+            for await count in Observations({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
             }
         })
@@ -65,7 +75,7 @@ final class NotificationCenterService {
             for await prefs in Observations({ settings.snapshot.notifications }) {
                 guard let self else { return }
                 if self.preferences != prefs { self.preferences = prefs }
-                self.updateDockBadge(Self.unreadCount(self.services?.daemon.store))
+                self.updateDockBadge(self.currentUnreadCount())
             }
         })
     }
@@ -119,7 +129,11 @@ final class NotificationCenterService {
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
-        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store), tab.hasUnread else { return }
+        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        // Any look at the tab sees its OSC 7501 done and error records
+        // (client view state; the daemon keeps the records).
+        ProgramStatusSeenStore.shared.markSeen(tab)
+        guard tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
         acknowledge(tab)
@@ -141,6 +155,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
+        feedBridge?.read(tab: tab.id)
         let surface = tab.surface
         services?.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
     }
@@ -168,6 +183,10 @@ final class NotificationCenterService {
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         let decision = NotificationPolicy.decide(arrival, prefs: preferences)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
+        guard desktopPostingEnabled else {
+            note("desktop posting suppressed")
+            return
+        }
         guard let located else {
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             return
@@ -176,6 +195,9 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
+        // The feed (and the iPhone push) gets only what would alert on this Mac: muted
+        // workspaces, quiet hours and banners turned off are not mirrored.
+        if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
         if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }

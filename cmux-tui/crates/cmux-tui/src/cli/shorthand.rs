@@ -1,5 +1,5 @@
 //! Human-facing spellings lower to the public resource grammar, never raw RPC.
-use super::UsageError;
+use super::{Surface, UsageError};
 
 struct Alias {
     names: &'static [&'static str],
@@ -71,6 +71,15 @@ const ALIASES: &[Alias] = &[
     },
 ];
 
+/// `cmux` has no session scope; its top level is the workspace, so the
+/// session-list shorthands list workspaces there.
+fn alias_path(alias: &Alias, surface: Surface) -> &'static [&'static str] {
+    match (surface, alias.path) {
+        (Surface::Cmux, ["session", "list"]) => &["workspace", "list"],
+        _ => alias.path,
+    }
+}
+
 pub(super) fn scope(word: &str) -> &str {
     match word {
         "ws" => "workspace",
@@ -78,7 +87,9 @@ pub(super) fn scope(word: &str) -> &str {
         "p" => "pane",
         "term" => "terminal",
         "notif" => "notification",
-        "srv" => "server",
+        // The session daemon's lifecycle; internally the scope is `server`
+        // (on `cmux`, the word `server` itself is the machine server).
+        "srv" | "daemon" => "server",
         _ => word,
     }
 }
@@ -94,13 +105,14 @@ fn error(value: &str) -> UsageError {
 }
 
 /// Preserve values and forwarded argv while translating only recognized aliases.
-pub(super) fn normalize(args: &[String]) -> Result<Vec<String>, UsageError> {
+pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>, UsageError> {
     let Some(first) = args.first() else { return Ok(Vec::new()) };
     let Some(alias) = ALIASES.iter().find(|alias| alias.names.contains(&first.as_str())) else {
         let mut result = args.to_vec();
         result[0] = scope(first).to_string();
         return Ok(result);
     };
+    let alias_path = alias_path(alias, surface);
     let mut target = None;
     let mut options = Vec::new();
     let mut positionals = Vec::new();
@@ -122,7 +134,7 @@ pub(super) fn normalize(args: &[String]) -> Result<Vec<String>, UsageError> {
             .find(|(short, _)| *short == raw_flag)
             .map_or(raw_flag, |(_, long)| *long);
         if flag == "--help" || (flag == "-h" && first != "split-window" && first != "splitw") {
-            return Ok(vec![alias.path[0].into(), "--help".into()]);
+            return Ok(vec![alias_path[0].into(), "--help".into()]);
         }
         if flag == "-t" || flag == "--target" {
             if alias.target_scope.is_none() || target.is_some() {
@@ -139,7 +151,7 @@ pub(super) fn normalize(args: &[String]) -> Result<Vec<String>, UsageError> {
             }
             target = Some(value);
         } else if matches!(flag, "--left" | "--right" | "--up" | "--down")
-            && matches!(alias.path[2..], ["split"] | ["focus"])
+            && matches!(alias_path[2..], ["split"] | ["focus"])
         {
             if inline.is_some() || direction.is_some() {
                 return Err(error(arg));
@@ -174,22 +186,22 @@ pub(super) fn normalize(args: &[String]) -> Result<Vec<String>, UsageError> {
         index += 1;
     }
     let mut path = Vec::new();
-    if !alias.path.contains(&"@") {
+    if !alias_path.contains(&"@") {
         if let Some(target) = target {
             path.extend([alias.target_scope.expect("target validated").into(), target]);
         }
-        path.extend(alias.path.iter().map(|s| (*s).to_string()));
+        path.extend(alias_path.iter().map(|s| (*s).to_string()));
     } else if alias.target_scope == Some("terminal")
         && target.as_deref().is_some_and(|s| s.starts_with("pane_"))
     {
         path.extend(["pane".into(), target.expect("pane target"), "tab".into(), "current".into()]);
         path.extend(
-            alias.path.iter().map(|s| if *s == "@" { "current".into() } else { (*s).to_string() }),
+            alias_path.iter().map(|s| if *s == "@" { "current".into() } else { (*s).to_string() }),
         );
     } else {
         let target = target.unwrap_or_else(|| "current".into());
         path.extend(
-            alias.path.iter().map(|s| if *s == "@" { target.clone() } else { (*s).to_string() }),
+            alias_path.iter().map(|s| if *s == "@" { target.clone() } else { (*s).to_string() }),
         );
     }
     match alias.names[0] {
@@ -276,13 +288,15 @@ fn collection_action(scope: &str, value: &str) -> Option<&'static str> {
 
 fn instance_actions(scope: &str) -> &'static [&'static str] {
     match scope {
-        "workspace" => &["show", "rename", "move", "focus", "close", "run", "layout"],
-        "screen" => &["show", "rename", "focus", "close", "layout"],
+        "workspace" => &["show", "rename", "update", "move", "focus", "close", "run", "layout"],
+        "screen" => {
+            &["show", "rename", "update", "pin", "unpin", "move", "focus", "close", "layout"]
+        }
         "pane" => &[
             "show", "rename", "focus", "close", "split", "neighbor", "swap", "zoom", "viewport",
             "run",
         ],
-        "tab" => &["show", "rename", "move", "focus", "close"],
+        "tab" => &["show", "rename", "move", "focus", "close", "pin", "unpin", "zoom", "update"],
         "terminal" => &[
             "show", "write", "keys", "mouse", "focus", "read", "screen", "state", "history",
             "output", "copy", "process", "viewport", "move", "project", "attach", "close",
@@ -340,6 +354,16 @@ pub(super) fn normalize_words(words: &mut Vec<String>) {
         let resource = scope(&words[at]).to_string();
         words[at] = resource.clone();
         let Some(next) = words.get(at + 1).cloned() else { break };
+        // `tab new terminal|browser` is `tab create …`; with more words,
+        // `new` is a tab's name (`tab new terminal show`).
+        if resource == "tab"
+            && next == "new"
+            && words.len() == at + 3
+            && matches!(words[at + 2].as_str(), "terminal" | "browser")
+        {
+            words[at + 1] = "create".into();
+            break;
+        }
         if let Some(action) = words.get(at + 2).cloned() {
             let nested = scope(&action);
             if child(&resource, nested) {
@@ -376,9 +400,9 @@ pub(super) fn help(messages: &crate::localization::LocalServerMessages) -> Strin
         out.push_str(&format!(
             "  {} => {}\n",
             alias.names.join(" | "),
-            alias.path.join(" ").replace('@', "<target>")
+            alias_path(alias, Surface::current()).join(" ").replace('@', "<target>")
         ));
     }
-    out.push_str("\n  ws => workspace; win/window => screen; p => pane; term => terminal\n  notif => notification; srv => server\n  ls => list; new => create; get => show; rm => close; select => focus\n");
+    out.push_str("\n  ws => workspace; win/window => screen; p => pane; term => terminal\n  notif => notification; srv => server (cmux-tui only)\n  ls => list; new => create; get => show; rm => close; select => focus\n");
     out
 }

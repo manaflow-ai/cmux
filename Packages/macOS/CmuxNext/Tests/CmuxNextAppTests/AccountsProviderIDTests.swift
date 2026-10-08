@@ -6,7 +6,7 @@ import Testing
 /// must name the same ids and the same CodeRouter support.
 @Suite struct AccountsProviderIDTests {
     @Test func catalogProvidersMatchAIProvider() throws {
-        for entry in ActionCatalog.accountProviders {
+        for entry in AccountActionCatalog.accountProviders {
             let provider = try #require(AIProvider(rawValue: entry.id), "\(entry.id)")
             #expect(provider.displayName == entry.name)
             #expect((provider.codeRouterLink != .unsupported) == entry.linkable, "\(entry.id)")

@@ -38,13 +38,13 @@ import Testing
         #expect(row.toolTip == nil)
     }
 
-    @Test func reduceMotionShowsTheFullNameAsATooltipInstead() throws {
+    /// Under Reduce Motion no marquee runs and no tooltip shows: the
+    /// workspace hover card (the one card) carries the whole name.
+    @Test func reduceMotionShowsNoMarqueeAndNoSecondPopover() throws {
         let (h, row) = try row(title: Self.long, policy: MotionPolicy(speed: .fast, reduceMotion: true))
         _ = h
         row.isHovered = true
         #expect(!row.title.isMarqueeActive)
-        #expect(row.toolTip == Self.long)
-        row.isHovered = false
         #expect(row.toolTip == nil)
     }
 
@@ -52,6 +52,7 @@ import Testing
         let (h, row) = try row(title: Self.long, policy: MotionPolicy(speed: .fast, reduceMotion: false))
         _ = h
         #expect(row.title.stringValue == Self.long, "the whole name is drawn; its end is faded out")
-        #expect(row.titleFrame.minX == SidebarStyle.horizontalInset)
+        // No default icon: the title starts at the title leading inset.
+        #expect(row.titleFrame.minX == SidebarStyle.titleLeading)
     }
 }

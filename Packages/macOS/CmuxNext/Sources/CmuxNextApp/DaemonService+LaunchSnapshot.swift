@@ -2,7 +2,8 @@ import CmuxNextControl
 import CmuxNextDaemon
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
-// the last layout drawn before the first connection, then replaced in place.
+// the last layout drawn before the first connection, then replaced in place;
+// and the first connect begun in `main` with the remembered daemon socket.
 extension DaemonService {
     /// Applies the daemon's launch snapshot as a provisional tree, so the
     /// first frame shows the last layout instead of the connecting state.
@@ -22,6 +23,39 @@ extension DaemonService {
     func rememberLaunchSnapshot(_ identity: DaemonIdentity) {
         guard let session = launchSnapshotSession, identity.session == session else { return }
         launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
+    }
+
+    /// Begins the local daemon's first connect attempt off the main thread,
+    /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
+    /// prestart:)` takes it over. Nil when the launcher cannot be made (the
+    /// later `start` reports why).
+    nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                     terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
+                                     resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
+        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
+        return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
+            installKey: launcher.configuration.installKey))
+    }
+
+    /// The local daemon's connection configuration, for the first connect
+    /// begun in `main` (`prestart`) and for the connections after it.
+    nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
+                                               resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
+                                               retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
+        // sessionEvents: the state resources (closed history, workspace status,
+        // tab records) come only through session.events (nxdog50).
+        DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
+                                       resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
+                                       clientHello: ClientHelloIdentity(installKey: installKey))
+    }
+
+    /// Records the local daemon's socket for the next launch
+    /// (`DaemonSocketMemory`), so it connects without `server status`.
+    func rememberSocket(_ identity: DaemonIdentity, connection: DaemonConnection) async {
+        guard let session = launchSnapshotSession, identity.session == session,
+              let path = await connection.endpoint?.socketPath else { return }
+        DaemonSocketMemory().record(path, session: session)
     }
 
     /// Waits for the first connection (or for startup to give up): an event,

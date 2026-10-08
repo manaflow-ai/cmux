@@ -9,15 +9,19 @@ import Testing
     private func themeItem(_ menu: NSMenu, _ registry: ActionRegistry, _ id: ActionID) throws -> NSMenuItem {
         let title = try #require(registry.title(for: id))
         let plain = title.hasSuffix("…") ? String(title.dropLast()) : title
-        return try #require(menu.items.first { $0.title == plain })
+        // The theme submenu may sit inside the Appearance folder.
+        func find(_ menu: NSMenu) -> NSMenuItem? {
+            menu.items.first { $0.title == plain } ?? menu.items.lazy.compactMap { $0.submenu.flatMap(find) }.first
+        }
+        return try #require(find(menu))
     }
 
     @Test func roomMenuListsEveryThemeAndChecksTheCurrentOne() throws {
         let registry = ActionRegistry.standard()
-        registry.bind("room.setTheme") { _ in }
-        registry.choiceState = { id, _ in id == "room.setTheme" ? "Nord" : nil }
+        registry.bind("space.setTheme") { _ in }
+        registry.choiceState = { id, _ in id == "space.setTheme" ? "Nord" : nil }
         let menu = registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: "default"))
-        let submenu = try #require(try themeItem(menu, registry, "room.setTheme").submenu)
+        let submenu = try #require(try themeItem(menu, registry, "space.setTheme").submenu)
         // Ghostty config, onboarding's themes, then More… (the full list).
         #expect(submenu.items.count == 1 + ActionArgument.curatedThemes.count + 2)
         #expect(submenu.items.map(\.title).dropFirst().prefix(ActionArgument.curatedThemes.count).elementsEqual(ActionArgument.curatedThemes))
@@ -48,6 +52,17 @@ import Testing
         _ = (vesper.target as? NSObject)?.perform(vesper.action, with: vesper)
         #expect(ran.first?.target == target)
         #expect(ran.first?["theme"]?.stringValue == "Vesper")
+    }
+
+    /// A choices row uses the menu's effective context like every other row:
+    /// right-clicking a page shows Browser Theme even while a terminal is
+    /// focused (the page menu implies browserFocused).
+    @Test func choicesRowUsesTheMenusImpliedContext() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("browserTheme") { _ in }
+        registry.context = [.terminalFocused]
+        let menu = registry.makeContextMenu(for: .browserPage, target: ActionTargetRef(kind: .pane, id: "p1"))
+        #expect(try themeItem(menu, registry, "browserTheme").submenu != nil)
     }
 
     /// Any text reaches the handler (it validates against every Ghostty

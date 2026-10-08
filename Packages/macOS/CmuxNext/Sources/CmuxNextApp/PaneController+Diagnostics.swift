@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
@@ -24,6 +25,11 @@ struct PaneSurfaceStatus {
     /// Visible page windows over the pane that are not the shown tab's own
     /// page (another tab's page left on screen).
     var foreignPages: Int = 0
+    /// The pane's window is not on screen (`occlusionState` lacks `.visible`).
+    var windowOccluded = false
+    /// Content in the pane's window may draw now (``WindowDrawPolicy``): it is
+    /// on screen, or `render.drawWhenOccluded` is on.
+    var windowDrawable = true
 
     /// The layout gave the pane no room below its tab strip (a split tree
     /// deeper than the window allows). A layout sizing problem, not a
@@ -33,9 +39,11 @@ struct PaneSurfaceStatus {
     }
 
     /// A visible pane with a selected tab whose content is missing, detached,
-    /// paused or has no grid.
+    /// paused or has no grid. A pane whose window may not draw (occluded,
+    /// ``WindowDrawPolicy``) shows nothing by design and is never blank; the
+    /// invariant checks it again when the window is visible.
     var isBlank: Bool {
-        guard isVisible, selectedTab != nil, !isCollapsed else { return false }
+        guard isVisible, windowDrawable, selectedTab != nil, !isCollapsed else { return false }
         guard selectedTab == shownTab, contentInstalled, contentInWindow else { return true }
         if let terminal { return !terminal.isPresentable }
         if let page, !page.isVisible { return true }
@@ -68,6 +76,8 @@ struct PaneSurfaceStatus {
             "collapsed": .bool(isCollapsed),
             "content_visible": .bool(page?.isVisible ?? (terminal?.isPresentable ?? contentInstalled)),
             "foreign_pages": JSONValue(foreignPages),
+            "window_occluded": .bool(windowOccluded),
+            "window_drawable": .bool(windowDrawable),
         ]
         if let strip {
             object["strip"] = [
@@ -83,6 +93,7 @@ struct PaneSurfaceStatus {
                 "replay_applied": .bool(terminal.hasContent),
                 "rendering_suspended": .bool(terminal.renderingSuspended),
                 "drawing": terminal.drawing.map(JSONValue.bool) ?? .null,
+                "paused": terminal.pause.map { .string($0.rawValue) } ?? .null,
                 "grid": terminal.grid.map { .string("\($0.columns)x\($0.rows)") } ?? .null,
                 "in_host": .bool(terminal.surfaceInHost),
                 "in_window": .bool(terminal.inWindow),
@@ -107,11 +118,17 @@ extension PaneController {
         switch content {
         case .agent:
             kind = "agent"
+        case .page:
+            kind = "page"
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics
         case .placeholder:
             kind = "remote-placeholder"
+        case .notice:
+            kind = "agent-elsewhere"
+        case .conversation:
+            kind = "conversation"
         case .browser(let entry):
             kind = "browser"
             if let reporting = entry.tab as? any BrowserContentVisibilityReporting {
@@ -143,7 +160,9 @@ extension PaneController {
             terminal: terminal,
             strip: self.view.stripView.hoverState,
             page: page,
-            foreignPages: isVisible ? max(0, visiblePageWindowsOverContent - ownPages) : 0
+            foreignPages: isVisible ? max(0, visiblePageWindowsOverContent - ownPages) : 0,
+            windowOccluded: self.view.window.map { !WindowDrawPolicy.isOnScreen($0) } ?? false,
+            windowDrawable: WindowDrawPolicy.isDrawable(self.view.window)
         )
     }
 }

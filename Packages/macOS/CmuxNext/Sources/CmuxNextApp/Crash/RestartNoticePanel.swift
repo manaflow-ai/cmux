@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
-/// "cmux restarted after a problem": a small glass panel at the bottom of a
+/// "cmux restarted after a problem": a small glass panel (opaque under
+/// Reduce Transparency, `Glass.makeOverlayPanel`) at the bottom of a
 /// shell window, attached as a child window so it stays above Chromium page
 /// windows. Non-modal and non-activating: it never becomes key, takes no
 /// keyboard input, and stays until the user closes it or the window closes.
@@ -9,8 +11,8 @@ import CmuxNextDesign
 final class RestartNoticePanel {
     static let accessibilityID = "app.restartNotice"
     private let panel: NSPanel
-    /// The stack's container inside the glass: the glass view does not
-    /// report its content's fitting size, so the panel is sized from this.
+    /// The stack's container inside the panel's surface; the panel is
+    /// sized from it.
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
     private var observers: [any NSObjectProtocol] = []
@@ -37,10 +39,8 @@ final class RestartNoticePanel {
         let content = body
         content.onThemeChange = { [weak label, weak content] in
             guard let label, let content else { return }
-            content.performWithTheme {
-                label.textColor = Palette.textPrimary
-                (content.superview as? NSGlassEffectView)?.tintColor = Palette.glassTint
-            }
+            // The surface recolors its own material on the same change.
+            content.performWithTheme { label.textColor = Palette.textPrimary }
         }
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -50,8 +50,7 @@ final class RestartNoticePanel {
             show.bezelStyle = .accessoryBarAction
             views.append(show)
         }
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: CrashStrings.dismiss) ?? NSImage(),
-                             target: self, action: #selector(dismiss))
+        let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismiss))
         close.isBordered = false
         close.setAccessibilityLabel(CrashStrings.dismiss)
         views.append(close)
@@ -60,7 +59,7 @@ final class RestartNoticePanel {
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: 12)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
         glass.setAccessibilityLabel(text)
         NSLayoutConstraint.activate([
@@ -90,6 +89,8 @@ final class RestartNoticePanel {
     }
 
     var isShown: Bool { panel.parent != nil }
+    /// The notice's material: glass, or opaque under Reduce Transparency.
+    var surface: OverlaySurfaceView? { panel.contentView as? OverlaySurfaceView }
     var text: String { (panel.contentView?.accessibilityLabel()) ?? "" }
 
     private func place() {

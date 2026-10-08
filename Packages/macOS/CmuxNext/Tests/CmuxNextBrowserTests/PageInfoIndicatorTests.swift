@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// URL and security state -> the omnibar's page-info button (Chrome's
-/// location icon states).
+/// URL and security state -> the omnibar's page-info button (location
+/// icon states).
 @MainActor
 struct PageInfoIndicatorTests {
     private func indicator(_ url: String?, _ security: BrowserSecurityState, chip: OmnibarPresentation.Chip = .page(focused: false)) -> PageInfoIndicator {

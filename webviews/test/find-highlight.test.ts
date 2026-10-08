@@ -1,9 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  collectFindPaintRanges,
-  collectOpenShadowRoots,
-} from "../src/find/highlight";
+import { collectFindPaintRanges, collectOpenShadowRoots } from "../src/find/highlight";
 import type { FindMatch } from "../src/find/model";
 
 const originalGlobals = new Map<string, any>();
@@ -22,7 +19,7 @@ afterEach(() => {
 });
 
 function setupDOM() {
-  const dom = new JSDOM("<!doctype html><html><body><main id=\"viewer\"></main></body></html>");
+  const dom = new JSDOM('<!doctype html><html><body><main id="viewer"></main></body></html>');
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
   (globalThis as any).NodeFilter = dom.window.NodeFilter;
@@ -140,9 +137,7 @@ test("collectFindPaintRanges respects the active side when line numbers collide"
 test("collectFindPaintRanges returns nothing for an empty query", () => {
   const document = setupDOM();
   const container = document.getElementById("viewer") as HTMLElement;
-  appendShadowFile(container, [
-    { lineType: "context", line: 1, altLine: 1, gutterText: "1", codeTokens: ["needle"] },
-  ]);
+  appendShadowFile(container, [{ lineType: "context", line: 1, altLine: 1, gutterText: "1", codeTokens: ["needle"] }]);
   const { matchRanges, activeRanges } = collectFindPaintRanges(container, {
     query: "",
     active: null,

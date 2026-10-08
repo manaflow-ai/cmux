@@ -30,12 +30,18 @@ public nonisolated enum TerminalHostAction: Sendable, Equatable {
     case redo
     /// Open the host's find UI (copy mode's `/`).
     case find
-}
-
-/// Find-in-terminal state (`START_SEARCH`, `SEARCH_TOTAL`, ...). The host
-/// draws the find bar and drives it through ``TerminalSurfaceView/search(_:)``.
-public nonisolated struct TerminalSearchState: Sendable, Equatable {
-    public var needle: String
-    public var total: Int?
-    public var selected: Int?
+    /// Show or hide every window of the app (`toggle_visibility`).
+    case toggleVisibility
+    /// Ghostty's tab overview (`toggle_tab_overview`).
+    case toggleTabOverview
+    /// Ask for a window title (`prompt_window_title`).
+    case promptWindowTitle
+    /// Set the window title (`set_window_title:<title>`).
+    case setWindowTitle(String)
+    /// Bring this terminal to the front (`present_terminal`).
+    case presentTerminal
+    /// Focus the next or previous window (`goto_window:next|previous`).
+    case gotoWindow(next: Bool)
+    /// Move this terminal's tab to a new window (`move_tab_to_new_window`).
+    case moveTabToNewWindow
 }

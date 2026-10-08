@@ -45,7 +45,7 @@ final class ThemeStepView: NSView {
             list.arrangedSubviews.forEach { $0.removeFromSuperview() }
             radios = [:]
             for choice in choices {
-                let radio = OnboardingControl.radio(choice.name ?? OnboardingStrings.ghosttyTheme, target: self, action: #selector(picked(_:)))
+                let radio = OnboardingControl.radio(OnboardingStrings.themeName(choice), target: self, action: #selector(picked(_:)))
                 radios[choice.id] = radio
                 list.addArrangedSubview(radio)
             }

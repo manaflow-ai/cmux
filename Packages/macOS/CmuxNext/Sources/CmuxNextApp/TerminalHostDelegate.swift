@@ -12,8 +12,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// registry action every other entrypoint runs, targeted at this
     /// terminal's tab. Unmapped requests stay unhandled.
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool {
+        services?.keyRouter.trace?("terminal host action \(action) -> \(TerminalHostActionRoute.route(action)?.id.rawValue ?? "no route")")
         guard let services, let route = TerminalHostActionRoute.route(action) else { return false }
-        let invocation = ActionInvocation(target: target(of: session, in: services), arguments: route.arguments)
+        let invocation = ActionInvocation(target: route.targetsTerminal ? target(of: session, in: services) : nil, arguments: route.arguments)
         // A refusal (no neighbor, one pane) is reported by the registry; the
         // key was still a binding, so it never reaches the shell.
         services.registry.perform(route.id, invocation: invocation)
@@ -26,10 +27,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         guard let services else { return nil }
         let target = target(of: session, in: services)
         let menu = services.registry.makeContextMenu(for: .terminalSelection, target: target)
-        // A right-click on a link Ghostty underlines offers its browser
-        // profiles first (Open Link in Browser Profile ▸).
+        // A right-click on a link Ghostty underlines offers the link rows
+        // first (Open Link in New Tab, Copy Link, ...), then its browser
+        // profiles (Open Link in Browser Profile ▸).
         let link = session.model.hoveredLink.flatMap(URL.init(string:))
-        for (index, item) in BrowserProfileLinkMenu.items(for: link, target: target, services: services).enumerated() {
+        let linkRows = TerminalLinkMenu.items(for: link, target: target, registry: services.registry)
+            + BrowserProfileLinkMenu.items(for: link, target: target, services: services)
+        for (index, item) in linkRows.enumerated() {
             menu.insertItem(item, at: index)
         }
         return menu

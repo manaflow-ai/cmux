@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -38,6 +38,15 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
+| `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
+| `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-inbox-changed` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-inbox-reset` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-subscription-state` | subscribe | `scope`, `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-session-needed` | subscribe | session lease | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -58,8 +67,11 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
+| `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `activity-changed` | control (targeted) | session | protocol 12 additive extension; capability `vm-activity-v1`; only to `subscribe-activity` connections |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
@@ -369,6 +381,86 @@ the commands after it) commits a change. The payload is
 refetch `list-personal`. An unchanged retry publishes nothing. Personal state
 does not advance `workspace_revision`.
 
+### bookmarks-changed
+
+| Field | Value |
+| --- | --- |
+| event | `bookmarks-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Published after a bookmark command (commands.md, `list-bookmarks` and the
+commands after it) or a `delete-browser-profile` that deleted bookmarks
+commits a change. The payload is
+`{event:"bookmarks-changed", browser_profile_id:string, bookmarks_revision:uint64}`;
+interested frontends refetch `list-bookmarks` for that browser profile. An
+unchanged retry publishes nothing. Bookmarks advance neither
+`personal_revision` nor `workspace_revision`.
+### conversation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Published after a `conversation-create` or `conversation-op` commits, never
+for a replay, and only to trusted local connections. Payload:
+
+```text
+object{
+  event:"conversation-changed",
+  conversation:string,
+  rev:uint64,
+  transaction:string|null,
+  change:Change
+}
+Change = object{kind:"message", message:Message}
+       | object{kind:"message-updated", message:Message}
+       | object{kind:"read-cursor", participant:string, seq:uint64}
+       | object{kind:"conversation", conversation:Summary}
+```
+
+`Message` and `Summary` are defined under `conversation-list` in
+commands.md. `rev` increases by exactly one per committed op, so a mirror
+that sees a gap refetches `conversation-snapshot`. `transaction` is the
+request's `transaction`, or null.
+
+### cloud-conversation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+Relays one committed cloud conversation event to trusted local connections:
+`object{event:"cloud-conversation-changed", conversation:string, rev:uint64,
+seq:uint64, transaction:string, change:Change, account?:string}` with the
+`conversation-changed` `Change` shapes plus
+`object{kind:"invite", conversation, invite}`. The related events
+`cloud-conversation-resynced` (`summary`, `messages`, `account?`),
+`cloud-inbox-changed` (`entries`, `account?`), `cloud-inbox-reset`
+(`account?`), `cloud-subscription-state` (`scope`, `state`, `reason?`,
+`account?`) and `cloud-session-needed` (`reason`, `expires_at?`) are specified
+in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
+id (the JWT `sub`) of the lease the daemon used for the upstream socket that
+produced the event, absent when that lease has no readable `sub`; a client
+drops an event whose `account` is present and differs from the account
+signed in now.
+
+### conversation-typing
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-typing` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+`object{event:"conversation-typing", conversation:string, participant:string, on:bool}`,
+published for `conversation-typing` to trusted local connections. Ephemeral:
+never stored or replayed.
+
 ### terminal-registry-changed
 
 | Field | Value |
@@ -542,13 +634,15 @@ object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
 | status | implemented |
 | since | protocol 12 additive extension; capability `screen-metadata-v1` |
 
-Emitted when a screen's color, icon, pin, or group changed, or when it moved
-(within its workspace or into another one). `entity` is the full refreshed
+Emitted when a screen's color, icon, pin, or group changed, when it moved
+(within its workspace or into another one), or, with `dock-columns-v1`, when
+`set-column-dock` changed a column's `dock` flag. That delta carries the
+request's numeric `transaction` as a decimal string. `entity` is the full refreshed
 `Screen` and `index` its position in the workspace. Commands that reorder
 screens also emit `tree-changed` first. It carries no workspace revision.
 
 ```text
-object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen}
+object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
 ### tab-changed
@@ -861,6 +955,28 @@ Example:
 {"event":"window-title-requested","title":"hello"}
 ```
 
+### activity-changed
+
+| Field | Value |
+| --- | --- |
+| event | `activity-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `vm-activity-v1` |
+
+Payload:
+
+```text
+object{event:"activity-changed",activity:ActivitySnapshot}
+```
+
+Meaning: The daemon's activity facts changed (a person's input, an agent action, a person's client attached or detached, an agent became live or not live). Sent only to `subscribe-activity` connections, at most one per second; the body is the same object the `subscribe-activity` reply carries.
+
+Example:
+
+```json
+{"event":"activity-changed","activity":{"attached_clients":0,"live_agents":1,"last_user_input_at_ms":1791246114793,"last_agent_action_at_ms":1791246120001}}
+```
+
 ### machine-usage-changed
 
 | Field | Value |
@@ -930,6 +1046,64 @@ Example:
 
 ```json
 {"event":"daemon-shutdown"}
+```
+
+### terminal-clipboard-read
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-clipboard-read` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `terminal-clipboard-read-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-clipboard-read", request_id:string, terminal_id:string,
+       location:"standard"|"selection"|"primary",
+       host:object{kind:"local"|"remote"|"cloud", name?:string}}
+```
+
+Meaning: A program in `terminal_id` sent an OSC 52 clipboard read and the
+terminal host is waiting for the user's answer. It goes only to the single
+frontend connection subscribed to that terminal with
+`terminal-clipboard-subscribe` (see commands.md, "Terminal clipboard reads").
+`request_id` is an unguessable UUID that only this connection can answer, once,
+with `terminal-clipboard-reply`. `host` names where the terminal runs; this
+daemon's terminal hosts are local to it, so it sends `{kind:"local"}`, and a
+frontend that reached the daemon over a remote or Cloud transport shows that
+machine instead. The event never carries clipboard text.
+
+Example:
+
+```json
+{"event":"terminal-clipboard-read","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","terminal_id":"term_0123456789abcdef0123456789abcdef","location":"standard","host":{"kind":"local"}}
+```
+
+### terminal-clipboard-read-cancelled
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-clipboard-read-cancelled` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `terminal-clipboard-read-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-clipboard-read-cancelled", request_id:string}
+```
+
+Meaning: The read is over before the user answered: the terminal host refused
+it itself (its 60-second timeout, or the terminal ended), its host connection
+ended, or a newer read from the same terminal replaced it. The frontend
+dismisses its question; a later reply to `request_id` returns
+`{accepted:false}`.
+
+Example:
+
+```json
+{"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
 ```
 
 ## Attach Events
@@ -1245,7 +1419,9 @@ Meaning: A terminal's shared sizing state changed. The server emits it to
 every subscriber and on every legacy attach stream of each placement of the
 terminal, only for connections that sent `shared-sizing-v1` through
 `set-client-info`. `self_participant` is the receiving connection's own view
-id when that view participates. `generation` increases by one per change;
+id when that view participates. `device_kind` is `linux` or `windows` only for
+connections that sent `open-device-kinds-v1`; others receive `unknown` for
+them. `generation` increases by one per change;
 deliveries on different routes may interleave, so ignore a state whose
 generation is not newer than the last one applied.
 

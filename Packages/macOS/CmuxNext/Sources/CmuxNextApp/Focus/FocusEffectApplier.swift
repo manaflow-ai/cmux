@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextDesign
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -82,6 +83,8 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
+        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
             guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else { return }
@@ -108,12 +111,23 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
+        case .page(let pane, let tab):
+            guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
+            blurChildWindowPage()
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
+        case .conversation(let pane, let tab):
+            // Home's primary input, its message box (spec/app-screens.md 3).
+            blurChildWindowPage()
+            guard case .conversation(let view)? = presented(pane: pane, tab: tab) else {
+                // No Home view yet: the previous content must not keep keys.
+                resignPaneResponder(in: window)
+                return
+            }
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.
-            if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
-                window.makeFirstResponder(nil)
-            }
+            resignPaneResponder(in: window)
         case .sidebar, .sidebarField, .textField:
             // Reported by AppKit; the responder is already there.
             blurChildWindowPage()
@@ -123,6 +137,13 @@ final class FocusEffectApplier: FocusEffectApplying {
             blurChildWindowPage()
         case .overlay:
             break
+        }
+    }
+
+    /// Takes the keyboard from a view inside any pane of this window.
+    private func resignPaneResponder(in window: NSWindow) {
+        if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
+            window.makeFirstResponder(nil)
         }
     }
 
@@ -239,7 +260,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard owned !== controller.window, services.windows.owner(of: owned) === controller else { return }
         services.windows.didActivate(controller)
         publish(controller.focus.state.context)
-        guard owned is NSPanel, owned.sheetParent == nil, !services.palette.owns(owned), overlayPanel == nil else { return }
+        // The overlay host panel restores focus itself (`WindowOverlayHost.endModal`).
+        guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, !services.palette.owns(owned),
+              overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))
         overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
@@ -334,10 +357,24 @@ final class FocusEffectApplier: FocusEffectApplying {
         let services = controller.services
         guard services.windows.active === controller else { return }
         let registry = services.registry
+        if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying {
+            services.agentTabs.setCheckpointFocus(tab)
+        } else {
+            services.agentTabs.setCheckpointFocus(nil)
+        }
         var next = registry.context
-        next.subtract([.terminalFocused, .browserFocused])
+        next.subtract(ActionContext.focusBits)
         if context.terminal { next.insert(.terminalFocused) }
         if context.browser { next.insert(.browserFocused) }
+        if context.agent { next.insert(.agentPaneFocused) }
+        if case .addressBar = controller.focus.state.resolved { next.insert(.omnibarFocused) }
+        // The same rule as `KeyRouter.keyContext`: the focused page's id (diff, markdown, code editor).
+        switch services.keyRouter?.focusedPage(in: controller)?.descriptor.id {
+        case KeyRouter.diffPageID?: next.insert(.diffViewerFocused)
+        case KeyRouter.markdownPageID?: next.insert(.markdownFocused)
+        case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
+        default: break
+        }
         if registry.context != next { registry.context = next }
     }
 

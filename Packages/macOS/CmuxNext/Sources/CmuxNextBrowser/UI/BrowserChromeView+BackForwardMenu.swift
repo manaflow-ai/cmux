@@ -1,6 +1,6 @@
 import AppKit
 
-/// Chrome's back/forward menus: right-click or long-press the Back or
+/// Back/forward menus: right-click or long-press the Back or
 /// Forward button for the tab's entries, nearest first (plans/cmux-next/
 /// history.md 4.1). Only for tabs whose engine lists its entries
 /// (`BrowserBackForwardListing`).

@@ -4,6 +4,7 @@ import {
   cacheDeadline,
   requestedTeamIdFromRequest,
   resolveTeamId,
+  stackHeaders,
   tokenExpiryMs,
   type AuthedUser,
 } from "../src/auth";
@@ -102,6 +103,28 @@ describe("verifyRequest negative cache", () => {
     STACK_API_URL: "https://stack.test",
   };
 
+  it("verifies without a publishable key and never sends the header", async () => {
+    const { verifyRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    const sent: Array<string | null> = [];
+    const token = "opaque-keyless-token-" + Math.random().toString(36).slice(2);
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get("x-stack-publishable-client-key"));
+      return Response.json({ id: "user-1", primary_email: "a@example.com" });
+    }) as unknown as typeof fetch;
+    try {
+      const request = new Request("https://presence.test/v1/presence/snapshot", {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const user = await verifyRequest(request, { STACK_PROJECT_ID: "proj", STACK_API_URL: "https://stack.test" });
+      expect(user).not.toBeNull();
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.every((value) => value === null)).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("does not re-hit Stack for a token it already rejected", async () => {
     const { verifyRequest } = await import("../src/auth");
     const realFetch = globalThis.fetch;
@@ -154,3 +177,23 @@ describe("verifyRequest negative cache", () => {
     }
   });
 })
+
+describe("stackHeaders", () => {
+  // A project that does not require a publishable key accepts a request
+  // without one but rejects an empty or revoked key, so an unset key is
+  // never sent (as in the app and web clients).
+  it("omits the publishable key header when no key is configured", () => {
+    const headers = stackHeaders({ STACK_PROJECT_ID: "p" }, "token");
+    expect("x-stack-publishable-client-key" in headers).toBe(false);
+    expect(headers["x-stack-access-token"]).toBe("token");
+  });
+
+  it("omits it for an empty or blank key too", () => {
+    expect("x-stack-publishable-client-key" in stackHeaders({ STACK_PROJECT_ID: "p", STACK_PUBLISHABLE_CLIENT_KEY: "  " }, "t")).toBe(false);
+  });
+
+  it("sends a configured key", () => {
+    const headers = stackHeaders({ STACK_PROJECT_ID: "p", STACK_PUBLISHABLE_CLIENT_KEY: "pck_x" }, "t");
+    expect(headers["x-stack-publishable-client-key"]).toBe("pck_x");
+  });
+});

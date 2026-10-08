@@ -106,7 +106,7 @@ else:
         self.assertEqual(output, {"last_upload_sha": "base", "upload": "false", "retry_build_number": "12345"})
 
     def test_public_preserves_build_inputs(self):
-        for path in ["ios/cmuxPackage/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",
+        for path in ["ios/CmuxiOS/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",
                      "Packages/Shared/CMUXMobileCore/Protocol.swift", "Sources/Mobile/Host.swift",
                      "scripts/lib/verify-ios-release-origins.sh", ".github/scripts/install-app-store-provisioning-profile.sh",
                      ".github/workflows/ios-appstore-upload.yml", "ghostty", "unknown-new-input"]:

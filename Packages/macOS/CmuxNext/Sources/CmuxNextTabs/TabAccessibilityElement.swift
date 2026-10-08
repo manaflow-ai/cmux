@@ -8,6 +8,8 @@ import AppKit
 nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
     nonisolated(unsafe) var onClose: (@MainActor () -> Void)?
+    /// VoiceOver moved its focus onto (true) or off (false) this element.
+    nonisolated(unsafe) var onFocus: (@MainActor (Bool) -> Void)?
 
     override init() {
         super.init()
@@ -19,6 +21,13 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
         guard let onPress else { return false }
         MainActor.assumeIsolated { onPress() }
         return true
+    }
+
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        guard let onFocus else { return }
+        // crash-allow: AppKit sends accessibility setters on the main thread (see the type comment).
+        MainActor.assumeIsolated { onFocus(accessibilityFocused) }
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
@@ -36,7 +45,7 @@ extension TabCell {
     func updateAccessibility() {
         var parts = [displayTitle]
         if item.isPinned { parts.append(Strings.axPinned) }
-        if item.isBusy { parts.append(Strings.axBusy) }
+        if item.indicator.isWorking { parts.append(Strings.axWorking) } else if item.isBusy { parts.append(Strings.axBusy) }
         if item.isDormant { parts.append(Strings.axHibernated) }
         if let machine = item.machineBadge { parts.append(Strings.axOnMachine(machine)) }
         if let profile = item.profileBadge { parts.append(Strings.browserProfile(profile.name)) }

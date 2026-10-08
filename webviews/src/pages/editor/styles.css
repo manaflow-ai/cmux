@@ -1,0 +1,170 @@
+@import "../shared/pageBase.css";
+@import "../../viewer-empty/styles.css";
+
+/* The code editor page. Every look value is a `--cmux-editor-*` custom property with a default
+   (settings.ts EDITOR_STYLE_DEFAULTS); `:where(:root)` keeps the defaults at zero specificity, so the
+   settings style and <config dir>/editor/theme.css always win. The editor's colors are Monaco theme
+   colors resolved from these properties (view.ts), so theme.css restyles Monaco too; any
+   `--vscode-*` color can also be set on `.monaco-editor` directly. */
+:where(:root) {
+  --cmux-editor-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --cmux-editor-font-size: 12px;
+  --cmux-editor-background: transparent;
+  --cmux-editor-foreground: var(--cmux-editor-terminal-foreground, var(--page-text));
+  --cmux-editor-line-highlight: color-mix(in srgb, var(--cmux-editor-foreground) 5%, transparent);
+  --cmux-editor-selection: var(--cmux-editor-terminal-selection, color-mix(in srgb, #0a84ff 30%, transparent));
+  --cmux-editor-cursor: var(--cmux-editor-foreground);
+  --cmux-editor-line-number: color-mix(in srgb, var(--cmux-editor-foreground) 40%, transparent);
+  --cmux-editor-line-number-active: color-mix(in srgb, var(--cmux-editor-foreground) 80%, transparent);
+  --cmux-editor-indent-guide: color-mix(in srgb, var(--cmux-editor-foreground) 10%, transparent);
+  --cmux-editor-whitespace: color-mix(in srgb, var(--cmux-editor-foreground) 25%, transparent);
+  --cmux-editor-ruler: color-mix(in srgb, var(--cmux-editor-foreground) 12%, transparent);
+  --cmux-editor-scrollbar: color-mix(in srgb, var(--cmux-editor-foreground) 18%, transparent);
+  --cmux-editor-scrollbar-hover: color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent);
+  --cmux-editor-widget-background: var(--page-elevated);
+  --cmux-editor-widget-border: var(--page-separator);
+  --cmux-editor-chrome-font-size: 12px;
+  --cmux-editor-toolbar-height: 30px;
+  --cmux-editor-status-height: 22px;
+  --cmux-editor-banner-background: light-dark(rgb(255 196 0 / 0.16), rgb(255 196 0 / 0.12));
+  --cmux-editor-error-color: light-dark(#b42318, #ff8a80);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* The desktop layer (pages/shared/desktop.css, R139) makes the chrome unselectable with an arrow
+   cursor; Monaco handles its own selection, and its find field is a field. */
+html,
+body {
+  overflow: hidden;
+}
+
+.ed-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-size: var(--cmux-editor-chrome-font-size);
+}
+
+.ed-page-message {
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--page-text-2);
+}
+
+.ed-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--cmux-editor-toolbar-height);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+:root[data-cmux-editor-toolbar="false"] .ed-toolbar {
+  display: none;
+}
+
+.ed-file {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ed-save {
+  color: var(--page-text-3);
+  white-space: nowrap;
+}
+
+.ed-save-failed {
+  color: var(--cmux-editor-error-color);
+}
+
+.ed-toolbar-spacer {
+  flex: 1;
+}
+
+.ed-toggle,
+.ed-button {
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.ed-toggle[aria-pressed="true"] {
+  background: var(--page-selection);
+}
+
+.ed-toggle:disabled {
+  color: var(--page-text-3);
+}
+
+.ed-toggle:focus-visible,
+.ed-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--page-text) 40%, transparent);
+  outline-offset: 1px;
+}
+
+.ed-button-primary {
+  background: var(--page-selection);
+}
+
+.ed-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--cmux-editor-banner-background);
+}
+
+.ed-banner > span {
+  flex: 1;
+}
+
+.ed-note {
+  flex: none;
+  padding: 4px 10px;
+  color: var(--page-text-2);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.ed-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--cmux-editor-background);
+}
+
+.ed-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  justify-content: flex-end;
+  height: var(--cmux-editor-status-height);
+  padding: 0 10px;
+  color: var(--page-text-2);
+  border-top: 1px solid var(--page-separator);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+:root[data-cmux-editor-status-bar="false"] .ed-status {
+  display: none;
+}
+
+/* Monaco reads its fonts from options (settings.ts); its widgets follow the page's UI font. */
+.ed-host .monaco-editor {
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}

@@ -4,6 +4,7 @@ import Foundation
 public struct UpdateProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "update-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var profile: ProfileID
     public var name: String?
     public var color: FieldUpdate<String>
@@ -44,6 +45,7 @@ public struct UpdateProfileRequest: DaemonRequest {
 public struct MoveProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "move-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var profile: ProfileID
     public var index: Int
     public init(profile: ProfileID, index: Int) {
@@ -52,20 +54,26 @@ public struct MoveProfileRequest: DaemonRequest {
     }
 }
 
-/// Deletes a room. Its pins and groups move to `moveTo`, or are removed
-/// (the workspaces return to the rooms that follow their sessions). The
-/// daemon refuses `default`. Closing the workspaces is the app's separate
-/// step on their own sessions.
+/// Deletes a room. With `moveTo` its pins and groups move there. Without
+/// it this is Delete Space (SPACE-DELETE-CLOSES-ITS-WORKSPACES): the daemon
+/// closes every workspace of its session that only this room shows and
+/// records the room and them as one closed group (`closedID`), which
+/// `closed.reopen` restores. Workspaces of other sessions only lose their
+/// pin. The daemon refuses `default`.
 public struct DeleteProfileRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var profile: ProfileID
         public var movedTo: ProfileID?
+        /// The closed group of a Delete Space; nil for a move or an older daemon.
+        public var closedID: String?
         enum CodingKeys: String, CodingKey {
             case profile
             case movedTo = "moved_to"
+            case closedID = "closed_id"
         }
     }
     public static let command = "delete-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var profile: ProfileID
     public var moveTo: ProfileID?
     public init(profile: ProfileID, moveTo: ProfileID? = nil) {

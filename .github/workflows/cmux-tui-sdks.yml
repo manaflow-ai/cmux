@@ -11,7 +11,6 @@ on:
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui.yml"
-      - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-release-delivery.yml"
@@ -44,7 +43,6 @@ on:
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui.yml"
-      - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-release-delivery.yml"
@@ -77,6 +75,12 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
 
 jobs:
   contract:
@@ -139,6 +143,9 @@ jobs:
 
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
+
+      - name: Test and check the seven SDK capability descriptors
+        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
 
       - name: Test deterministic SDK generator
         env:
@@ -310,6 +317,9 @@ jobs:
             --all-targets \
             --locked \
             -- -D warnings
+          # Embedders such as Chromium build without sha2 (socket-path-hash).
+          cargo test -p cmux-sdk --all-targets --locked --no-default-features
+          cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
             cargo doc \
               -p cmux-sdk \
@@ -550,6 +560,8 @@ jobs:
             -- -D warnings
 
   conformance:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
@@ -560,7 +572,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize Ghostty protocol submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -613,7 +625,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         id: headless-cache
@@ -654,3 +666,17 @@ jobs:
           python3 cmux-tui/bindings/conformance/runner.py \
             --require python,typescript,rust,go,java,cpp,zig \
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
+
+      # cmux::raw::ByteAttachment, the typed state calls, Home (ensure_home,
+      # conversation tabs, typed conversation results), and tab groups, closed
+      # history, ephemeral workspaces and typed bookmarks, and the daemon
+      # client's mirror (tab groups, bookmarks-changed) against the exact
+      # headless daemon built above.
+      - name: Test Rust SDK byte attachment and typed state against the live daemon
+        if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+        working-directory: cmux-tui
+        env:
+          CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
+        run: |
+          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
+          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live -- --nocapture

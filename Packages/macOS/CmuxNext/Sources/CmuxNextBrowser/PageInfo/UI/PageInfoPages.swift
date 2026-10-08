@@ -118,6 +118,7 @@ import CmuxNextDesign
         }
         views.append(padded(PageInfoStyle.label(details.joined(separator: "\n\n"), font: PageInfoStyle.captionFont,
                                                 color: PageInfoStyle.secondaryText, wraps: true)))
+        if model.certificateWarningsOff { views += certificateWarningsOffRows() }
         if site.url?.scheme == "https", model.certificates.map({ !$0.isEmpty }) ?? true {
             views.append(separator())
             let valid = model.isCertificateValid
@@ -133,6 +134,19 @@ import CmuxNextDesign
         return stack(views)
     }
 
+    /// The user proceeded past this site's certificate warning (Chrome:
+    /// "You have chosen to turn off security warnings for this site").
+    private func certificateWarningsOffRows() -> [NSView] {
+        let note = padded(PageInfoStyle.label(PageInfoStrings.certificateWarningsTurnedOff, font: PageInfoStyle.captionFont,
+                                              color: PageInfoStyle.secondaryText, wraps: true))
+        // Chromium clears every site's choice in the profile: the row says so.
+        let scope = model.certificateWarningScope == .profile ? PageInfoStrings.certificateWarningsAllSites : nil
+        let turnOn = PageInfoRowView(symbol: "exclamationmark.shield", title: PageInfoStrings.turnOnCertificateWarnings,
+                                     subtitle: scope, identifier: "pageInfo.turnOnWarnings")
+        turnOn.onActivate = { send(.reenableCertificateWarnings) }
+        return [separator(), note, turnOn]
+    }
+
     // MARK: Shared pieces
 
     func header(_ title: String, subtitle: String?, back: Bool) -> NSView {
@@ -142,10 +156,12 @@ import CmuxNextDesign
         return header
     }
 
+    /// A one-point rule in `Palette.separator` (clear under
+    /// appearance.borders none); `NSBox.separator` ignores theme and switch.
     func separator() -> NSView {
-        let line = NSBox()
-        line.boxType = .separator
+        let line = HairlineView()
         line.translatesAutoresizingMaskIntoConstraints = false
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
         return line
     }
 

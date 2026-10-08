@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
+  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'clear_viewport' is a viewer that hid the terminal (iOS: app in background, terminal off screen) and stops counting until its next report; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
   "cases": [
     {
       "name": "default policy is fit everyone",
@@ -1435,6 +1435,352 @@
           "counts": {
             "mbp": true,
             "studio": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "phone grid walkthrough: rotate, background, counts off, all hidden",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac-a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 200,
+              "rows": 60
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 200,
+          "rows": 60,
+          "reason": "smallest"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 46,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 46,
+          "rows": 38,
+          "reason": "smallest",
+          "owners": [
+            "phone"
+          ],
+          "counts": {
+            "mac-a": true,
+            "phone": true
+          }
+        },
+        {
+          "op": "report",
+          "id": "phone",
+          "cols": 98,
+          "rows": 18
+        },
+        {
+          "op": "expect",
+          "cols": 98,
+          "rows": 18,
+          "reason": "smallest"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac-b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 120,
+              "rows": 50
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 98,
+          "rows": 18,
+          "reason": "smallest"
+        },
+        {
+          "op": "clear_viewport",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 120,
+          "rows": 50,
+          "reason": "smallest",
+          "owners": [
+            "mac-b"
+          ],
+          "counts": {
+            "phone": false
+          }
+        },
+        {
+          "op": "set_counts",
+          "id": "mac-b",
+          "counts_override": false
+        },
+        {
+          "op": "expect",
+          "cols": 200,
+          "rows": 60,
+          "reason": "smallest",
+          "owners": [
+            "mac-a"
+          ]
+        },
+        {
+          "op": "clear_viewport",
+          "id": "mac-a"
+        },
+        {
+          "op": "expect",
+          "cols": 200,
+          "rows": 60,
+          "reason": "held",
+          "owners": []
+        }
+      ]
+    },
+    {
+      "name": "a preview attach with counts off never shrinks the grid",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 120,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 120,
+          "rows": 40,
+          "reason": "smallest"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "preview",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 40,
+              "rows": 20
+            },
+            "counts_override": false
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 120,
+          "rows": 40,
+          "reason": "smallest",
+          "counts": {
+            "preview": false,
+            "mac": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "a hidden phone stops counting and counts again on its next report",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 42,
+          "reason": "smallest",
+          "owners": [
+            "mac",
+            "phone"
+          ]
+        },
+        {
+          "op": "clear_viewport",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "reason": "smallest",
+          "owners": [
+            "mac"
+          ],
+          "counts": {
+            "phone": false
+          }
+        },
+        {
+          "op": "report",
+          "id": "phone",
+          "cols": 54,
+          "rows": 44
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 42,
+          "reason": "smallest",
+          "owners": [
+            "mac",
+            "phone"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "phone defers to a counting linux or windows desktop of the same user",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "lnx",
+            "user_id": "u1",
+            "device_kind": "linux",
+            "device_id": "box",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "device_id": "p1",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "lnx"
+          ],
+          "reason": "latest",
+          "counts": {
+            "lnx": true,
+            "phone": false
+          }
+        },
+        {
+          "op": "detach",
+          "id": "lnx"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "counts": {
+            "phone": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "win",
+            "user_id": "u1",
+            "device_kind": "windows",
+            "device_id": "pc",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 118,
+          "rows": 38,
+          "owners": [
+            "win"
+          ],
+          "counts": {
+            "win": true,
+            "phone": false
           }
         }
       ]

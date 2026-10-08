@@ -27,6 +27,14 @@ public struct ControlError: Error, Sendable, Hashable {
         self.data = data
     }
 
+    /// `name` (an action or method) belongs to a feature an administrator
+    /// turned off (`DisabledFeatures`).
+    public static func featureDisabled(_ name: String, feature: String) -> ControlError {
+        ControlError(code: "feature.disabled",
+                     message: ControlStrings.format("control.error.featureDisabled", "%1$@ is turned off by your organization (%2$@)", name, feature),
+                     data: ["action": .string(name), "feature": .string(feature)])
+    }
+
     public static func invalidParams(_ message: String, data: JSONValue? = nil) -> ControlError {
         ControlError(code: "invalid_params", message: message, data: data)
     }

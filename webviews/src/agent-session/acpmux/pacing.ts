@@ -1,5 +1,4 @@
-// Frame pacing of transcript scrolls, reported to the host so it can choose
-// the pane's rendering rate (AgentPaneFramePacing in CmuxNextAgentPane).
+// Frame intervals of settled transcript scrolls, consumed by the page's adaptive rendering policy.
 
 export type PacingClock = {
   requestFrame: (callback: (now: number) => void) => number;
@@ -27,7 +26,10 @@ export class ScrollPacing {
   private frame: number | undefined;
   private settle: unknown;
 
-  constructor(private readonly report: (intervals: number[]) => void, private readonly clock: PacingClock = browserClock()) {}
+  constructor(
+    private readonly report: (intervals: number[]) => void,
+    private readonly clock: PacingClock = browserClock(),
+  ) {}
 
   /** A scroll event: samples frames until the scroll settles. */
   scrolled(): void {
@@ -44,7 +46,8 @@ export class ScrollPacing {
   }
 
   private readonly tick = (now: number) => {
-    if (this.lastFrame !== undefined && this.intervals.length < ScrollPacing.maximumFrames) this.intervals.push(now - this.lastFrame);
+    if (this.lastFrame !== undefined && this.intervals.length < ScrollPacing.maximumFrames)
+      this.intervals.push(now - this.lastFrame);
     this.lastFrame = now;
     this.frame = this.clock.requestFrame(this.tick);
   };

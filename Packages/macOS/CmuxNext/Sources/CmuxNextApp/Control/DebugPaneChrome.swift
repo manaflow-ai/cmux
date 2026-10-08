@@ -51,6 +51,22 @@ enum DebugPaneChrome {
                 "scale": .number(Double(window.backingScaleFactor)),
                 "pane_padding": .number(Double(Metrics.panePadding)),
                 "panes": .array(panes),
+                "window_controls": .object([
+                    "sidebar_hidden": .bool(controller.root.sidebarHidden),
+                    "toggle_symbol": .string(controller.root.toolbarBand.sidebarToggle.symbol),
+                    "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
+                ]),
+                // 2026-10-05: the title bar buttons' reveal (top row or sidebar hover) and what is drawn.
+                "titlebar_buttons": {
+                    let root = controller.root, reveal = root.titlebarReveal.state, band = root.toolbarBand
+                    return .object([
+                        "revealed": .bool(reveal.isRevealed), "pointer_inside": .bool(reveal.pointerInside),
+                        "holds": .number(Double(reveal.holds)), "focus_inside": .bool(reveal.focusInside),
+                        "band_alpha": .number(Double(band.alphaValue)), "toggle_alpha": .number(Double(band.sidebarToggle.alphaValue)),
+                        "back_alpha": .number(Double(band.backButton.alphaValue)),
+                        "close_alpha": .number(Double(window.standardWindowButton(.closeButton)?.alphaValue ?? -1)),
+                    ])
+                }(),
             ])
         }
         return .object(["windows": .array(windows)])

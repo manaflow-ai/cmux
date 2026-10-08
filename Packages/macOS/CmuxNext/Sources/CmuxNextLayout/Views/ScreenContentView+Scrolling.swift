@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// Column strip scrolling. Every rule lives in `ColumnScrollState.reduce`
-/// (plans/cmux-next/niri.md); this extension feeds it model snapshots,
+/// (plans/cmux-next/column-scroll.md); this extension feeds it model snapshots,
 /// trackpad gestures and wheel notches, and applies its effects.
 extension ScreenContentView {
     /// The strip the reducer sees now; nil on a split screen.
@@ -11,21 +11,29 @@ extension ScreenContentView {
     }
 
     /// Feeds the current layout, geometry and focus to the reducer. Returns
-    /// true if the spring needs frames.
+    /// true if the spring needs frames. A reveal that snaps (animation off,
+    /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
+    /// replaces, only when `showsScrollbarOnSnap`: the caller passes false
+    /// for a window resize, launch, or a view out of its window.
     @discardableResult
-    func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true) -> Bool {
+    func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
+                    showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
+        let animate = animated && !context.reduceMotion && bounds.width > 0
+        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
         guard let strip else {
             scrollState = ColumnScrollState()
             applyPresentation()
-            return false
+            return rowsNeedFrames
         }
         scrollState.mode = mode
-        let animate = animated && !context.reduceMotion && bounds.width > 0
-        return apply(scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals)))
+        let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
+                                               anchor: ScreenDividers(screen: self).dragAnchorColumn))
+        if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
+        return apply(effects) || rowsNeedFrames
     }
 
-    /// niri `center-column`. Returns true if the spring needs frames.
+    /// Centers the column holding `pane` once. Returns true if the spring needs frames.
     @discardableResult
     func center(_ pane: PaneID, animated: Bool) -> Bool {
         scrollbarFlash = true
@@ -35,7 +43,7 @@ extension ScreenContentView {
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
 
     /// A horizontal scroll at `localPoint` scrolls the strip only over its
-    /// uncovered range; over a sticky column it stays with the pane.
+    /// uncovered range; over a docked column it stays with the pane.
     func acceptsHorizontalScroll(at localPoint: NSPoint) -> Bool {
         acceptsHorizontalScroll && uncoveredRect.contains(localPoint)
     }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fails when a cmux-next string table misses a supported language, has an
+# Fails when a cmux-next string table (CmuxNext, the app's InfoPlist and CLI
+# tables, and the Home transcript's CmuxMessagesLab tables) misses a supported language, has an
 # empty value, or a translation's printf placeholders or line breaks differ
 # from English. Tables: every CmuxNext package .xcstrings, the app's
 # Resources/InfoPlist.xcstrings and the CLI table Resources/Localizable.xcstrings
@@ -34,9 +35,9 @@ def signature(value):
 root = pathlib.Path(sys.argv[1])
 tables = sorted((root / "Packages/macOS/CmuxNext/Sources").rglob("*.xcstrings"))
 tables.append(root / "Resources/InfoPlist.xcstrings")
-# The CLI string table: the bundled `cmux` reads it from the app's .lproj
-# folders (CLI/CLILocalizationBundle.swift).
-tables.append(root / "Resources/Localizable.xcstrings")
+# The Home transcript's tables (MessagesLab's vendored ones and cmux's own) ship in the app too.
+tables += sorted((root / "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Resources").glob("*.xcstrings"))
+tables += sorted((root / "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Resources").glob("*.xcstrings"))
 def forms(localization):
     """{"": unit} for a plain value, {category: unit} for plural variations, else None."""
     if "stringUnit" in localization:

@@ -32,7 +32,7 @@ extension PaneHandlers {
             guard let ref = invocation["pane"]?.targetValue ?? ctx.refuse(RefusalStrings.paneArgumentRequired) else { return }
             let panes = ctx.services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
             guard let target = panes.first(where: { $0.id == ref.id }) ?? ctx.refuse(RefusalStrings.noPaneID(ref.id)) else { return }
-            guard target !== source else { return ctx.refuse(RefusalStrings.paneCannotSwapWithItself) }
+            guard target !== source else { return ctx.refuseQuietly(RefusalStrings.paneCannotSwapWithItself) }
             let from = source.handle, to = target.handle
             ctx.send("swap-pane") { try await $0.swapPane(from, with: .pane(to)) }
         })
@@ -43,6 +43,23 @@ extension PaneHandlers {
             guard let pane = ctx.daemonPane(invocation) else { return }
             let handle = pane.handle
             ctx.send("close-pane") { try await $0.closePane(handle) }
+        })
+        // Every other pane of the right-clicked pane's screen closes with its
+        // tabs, as a user's tab close does: no question, the closed history
+        // keeps them and an undo toast offers them back (cx-k9go).
+        registry.bind("pane.closeOthers", invoke: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return }
+            let screens = ctx.services.machines.daemons.lazy.flatMap(\.store.workspaces).flatMap(\.screens)
+            let others = (screens.first { $0.panes.contains { $0 === pane } }?.panes ?? []).filter { $0 !== pane }
+            guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
+            for other in others {
+                if let controller = ctx.services.paneController(for: other) {
+                    CloseUndoToasts.close(in: controller, controller.stripModel.orderedTabs.map(\.id))
+                } else {
+                    let handle = other.handle
+                    ctx.send("close-pane") { try await $0.closePane(handle) }
+                }
+            }
         })
         registry.bind("renamePane", invoke: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return }
@@ -69,9 +86,15 @@ extension PaneHandlers {
         guard let host = view.layer, let fade = Motion.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
-        ring.borderWidth = 3
         ring.cornerRadius = 8
-        ring.borderColor = view.performWithTheme { Palette.focusRing.cgColor }
+        let color = view.performWithTheme { Palette.focusRing }
+        if Borders.drawsLines {
+            ring.borderWidth = 3
+            ring.borderColor = color.cgColor
+        } else {
+            // appearance.borders none: a soft fill instead of an outline.
+            ring.backgroundColor = color.withAlphaComponent(0.18).cgColor
+        }
         ring.opacity = 0
         host.addSublayer(ring)
         CATransaction.begin()

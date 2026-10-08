@@ -4,7 +4,7 @@ import Foundation
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
 /// (browser.md, Decision 1). The first CEF tab shown in the pane creates the
 /// window in `hostView`; later tabs join it with `cmux_tab_add`, so
-/// extensions see one Chrome window with N tabs. Showing a tab reparents the
+/// extensions see one Chromium window with N tabs. Showing a tab reparents the
 /// shared `hostView` into that tab's content view and activates the tab; the
 /// fork's tracker follows the reparent and clips the page to the visible
 /// part of the view.
@@ -106,7 +106,7 @@ final class CEFPaneHost {
             _ = runtime.shim?.tabActivate(browser)
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
-            tab.scheduleSidePanelRefresh()
+            tab.sidePanel.scheduleRefresh()
         }
     }
 
@@ -208,8 +208,8 @@ final class CEFPaneHost {
             _ = runtime.shim?.tabActivate(id)
         }
         refreshExtensionActions()
-        runtime.extensionStore(for: key.profile).refresh()
-        runtime.windowBecameLive(self)
+        runtime.extensionStores.store(for: key.profile).refresh()
+        runtime.orphans.windowBecameLive(self)
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.

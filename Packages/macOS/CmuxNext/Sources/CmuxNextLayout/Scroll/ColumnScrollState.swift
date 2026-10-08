@@ -5,7 +5,7 @@ public import Foundation
 /// Scroll state of one columns screen: the spring the view presents, the
 /// strip it was computed for, the focus it follows, and a live trackpad
 /// gesture. Changed only by `reduce(_:)` (ColumnScrollReducer.swift); the
-/// view steps the spring each display frame. plans/cmux-next/niri.md.
+/// view steps the spring each display frame. plans/cmux-next/column-scroll.md.
 public nonisolated struct ColumnScrollState: Hashable, Sendable {
     /// `value` is presented, `target` is where it settles. Offsets are the
     /// content-space x of the viewport's leading edge.
@@ -15,7 +15,7 @@ public nonisolated struct ColumnScrollState: Hashable, Sendable {
     public var focusedColumn: ColumnID?
     public var mode: CenterFocusedColumn = .never
     public var gesture: Gesture?
-    /// niri `activate_prev_column_on_removal`: a column opened right of the
+    /// Restore point: a column opened right of the
     /// focused one and focused; closing it returns to this offset.
     public var restore: RestorePoint?
     /// Last focused pane per column, for focus moved by a scroll.
@@ -54,8 +54,11 @@ public nonisolated enum ColumnScrollEvent: Hashable, Sendable {
     /// `source` says what moved the focus when it changed.
     /// `reveals: false` (a divider or column-edge drag in progress) only
     /// anchors the camera; the reveal runs at the next sync that allows it.
-    case sync(ColumnStrip, focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool = true)
-    /// niri `center-column` for the column holding the pane.
+    /// `anchor` is the column the camera keeps in place instead of the
+    /// focused one: the column under a resize drag, whose leading edge must
+    /// stay put so its edge follows the pointer (cx-ww20).
+    case sync(ColumnStrip, focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool = true, anchor: ColumnID? = nil)
+    /// Center the column holding the pane once.
     case center(PaneID, animated: Bool)
     case gestureBegan
     case gestureChanged(deltaX: CGFloat, time: TimeInterval)
@@ -75,4 +78,7 @@ public nonisolated struct ColumnScrollEffects: Hashable, Sendable {
     public var focus: PaneID?
     /// Report the settled leading column when the spring rests.
     public var reportOnSettle = false
+    /// The offset jumped to a new target without frames (animation off or
+    /// Reduce Motion), where a spring would have scrolled.
+    public var snapped = false
 }

@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Testing
 
 /// `layout.defaultColumnWidth`: a proportion of the viewport, 0.1 to 1.0,
-/// 0.5 when unset (niri `default-column-width { proportion 0.5; }`).
+/// 0.5 when unset.
 @Suite struct DefaultColumnWidthSettingsTests {
     func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])

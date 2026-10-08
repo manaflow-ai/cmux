@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Small label over a terminal whose link is down: the last screen stays
 /// visible behind it. Hidden while connected. Subtle gray, no accent.
@@ -11,7 +12,7 @@ final class TerminalStatusBanner: NSView {
         layer?.cornerRadius = 8
         layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.88).cgColor
         layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
-        layer?.borderWidth = 1
+        layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = NSColor(white: 0.85, alpha: 1)
         label.lineBreakMode = .byTruncatingTail
@@ -35,8 +36,8 @@ final class TerminalStatusBanner: NSView {
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ status: TerminalConnectionStatus) {
-        guard let text = Self.text(for: status) else {
+    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil) {
+        guard let text = Self.text(for: status, hostLoss: hostLoss) else {
             isHidden = true
             return
         }
@@ -45,26 +46,46 @@ final class TerminalStatusBanner: NSView {
         isHidden = false
     }
 
-    static func text(for status: TerminalConnectionStatus) -> String? {
+    /// The banner text, or nil while connected. An exited terminal whose
+    /// host was lost (`hostLoss`) says so. `strings` defaults to this
+    /// module's table and falls back to English if the bundle is gone.
+    static func text(
+        for status: TerminalConnectionStatus,
+        hostLoss: TerminalHostLoss? = nil,
+        strings: ModuleResourceBundle = .terminal
+    ) -> String? {
         switch status {
         case .connected:
             return nil
         case .exited:
-            return String(localized: "terminal.link.exited", defaultValue: "Process exited", bundle: .module)
+            switch hostLoss {
+            case .hostEnded:
+                return strings.text("terminal.link.lost.hostEnded", defaultValue: "Terminal lost: its host process ended")
+            case .sessionShutdown:
+                return strings.text("terminal.link.lost.sessionShutdown", defaultValue: "Terminal lost: the session shut down")
+            case .hostMissing:
+                return strings.text("terminal.link.lost.hostMissing", defaultValue: "Terminal lost: its host is gone")
+            case nil:
+                return strings.text("terminal.link.exited", defaultValue: "Process exited")
+            }
+        case .disconnected(.turnedOffByOrganization, _):
+            return strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
         case .disconnected(_, reconnecting: true):
-            return String(localized: "terminal.link.reconnecting", defaultValue: "Reconnecting…", bundle: .module)
+            return strings.text("terminal.link.reconnecting", defaultValue: "Reconnecting…")
         case .disconnected(let cause, reconnecting: false):
             let reason = switch cause {
             case .streamEnded:
-                String(localized: "terminal.link.streamEnded", defaultValue: "Disconnected: the stream ended", bundle: .module)
+                strings.text("terminal.link.streamEnded", defaultValue: "Disconnected: the stream ended")
             case .connectionLost:
-                String(localized: "terminal.link.connectionLost", defaultValue: "Disconnected: connection lost", bundle: .module)
+                strings.text("terminal.link.connectionLost", defaultValue: "Disconnected: connection lost")
             case .attachFailed:
-                String(localized: "terminal.link.attachFailed", defaultValue: "Disconnected: could not attach", bundle: .module)
+                strings.text("terminal.link.attachFailed", defaultValue: "Disconnected: could not attach")
+            case .turnedOffByOrganization:
+                strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
             case .fellBehind:
-                String(localized: "terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind", bundle: .module)
+                strings.text("terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind")
             }
-            let hint = String(localized: "terminal.link.hint", defaultValue: "Click or type to reconnect", bundle: .module)
+            let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
         }
     }

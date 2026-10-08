@@ -1,0 +1,22 @@
+{
+  "name": "@cmux/saml",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.8"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "xml-crypto": "6.1.2"
+  }
+}

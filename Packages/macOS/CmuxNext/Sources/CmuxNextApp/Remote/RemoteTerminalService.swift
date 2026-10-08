@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextTerminal
 import Observation
@@ -181,7 +182,8 @@ final class RemoteTerminalService {
             let service = services.ssh
             return { service?.reconnect(ssh) }
         }
-        if let cloud = machines.session(daemon.machineID) { return { cloud.connect() } }
+        if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
+        if let server = machines.server(daemon.machineID) { return { server.connect() } }
         return nil
     }
 

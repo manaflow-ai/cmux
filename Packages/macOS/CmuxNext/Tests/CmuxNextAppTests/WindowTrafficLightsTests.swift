@@ -81,6 +81,25 @@ struct WindowTrafficLightsTests {
         withExtendedLifetime(services) {}
     }
 
+    /// Leo (T3 Code ref, 2026-10-07), replacing nxdog41's corner collapse: with the sidebar hidden
+    /// the traffic lights and the band (the sidebar toggle first) stay shown at rest, with no hover,
+    /// so the toggle is one fixed target open or collapsed.
+    @Test func hiddenSidebarKeepsTheWindowControlsShown() {
+        let services = ActionBindingCoverageTests.boundServices()
+        let controller = makeWindow(services)
+        let root = controller.root
+        root.layoutSubtreeIfNeeded()
+        root.sidebarHidden = true
+        root.layoutSubtreeIfNeeded()
+        #expect(!root.trafficLightButtons.isEmpty)
+        for button in root.trafficLightButtons { #expect(button.alphaValue == 1, "traffic light shown at rest") }
+        #expect(root.toolbarBand.alphaValue == 1, "the band shows at rest")
+        #expect(root.toolbarBand.sidebarToggle.alphaValue == 1, "the toggle shows at rest")
+        controller.teardown()
+        controller.window?.close()
+        withExtendedLifetime(services) {}
+    }
+
     @Test func themedAndTranslucentWindowsShowTheTrafficLights() {
         let services = ActionBindingCoverageTests.boundServices()
         let controller = makeWindow(services)

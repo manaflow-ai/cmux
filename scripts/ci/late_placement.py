@@ -99,10 +99,9 @@ E2E_WORKFLOW = "test-e2e.yml"
 BACKLOG_WORKFLOWS = (pool.CI_WORKFLOW, E2E_WORKFLOW)
 
 
-def late_jobs(*, macos: str | None, cli: str | None, full_suite: str | None) -> tuple[str, ...]:
+def late_jobs(*, macos: str | None, full_suite: str | None) -> tuple[str, ...]:
     """The jobs that run after compile admission in this run (pr_runner_pool.run_plan)."""
-    plan = pool.run_plan(macos=macos, full_suite=full_suite, claude_wrapper=None, cli=cli,
-                         remote_daemon=None)
+    plan = pool.run_plan(macos=macos, full_suite=full_suite, remote_daemon=None)
     return plan.after
 
 
@@ -215,7 +214,7 @@ def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online:
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            backlog: Callable[[Sequence[str]], Mapping[str, int]] | None = None) -> tuple[dict[str, str], str]:
-    jobs = late_jobs(macos=env.get("MACOS"), cli=env.get("CLI"), full_suite=env.get("FULL_SUITE"))
+    jobs = late_jobs(macos=env.get("MACOS"), full_suite=env.get("FULL_SUITE"))
     if not jobs:
         return {}, "no job runs after compile admission"
     root = root_for(env.get("ADMISSION_XCODE_APP"))

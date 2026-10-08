@@ -40,14 +40,24 @@ pub enum TerminalDeviceKind {
     Ipad,
     Tui,
     Browser,
+    /// The GPUI desktop app on Linux.
+    Linux,
+    /// The GPUI desktop app on Windows.
+    Windows,
     #[default]
     Unknown,
 }
 
 impl TerminalDeviceKind {
-    /// Phones and tablets defer to a Mac or TUI of the same user.
+    /// Phones and tablets defer to a desktop of the same user.
     pub fn is_handheld(self) -> bool {
         matches!(self, Self::Iphone | Self::Ipad)
+    }
+
+    /// A Mac, a TUI, or the desktop app on Linux or Windows: a handheld of
+    /// the same user defers to it.
+    pub fn is_desktop(self) -> bool {
+        matches!(self, Self::Mac | Self::Tui | Self::Linux | Self::Windows)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -57,7 +67,19 @@ impl TerminalDeviceKind {
             Self::Ipad => "ipad",
             Self::Tui => "tui",
             Self::Browser => "browser",
+            Self::Linux => "linux",
+            Self::Windows => "windows",
             Self::Unknown => "unknown",
+        }
+    }
+
+    /// The kind as a client without `open-device-kinds-v1` reads it. Such a
+    /// client decodes only the kinds of the first `shared-sizing-v1`
+    /// release, so later kinds read as [`Self::Unknown`].
+    pub fn for_closed_clients(self) -> Self {
+        match self {
+            Self::Linux | Self::Windows => Self::Unknown,
+            kind => kind,
         }
     }
 
@@ -69,6 +91,8 @@ impl TerminalDeviceKind {
             "ipad" => Self::Ipad,
             "tui" => Self::Tui,
             "browser" => Self::Browser,
+            "linux" => Self::Linux,
+            "windows" => Self::Windows,
             _ => Self::Unknown,
         }
     }
@@ -233,6 +257,23 @@ impl TerminalSizingState {
     pub fn participant(&self, id: &str) -> Option<&TerminalSizingParticipantState> {
         self.participants.iter().find(|row| row.participant.id == id)
     }
+
+    /// This state for one client: unchanged for a client that sent
+    /// `open-device-kinds-v1`, else with every device kind that client
+    /// cannot decode replaced by `unknown`. Priority keys keep the real kind.
+    pub fn for_client(&self, open_device_kinds: bool) -> std::borrow::Cow<'_, Self> {
+        let closed = |row: &TerminalSizingParticipantState| {
+            row.participant.device_kind.for_closed_clients() != row.participant.device_kind
+        };
+        if open_device_kinds || !self.participants.iter().any(closed) {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut state = self.clone();
+        for row in &mut state.participants {
+            row.participant.device_kind = row.participant.device_kind.for_closed_clients();
+        }
+        std::borrow::Cow::Owned(state)
+    }
 }
 
 /// Who disconnected a view.
@@ -353,11 +394,13 @@ impl TerminalSizingEngine {
         self.publish()
     }
 
-    // Host extensions outside the shared fixture corpus. They never change
-    // activity, so they cannot promote a participant by themselves.
+    // Host extensions. They never change activity, so they cannot promote a
+    // participant by themselves.
 
     /// Forgets a viewport while keeping the view attached, for a viewer that
-    /// hid the terminal but keeps its stream cached.
+    /// hid the terminal but keeps its stream cached (an iPhone app in the
+    /// background, a terminal off screen). The viewer stops counting until
+    /// its next report. Shared fixture op `clear_viewport`.
     pub fn clear_viewport(&mut self, id: &str) -> bool {
         let Some(index) = self.index(id) else { return false };
         self.entries[index].participant.viewport = None;
@@ -426,12 +469,12 @@ impl TerminalSizingEngine {
         else {
             return true;
         };
-        // Defer only to a Mac or TUI of the same user that itself counts: a
+        // Defer only to a desktop of the same user that itself counts: a
         // viewer-only or viewport-less Mac leaves the phone in charge.
         !self.entries.iter().any(|other| {
             let other = &other.participant;
             other.user_id.as_ref() == Some(user)
-                && matches!(other.device_kind, TerminalDeviceKind::Mac | TerminalDeviceKind::Tui)
+                && other.device_kind.is_desktop()
                 && other.viewport.is_some()
                 && other.counts_override != Some(false)
         })
@@ -581,6 +624,9 @@ mod tests {
                     "activity" => {
                         engine.note_activity(id);
                     }
+                    "clear_viewport" => {
+                        engine.clear_viewport(id);
+                    }
                     "set_counts" => {
                         engine.set_counts_override(id, step["counts_override"].as_bool());
                     }
@@ -702,5 +748,29 @@ mod tests {
         assert!(engine.clear_viewport("b"));
         assert_eq!(engine.state().owners, ["a"]);
         assert_eq!(engine.state().size(), TerminalGridSize::new(100, 30));
+    }
+
+    #[test]
+    fn device_kinds_name_linux_and_windows_and_read_unknown_values_as_unknown() {
+        for raw in ["mac", "iphone", "ipad", "tui", "browser", "linux", "windows", "unknown"] {
+            assert_eq!(TerminalDeviceKind::parse(raw).as_str(), raw);
+            let decoded: TerminalDeviceKind =
+                serde_json::from_value(serde_json::json!(raw)).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), raw);
+        }
+        // Forward compatibility: a kind this daemon does not know is a generic client.
+        for raw in ["quantum", "", "Linux", "desktop"] {
+            assert_eq!(TerminalDeviceKind::parse(raw), TerminalDeviceKind::Unknown, "{raw}");
+        }
+        let row: TerminalSizingParticipant =
+            serde_json::from_value(serde_json::json!({"id": "c9", "device_kind": "quantum"}))
+                .unwrap();
+        assert_eq!(row.device_kind, TerminalDeviceKind::Unknown);
+        // A Linux or Windows client is a desktop, not a handheld.
+        assert!(!TerminalDeviceKind::parse("linux").is_handheld());
+        assert!(!TerminalDeviceKind::parse("windows").is_handheld());
+        assert!(TerminalDeviceKind::parse("linux").is_desktop());
+        assert!(TerminalDeviceKind::parse("windows").is_desktop());
+        assert!(!TerminalDeviceKind::parse("quantum").is_desktop());
     }
 }

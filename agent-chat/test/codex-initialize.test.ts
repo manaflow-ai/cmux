@@ -8,7 +8,7 @@ const originalSpawn = Bun.spawn;
 // Select a real disposable child by absolute path. Do not depend on PATH
 // lookup, which could resolve the installed Codex binary on a contributor Mac.
 Bun.spawn = ((command: string[], options: Bun.SpawnOptions.SpawnOptions<"pipe", "pipe", "pipe">) => {
-  assert.deepEqual(command, ["codex", "app-server"]);
+  assert.deepEqual(command, ["codex", "app-server", "--disable", "computer_use"]);
   return originalSpawn([process.execPath, join(import.meta.dir, "fake-codex-initialize.ts")], {
     ...options,
     env: { ...options.env, CMUX_CODEX_INIT_TEST_DIRECTORY: directory },

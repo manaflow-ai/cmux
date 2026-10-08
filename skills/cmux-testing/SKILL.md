@@ -46,11 +46,11 @@ final pushed head.
 ## Test wiring
 
 App tests live in `Packages/macOS/CmuxNext/Tests/<Module>Tests`; SwiftPM discovers
-them, so no project wiring is needed. CLI tests live in `cmuxCLITests/` (scheme
-`cmux-cli-tests`, no app host). A new `cmuxCLITests/*.swift` file needs
-PBXFileReference, group and Sources build-phase entries in
-`cmux.xcodeproj/project.pbxproj`; follow a wired sibling. An unwired file can
-produce a misleading zero-test pass.
+them, so no project wiring is needed. The `cmux` CLI is the cmux-tui Rust
+binary (plans/cmux-next/cli.md); its tests live in `cmux-tui/` and run with
+cargo on a Blacksmith Testbox or in CI. Maintainers never run cargo on the
+local Mac; outside contributors, who cannot dispatch hosted verification, run
+focused tests locally as described in `cmux-tui/AGENTS.md`.
 
 `swift test` never launches `cmux DEV`. Daemon-backed suites start `cmux-tui`
 hosts: check that no `__terminal-host` processes leak after a run.
