@@ -18,9 +18,9 @@ struct DividerHoverTests {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .columns(columns))],
                                 activeScreenID: "s", focusedPane: "a")
         model.followsDesignMetrics = false
-        let view = LayoutRootView(model: model, contentProvider: DockStubProvider.shared)
+        let view = LayoutRootView(model: model, contentProvider: HoverStubProvider.shared)
         view.context.reduceMotionOverride = true
-        view.context.hoverPointer = { _ in pointer.location }
+        view.context.hoverPointer = { (_: NSWindow) -> NSPoint? in pointer.location }
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -112,4 +112,9 @@ struct DividerHoverTests {
         while frames < 600, view.driver.onFrame?(1.0 / 60) == true { frames += 1 }
         #expect(frames < 600, "the display link comes to rest")
     }
+}
+
+private final class HoverStubProvider: LayoutPaneContentProvider {
+    static let shared = HoverStubProvider()
+    func makeContentView(for pane: PaneID) -> NSView { NSView() }
 }
