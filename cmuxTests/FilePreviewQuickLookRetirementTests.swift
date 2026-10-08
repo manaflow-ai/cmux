@@ -52,10 +52,18 @@ struct FilePreviewQuickLookRetirementTests {
             backing: .buffered,
             defer: false
         )
+        let nextWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
         window.isReleasedWhenClosed = false
+        nextWindow.isReleasedWhenClosed = false
         defer {
             session.dismantle(container)
             window.close()
+            nextWindow.close()
         }
 
         window.contentView = container
@@ -72,6 +80,15 @@ struct FilePreviewQuickLookRetirementTests {
             transitionCount += 1
             previewDuringRetirement = container.livePreviewView()
         }
+
+        // Keep the root registered while moving it between windows. The
+        // window-transition path must invalidate the child before AppKit's
+        // synchronous descendant callbacks can ask for it again.
+        window.contentView = nil
+        nextWindow.contentView = container
+        nextWindow.makeKeyAndOrderFront(nil)
+        let replacementPreview = try #require(container.livePreviewView())
+        #expect(replacementPreview !== previewView)
 
         session.dismantle(container)
         reentrantView.onWindowTransition = nil
