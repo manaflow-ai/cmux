@@ -17,6 +17,7 @@ final class FilePreviewQuickLookContainerView: NSView {
         FilePreviewQuickLookContainerView(frame: .zero)
     }
 
+    /// Retires the current preview before AppKit propagates a window change to its descendants.
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if let currentWindow = window, currentWindow !== newWindow {
             retireLivePreview(reason: "window-transition")
@@ -25,7 +26,7 @@ final class FilePreviewQuickLookContainerView: NSView {
     }
 
     /// Returns the preview owned by this mounted host, creating it when needed.
-    /// A dismantled representable cannot create or re-adopt a preview.
+    /// Returns nil during retirement and after dismantling to prevent reentrant reuse.
     func livePreviewView() -> QLPreviewView? {
         guard !isRetiring, !isDismantled else { return nil }
         if let previewView {
@@ -57,6 +58,8 @@ final class FilePreviewQuickLookContainerView: NSView {
         removeFromSuperview()
     }
 
+    /// Invalidates the cached preview before closing and detaching it.
+    /// Synchronous AppKit callbacks cannot access or replace it until retirement finishes.
     private func retireLivePreview(reason: String) {
         guard !isRetiring, let previewView else { return }
         isRetiring = true

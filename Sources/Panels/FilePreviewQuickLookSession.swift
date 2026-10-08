@@ -59,6 +59,8 @@ final class FilePreviewQuickLookSession {
         )
     }
 
+    /// Unregisters a root and its last shared item before AppKit teardown can reenter an update.
+    /// Repeated calls for an already unregistered root have no effect.
     func dismantle(_ view: NSView) {
         guard liveViews.contains(view) else { return }
         liveViews.remove(view)
@@ -72,6 +74,8 @@ final class FilePreviewQuickLookSession {
         Self.releaseView(view)
     }
 
+    /// Clears all root and item ownership before releasing the session's previews.
+    /// Reentrant updates during release cannot configure any of the retiring roots.
     func close() {
         let views = liveViews.allObjects
         // A preview root can synchronously re-enter SwiftUI while AppKit

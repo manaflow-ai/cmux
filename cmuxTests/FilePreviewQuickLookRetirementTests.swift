@@ -14,6 +14,7 @@ struct FilePreviewQuickLookRetirementTests {
     private final class ReentrantWindowView: NSView {
         var onWindowTransition: (() -> Void)?
 
+        /// Reenters the container synchronously while AppKit detaches this preview descendant.
         override func viewWillMove(toWindow newWindow: NSWindow?) {
             if newWindow == nil {
                 onWindowTransition?()
@@ -22,6 +23,7 @@ struct FilePreviewQuickLookRetirementTests {
         }
     }
 
+    /// Verifies that a registered root hides its retiring preview and creates a new one after moving windows.
     @Test
     func retirementInvalidatesCachedPreviewBeforeSynchronousWindowTeardown() throws {
         let fileURL = FileManager.default.temporaryDirectory
