@@ -82,7 +82,8 @@ extension DeviceIrxClient {
             $0.descriptor.identity.deviceID.lowercased() == deviceID.lowercased()
                 && $0.descriptor.identity.buildTag == tag
         }
-        guard candidates.count == 1, let row = candidates.first else { return nil }
+        guard candidates.count == 1, let row = candidates.first,
+              (try? CmxIrohPeerIdentity(endpointID: row.descriptor.endpointID)) != nil else { return nil }
         return try? IrxAccountMacPeerAuthorization(deviceID: deviceID, tag: tag, endpointID: row.descriptor.endpointID)
             .resolve(account: account, cache: cache, localIdentity: localIdentity, now: now)
     }

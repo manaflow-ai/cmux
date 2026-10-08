@@ -533,7 +533,7 @@ struct AccountMacDirectoryClientTests {
     func resyncRetryAfterOutlastsReadTimeout() async throws {
         let socket = ScriptedAccountSocket()
         let log = EffectLog()
-        let timeoutReleased = LockedFlag()
+        let timeoutCancelled = LockedFlag()
         let retryReleased = LockedFlag()
         let client = AccountMacDirectoryClient(baseURL: URL(string: "https://iroh.example")!, dependencies: .init(
             connect: { request in log.request(request); return socket },
@@ -543,7 +543,12 @@ struct AccountMacDirectoryClientTests {
             sleep: { seconds in
                 log.slept(seconds)
                 if seconds == AccountMacDirectoryClient.readTimeout {
-                    while !timeoutReleased.value { try await Task.sleep(for: .milliseconds(2)) }
+                    do {
+                        while true { try await Task.sleep(for: .milliseconds(2)) }
+                    } catch {
+                        timeoutCancelled.value = true
+                        throw error
+                    }
                 } else if seconds == 20 {
                     while !retryReleased.value { try await Task.sleep(for: .milliseconds(2)) }
                 } else {
@@ -557,8 +562,7 @@ struct AccountMacDirectoryClientTests {
         await socket.push(#"{"schemaId":"error.v1","requestId":"\#(pending)","code":"resync_required","retryable":true,"retryAfterMs":20000}"#)
         try await Self.eventually { log.sleepDurations.contains(20) }
         // The read timer elapses during the server-requested wait.
-        timeoutReleased.value = true
-        try await Task.sleep(for: .milliseconds(100))
+        try await Self.eventually { timeoutCancelled.value }
         #expect(await !socket.closed)
         retryReleased.value = true
         let after = await socket.sent(atLeast: 3)

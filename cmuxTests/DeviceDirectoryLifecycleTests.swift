@@ -266,15 +266,6 @@ struct DeviceDirectoryLifecycleTests {
         )
     }
 
-    private func isStopped(_ client: DeviceIrxClient) async -> Bool {
-        for _ in 0..<500 {
-            var iterator = await client.directoryChanges().makeAsyncIterator()
-            if await iterator.next() == nil { return true }
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-        return false
-    }
-
     @Test("A team switch keeps every My Devices row and provider, and retires the old team's client")
     func teamSwitchKeepsRows() async throws {
         let suite = "DevicesTeamSwitch-\(UUID().uuidString)"
@@ -288,6 +279,8 @@ struct DeviceDirectoryLifecycleTests {
         let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
         let provider = try #require(registry.provider(for: instance))
         let oldClient = try #require(harness.clients.first)
+        var oldChanges = await oldClient.directoryChanges().makeAsyncIterator()
+        #expect(await oldChanges.next() != nil)
         let rowsBefore = registry.directory?.records ?? []
         #expect(!rowsBefore.isEmpty)
 
@@ -302,10 +295,11 @@ struct DeviceDirectoryLifecycleTests {
         #expect(harness.directories.count == 2)
         // The link now dials with the new team's client; the old one is stopped.
         let newClient = try #require(harness.clients.last)
+        var newChanges = await newClient.directoryChanges().makeAsyncIterator()
+        #expect(await newChanges.next() != nil)
         #expect(newClient !== oldClient)
         #expect(provider.link.automaticClient === newClient)
-        #expect(await isStopped(oldClient))
-        #expect(!(await isStopped(newClient)))
+        #expect(await oldChanges.next() == nil)
         harness.identity = nil
         registry.evaluate()
         await clock.waitUntilIdle()
@@ -342,13 +336,15 @@ struct DeviceDirectoryLifecycleTests {
         registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
         let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
         let provider = try #require(registry.provider(for: instance))
+        let firstClient = try #require(harness.clients.first)
+        var firstChanges = await firstClient.directoryChanges().makeAsyncIterator()
+        #expect(await firstChanges.next() != nil)
 
         harness.identity = AuthenticatedSessionIdentity(generation: 2, accountID: "test")
         registry.evaluate()
         // A rebuild: the old provider is gone and a new one serves the row.
         #expect(registry.provider(for: instance) !== provider)
-        let firstClient = try #require(harness.clients.first)
-        #expect(await isStopped(firstClient))
+        #expect(await firstChanges.next() == nil)
 
         harness.identity = nil
         registry.evaluate()

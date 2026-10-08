@@ -122,6 +122,7 @@ struct AccountMacPeerAuthorizationTests {
     func rejects(_ rejection: Rejection) {
         var account = F.account()
         var cache = F.cache()
+        var deviceID = "peer"
         var tag = "default"
         var endpoint = F.peerKey
         var now = F.now
@@ -150,7 +151,7 @@ struct AccountMacPeerAuthorizationTests {
         case .missingHost:
             account = peer(F.peerIdentity, capabilities: ["irx-v2", "cmux.mac-devices.v1"]); expected = .notDiscoverable
         case .selfDevice:
-            account = peer(F.identity(device: "self", team: "B")); expected = .identityMismatch
+            account = peer(F.identity(device: "self", team: "B")); deviceID = "self"; expected = .identityMismatch
         case .phone:
             account = peer(F.peerIdentity, platform: .ios); expected = .identityMismatch
         case .revokedPeer:
@@ -175,7 +176,7 @@ struct AccountMacPeerAuthorizationTests {
         }
         let snapshot: AccountMacDirectorySnapshot? = rejection == .missingDirectory ? nil : account
         #expect(throws: expected) {
-            try resolve(snapshot, cache: cache, tag: tag, endpoint: endpoint, now: now)
+            try resolve(snapshot, cache: cache, deviceID: deviceID, tag: tag, endpoint: endpoint, now: now)
         }
     }
 }

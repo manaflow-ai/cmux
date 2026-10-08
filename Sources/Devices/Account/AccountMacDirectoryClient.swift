@@ -204,6 +204,7 @@ actor AccountMacDirectoryClient {
         runTask?.cancel()
         runTask = nil
         endExchange()
+        consecutiveFailures = 0
         guard let credentials else {
             runID = nil
             phase = .idle
