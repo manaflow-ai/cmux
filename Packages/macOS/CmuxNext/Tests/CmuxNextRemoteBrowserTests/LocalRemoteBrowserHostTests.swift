@@ -161,8 +161,10 @@ struct LocalRemoteBrowserHostTests {
         cat > /dev/null
         exit 5
         """)
-        let started = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .milliseconds(200))
-        try await Task.sleep(for: .milliseconds(500))
+        // A loaded test host can take a second to spawn the shell; the deadline
+        // is far above that, and the wait outlasts it.
+        let started = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .seconds(4))
+        try await Task.sleep(for: .seconds(5))
         #expect(kill(started.processIdentifier, 0) == 0, "the deadline stopped a listening host")
         started.stop()
         #expect(await started.exitStatus() == 5)
