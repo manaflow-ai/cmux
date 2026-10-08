@@ -38,8 +38,8 @@ enum AgentPaneContextMenu {
     static let inspectItem = "WKMenuItemIdentifierInspectElement"
 
     struct Actions {
-        var copy: @MainActor (String) -> Void
-        var fork: @MainActor (Int) -> Void
+        var copy: (String) -> Void
+        var fork: (Int) -> Void
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
@@ -54,8 +54,11 @@ enum AgentPaneContextMenu {
                 copies.append(AgentPaneMenuItem(title: AgentPaneMenuStrings.copyAsMarkdown) { actions.copy(markdown) })
             }
         }
-        let fork = target?.forkSeq.map { seq in [AgentPaneMenuItem(title: AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) }] }
-        for group in [copies, fork ?? [], inspect.map { [$0] } ?? []] where !group.isEmpty {
+        let fork: [NSMenuItem] = target?.forkSeq.map { seq in
+            [AgentPaneMenuItem(title: AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) }]
+        } ?? []
+        let groups: [[NSMenuItem]] = [copies, fork, inspect.map { [$0] } ?? []]
+        for group in groups where !group.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             group.forEach(menu.addItem)
         }
