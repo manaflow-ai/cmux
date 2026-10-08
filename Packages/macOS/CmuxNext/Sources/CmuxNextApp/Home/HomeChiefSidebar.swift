@@ -31,6 +31,9 @@ final class HomeChiefSidebar: NSView {
     var onShowMemory: () -> Void = {}
 
     static let harnesses = ["claude-sr", "codex"]
+
+    /// The harness items the picker offers.
+    static func harnesses(routeConfigured: Bool) -> [String] { harnesses }
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
     static let efforts = ["low", "medium", "high", "xhigh"]
 

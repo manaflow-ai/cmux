@@ -34,6 +34,9 @@ nonisolated struct HomeChiefFiles: Sendable {
                                  effort: choice["effort"] as? String, avatar: avatar, turns: recentTurns(limit: 5))
     }
 
+    /// Whether this Chief's acpmux has a CodeRouter Claude route configured.
+    func coderouterRouteConfigured(environment: [String: String]) -> Bool { false }
+
     /// The avatar alone (the header reads it when Home opens).
     func avatar() -> String? { snapshot().avatar }
 
