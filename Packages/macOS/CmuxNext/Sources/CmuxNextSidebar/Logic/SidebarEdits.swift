@@ -22,6 +22,8 @@ public nonisolated enum SidebarEdits {
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
+        case .setGroupIcon:
+            return false
         case let .closeGroup(id):
             return closeGroup(id, in: &sections)
         case let .reorder(ids, position):

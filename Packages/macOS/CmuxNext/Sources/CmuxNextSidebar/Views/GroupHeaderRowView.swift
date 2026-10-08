@@ -18,6 +18,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
+    /// The group's icon inside its label (`workspace-group-icon-v1`); not drawn yet.
+    let glyph = SidebarIconView()
     private let pill = CALayer()
     let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
     let editButton = SidebarIconButton(symbol: "pencil", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.rename)
