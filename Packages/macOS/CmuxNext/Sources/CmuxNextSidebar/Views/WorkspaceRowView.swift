@@ -187,13 +187,6 @@ final class WorkspaceRowView: SidebarRowView {
         needsDisplay = true
     }
 
-    /// Routes AXPress through the sidebar's shared workspace selection action.
-    override func accessibilityPerformPress() -> Bool {
-        guard !isShowingPlaceholder, let onSelect else { return false }
-        onSelect()
-        return true
-    }
-
     private func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
         var parts = [ws.title]
         if let s = content.detail { parts.append(s) }
