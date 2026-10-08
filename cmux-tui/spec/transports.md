@@ -269,7 +269,7 @@ Every WebSocket authenticates before protocol commands are dispatched. Interacti
 {"pair":{"request":true}}
 ```
 
-The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. A local or attached TUI approves or denies it. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
+The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. A local or attached TUI approves or denies it. Approval is an explicit action (the `y` key or the Approve button; Enter does not approve), so input typed while the prompt appears cannot admit a client. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
 
 Set `--ws-token <token>` or `server.ws_token` to add a non-interactive static-token bypass; the command-line flag takes precedence over config:
 
@@ -287,11 +287,11 @@ The preamble is not a protocol command, has no `id`, and receives no success res
 
 The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
-The current listener accepts every WebSocket Origin and request path. A browser challenge identifies only its TCP peer, which is normally loopback. Deployments must not treat pairing as an Origin check. vNext adds an explicit Origin allowlist and includes normalized Origin and path in the trusted approval prompt.
+Before any frame, every handshake passes the localhost listener rule, and no flag turns it off. `Host` must be a loopback name, a name added with `--ws-allow-host`, or (only on a non-loopback bind) an IP address literal; a DNS-rebound name is refused with 403. `Origin` must be absent (a native client), one of the listener's own loopback origins, or one added with `--ws-allow-origin`; `null` is always refused. The token or pairing step runs after this rule. A browser challenge identifies only its TCP peer, which is normally loopback.
 
 ### Bind Security
 
-By default the listener accepts only an IP loopback address such as `127.0.0.1` or `[::1]`. cmux-tui refuses a non-loopback address unless `--ws-insecure-bind` is also present. This listener provides no TLS; for remote access, bind deliberately and place it behind a TLS-terminating, authenticated reverse proxy. An authenticated WebSocket client can read terminal contents, type into PTYs, and use ordinary control and frontend mutations, including closing session topology. It cannot use Unix-only `local-admin` commands: `shutdown-daemon` and `pairing-response` reject WebSocket callers. Provider-owned workspace commits also require their separate provider authority.
+By default the listener accepts only an IP loopback address such as `127.0.0.1` or `[::1]`. cmux-tui refuses a non-loopback address unless `--ws-insecure-bind` is also present. That flag widens the bind address only: the `Host` and `Origin` rule still applies, so names clients use to reach a wide bind must be listed with `--ws-allow-host`. This listener provides no TLS; for remote access, bind deliberately and place it behind a TLS-terminating, authenticated reverse proxy. An authenticated WebSocket client can read terminal contents, type into PTYs, and use ordinary control and frontend mutations, including closing session topology. It cannot use Unix-only `local-admin` commands: `shutdown-daemon` and `pairing-response` reject WebSocket callers. Provider-owned workspace commits also require their separate provider authority.
 
 Static tokens and reconnect credentials are bearer credentials with ordinary control and frontend authority, excluding `local-admin` and `provider-authority`. Reconnect credentials are memory-only, survive for eight hours, are invalid after daemon restart, and have no v10 list or revoke API. Prefer secret files over process arguments when a future `--ws-token-file` becomes available. Credentials must never appear in URLs, logs, debug output, or generated diagnostics.
 

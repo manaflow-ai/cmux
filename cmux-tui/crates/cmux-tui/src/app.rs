@@ -19734,7 +19734,9 @@ impl App {
 
     fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         match key.code {
-            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
+            // Approval is explicit: the Enter that ends a command line typed
+            // while the dialog appeared must not admit a browser.
+            KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
             KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
             _ => {}
         }
