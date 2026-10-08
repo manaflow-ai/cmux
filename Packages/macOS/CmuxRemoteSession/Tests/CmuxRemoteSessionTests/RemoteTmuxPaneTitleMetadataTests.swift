@@ -77,3 +77,34 @@ struct RemoteTmuxPaneTitleMetadataTests {
         ))
     }
 }
+
+struct RemoteTmuxSubscriptionChangeTests {
+    @Test func retainsThePaneTargetAndValue() {
+        let change = RemoteTmuxSubscriptionChange(
+            controlModeLine: "%subscription-changed cmux_title_all $0 @1 1 %5 : tests"
+        )
+
+        #expect(change?.name == "cmux_title_all")
+        #expect(change?.paneID == 5)
+        #expect(change?.value == "tests")
+    }
+
+    @Test func preservesEmptyAndSeparatorlessValues() {
+        let empty = RemoteTmuxSubscriptionChange(
+            controlModeLine: "%subscription-changed cmux_title_all $0 @1 1 %5 : "
+        )
+        let separatorless = RemoteTmuxSubscriptionChange(
+            controlModeLine: "%subscription-changed cmux_title_all $0 @1 1 %5"
+        )
+
+        #expect(empty?.paneID == 5)
+        #expect(empty?.value == "")
+        #expect(separatorless?.paneID == 5)
+        #expect(separatorless?.value == "")
+    }
+
+    @Test func rejectsNonSubscriptionControlLines() {
+        #expect(RemoteTmuxSubscriptionChange(controlModeLine: "%window-add @1") == nil)
+        #expect(RemoteTmuxSubscriptionChange(controlModeLine: "%subscription-changed") == nil)
+    }
+}
