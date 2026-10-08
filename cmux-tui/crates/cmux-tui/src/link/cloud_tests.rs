@@ -32,7 +32,7 @@ fn record(state: &str, services: &[&str]) -> ConnectInfo {
 
 fn grant(token: &str, host: &str, services: &[&str]) -> LinkTokenGrant {
     serde_json::from_value(serde_json::json!({
-        "token": token, "expires_at": "2026-10-05T00:05:00Z",
+        "token": token, "expires_at": 1790000300000u64,
         "host": host, "epoch": 4, "services": services
     }))
     .unwrap()

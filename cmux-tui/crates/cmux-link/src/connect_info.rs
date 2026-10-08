@@ -57,7 +57,8 @@ pub struct Gateway {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkTokenGrant {
     pub token: String,
-    pub expires_at: String,
+    /// Milliseconds since the Unix epoch, matching the backend `Millis` scalar.
+    pub expires_at: u64,
     pub host: String,
     pub epoch: u64,
     pub services: Vec<Service>,
