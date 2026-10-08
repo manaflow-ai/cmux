@@ -56,6 +56,22 @@ extension SessionTests {
         #expect(session.draft?.attachments.isEmpty == true)
     }
 
+    @Test func aComposerUploadCompletionCannotCrossTargetGenerations() async throws {
+        let session = await session(ScriptedSink())
+        defer { session.stop() }
+        let context = try #require(session.attachmentContext())
+        let other = ComposerTarget(hostID: context.target.hostID, workspaceID: "ws_studio1")
+        session.setTarget(other)
+
+        let late = ComposerAttachment(id: TransferID(rawValue: "late"), name: "old.txt",
+                                      mime: "text/plain", byteCount: 4, uploadID: "up_old",
+                                      phase: .ready)
+        session.updateAttachment(late, target: context.target, generation: context.generation)
+
+        #expect(session.draft?.target == other)
+        #expect(session.draft?.attachments.isEmpty == true)
+    }
+
     @Test func anUnknownSendOrSuccessfulSendCannotReceiveLateAttachments() async throws {
         let source = ScriptedSink()
         let session = await session(source)

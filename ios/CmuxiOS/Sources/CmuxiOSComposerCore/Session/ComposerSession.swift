@@ -85,6 +85,14 @@ public final class ComposerSession {
 
     public var savedDrafts: [ComposerDraft] { store.all }
 
+    /// Captures the target and generation an in-flight C4 upload belongs to.
+    /// The view may keep receiving upload events after a target switch, so
+    /// completions must present this context when they update the draft.
+    public func attachmentContext() -> (target: ComposerTarget, generation: UUID)? {
+        guard let draft else { return nil }
+        return (draft.target, attachmentGeneration)
+    }
+
     // MARK: Edits
 
     public func setTarget(_ target: ComposerTarget) {
@@ -142,6 +150,14 @@ public final class ComposerSession {
         self.draft = draft
         saveDraft()
         changed()
+    }
+
+    /// Applies an upload event only to the draft that admitted it. A late
+    /// event from an old host is ignored after a target switch or send.
+    public func updateAttachment(_ attachment: ComposerAttachment, target: ComposerTarget,
+                                 generation: UUID) {
+        guard generation == attachmentGeneration, draft?.target == target else { return }
+        upsertAttachment(attachment)
     }
 
     /// An intake for this target and draft lifetime. A late upload after a

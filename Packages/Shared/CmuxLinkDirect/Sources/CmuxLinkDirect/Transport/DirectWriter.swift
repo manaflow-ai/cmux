@@ -28,6 +28,7 @@ actor DirectWriter {
     private var draining = false
     private var activeBulkBytes = 0
     private var activePending: Pending?
+    private var activeID: UInt64?
     private var closing = false
     private var bytesPerSecond: Int?
 
@@ -121,6 +122,7 @@ actor DirectWriter {
                 wakeAdmissionWaiters()
                 continue
             }
+            activeID = entry.id
             activePending = pending
             if entry.frame.lane.priority == .bulk {
                 activeBulkBytes = entry.frame.bytes.count
@@ -140,6 +142,7 @@ actor DirectWriter {
                 activePending?.continuation.resume(throwing: error)
             }
             activePending = nil
+            activeID = nil
             activeBulkBytes = 0
             wakeAdmissionWaiters()
         }
@@ -179,6 +182,19 @@ actor DirectWriter {
     }
 
     private func cancelQueued(id: UInt64) {
+        if activeID == id {
+            // NWConnection has no per-send cancellation. Closing it wakes a
+            // blocked contentProcessed callback; the continuation is resumed
+            // here so the caller observes cancellation even if that callback
+            // arrives late. The drain sees the cleared active slot and cannot
+            // resume it a second time.
+            let active = activePending
+            activePending = nil
+            activeID = nil
+            socket.cancel()
+            active?.continuation.resume(throwing: CancellationError())
+            return
+        }
         guard let pending = pending.removeValue(forKey: id) else { return }
         queue.remove(id: id)
         pending.continuation.resume(throwing: CancellationError())

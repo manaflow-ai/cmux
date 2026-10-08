@@ -65,9 +65,18 @@ final class ComposerViewController: UIViewController, UITextViewDelegate {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         dictation.stop()
+        cancelUploads()
+        session.stop()
+    }
+
+    /// Cancels C4 work and removes its placeholders before the draft is saved.
+    /// This keeps a dismissed composer from restoring uploads that no longer
+    /// have a live task or staged file behind them.
+    func cancelUploads() {
+        let ids = Array(uploads.keys)
         uploads.values.forEach { $0.cancel() }
         uploads.removeAll()
-        session.stop()
+        for id in ids { session.removeAttachment(id) }
     }
 
     // MARK: Render
@@ -123,6 +132,7 @@ final class ComposerViewController: UIViewController, UITextViewDelegate {
         let request = WorkspacePickerRequest(hostID: nil, allowsNewWorkspace: true)
         let picker = feature.makePicker(request) { [weak self] selection in
             guard let self, let selection else { return }
+            self.cancelUploads()
             self.session.setTarget(ComposerTarget(selection))
         }
         present(picker, animated: true)
