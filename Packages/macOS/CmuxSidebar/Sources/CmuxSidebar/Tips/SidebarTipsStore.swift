@@ -58,11 +58,9 @@ public struct SidebarTipsStore: DynamicProperty {
     /// - Parameters:
     ///   - tipIDs: Currently applicable tips in display order.
     ///   - now: The presentation time, supplied by the caller.
-    ///   - automaticTipID: The unseen tip chosen for an automatic reminder.
+    ///   - automaticTipID: The new tip or weekly refresher chosen automatically.
     public func open(tipIDs: [String], now: Date, automaticTipID: String? = nil) {
-        var latest = load()
-        if let automaticTipID { latest.currentTipID = automaticTipID }
-        let next = schedule.opened(latest, tipIDs: tipIDs, now: now)
+        let next = schedule.opened(load(), tipIDs: tipIDs, now: now, preferredTipID: automaticTipID)
         currentTipID = next.currentTipID ?? ""
         seenTipIDs = next.seenTipIDs.sorted().joined(separator: ",")
         lastOpenedDay = next.lastOpenedDay ?? ""

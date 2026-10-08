@@ -79,6 +79,28 @@ struct SidebarTipsStoreTests {
         #expect(popover.load().lastOpenedAt == now)
     }
 
+    @Test func manualRotationAndWeeklyRefresherPersistAcrossStoreInstances() throws {
+        let name = "SidebarTipsStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let tipIDs = ["a", "b", "c"]
+        let schedule = SidebarTipsSchedule()
+
+        for tipID in tipIDs {
+            SidebarTipsStore(defaults: defaults).open(tipIDs: tipIDs, now: now)
+            #expect(SidebarTipsStore(defaults: defaults).load().currentTipID == tipID)
+        }
+        let nextTime = now.addingTimeInterval(7 * 86_400)
+        let store = SidebarTipsStore(defaults: defaults)
+        let chosen = try #require(schedule.automaticTip(store.load(), tipIDs: tipIDs, now: nextTime))
+        #expect(chosen == "a")
+        store.open(tipIDs: tipIDs, now: nextTime, automaticTipID: chosen)
+        let restored = SidebarTipsStore(defaults: defaults).load()
+        #expect(restored.currentTipID == "a")
+        #expect(restored.lastOpenedAt == nextTime)
+        #expect(schedule.automaticTip(restored, tipIDs: tipIDs, now: nextTime.addingTimeInterval(86_400)) == nil)
+    }
+
     @Test func injectedSuitesDoNotShareProgress() throws {
         let firstName = "SidebarTipsStoreTests.\(UUID())"
         let secondName = "SidebarTipsStoreTests.\(UUID())"

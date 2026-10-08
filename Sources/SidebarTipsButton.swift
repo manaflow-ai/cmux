@@ -156,11 +156,8 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
     }
 }
 
-/// The Tips popover: the tip's title with its live shortcut, one or two lines
-/// of explanation, a row to page through the other tips, and the automatic-tip preference. Every tip is laid out in the same stack and only the current one is
-/// visible, so the popover keeps the tallest tip's height and nothing moves
-/// while paging. Reads and writes the shared progress itself so paging stays
-/// live while it is open.
+/// Shows one tip and the automatic-reminder preference. Reopening the footer
+/// button advances the tip, so the popover needs no paging controls.
 private struct SidebarTipsPopover: View {
     private static let width: CGFloat = 264
 
@@ -186,32 +183,7 @@ private struct SidebarTipsPopover: View {
 
     private func content(tips: [SidebarTip], index: Int) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(tips.enumerated()), id: \.element.id) { tipIndex, tip in
-                    tipText(tip)
-                        .opacity(tipIndex == index ? 1 : 0)
-                        .accessibilityHidden(tipIndex != index)
-                }
-            }
-            HStack(spacing: 4) {
-                pageDots(count: tips.count, index: index)
-                Spacer(minLength: 8)
-                pageButton(
-                    systemName: "chevron.left",
-                    title: String(localized: "sidebar.tips.previous", defaultValue: "Previous Tip"),
-                    accessibilityIdentifier: "SidebarTipsPreviousButton"
-                ) {
-                    select(tips[(index - 1 + tips.count) % tips.count].id)
-                }
-                pageButton(
-                    systemName: "chevron.right",
-                    title: String(localized: "sidebar.tips.next", defaultValue: "Next Tip"),
-                    accessibilityIdentifier: "SidebarTipsNextButton"
-                ) {
-                    select(tips[(index + 1) % tips.count].id)
-                }
-            }
-            .padding(.top, 10)
+            tipText(tips[index])
             Toggle(isOn: store.$automaticTipsDisabled) {
                 Text(String(localized: "sidebar.tips.disableAutomatic", defaultValue: "Don’t show tips automatically"))
                     .cmuxFont(size: 11)
@@ -220,7 +192,7 @@ private struct SidebarTipsPopover: View {
             .toggleStyle(.checkbox)
             .controlSize(.small)
             .focused($focusedControl, equals: "automaticTips")
-            .padding(.top, 6)
+            .padding(.top, 12)
             .accessibilityIdentifier("SidebarTipsDisableAutomaticCheckbox")
         }
         .padding(.horizontal, 14)
@@ -268,43 +240,5 @@ private struct SidebarTipsPopover: View {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         guard !shortcut.isUnbound else { return nil }
         return action.displayedShortcutString(for: shortcut)
-    }
-
-    private func pageDots(count: Int, index: Int) -> some View {
-        HStack(spacing: 4) {
-            ForEach(0..<count, id: \.self) { dotIndex in
-                Circle()
-                    .fill(Color.primary.opacity(dotIndex == index ? 0.55 : 0.18))
-                    .frame(width: 4, height: 4)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func pageButton(
-        systemName: String,
-        title: String,
-        accessibilityIdentifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            CmuxSystemSymbolImage(
-                systemName: systemName,
-                pointSize: 10,
-                weight: .semibold,
-                tint: Color(nsColor: .secondaryLabelColor)
-            )
-            .frame(width: 20, height: 20)
-        }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: 20, height: 20)
-        .safeHelp(title)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(accessibilityIdentifier)
-        .focused($focusedControl, equals: accessibilityIdentifier)
-    }
-
-    private func select(_ tipID: String) {
-        store.select(tipID)
     }
 }

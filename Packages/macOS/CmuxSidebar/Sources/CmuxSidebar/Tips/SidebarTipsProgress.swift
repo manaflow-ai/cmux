@@ -11,7 +11,7 @@ public struct SidebarTipsProgress: Equatable, Sendable {
     public var lastOpenedDay: String?
     /// Whether automatic tips are disabled. Manual viewing remains available.
     public var automaticTipsDisabled: Bool
-    /// The last presentation time, for the rolling 24-hour reminder limit.
+    /// The last presentation time, for daily discovery and weekly refreshers.
     public var lastOpenedAt: Date?
 
     /// Creates progress, defaulting to an unseen catalog with reminders enabled.
@@ -29,4 +29,3 @@ public struct SidebarTipsProgress: Equatable, Sendable {
         self.lastOpenedAt = lastOpenedAt
     }
 }
-

@@ -49,7 +49,7 @@ struct SidebarTipsScheduleTests {
         #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: now.addingTimeInterval(-86_400)) == nil)
     }
 
-    @Test func exhaustedOrEmptyCatalogNeverAutomaticallyRepeats() {
+    @Test func exhaustedLegacyHistoryAndEmptyCatalogSuppressReminders() {
         let progress = SidebarTipsProgress(seenTipIDs: Set(tipIDs))
         #expect(schedule.automaticTip(progress, tipIDs: tipIDs, now: now) == nil)
         #expect(schedule.automaticTip(SidebarTipsProgress(), tipIDs: [], now: now) == nil)
@@ -57,14 +57,53 @@ struct SidebarTipsScheduleTests {
         #expect(schedule.automaticTip(progress, tipIDs: tipIDs + ["new"], now: now) == "new")
     }
 
-    @Test func reopeningKeepsTheSameTipAndTheNextDaySkipsViewedTips() {
+    @Test func everyManualOpeningAdvancesAndSkipsViewedTips() {
         var opened = schedule.opened(SidebarTipsProgress(), tipIDs: tipIDs, now: now)
-        #expect(schedule.opened(opened, tipIDs: tipIDs, now: now).currentTipID == "a")
-        opened = schedule.selected(opened, tipID: "b")
-        let next = schedule.opened(opened, tipIDs: tipIDs, now: now.addingTimeInterval(86_400))
-        #expect(next.currentTipID == "c")
-        #expect(next.seenTipIDs == Set(tipIDs))
+        opened = schedule.opened(opened, tipIDs: tipIDs, now: now)
+        #expect(opened.currentTipID == "b")
+        opened = schedule.selected(opened, tipID: "c")
+        let next = schedule.opened(opened, tipIDs: tipIDs + ["new"], now: now)
+        #expect(next.currentTipID == "new")
+        #expect(next.seenTipIDs == Set(tipIDs + ["new"]))
         #expect(!schedule.showsUnopenedIndicator(next))
+    }
+
+    @Test func exhaustedCatalogRotatesWeeklyWithoutAdvancingTwice() throws {
+        let progress = SidebarTipsProgress(
+            currentTipID: "c", seenTipIDs: Set(tipIDs), lastOpenedAt: now
+        )
+        let week: TimeInterval = 7 * 86_400
+        #expect(schedule.automaticTip(progress, tipIDs: tipIDs, now: now.addingTimeInterval(week - 1)) == nil)
+        let nextTime = now.addingTimeInterval(week)
+        let chosen = try #require(schedule.automaticTip(progress, tipIDs: tipIDs, now: nextTime))
+        #expect(chosen == "a")
+        let opened = schedule.opened(progress, tipIDs: tipIDs, now: nextTime, preferredTipID: chosen)
+        #expect(opened.currentTipID == "a")
+        #expect(opened.seenTipIDs == Set(tipIDs))
+        #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: nextTime.addingTimeInterval(week)) == "b")
+    }
+
+    @Test func manualOpeningRestartsWeeklyCooldownAndOptOutSuppressesRefreshers() {
+        let progress = SidebarTipsProgress(currentTipID: "c", seenTipIDs: Set(tipIDs), lastOpenedAt: now)
+        let manualTime = now.addingTimeInterval(6 * 86_400)
+        var opened = schedule.opened(progress, tipIDs: tipIDs, now: manualTime)
+        #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: now.addingTimeInterval(7 * 86_400)) == nil)
+        let nextTime = manualTime.addingTimeInterval(7 * 86_400)
+        #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: nextTime) == "b")
+        opened.automaticTipsDisabled = true
+        #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: nextTime) == nil)
+    }
+
+    @Test func newCatalogEntriesUseDailyCadenceAfterExhaustion() {
+        let progress = SidebarTipsProgress(currentTipID: "c", seenTipIDs: Set(tipIDs), lastOpenedAt: now)
+        let expanded = tipIDs + ["new"]
+        #expect(schedule.automaticTip(progress, tipIDs: expanded, now: now.addingTimeInterval(86_399)) == nil)
+        #expect(schedule.automaticTip(progress, tipIDs: expanded, now: now.addingTimeInterval(86_400)) == "new")
+    }
+
+    @Test func refresherFallsBackWhenTheCurrentTipWasRemoved() {
+        let progress = SidebarTipsProgress(currentTipID: "gone", seenTipIDs: Set(tipIDs), lastOpenedAt: now)
+        #expect(schedule.automaticTip(progress, tipIDs: tipIDs, now: now.addingTimeInterval(7 * 86_400)) == "a")
     }
 
     @Test func manualBrowsingWrapsAfterAllTipsHaveBeenSeen() {
@@ -80,9 +119,9 @@ struct SidebarTipsScheduleTests {
     }
 
     @Test func automaticSelectionOnlyMarksTheChosenTipSeen() {
-        var progress = SidebarTipsProgress(currentTipID: "b", seenTipIDs: ["b"])
-        progress.currentTipID = schedule.automaticTip(progress, tipIDs: tipIDs, now: now)
-        let opened = schedule.opened(progress, tipIDs: tipIDs, now: now)
+        let progress = SidebarTipsProgress(currentTipID: "b", seenTipIDs: ["b"])
+        let chosen = schedule.automaticTip(progress, tipIDs: tipIDs, now: now)
+        let opened = schedule.opened(progress, tipIDs: tipIDs, now: now, preferredTipID: chosen)
         #expect(opened.currentTipID == "a")
         #expect(opened.seenTipIDs == ["a", "b"])
     }
