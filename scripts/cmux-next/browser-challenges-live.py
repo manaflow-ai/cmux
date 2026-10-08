@@ -152,7 +152,13 @@ def run(theme, basic_port, remembered_port=None):
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": TMP, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
            "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,760"}
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    # LaunchServices starts the app in the GUI login session, whose Keychain
+    # is unlocked (an app started from an ssh job cannot write the Keychain).
+    launch = ["open", "-n", "-a", APP, "--stdout", log.name, "--stderr", log.name]
+    for key, value in env.items():
+        if key.startswith("CMUX_NEXT_"):
+            launch += ["--env", f"{key}={value}"]
+    subprocess.run(launch, check=True)
     tag = theme.split()[-1].lower()
     try:
         if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 90):
@@ -203,17 +209,25 @@ def run(theme, basic_port, remembered_port=None):
         snap(f"signed-in-{tag}")
     finally:
         rpc("action.run", {"action": "quitEndSessions"})
-        try:
-            app.wait(30)
-        except subprocess.TimeoutExpired:
-            app.terminate()
-            app.wait(20)
+        if not wait(lambda: "error" in (rpc("debug.focus") or {"error": 1}), 40):
+            failures.append(f"{theme}: the tagged app did not quit")
+
+
+def keychain_item_exists():
+    """The remembered sign-in item, by attributes only (never the secret)."""
+    with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
+        bundle = plistlib.load(f)["CFBundleIdentifier"]
+    found = subprocess.run(["security", "find-generic-password", "-s", f"{bundle}.browser-http-auth"],
+                           capture_output=True, text=True)
+    return found.returncode == 0
 
 
 SECURE_PORT, DARK_PORT, LIGHT_PORT = free_port(), free_port(), free_port()
 servers = [serve(Secure, SECURE_PORT, tls=True), serve(Basic, DARK_PORT), serve(Basic, LIGHT_PORT)]
 try:
     run("Builtin Dark", DARK_PORT)
+    if not keychain_item_exists():
+        failures.append("Remember password saved no Keychain item")
     run("Builtin Light", LIGHT_PORT, remembered_port=DARK_PORT)
 finally:
     for server in servers:
