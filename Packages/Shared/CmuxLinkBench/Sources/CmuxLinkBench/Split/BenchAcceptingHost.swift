@@ -36,6 +36,9 @@ public struct BenchAcceptingHost: Sendable {
         guard !allowedWebRTCDevices.isEmpty || !allowedWireGuardDevices.isEmpty else {
             throw BenchSplitError.unauthorized("accepting host has no paired device keys")
         }
+        guard allowedWireGuardDevices.values.allSatisfy({ !$0.isEmpty }) else {
+            throw BenchSplitError.unauthorized("WireGuard peers require paired install IDs")
+        }
         self.hostID = hostID
         self.router = router
         self.iceServers = iceServers
@@ -52,6 +55,9 @@ public struct BenchAcceptingHost: Sendable {
     public func makeAcceptor(for rig: BenchRigKind) throws -> BenchAcceptingAcceptor {
         switch rig {
         case .v1:
+            guard !allowedWebRTCDevices.isEmpty else {
+                throw BenchSplitError.unauthorized("V1 accepting host has no paired WebRTC keys")
+            }
             let acceptor = WebRTCAcceptor(
                 router: router,
                 iceServers: iceServers,
@@ -62,6 +68,9 @@ public struct BenchAcceptingHost: Sendable {
             )
             return BenchAcceptingAcceptor(acceptors: [acceptor], start: { await acceptor.start() }, stop: { await acceptor.stop() })
         case .v2WebRTC:
+            guard !allowedWireGuardDevices.isEmpty else {
+                throw BenchSplitError.unauthorized("V2 accepting host has no paired WireGuard keys")
+            }
             let listener = WebRTCDatagramListener(
                 router: router,
                 iceServers: iceServers,
