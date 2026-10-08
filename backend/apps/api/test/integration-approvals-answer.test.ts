@@ -28,11 +28,23 @@ const sessionToken = async (stackUser: string) =>
     .setIssuedAt()
     .setExpirationTime("10m")
     .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
+const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } })
 const signIn = async (who: string) => {
   const token = await sessionToken(who)
   const res = await worker.fetch("https://api.test/v1/ops", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" }) })
   const v = ((await res.json()) as any).value
-  return { user: v.id as string, team: v.personal_team as string, name: who }
+  return { user: v.id as string, team: v.personal_team as string, name: who, token }
+}
+/** `owner` links a team-shared Slack connection (fake provider); returns its id. */
+const slackConnection = async (owner: { token: string; team: string; name: string }) => {
+  const op = (name: string, params: unknown) => worker.fetch("https://api.test/v1/ops", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${owner.token}` }, body: JSON.stringify({ op: name, params, idempotency_key: crypto.randomUUID(), origin: "cli" }) }).then((r) => r.json() as Promise<any>)
+  const connect = await op("integration.connect", { provider: "slack", sharing: "team" })
+  const state = new URL(connect.value.authorize_url as string).searchParams.get("state")!
+  await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(owner.team)), async (instance) => {
+    instance.http = async (req: Request) => (req.url.startsWith("https://slack.com/api/oauth.v2.access") ? ok({ ok: true, access_token: "xoxb-g8a", scope: "chat:write", team: { id: `T${owner.name}`, name: "Acme" } }) : new Response("not found", { status: 404 }))
+  })
+  expect((await op("integration.complete", { state, code: "c" })).ok).toBe(true)
+  return connect.value.connection.id as string
 }
 const membership = (team: string, user: string, join: boolean) =>
   inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => {
@@ -107,7 +119,37 @@ describe("G8 answers re-check the team at answer time", { timeout: 60_000 }, () 
     const session: Principal = { identity: `session:${member.user}`, kind: "session", user: member.user, team: member.team, stack_session: "rt_1", stack_user_id: "g8a-member3" }
     const confirmed = await answerPrincipal(testEnv as any, session, "feed.answer", { item: posted.item }, { rules: noSso, sso: async (_e, q, team) => ({ ...q, sso_team: team }) })
     expect(confirmed.sso_team).toBe(owner.team)
-    // Other ops and personal-team items pass through untouched.
-    expect(await answerPrincipal(testEnv as any, session, "feed.read", { item: posted.item }, { rules: noSso, sso: async (_e, q, team) => ({ ...q, sso_team: team }) })).toBe(session)
+    // Other ops and items of the session's own team pass through untouched.
+    const confirm = { rules: noSso, sso: async (_e: unknown, q: Principal, team: string) => ({ ...q, sso_team: team }) }
+    expect(await answerPrincipal(testEnv as any, session, "feed.read", { item: posted.item }, confirm)).toBe(session)
+    const own = await feed.integrationApproval(member.user, member.team, { ...prompt, action: { ...prompt.action, input: { approval: { team: member.team, request: `apr_${"d".repeat(32)}`, digest: `sha256:${"c".repeat(64)}` } } } }, APPROVAL_TTL_MS, "approval:own")
+    expect(await answerPrincipal(testEnv as any, session, "feed.answer", { item: own.item }, confirm)).toBe(session)
+  })
+
+  it("the ConnectionDO's own delivery path refuses an approval from a person who left the team", async () => {
+    const owner = await signIn("g8a-owner5")
+    const member = await signIn("g8a-member5")
+    const conn = await slackConnection(owner)
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(owner.team))
+    // The caller is the owner's session (allowed to use the connection); the person asked is the member.
+    const deliver = () =>
+      inDO(connections, async (instance, st) => {
+        const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+        const params = { connection: conn, channel: "C9", text: "team secret text" }
+        const digest = approvalDigest("slack.post_as_bot", params)
+        const now = Date.now()
+        insertApproval(st.storage.sql, { request, identity: `session:${owner.user}`, idempotency_key: `k-${request}`, user: member.user, connection: conn, op: "slack.post_as_bot", params, params_hash: digest, digest, principal: { identity: `session:${owner.user}`, kind: "session", user: owner.user, team: owner.team }, target: "C9", summary: "", created_at: now, expires_at: now + APPROVAL_TTL_MS })
+        let runs = 0
+        instance.runLedgered = async () => {
+          runs++
+          return { ok: true, op: "slack.post_as_bot", value: {}, transaction: "", idempotency_key: "", replayed: false, stream: "", sequence: 0 }
+        }
+        await instance.systemDeliver(owner.team, `feed:${member.user}`, [{ id: 1, op: "integration.approval.answered", key: `a:${request}`, params: { request, decision: "allow", digest } }])
+        return { runs, state: approvalByRequest(st.storage.sql, request)!.state }
+      })
+    await membership(owner.team, member.user, true)
+    expect(await deliver()).toEqual({ runs: 1, state: "done" })
+    await membership(owner.team, member.user, false)
+    expect(await deliver()).toEqual({ runs: 0, state: "denied" })
   })
 })
