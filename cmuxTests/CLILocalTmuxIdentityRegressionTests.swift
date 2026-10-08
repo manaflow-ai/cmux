@@ -28,7 +28,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
           set-option|set-window-option|if-shell|list-clients) exit 0 ;;
           has-session)
             case "${FAKE_TMUX_GENERATION}:$target" in
-              1:=detached-recreate|1:'$1'|2:'$2') exit 0 ;;
+              1:=detached-recreate)
+                [ -f "$FAKE_TMUX_STATE" ] && exit 0 || exit 1
+                ;;
+              1:'$1'|2:'$2') exit 0 ;;
               *) exit 1 ;;
             esac
             ;;
