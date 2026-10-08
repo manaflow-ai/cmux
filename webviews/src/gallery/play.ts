@@ -29,6 +29,10 @@ export type PlayContext = {
   click(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
   focus(target: PlayTarget): Promise<void>;
+  /** Moves a scroll container to an absolute offset or one of its edges. */
+  scroll(target: PlayTarget, position: number | "top" | "bottom"): Promise<void>;
+  /** Selects the rendered text inside a real component, as a user drag would. */
+  selectText(target: PlayTarget): Promise<void>;
   /** Types into the focused element (or `target`, focused first). */
   type(text: string, target?: PlayTarget): Promise<void>;
   /** One key: `Enter`, `Escape`, `ArrowDown`, `Meta+k`. */

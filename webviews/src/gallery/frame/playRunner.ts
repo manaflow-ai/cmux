@@ -208,6 +208,13 @@ export async function runPlay(
       else synthetic(element, kind);
     }).then((step) => steps.push(step));
   };
+  const gesture = async (name: string, target: Element | null, run: () => void | Promise<void>): Promise<void> => {
+    steps.push(
+      await measured(name, target, anchors, checks, async () => {
+        await run();
+      }),
+    );
+  };
   const ctx: PlayContext = {
     document,
     find,
@@ -218,6 +225,30 @@ export async function runPlay(
       steps.push(
         await measured(`focus ${describeTarget(target)}`, element, anchors, checks, async () => element.focus()),
       );
+    },
+    scroll: async (target, position) => {
+      const element = find(target) as HTMLElement;
+      await gesture(`scroll ${describeTarget(target)} to ${String(position)}`, element, () => {
+        const top =
+          typeof position === "number"
+            ? position
+            : position === "bottom"
+              ? Math.max(0, element.scrollHeight - element.clientHeight)
+              : 0;
+        element.scrollTop = top;
+        element.dispatchEvent(new Event("scroll", { bubbles: false }));
+      });
+    },
+    selectText: async (target) => {
+      const element = find(target);
+      await gesture(`select text in ${describeTarget(target)}`, element, () => {
+        const selection = document.getSelection();
+        if (!selection) return;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);
