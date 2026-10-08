@@ -640,7 +640,11 @@ fn release_all_releases_a_button_held_on_a_popup_surface() {
 fn navigate_loads_the_url_in_the_main_frame() {
     let mut fake = Fake::default();
     let mut tab = live_tab(&mut fake);
-    let out = tab.control("v1", &Control::Navigate { url: "https://cmux.com/".into() }, &mut fake);
+    let out = tab.control(
+        "v1",
+        &Control::Navigate { request: None, url: "https://cmux.com/".into() },
+        &mut fake,
+    );
     assert!(out.is_empty());
     assert_eq!(fake.calls, vec!["load_url 7 https://cmux.com/"]);
 }
@@ -650,7 +654,11 @@ fn navigate_before_the_browser_exists_loads_once_it_does() {
     let mut fake = Fake::default();
     let mut tab = HostTab::new(1, 41, "https://example.com/");
     tab.control("v1", &open("v1", screen(1200, 800, 2.0)), &mut fake);
-    tab.control("v1", &Control::Navigate { url: "https://cmux.com/".into() }, &mut fake);
+    tab.control(
+        "v1",
+        &Control::Navigate { request: None, url: "https://cmux.com/".into() },
+        &mut fake,
+    );
     assert!(!fake.calls.iter().any(|c| c.starts_with("load_url")));
     tab.tab_created(7, &mut fake);
     assert!(fake.calls.iter().any(|c| c == "load_url 7 https://cmux.com/"), "{:?}", fake.calls);

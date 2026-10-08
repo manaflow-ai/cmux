@@ -281,7 +281,7 @@ impl HostTab {
                     Err(_) => vec![Control::Refused { reason: RefuseReason::Busy }],
                 }
             }
-            Control::Navigate { url } => {
+            Control::Navigate { url, .. } => {
                 match self.browser {
                     Some(browser) => {
                         p.load_url(browser, url);

@@ -282,8 +282,14 @@ pub enum Control {
     #[serde(rename = "rb.history")]
     History { op: HistoryOp },
     /// The viewer's omnibar or an opened tab: load `url` in the page.
+    /// Legacy viewers omit `request`; newer viewers use it to correlate
+    /// `rb.navigate.result` when the host supports the `navigate` capability.
     #[serde(rename = "rb.navigate")]
-    Navigate { url: String },
+    Navigate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request: Option<u64>,
+        url: String,
+    },
     #[serde(rename = "rb.key_unhandled")]
     KeyUnhandled { input_seq: u32 },
     #[serde(rename = "rb.cursor")]
@@ -353,10 +359,6 @@ pub enum Control {
     OpenTab { request: u64, url: String, disposition: Disposition, user_gesture: bool },
     #[serde(rename = "rb.open_tab.result")]
     OpenTabResult { request: u64, tab: Option<String>, refused: Option<String> },
-    /// Viewer asks the page owner to load a URL (cap `navigate`). Hosts
-    /// refuse every scheme except http and https before the page sees it.
-    #[serde(rename = "rb.navigate")]
-    Navigate { request: u64, url: String },
     #[serde(rename = "rb.navigate.result")]
     NavigateResult { request: u64, refused: Option<NavigateRefusal> },
     #[serde(rename = "rb.surface.show")]
