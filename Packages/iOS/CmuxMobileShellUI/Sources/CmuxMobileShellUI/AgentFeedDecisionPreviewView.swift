@@ -80,7 +80,7 @@ public struct AgentFeedDecisionPreviewView: View {
                     .accessibilityValue(stressMetrics)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(UITestConfig.agentFeedDecisionPreviewLightAppearanceEnabled ? .light : .dark)
         .task {
             await runScrollStressIfEnabled()
         }
@@ -109,6 +109,7 @@ public struct AgentFeedDecisionPreviewView: View {
         referenceDate now: Date,
         longRowCount: Int
     ) -> [MobileAgentFeedItem] {
+        let richText = UITestConfig.agentFeedQuestionMarkdownPreviewEnabled
         let question = MobileAgentFeedItem(
             macDeviceID: "preview-mac",
             macDisplayName: "Preview Mac",
@@ -124,12 +125,12 @@ public struct AgentFeedDecisionPreviewView: View {
                 MobileAgentFeedQuestion(
                     id: "deploy",
                     header: "Deploy target",
-                    prompt: "Where should this deploy?",
+                    prompt: richText ? "Where should **this release** deploy?" : "Where should this deploy?",
                     options: [
                         MobileAgentFeedQuestionOption(
                             id: "production",
-                            label: "Production",
-                            description: "Deploy the current release to production."
+                            label: richText ? "**Production**" : "Production",
+                            description: richText ? "Deploy the `release` to production." : "Deploy the current release to production."
                         ),
                         MobileAgentFeedQuestionOption(
                             id: "staging",
@@ -161,7 +162,7 @@ public struct AgentFeedDecisionPreviewView: View {
                         ),
                     ]
                 ),
-            ],
+            ].filter { !richText || $0.id == "deploy" },
             context: MobileAgentFeedContext(lastUserMessage: "Deploy target and event settings"),
             connectionStatus: .connected
         )
