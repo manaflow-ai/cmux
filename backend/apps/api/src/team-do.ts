@@ -17,6 +17,7 @@ import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
+import { cleanupRemovedMembers } from "./team-member-cleanup.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 /** TeamDO.signInRules result (policy-gate.ts). */
@@ -75,6 +76,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
+    if (Object.keys(state.member_cleanup ?? {}).length > 0) return now
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const times = [
       nextRecheckAt(state),
@@ -116,6 +118,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    this.cleanupMembers()
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
     try {
@@ -179,6 +182,22 @@ export class TeamDO extends OwnerDO<TeamState> {
   private async recheckDomains(now: number) {
     const state = this.boundEngine?.currentState
     if (state?.team) await recheckDue({ state, team: state.team.id, http: this.http, domainStub: (d) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d)), current: () => this.boundEngine!.currentState, commit: (op, params, key) => this.requireCommitted(this.submitSystem(op, params, key)) }, now)
+  }
+
+  /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
+  protected override afterOp(_principal: Principal, op: string) {
+    if (op === "team.member.remove") this.cleanupMembers()
+  }
+
+  private cleanupMembers() {
+    const engine = this.boundEngine
+    if (!engine) return
+    try {
+      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) })
+    } catch (e) {
+      // The removal is committed either way; nextWakeAt keeps the alarm due until the cleanup commits.
+      console.error(JSON.stringify({ msg: "member cleanup failed", error: String(e) }))
+    }
   }
 
   /** A rejected system op must back off, not re-fire the alarm at once (review P2-1). */

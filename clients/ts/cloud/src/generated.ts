@@ -606,6 +606,10 @@ export type Host = {
   readonly kind?: HostKind
   readonly wg_public_key?: WgPublicKey
   readonly tags?: ReadonlyArray<string>
+  readonly orphaned?: {
+    readonly at: number
+    readonly former_owner: UserId
+  }
 }
 
 /** A machine's session host, enrolled by its link. */

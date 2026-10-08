@@ -323,7 +323,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         const outbox: Array<OutboxItem> = []
         const revoked: Array<string> = []
         for (const cur of Object.values(state.installs)) {
-          if (cur.bound_team !== team || cur.revoked_at !== null || cur.created_at > before) continue
+          // Bound to the team, or authorized by the team's SSO: no authority derived from the team survives the removal.
+          if ((cur.bound_team !== team && cur.sso_team !== team) || cur.revoked_at !== null || cur.created_at > before) continue
           const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
           if (!r.ok) return r
           next = r.state

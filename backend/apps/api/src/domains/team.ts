@@ -19,6 +19,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
+  readonly member_cleanup?: Readonly<Record<string, number>>
 }
 
 /**
@@ -90,10 +92,26 @@ export const teamDomain: Domain<TeamState> = {
         const { [user]: _gone, ...legacyMembers } = state.members ?? {}
         return {
           ok: true,
-          state: { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1) },
+          state: { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } },
           writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
           value: { user, removed: true },
           ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx, ctx.now) } : {})
+        }
+      }
+      case "team.member.cleaned": {
+        // TeamDO's own submit after it put the member's certificates on the KRL (team-member-cleanup.ts).
+        if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
+        const v = (params ?? {}) as { user?: unknown; hosts?: unknown }
+        if (typeof v.user !== "string" || !Array.isArray(v.hosts)) return reject("validation.invalid", "user and hosts required")
+        const at = state.member_cleanup?.[v.user]
+        if (at === undefined) return { ok: true, state, value: { orphaned: [] }, changed: false }
+        const { [v.user]: _done, ...rest } = state.member_cleanup ?? {}
+        const hosts = v.hosts.map((id) => hostOf(state, ctx.rows, String(id))).filter((h): h is NonNullable<typeof h> => h !== undefined && h.owner_user === v.user && !h.orphaned)
+        return {
+          ok: true,
+          state: { ...state, member_cleanup: rest },
+          writes: hosts.flatMap((h) => hostUpsert({ ...h, orphaned: { at, former_owner: v.user as string } })),
+          value: { orphaned: hosts.map((h) => h.id) }
         }
       }
       case "team.ensure_personal": {
