@@ -94,4 +94,42 @@ import Testing
         #expect(refusals == [RefusalStrings.noRecentlyClosedWorkspace])
         #expect(!daemon.operations.contains("closed.reopen"))
     }
+
+    @Test func aWorkspaceReopenedByAnotherClientProducesALocalizedRefusal() async throws {
+        let daemon = try StateDaemon(state: Self.state, failure: { operation in
+            operation == "closed.reopen" ? #"{"code":"resource.not_found","message":"gone","retryable":false}"# : nil
+        })
+        defer { daemon.stop() }
+        let services = try await services(daemon)
+        defer { services.daemon.shutdownConnection() }
+        var refusals: [String] = []
+        services.registry.refusalObserver = { message, _ in refusals.append(message) }
+
+        let work = services.registry.capturingWork { _ = services.registry.perform("reopenClosedWorkspace") }
+        #expect(work.count == 1)
+        for task in work {
+            let failure = await task.value
+            #expect(failure?.refusal == .unavailable)
+            #expect(failure?.message == RefusalStrings.noRecentlyClosedWorkspace)
+        }
+        #expect(refusals == [RefusalStrings.noRecentlyClosedWorkspace])
+    }
+
+    @Test func aMissingReopenedWorkspaceDoesNotSelectAnUnrelatedWorkspaceOrReportSuccess() async throws {
+        let daemon = try StateDaemon(state: Self.state, reply: { _, _ in
+            #"{"closed_id":"closed_ws","kind":"workspace","workspace_id":"ws_missing","screen_ids":[],"tab_ids":[]}"#
+        })
+        defer { daemon.stop() }
+        let services = try await services(daemon)
+        defer { services.daemon.shutdownConnection() }
+        #expect(services.daemon.store.workspace(resourceID: ResourceID(rawValue: "ws_w")) != nil)
+
+        let work = services.registry.capturingWork { _ = services.registry.perform("reopenClosedWorkspace") }
+        #expect(work.count == 1)
+        for task in work {
+            let failure = await task.value
+            #expect(failure?.mayHaveApplied == true)
+            #expect(failure?.message == RefusalStrings.noWorkspace("ws_missing"))
+        }
+    }
 }
