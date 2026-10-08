@@ -7,8 +7,11 @@
 //! and the host quits. No polling and no process scanning: the pipe is the
 //! signal.
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
+
+use cmux_rd_proto::control::Control;
+use cmux_rd_proto::{STREAM_CONTROL, StreamDeframer, encode_stream_frame};
 
 /// The stdout key of the readiness line.
 pub const LISTENING_KEY: &str = "listening";
@@ -67,4 +70,58 @@ pub fn authorize(
 /// `--listen` must be a loopback address: a host never serves other machines.
 pub fn loopback_only(addr: SocketAddr) -> Result<SocketAddr, &'static str> {
     if addr.ip().is_loopback() { Ok(addr) } else { Err("--listen must be a loopback address") }
+}
+
+/// The result of [`admit`]: the viewer's hello and the deframer that holds the
+/// bytes it sent after it, or why the viewer was turned away.
+pub enum Admission {
+    Admitted { hello: Control, deframer: StreamDeframer },
+    Refused(String),
+}
+
+/// One viewer's admission on the rd stream carrier: read its first control
+/// frame and check it with [`authorize`] before the host sends a welcome or
+/// opens a tab. A refused viewer gets an rd `refused` and nothing else.
+pub fn admit<S: Read + Write>(stream: &mut S, secret: Option<&str>) -> std::io::Result<Admission> {
+    admit_within(stream, secret, HELLO_DEADLINE)
+}
+
+/// How long a viewer has to send its hello, in total.
+pub const HELLO_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// [`admit`] with an explicit hello deadline.
+pub fn admit_within<S: Read + Write>(
+    stream: &mut S,
+    secret: Option<&str>,
+    _deadline: std::time::Duration,
+) -> std::io::Result<Admission> {
+    let mut deframer = StreamDeframer::default();
+    let mut buf = vec![0u8; 64 * 1024];
+    let hello = loop {
+        if let Ok(Some((kind, payload))) = deframer.next_frame() {
+            if kind == STREAM_CONTROL {
+                break serde_json::from_slice::<Control>(&payload).map_err(std::io::Error::other)?;
+            }
+            continue;
+        }
+        let n = stream.read(&mut buf)?;
+        if n == 0 {
+            return Ok(Admission::Refused("left before hello".into()));
+        }
+        deframer.extend(&buf[..n]);
+    };
+    if let Err(reason) = authorize(secret, &hello) {
+        write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
+        return Ok(Admission::Refused(format!("refused: {reason}")));
+    }
+    Ok(Admission::Admitted { hello, deframer })
+}
+
+/// Writes one rd control frame.
+pub fn write_control<W: Write>(stream: &mut W, control: &Control) -> std::io::Result<()> {
+    let json = serde_json::to_vec(control).map_err(std::io::Error::other)?;
+    let mut out = Vec::with_capacity(json.len() + 5);
+    encode_stream_frame(STREAM_CONTROL, &json, &mut out)
+        .map_err(|e| std::io::Error::other(format!("{e:?}")))?;
+    stream.write_all(&out)
 }
