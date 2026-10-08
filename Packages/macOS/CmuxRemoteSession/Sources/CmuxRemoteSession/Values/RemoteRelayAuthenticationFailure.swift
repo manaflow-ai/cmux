@@ -9,18 +9,6 @@ enum RemoteRelayAuthenticationFailure: Equatable, Sendable {
     case permissionDenied(methods: String)
     case tooManyAuthenticationFailures
 
-    var methodLabel: String {
-        switch self {
-        case .permissionDenied(let methods):
-            return methods
-        case .tooManyAuthenticationFailures:
-            return String(
-                localized: "remoteSession.authentication.tooManyFailures",
-                defaultValue: "too many authentication failures"
-            )
-        }
-    }
-
     var logLabel: String {
         switch self {
         case .permissionDenied:

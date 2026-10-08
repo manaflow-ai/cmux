@@ -234,12 +234,8 @@ extension RemoteSessionCoordinator {
                     "status=\(process.terminationStatus)"
             )
             let detail = String(
-                format: String(
-                    localized: "remoteSession.parked.sshAuthenticationFailed",
-                    defaultValue: "SSH authentication to %@ failed (%@). Automatic reconnect paused; use Reconnect to try again."
-                ),
-                configuration.displayTarget,
-                authenticationFailure.methodLabel
+                localized: "remoteSession.parked.sshAuthenticationFailed",
+                defaultValue: "SSH authentication failed. Automatic reconnect paused; use Reconnect to try again."
             )
             resetTransportForReconnectLocked(
                 preservePersistentRelayMetadata: true

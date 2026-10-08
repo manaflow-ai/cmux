@@ -444,6 +444,8 @@ struct RemoteSessionReverseRelayTransportTests {
         let status = try #require(await statuses.next())
         #expect(status.state == .error)
         #expect(status.detail?.contains("SSH authentication") == true)
+        #expect(status.detail?.contains("publickey") == false)
+        #expect(status.detail?.contains("too many authentication failures") == false)
         #expect(status.detail?.contains("private-user") == false)
         coordinator.queue.sync {}
         let released = try #require(waitingAttach.current)
