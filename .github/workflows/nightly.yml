@@ -1384,6 +1384,8 @@ jobs:
         working-directory: cmux-tui
         env:
           CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-nightly-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          # Compiled into `cmux` (decision SV-R1), as in cmux-tui-build-package.yml.
+          CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC

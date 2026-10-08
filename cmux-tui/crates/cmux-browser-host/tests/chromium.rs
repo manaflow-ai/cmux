@@ -1161,3 +1161,7 @@ mod proxy_ranges;
 // Undoable cookie clears through the whole host (private data P2).
 #[path = "chromium/cookie_backups.rs"]
 mod cookie_backups;
+
+// EGRESS-ISOLATED on a real Chromium (cx-d0d.7).
+#[path = "chromium/egress_isolated.rs"]
+mod egress_isolated;
