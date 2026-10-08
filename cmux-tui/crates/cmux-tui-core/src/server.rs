@@ -11075,9 +11075,12 @@ fn pane_json(
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| &identity.tab_id)
                 .or_else(|| state.resource_indexes.tab_ids.get(sid));
+            // A restored tab with no runtime surface (an ended terminal after
+            // a restart) keeps its content id in the index, like its tab id.
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
-                .map(|identity| identity.content_id.as_str());
+                .map(|identity| identity.content_id.as_str())
+                .or_else(|| state.resource_indexes.content_ids.get(sid).map(|content| content.as_str()));
             let directory = notifications.directories.get(sid);
             let frontend_browser = surface
                 .and_then(|surface| surface.resource_identity())

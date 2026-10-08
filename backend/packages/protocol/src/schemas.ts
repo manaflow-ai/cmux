@@ -21,7 +21,7 @@ export const Revision = Schema.String.check(Schema.isPattern(/^[0-9]+$/)).annota
   description: "Decimal per-object revision (the owner's event sequence)."
 })
 export const Origin = Schema.Literals(["user", "cli", "mcp", "script", "remote"]).annotate({ identifier: "Origin" })
-export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm"]).annotate({ identifier: "InstallKind" })
+export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm", "team-vm"]).annotate({ identifier: "InstallKind" })
 export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "web"]).annotate({ identifier: "Platform" })
 
 /**

@@ -297,10 +297,29 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_workspace_with_spawn_as(
+            actor,
+            name,
+            TerminalSpawnOptions::new(None, Vec::new()),
+            size,
+        )
+    }
+
+    /// `new_workspace_as` whose first terminal starts with `spawn`
+    /// (directory, environment, reserved terminal id; Reopen Closed of a
+    /// workspace).
+    pub(crate) fn new_workspace_with_spawn_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        name: Option<String>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let mut fields =
             Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
         Self::insert_optional_string(&mut fields, "name", name);
+        Self::insert_spawn_options(&mut fields, spawn);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,
