@@ -7,6 +7,8 @@
 #[cfg(unix)]
 mod action_hint;
 #[cfg(unix)]
+mod agents;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;
@@ -225,6 +227,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| agents::run_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
     {
