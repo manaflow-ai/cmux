@@ -193,7 +193,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const engine = this.boundEngine
     if (!engine) return
     try {
-      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) })
+      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key), stackProjectId: this.env.STACK_PROJECT_ID })
       this.cleanupAttempts = 0
       this.cleanupRetryAt = null
     } catch (e) {
@@ -314,6 +314,8 @@ export class TeamDO extends OwnerDO<TeamState> {
    * that install (and only that user's) goes into the KRL, and the install gets no new one.
    */
   async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
+    // A team that never existed here issued nothing; never create its storage for a notice (cx-44j.50).
+    if (!this.isBound(entity)) return { ok: true, revoked: [] }
     return revokeInstallCerts(this.sshDeps(entity), user, install)
   }
 
