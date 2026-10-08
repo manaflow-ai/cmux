@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
-import { createVm, forkVm, openBaseVm, resetBaseVm, restoreVm, resumeVm } from "../services/vms/workflows";
+import { createVm, forkVm, networkSlugForUser, openBaseVm, resetBaseVm, restoreVm, resumeVm } from "../services/vms/workflows";
 import { vmWorkflowErrorCause, vmWorkflowErrorFromCause, VmProviderOperationError } from "../services/vms/errors";
 
 test("create, fork, and restore reject a 64 GB machine on Pro before provisioning", async () => {
@@ -320,12 +320,13 @@ test("an idempotent create retry cannot return a Max-sized row to Pro", async ()
       userId: "u",
       provider: "freestyle" as const,
       providerNetworkId: "provider-network",
-      slug: "u",
+      slug: networkSlugForUser("u"),
       cidr: null,
       cidrV6: null,
       createdAt: new Date("2026-01-01T00:00:00Z"),
       updatedAt: new Date("2026-01-01T00:00:00Z"),
     }),
+    upsertNetwork: () => Effect.die("the existing owner network should be reused"),
   } as unknown as VmRepositoryShape;
   const providers = {
     supportsPrivateNetworking: () => true,
