@@ -2405,9 +2405,10 @@ async fn recover_inactive_predecessor_state(
         .transpose()
         .context(catalog().remote.verify_previous_finalization)?;
     let stale = match outcome {
-        Some(outcome) => {
-            outcome.lifecycle_id != lifecycle_id || outcome.status == DaemonShutdownStatus::Failed
+        Some(outcome) if outcome.status == DaemonShutdownStatus::Succeeded => {
+            outcome.lifecycle_id != lifecycle_id
         }
+        Some(_) => false,
         None => true,
     };
     if !stale {
@@ -4261,14 +4262,6 @@ mod tests {
                     status: DaemonShutdownStatus::Succeeded,
                 }),
             ),
-            (
-                "failed",
-                Some(DaemonShutdownOutcome {
-                    version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
-                    lifecycle_id: "expected-lifecycle".into(),
-                    status: DaemonShutdownStatus::Failed,
-                }),
-            ),
         ] {
             let directory = tempfile::tempdir_in("/tmp").unwrap();
             let state_root = directory.path().join("state");
@@ -4331,6 +4324,75 @@ mod tests {
                 "{case}: replacement daemon did not publish a successful finalization"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_preserves_failed_finalization_ack_fence() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "failed-modern-predecessor";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        drop(
+            AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
+                .expect("could not seed authorization state"),
+        );
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+        persist_runtime_info(
+            &state_dir,
+            &DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "failed-predecessor".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("failed-lifecycle".into()),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        persist_shutdown_outcome(
+            &state_dir,
+            &DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id: "failed-lifecycle".into(),
+                status: DaemonShutdownStatus::Failed,
+            },
+        )
+        .unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("failed finalization bypassed its explicit acknowledgement fence");
+            }
+        };
+        assert!(error.to_string().contains("acknowledge-failed-finalization"), "{error:#}");
+        assert!(state_dir.join("runtime.json").exists());
+        assert!(state_dir.join("shutdown.json").exists());
     }
 
     #[cfg(unix)]
