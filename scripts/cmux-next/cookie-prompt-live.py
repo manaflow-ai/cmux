@@ -192,21 +192,18 @@ try:
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
     print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
-    # A window toast (here the pin undo toast) holds the card back: a page that finishes under it shows none.
+    # A window toast (here the pin undo toast) at the bottom: the card still shows, lifted above it.
     rpc("action.run", {"action": "palette.toggleTabPin"})
-    toasts = wait_for(lambda: rpc("debug.filepages").get("toasts"), "a window toast to wait under", 5)
-    if toasts:
-        rpc("debug.omnibar_type", {"text": "https://example.net/"})
-        settle(4.0)
-        state = prompt()
-        check(state.get("shown_on") == [] and not state.get("shown_this_launch"), f"no card while a toast shows ({toasts}): {state}")
-        wait_for(lambda: not rpc("debug.filepages").get("toasts"), "the toast to end", 15)
-    else:
-        print("SKIP toast wait: the pin made no toast", flush=True)
+    toasts = wait_for(lambda: rpc("debug.filepages").get("toasts"), "a window toast to show under", 5)
+    if not toasts:
+        print("SKIP toast lift: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
     # through openBrowser is agent-driven and never shows the card.)
     typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
     print("omnibar_type:", json.dumps(typed)[:300], flush=True)
+    if toasts:
+        settle(1.5)
+        capture("browser-card-over-toast")
     shown = wait_for(lambda: prompt().get("shown_on"), "the card appears when the page finishes", 60)
     state = prompt()
     check(bool(shown), f"the card showed by itself on the finished page: {state}")

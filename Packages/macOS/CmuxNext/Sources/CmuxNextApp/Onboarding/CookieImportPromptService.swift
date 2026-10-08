@@ -123,7 +123,7 @@ final class CookieImportPromptService {
         guard finding == nil else { return }
         // task-owner: one Launch Services lookup per launch; ends after it
         finding = Task { [weak self] in
-            let locate = self?.locate ?? { [] }
+            guard let locate = self?.locate else { return }
             let apps = await Task.detached { locate() }.value
             let found = apps.map { InstalledCookieBrowser(browser: $0.browser, icon: NSWorkspace.shared.icon(forFile: $0.app.path)) }
             guard let self else { return }
