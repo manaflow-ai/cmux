@@ -644,6 +644,26 @@ BOTH_TOKENS = "${{ steps.route-token.outputs.token || steps.route-token-repo.out
 class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
 
+    def test_root_demand_is_scoped_to_each_pool_gui_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = pool.root_label(aws)
+        snap = backlog(small=0, large=0, old=0)
+        for label in (aws, aws_root, MINI, ROOT_MINI):
+            snap["pools"][label] = {"queued": 0, "running": 0}
+        limits = pool.Settings(order=(aws, MINI))
+        choice = pool.decide(
+            snap,
+            limits,
+            now=NOW,
+            xcode_pins=OWNED_PINS,
+            owned_slots={aws: 5, aws_root: 2, MINI: 5, ROOT_MINI: 5},
+            jobs=3,
+            # The office pool has a GUI runner, but AWS does not. AWS must
+            # account for all three root jobs rather than borrowing that fact.
+            root_jobs={aws: 3, MINI: 2},
+        )
+        self.assertEqual(choice.runner, MINI)
+
     def test_idle_runners_are_the_live_owned_capacity(self):
         def runner(labels, status="online", busy=False):
             return {"status": status, "busy": busy, "labels": [{"name": name} for name in labels]}
@@ -872,6 +892,28 @@ class OwnedPools(unittest.TestCase):
                          ("glaeda-std-xcode-27.0.1", "glaeda-light-xcode-27.0.1"))
         self.assertEqual(pool.owned_pools(""), ())
         self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
+
+    def test_namespaced_pool_is_opt_in_through_the_explicit_order(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
+        self.assertEqual(pool.owned_pools(PR_XCODE, aws), (MINI, LIGHT, aws))
+        self.assertEqual(pool.owned_pools(PR_XCODE, f"{aws},glaeda-aws-light-xcode-26.3"),
+                         (MINI, LIGHT, aws))
+
+    def test_namespaced_pool_order_is_accepted_and_default_stays_office_only(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.settings("", aws, "", "1", PR_XCODE).order,
+                         (aws,))
+        self.assertEqual(pool.settings("", "", "", "1", PR_XCODE).order,
+                         (MINI, LIGHT, pool.LARGE_RUNNER, pool.DEFAULT_RUNNER, pool.MACOS_15_RUNNER))
+
+    def test_explicit_aws_pool_can_be_selected_with_its_own_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][aws] = {"queued": 0, "running": 0}
+        choice = choose(snap, pins=OWNED_PINS, owned="1", order=f"{aws},{MINI}", jobs=1,
+                        owned_slots=json.dumps({aws: 5, pool.root_label(aws): 2}))
+        self.assertEqual(choice.runner, aws)
 
     def test_persistent_means_a_glaeda_pool_label(self):
         self.assertTrue(pool.persistent(MINI))
@@ -2163,6 +2205,17 @@ class WarmAffinity(unittest.TestCase):
         # A retry attempt keeps its own route.
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
+    def test_explicit_aws_order_uses_aws_light_side_runners(self):
+        aws_light = "glaeda-aws-light-xcode-26.6"
+        aws_side = pool.side_label(aws_light)
+        office_side = pool.side_label(LIGHT)
+        runners = [live_runner(1, LIGHT, office_side), live_runner(2, aws_light, aws_side)]
+        self.assertEqual(
+            pool.light_side_lanes(pool.RunJobs(False, (), ("claude-wrapper",)), runners,
+                                  {aws_light: 1, aws_side: 1}, PR_XCODE, aws_light),
+            (aws_side, ("claude-wrapper",)),
+        )
+
     def test_release_build_stays_with_the_picked_pool(self):
         # The universal Release compile never takes the light side runners ahead of the pick; the lanes
         # before it still do, and it takes the picked pool's side label.
@@ -2425,6 +2478,23 @@ class LiveCapacity(unittest.TestCase):
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-a", 1, MINI, SIDE_MINI),
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, LIGHT)]
         self.assertEqual(pool.live_online(runners, (MINI, ROOT_MINI, LIGHT)), {MINI: 2, ROOT_MINI: 1, LIGHT: 1})
+
+    def test_aws_namespace_does_not_count_as_office_pool_capacity(self):
+        aws = mini_runner("aws-m4pro-9", 0, MINI, ROOT_MINI,
+                          "glaeda-aws-std-xcode-26.6", "glaeda-aws-root-std-xcode-26.6")
+        office = mini_runner("cmux7s", 0, MINI, ROOT_MINI)
+        self.assertEqual(pool.live_online([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+        self.assertEqual(pool.live_owned_free([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+
+    def test_explicit_aws_order_exposes_only_its_namespace_labels(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = "glaeda-aws-root-std-xcode-26.6"
+        runners = [mini_runner("aws-m4pro-9", 0, aws, aws_root)]
+        slots = pool.routing_slots("", PR_XCODE, runners, aws)
+        self.assertEqual((slots.get(aws), slots.get(aws_root), slots.get(pool.side_label(aws))), (1, 1, 0))
+        self.assertNotIn(MINI, slots)
 
     def test_routing_labels_come_from_the_online_runners_and_the_variable_only_without_them(self):
         gui = pool.gui_label(MINI)
