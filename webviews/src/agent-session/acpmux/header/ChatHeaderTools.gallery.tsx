@@ -102,7 +102,7 @@ export default componentEntry<HeaderToolsProps>({
   id: "agent-pane.header-tools",
   title: "Chat header tools",
   area: "Agent pane",
-  height: 180,
+  height: 420,
   widths: { narrow: 390, normal: 560, wide: 860 },
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: ["agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools"],
