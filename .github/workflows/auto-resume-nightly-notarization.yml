@@ -5,6 +5,24 @@ on:
     workflows:
       - Nightly macOS build
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed Nightly macOS build run to continue
+        required: true
+        type: string
+      source_run_attempt:
+        description: Exact source run attempt that created the recovery artifact
+        required: true
+        type: string
+      source_head_sha:
+        description: Exact source commit that created the recovery artifact
+        required: true
+        type: string
+      source_branch:
+        description: Published source branch (main, nightly-next, or rc/*)
+        required: true
+        type: string
 
 permissions:
   {}
@@ -15,8 +33,9 @@ env:
 jobs:
   preflight:
     if: >-
-      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read
@@ -29,13 +48,15 @@ jobs:
       source_head_sha: ${{ steps.check.outputs.source_head_sha }}
       source_branch: ${{ steps.check.outputs.source_branch }}
       short_sha: ${{ steps.check.outputs.short_sha }}
+      source_run_id: ${{ steps.check.outputs.source_run_id }}
+      source_run_attempt: ${{ steps.check.outputs.source_run_attempt }}
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
-      SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-      SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
-      SOURCE_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+      SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || github.event.workflow_run.id }}
+      SOURCE_RUN_ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_attempt || github.event.workflow_run.run_attempt }}
+      SOURCE_HEAD_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.source_head_sha || github.event.workflow_run.head_sha }}
+      SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.event.workflow_run.head_branch }}
+      SOURCE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && github.repository || github.event.workflow_run.head_repository.full_name }}
     steps:
       - name: Verify source run and recovery artifacts
         id: check
@@ -105,13 +126,120 @@ jobs:
             echo "release_tag=$release_tag"
             echo "source_head_sha=$SOURCE_HEAD_SHA"
             echo "source_branch=$SOURCE_BRANCH"
+            echo "source_run_id=$SOURCE_RUN_ID"
+            echo "source_run_attempt=$SOURCE_RUN_ATTEMPT"
             echo "short_sha=$short_sha"
             echo "dmg_prefix=cmux-${channel}-macos"
           } >> "$GITHUB_OUTPUT"
 
-  wait-and-staple:
+  # Query Apple from an Ubuntu worker while the submission is in progress.
+  # The macOS staple jobs are admitted only after every saved submission is
+  # accepted, so Apple queue latency never reserves signing workers.
+  poll:
     needs: preflight
     if: needs.preflight.outputs.ready == 'true'
+    outputs:
+      all_accepted: ${{ steps.poll.outputs.all_accepted }}
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 90
+    concurrency:
+      group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
+      SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+      SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Download exact recovery artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p recovery
+          for variant in arm64 x86_64 universal; do
+            artifact="cmux-${CHANNEL}-notarization-recovery-${variant}-${SHORT_SHA}"
+            gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "$artifact" --dir "recovery/$variant"
+            test -f "recovery/$variant/cmux-nightly-notarization-recovery.json"
+            test -f "recovery/$variant/cmux-nightly-notarization-recovery-app.tar.gz"
+          done
+
+      - name: Poll saved Apple submissions without reserving a Mac
+        id: poll
+        run: |
+          set -uo pipefail
+          mkdir -p poll-reports
+          deadline=$(( $(date +%s) + 80 * 60 ))
+          while :; do
+            pending=false
+            terminal_failure=false
+            for variant in arm64 x86_64 universal; do
+              manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
+              python3 scripts/ci/resolve-notarization-recovery.py \
+                "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
+                --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app \
+                > "$RUNNER_TEMP/recovery-$variant.env"
+              state_file="$(awk -F= '$1 == "STATE_FILE" { print substr($0, index($0, "=") + 1) }' "$RUNNER_TEMP/recovery-$variant.env")"
+              report="poll-reports/$variant.log"
+              set +e
+              python3 scripts/ci/poll-notary-submission.py "$state_file" --output "$report" \
+                > "$RUNNER_TEMP/poll-$variant.out" 2>&1
+              status=$?
+              set -e
+              cat "$RUNNER_TEMP/poll-$variant.out"
+              case "$status" in
+                0) ;;
+                2) pending=true ;;
+                *) terminal_failure=true ;;
+              esac
+            done
+
+            if [ "$terminal_failure" = true ]; then
+              echo "At least one saved Apple submission failed or could not be queried." >&2
+              exit 1
+            fi
+            if [ "$pending" = false ]; then
+              echo "all_accepted=true" >> "$GITHUB_OUTPUT"
+              echo "pending=false" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Apple submissions remain In Progress after the polling budget; leaving the exact recovery artifacts for manual continuation." >&2
+              echo "all_accepted=false" >> "$GITHUB_OUTPUT"
+              echo "pending=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "At least one submission is still In Progress; polling again in five minutes."
+            sleep 300
+          done
+
+      - name: Upload polling evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-notarization-poll-${{ needs.preflight.outputs.short_sha }}
+          path: poll-reports/*
+          if-no-files-found: ignore
+          retention-days: 14
+
+  wait-and-staple:
+    needs: [preflight, poll]
+    if: needs.preflight.outputs.ready == 'true' && needs.poll.outputs.all_accepted == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -124,8 +252,8 @@ jobs:
     timeout-minutes: 90
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
-      SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
@@ -166,6 +294,7 @@ jobs:
           set -euo pipefail
           mkdir -p verified
           CMUX_CHANNEL="$CHANNEL" \
+          CMUX_NOTARY_WAIT_TIMEOUT=2m \
           CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
           ./scripts/ci/resume-nightly-notarization.sh \
             "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
@@ -229,7 +358,7 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}

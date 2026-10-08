@@ -30,14 +30,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout with submodules
+      - name: Checkout parent repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The synthetic PR commit and its first parent are sufficient for
           # the merge-base comparison, and keep this guard shallow like the
           # neighboring history guard.
           fetch-depth: 2
-          submodules: recursive
+          # The guard initializes only changed gitlinks after comparing them.
+          submodules: false
           persist-credentials: false
 
       - name: Bind submodule guard to synthetic merge parent
@@ -346,7 +347,7 @@ jobs:
           python3 tests/test_pairing_scheme_lint.py
           python3 tests/test_pairing_scheme_is_explicit_in_tests.py
       - name: Validate Python test harness syntax
-        if: ${{ matrix.group == 'preflight' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Test private R2 URL presigner
@@ -1158,6 +1159,10 @@ jobs:
       - name: Validate nightly notarization recovery manifest
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_notarization_recovery_manifest.py
+
+      - name: Validate asynchronous notarization status polling
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_poll_notary_submission.py
 
       - name: Validate accepted nightly DMG artifact aliases
         if: ${{ matrix.group == 'release-notary' }}

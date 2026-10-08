@@ -390,7 +390,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ghosttykit_release": "false",
             "submodule_forward_only": "false",
         })
-        self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
+        self.assertEqual(groups, ("ci", "quality-determinism"))
 
     def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
         for path in ("cmuxTests/ProbeTests.swift", "cmuxCLITests/ProbeTests.swift",
@@ -453,9 +453,9 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
         }
         expected_groups = {
-            "scripts/ci/build_graph_health.py": ("preflight",),
+            "scripts/ci/build_graph_health.py": ("preflight", "quality-determinism"),
             "tests/test_build_graph_health.py": ("preflight", "quality-determinism"),
-            "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
+            "scripts/ci/swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
             "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
             # cmux.ci.guard runs it too, so the ci leg observes it.
             "tests/test_ci_self_hosted_guard.sh": ("preflight", "ci", "quality-determinism"),
@@ -465,6 +465,12 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 outputs, actual_groups = route_decision([path])
                 self.assertEqual(outputs, expected)
                 self.assertEqual(actual_groups, groups)
+
+    def test_syntax_only_python_uses_the_quality_lane(self):
+        # A syntax-only Python file should not pull in the serial preflight
+        # bucket just to run the repository-wide py_compile check.
+        _, groups = route_decision(["scripts/ci/new_syntax_only.py"])
+        self.assertEqual(groups, ("quality-determinism",))
 
     def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
