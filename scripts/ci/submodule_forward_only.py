@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 MARKER_PREFIX = "submodule-forward-only: allow "
 FETCH_TIMEOUT_SECONDS = 15
+INIT_TIMEOUT_SECONDS = 60
 DEEPEN_CHUNK = 256
 MAX_DEEPEN_ROUNDS = 8
 
@@ -83,7 +84,7 @@ def initialize_changed_submodule(path: str) -> bool:
     """
     result = run(
         "git", "submodule", "update", "--init", "--depth", "1", "--recursive", "--", path,
-        timeout=FETCH_TIMEOUT_SECONDS,
+        timeout=INIT_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
         return True

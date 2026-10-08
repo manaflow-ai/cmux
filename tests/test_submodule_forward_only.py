@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import contextlib
+import io
 from unittest.mock import patch
 from pathlib import Path
 
@@ -156,7 +158,7 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=shallow), "true")
         self.assertIsNone(submodule_forward_only.local_relation(str(shallow), b, c))
 
-    def test_undecidable_ancestry_fails(self) -> None:
+    def test_removed_submodule_is_reinitialized_and_backward_move_fails(self) -> None:
         b = self.commit_sub("unavailable subject")
         self.pointer(b)
         self.base = git("rev-parse", "HEAD", cwd=self.superrepo)
@@ -165,6 +167,25 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         result = self.run_guard(remove_submodule=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("backward", result.stderr)
+
+    def test_undecidable_ancestry_fails_closed(self) -> None:
+        b = self.commit_sub("unavailable ancestry")
+        self.pointer(b)
+        stderr = io.StringIO()
+        previous = os.getcwd()
+        os.chdir(self.superrepo)
+        try:
+            with contextlib.redirect_stderr(stderr), \
+                 patch.object(sys, "argv", [str(SCRIPT), "--base", self.base, "--head", "HEAD"]), \
+                 patch.object(submodule_forward_only, "initialize_changed_submodule", return_value=True), \
+                 patch.object(submodule_forward_only, "local_relation", return_value=None), \
+                 patch.object(submodule_forward_only, "github_relation", return_value=None), \
+                 patch.object(submodule_forward_only, "deepened_relation", return_value=None):
+                status = submodule_forward_only.main()
+        finally:
+            os.chdir(previous)
+        self.assertNotEqual(status, 0)
+        self.assertIn("could not determine ancestry", stderr.getvalue())
 
     def test_changed_pointer_initializes_missing_submodule(self) -> None:
         # The guard checkout starts without submodules. A changed pin must
