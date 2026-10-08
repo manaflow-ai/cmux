@@ -44,12 +44,15 @@ pub enum PendingTerminal {
     /// The host's discovery record is one this build cannot adopt (a newer
     /// `record_version`, or a record that does not decode).
     Unadoptable { record_version: Option<u64> },
+    /// The shell was lost with its host and a new one is starting under the
+    /// same terminal id (cx-6so.49 L2). Presented as `adopting`.
+    Respawning,
 }
 
 impl PendingTerminal {
     pub fn state(&self) -> &'static str {
         match self {
-            Self::Adopting => "adopting",
+            Self::Adopting | Self::Respawning => "adopting",
             Self::Unadoptable { .. } => "unadoptable",
         }
     }

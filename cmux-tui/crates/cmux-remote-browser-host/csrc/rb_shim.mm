@@ -573,6 +573,13 @@ int rb_shim_run(int argc,
     CefString(&settings.root_cache_path) = cache_dir;
     CefString(&settings.cache_path) = std::string(cache_dir) + "/profile";
     settings.log_severity = LOGSEVERITY_WARNING;
+    // CEF defaults the main bundle to the top-level .app in the executable's
+    // path. A DEV cmux-next app embeds the host at
+    // Contents/Helpers/cmux-remote-browser-host.app, so without this CEF looks
+    // for the host's helper apps in the outer app and every child process
+    // fails to launch. Our own bundle holds the helpers and the framework.
+    CefString(&settings.main_bundle_path) =
+        std::string([[[NSBundle mainBundle] bundlePath] UTF8String]);
     CefRefPtr<App> app(new App());
     if (!CefInitialize(main_args, settings, app, nullptr)) {
       return 4;
