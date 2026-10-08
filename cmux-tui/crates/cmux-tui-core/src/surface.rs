@@ -7692,6 +7692,62 @@ mod tests {
         assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
     }
 
+    #[test]
+    fn terminal_journal_write_failure_disables_capture_without_stopping_daemon() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-capture-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-capture-failure",
+            SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let injector = rusqlite::Connection::open(database_path).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_capture_failure_test_terminal_output
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.output'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'database or disk is full');
+                 END;",
+            )
+            .unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
+        let pty = surface.as_pty().unwrap();
+
+        pty.journal_output_if_open(
+            (mux.clone(), terminal_id.clone()),
+            b"the first write enters the failing journal".to_vec(),
+        );
+        assert!(mux.flush_terminal_journal().is_err());
+        pty.journal_output_if_open(
+            (mux.clone(), terminal_id),
+            b"the next write reports the permanent failure".to_vec(),
+        );
+
+        assert!(!pty.journal_capture_open.load(Ordering::Acquire));
+        assert!(
+            !mux.daemon_shutdown_requested(),
+            "journal storage failure must leave live terminal hosts available"
+        );
+        drop(surface);
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
         for _ in 0..4 {
             payload.extend_from_slice(&0u64.to_le_bytes());
