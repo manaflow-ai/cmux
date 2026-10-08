@@ -244,3 +244,19 @@ The model is an input to future multi-pane rendering, not a renderer. C9 remains
 canonical per-pane viewport/input routing and live layout changes still need integration, as do
 remaining parser/history gaps and lifecycle mutations. Create/rename/kill are still deferred because
 the current read-only SSH seams do not provide durable owner mutation receipts.
+
+### Deterministic pane projection seam (2026-10-07)
+
+`SSHTmuxPaneProjection` is the first carrier-independent seam for composing a validated
+`SSHTmuxLayout`. It retains the root host-cell frame and the parser's stable leaf order, marks an
+optional host-confirmed active pane, and exposes bounded lookup by pane id. Cell routing only
+returns a pane for its interior; tmux's one-cell dividers and cells outside the window return nil.
+The projection is immutable, capped at the parser's 256-pane bound, and performs no channel I/O,
+pane selection, or renderer lifecycle work, so a future Ghostty composition can own one renderer
+per pane while a carrier supplies bytes independently.
+
+Three focused Swift Testing cases cover stable ordering and active state, divider/out-of-window
+routing, and unknown active-pane refusal. Swift parsing and diff checks pass; native execution,
+live SSH layout changes, and per-pane renderer/input integration remain unverified. This seam does
+not promote C9 parity: pane snapshot multiplexing, resize arbitration, lifecycle mutation receipts,
+and reconnect-safe renderer composition still need implementation.
