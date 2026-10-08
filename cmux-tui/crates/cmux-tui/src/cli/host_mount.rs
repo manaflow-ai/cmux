@@ -72,7 +72,7 @@ mod tests {
             args(&["/opt/cmux/current/bin/cmux", "host"])
         );
         assert_eq!(
-            self_argv_for(Some(std::ffi::OsStr::new("cmux")), exe.clone()),
+            self_argv_for(Some(std::ffi::OsStr::new("cmux")), exe),
             args(&["/opt/cmux/store/abc/bin/cmux-tui", "host"])
         );
         assert_eq!(self_argv_for(None, None), Vec::<String>::new());
