@@ -22,14 +22,15 @@ extension LayoutRootView {
     /// Becoming or resigning key changes whether the pointer may hover at
     /// all: a resigned window clears its hover without a mouse event.
     func observeKeyWindow() {
-        for token in keyObservers { NotificationCenter.default.removeObserver(token) }
-        keyObservers = []
-        guard let window else { return }
+        let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            keyObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshDividerHover() }
-            })
+            center.removeObserver(self, name: name, object: nil)
+            if let window { center.addObserver(self, selector: #selector(keyWindowChanged(_:)), name: name, object: window) }
         }
+    }
+
+    @objc private func keyWindowChanged(_ notification: Notification) {
+        refreshDividerHover()
     }
 
     #if DEBUG
