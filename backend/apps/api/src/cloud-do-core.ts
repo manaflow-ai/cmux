@@ -14,7 +14,7 @@ import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
-import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, needsCloudApproval, wakeCloudApprovals, type CloudApprovalHost } from "./cloud-approvals.ts"
+import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, isApprovedRun, needsCloudApproval, wakeCloudApprovals, type CloudApprovalHost } from "./cloud-approvals.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
 
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
@@ -23,6 +23,12 @@ const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "clou
 /** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
 export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
 const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.provider_state", "cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
+const reject = (entity: string, key: string, code: string, message: string, retryable = false, details?: unknown): SubmitResult => ({
+  frames: [
+    { t: "reject", tx: "", idempotency_key: key, code, message, ...(details === undefined ? {} : { details }), retryable, replayed: false },
+    { t: "request-settled", tx: "", idempotency_key: key, stream: `cloud:${entity}`, sequence: 0, ok: false }
+  ]
+})
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
     { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
@@ -189,6 +195,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     // `approval` is set only inside this object, for a run the person approved (cloud-approvals.ts); never from an RPC.
     const { approval: _never, ...principal } = principalIn
     if (principal.team !== entity) return forbidden(entity, frame.idempotency_key)
+    // `approval:<request>` keys belong to approved runs (cloud-approvals.ts); a caller cannot take one first.
+    if (frame.idempotency_key.startsWith("approval:")) return reject(entity, frame.idempotency_key, "validation.invalid", "idempotency keys starting with approval: are reserved")
     // G8 (cx-wb5.65): an install's money or destructive request waits for the person's approval.
     if (needsCloudApproval(frame.op, principal)) return gateCloudRequest(this.approvalHost(entity), principal, frame)
     return this.submitAs(entity, principal, frame)
@@ -203,28 +211,23 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
 
   protected readonly installStarts = new InstallStarts(this.sqlStore)
 
-  /** A checked principal's op (the approved run of cloud-approvals.ts enters here with `approval` set). */
-  protected async submitAs(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+  /**
+   * A checked principal's op. `approval` survives only on a principal cloud-approvals.ts made for an
+   * approved run (a Workers RPC caller of this method passes a new object, so it is stripped).
+   */
+  protected async submitAs(entity: string, principalIn: Principal, frame: OpFrame): Promise<SubmitResult> {
+    const principal: Principal = principalIn.approval === undefined || isApprovedRun(principalIn) ? principalIn : (({ approval: _x, ...p }) => p)(principalIn)
     const power = principal.kind === "install" && (frame.op === "cloud.machine.start" || frame.op === "cloud.machine.pause") && principal.install !== undefined
     const fresh = power && this.bind(entity).gate(principal, frame) === undefined
-    if (fresh && frame.op === "cloud.machine.start") {
-      const until = this.installStarts.limitedUntil(principal.install!, Date.now())
-      const key = frame.idempotency_key
-      if (until !== null)
-        return {
-          frames: [
-            { t: "reject", tx: "", idempotency_key: key, code: "cloud.rate_limited", message: "this device started machines 10 times in the last hour; retry later or start it from the dashboard", details: { retry_after_ms: Math.max(0, until - Date.now()) }, retryable: true, replayed: false },
-            { t: "request-settled", tx: "", idempotency_key: key, stream: `cloud:${entity}`, sequence: 0, ok: false }
-          ]
-        }
-    }
+    // cx-wb5.65: at most 10 starts per install per hour (check and reserve in one step; given back unless the start commits).
+    const slot = fresh && frame.op === "cloud.machine.start" ? this.installStarts.reserve(principal.install!, Date.now()) : null
+    if (slot && "until" in slot) return reject(entity, frame.idempotency_key, "cloud.rate_limited", "this device started machines 10 times in the last hour; retry later or start it from the dashboard", true, { retry_after_ms: Math.max(0, slot.until - Date.now()) })
     const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
+    const result = limited ?? (await super.submit(entity, principal, frame))
+    const committed = result.frames.some((f) => f.t === "result" && !f.replayed)
+    if (slot && "id" in slot && !committed) this.installStarts.release(slot.id)
     if (limited) return limited
-    const result = await super.submit(entity, principal, frame)
-    if (fresh && result.frames.some((f) => f.t === "result" && !f.replayed)) {
-      if (frame.op === "cloud.machine.start") this.installStarts.record(principal.install!, Date.now())
-      this.audit.record({ op: frame.op, machine: (frame.params as { machine?: unknown } | null)?.machine ?? null, ...who(principal), at: Date.now() })
-    }
+    if (fresh && committed) this.audit.record({ op: frame.op, machine: (frame.params as { machine?: unknown } | null)?.machine ?? null, ...who(principal), at: Date.now() })
     await this.drainRevokes(Date.now() + this.skewMs)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
@@ -387,7 +390,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const times = Object.values(state.pending).map((p) => p.due_at)
     const prune = this.pruneAt(state)
     if (prune !== null) times.push(prune)
-    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt(), cloudApprovalsDueAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
+    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt(), cloudApprovalsDueAt(this.ctx.storage.sql, now)]) if (t !== null) times.push(t)
     // The cost backstop: the earliest silent deadline of a running machine (never sooner than a minute: a
     // pause the limit held back must not re-fire the alarm at once).
     for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastActivityAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
@@ -410,7 +413,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const m of machines) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
-    wakeCloudApprovals(this.ctx.storage.sql, realNow)
+    const entity = this.boundEntity()
+    if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
     await this.pauseSilent(now)

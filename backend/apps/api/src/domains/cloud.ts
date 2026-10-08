@@ -174,8 +174,9 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if ((op === "cloud.machine.pause" || op === "cloud.machine.start") && isAgent(principal)) return { code: "auth.forbidden", message: "an agent cannot pause or start machines" }
     // Money and destructive ops: a signed-in person, or an install's request the person approved in the
     // feed (G8, cx-wb5.65: CloudDO sets `approval` only on that run), never an install's grant alone
-    // (even one that lists money/destructive) and never an agent.
-    const approved = principal.kind === "install" && !isAgent(principal) && principal.approval !== undefined
+    // (even one that lists money/destructive) and never an agent. Least privilege (chief): only an install
+    // whose grant covers mutate-shared may ask, so a read-only or iPhone-default install cannot.
+    const approved = principal.kind === "install" && !isAgent(principal) && principal.approval !== undefined && (principal.grant_classes ?? []).includes("mutate-shared")
     if (op === "cloud.machine.resize" && principal.kind !== "session" && !approved) return { code: "auth.forbidden", message: "resizing a machine needs a signed-in person or their approval" }
     if (op.startsWith("cloud.snapshot.") && op !== "cloud.snapshot.list" && principal.kind !== "session" && !approved) return { code: "auth.forbidden", message: op === "cloud.snapshot.restore" && isAgent(principal) ? "an agent cannot create machines" : "snapshots need a signed-in person or their approval" }
     if (principal.kind !== "session" && !approved && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
