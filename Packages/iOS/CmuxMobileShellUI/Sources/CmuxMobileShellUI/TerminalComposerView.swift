@@ -37,6 +37,7 @@ import UniformTypeIdentifiers
 /// is gone because there is only one layout system (the surface).
 struct TerminalComposerView: View {
     @Bindable var store: CMUXMobileShellStore
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// The terminal this composer serves. Focus-request consumption is keyed on
     /// it: during a terminal switch the outgoing composer is still mounted and
     /// observes the same token, so only the view whose terminal matches the
@@ -93,6 +94,7 @@ struct TerminalComposerView: View {
 
     init(
         store: CMUXMobileShellStore,
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference,
         terminalID: String,
         requestHeightRemeasure: @escaping () -> Void,
         requestInputFocus: @escaping () -> Void,
@@ -102,6 +104,7 @@ struct TerminalComposerView: View {
         photoPickerDidDismiss: @escaping () -> Void
     ) {
         self.store = store
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
         self.requestInputFocus = requestInputFocus
@@ -378,6 +381,7 @@ struct TerminalComposerView: View {
                         // impossible rather than letting it be clobbered; the
                         // field stays visible showing the live transcript.
                         isDisabled: dictation.locksComposerField,
+                        isTextRewritingEnabled: keyboardCorrectionPreference.isEnabled,
                         pasteAttachments: pasteComposerAttachments
                     )
                     .simultaneousGesture(

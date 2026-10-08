@@ -20,7 +20,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-#if canImport(UIKit) && DEBUG
+#if os(iOS)
 import CmuxMobileTerminal
 #endif
 
@@ -55,6 +55,7 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     private let featureFlags: MobileFeatureFlags
     /// The legacy connection-method choice used only by onboarding and migration UI.
     private let connectionMethodStore: MobileConnectionMethodStore
@@ -172,6 +173,7 @@ public struct CMUXMobileRootScene: View {
         feedPerformanceObserver: (any MobileFeedPerformanceObserving)? = nil,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference,
         featureFlags: MobileFeatureFlags,
         connectionMethodStore: MobileConnectionMethodStore,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
@@ -199,6 +201,7 @@ public struct CMUXMobileRootScene: View {
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         self.featureFlags = featureFlags
         self.connectionMethodStore = connectionMethodStore
         self.autoConnectMigrationStore = autoConnectMigrationStore
@@ -423,6 +426,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .environment(keyboardCorrectionPreference)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
             .environment(connectionMethodStore)

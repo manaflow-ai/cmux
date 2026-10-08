@@ -55,5 +55,19 @@ struct MobileTerminalKeyboardCorrectionPreferenceTests {
         #expect(view.smartInsertDeleteType == .yes)
         #expect(view.inlinePredictionType == .yes)
     }
+
+    @Test("enabled corrections do not rewrite committed terminal input")
+    func enabledCorrectionsLeaveCommittedInputLiteral() throws {
+        let defaults = try freshDefaults("literal-input")
+        let preference = MobileTerminalKeyboardCorrectionPreference(defaults: defaults)
+        let view = TerminalInputTextView(keyboardCorrectionPreference: preference)
+        var committed: [String] = []
+        view.onText = { committed.append($0) }
+
+        preference.isEnabled = true
+        view.insertText("git stauts")
+
+        #expect(committed == ["git stauts"])
+    }
 }
 #endif

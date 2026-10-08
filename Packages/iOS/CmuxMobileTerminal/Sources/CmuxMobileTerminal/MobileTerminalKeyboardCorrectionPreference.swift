@@ -16,6 +16,7 @@ public final class MobileTerminalKeyboardCorrectionPreference {
 
     // UserDefaults is documented as thread-safe; this store is read and written
     // on the main actor, while the injected value is immutable after init.
+    @ObservationIgnored
     private nonisolated(unsafe) let defaults: UserDefaults
 
     /// Whether the terminal input enables iOS keyboard corrections and

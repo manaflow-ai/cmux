@@ -6,6 +6,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
@@ -24,6 +25,8 @@ struct MobileSettingsView: View {
     @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    private var keyboardCorrectionPreference
     /// Optional so previews and hosts without the app root still render; the
     /// Connection Method section is hidden when absent.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
@@ -85,6 +88,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var keyboardCorrectionPreference = keyboardCorrectionPreference
         #if DEBUG
         let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
         let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
@@ -306,6 +310,22 @@ struct MobileSettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
+
+                    Toggle(isOn: $keyboardCorrectionPreference.isEnabled) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.keyboardCorrections",
+                                defaultValue: "Autocomplete and Autocorrect"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.keyboardCorrectionsFooter",
+                                defaultValue: "Allow iOS to suggest, autocorrect, and spell-check terminal input. Off by default because corrections can change commands."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsKeyboardCorrectionsToggle")
 
                     Button {
                         showingShortcuts = true

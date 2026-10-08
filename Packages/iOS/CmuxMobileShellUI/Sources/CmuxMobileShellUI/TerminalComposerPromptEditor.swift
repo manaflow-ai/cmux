@@ -40,18 +40,24 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     let placeholder: String
     let textColor: UIColor
     let isDisabled: Bool
+    let isTextRewritingEnabled: Bool
     /// Stages pasted images/files as attachments; `true` consumes the paste.
     let pasteAttachments: () -> Bool
 
     /// The 1...14 line growth window mirrored from the replaced `TextField`.
     private static let maximumLineCount: CGFloat = 14
 
-    static func configureTextInputTraits(_ textView: UITextView) {
+    static func configureTextInputTraits(
+        _ textView: UITextView,
+        textRewritingEnabled: Bool = false
+    ) {
         textView.autocapitalizationType = .none
-        textView.autocorrectionType = .no
-        textView.spellCheckingType = .no
+        textView.autocorrectionType = textRewritingEnabled ? .yes : .no
+        textView.spellCheckingType = textRewritingEnabled ? .yes : .no
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
+        textView.smartInsertDeleteType = textRewritingEnabled ? .yes : .no
+        textView.inlinePredictionType = textRewritingEnabled ? .yes : .no
     }
 
     func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
@@ -69,7 +75,10 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
-        Self.configureTextInputTraits(textView)
+        Self.configureTextInputTraits(
+            textView,
+            textRewritingEnabled: isTextRewritingEnabled
+        )
         textView.accessibilityIdentifier = "MobileComposerField"
         textView.pasteAttachments = pasteAttachments
 
@@ -93,6 +102,10 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     func updateUIView(_ textView: TerminalComposerPromptTextView, context: Context) {
         context.coordinator.update(text: $text, isFocused: $isFocused)
         textView.pasteAttachments = pasteAttachments
+        Self.configureTextInputTraits(
+            textView,
+            textRewritingEnabled: isTextRewritingEnabled
+        )
         applyState(to: textView)
 
         // Assigning the same text again resets UITextView's selection/caret

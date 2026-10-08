@@ -6,6 +6,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import CmuxPhonePush
 import CmuxSentryReporting
@@ -41,6 +42,7 @@ final class AppCompositionRoot {
     let billing: BillingModel?
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// App-lifetime keyboard frame record, injected into the view tree via
     /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
     /// mid-conversation recover keyboard transitions they were not installed
@@ -276,6 +278,7 @@ final class AppCompositionRoot {
         // services that emit lifecycle events, while display preferences use
         // their injected defaults store only.
         self.displaySettings = MobileDisplaySettings()
+        self.keyboardCorrectionPreference = MobileTerminalKeyboardCorrectionPreference()
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
         // never recomputes after onboarding or Settings writes. UI fixtures use

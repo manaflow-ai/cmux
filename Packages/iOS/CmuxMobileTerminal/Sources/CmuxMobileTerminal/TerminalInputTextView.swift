@@ -32,9 +32,9 @@ import UIKit
 /// dictation-placeholder methods on a real (non-cleared) `UITextInput` conformer
 /// let recognized text arrive through ``insertText(_:)`` as one block.
 ///
-/// Autocorrect/predictive text stay **disabled** here and fundamentally cannot
-/// be enabled: they require the field to retain the in-progress word, which is
-/// incompatible with forwarding every keystroke to a remote terminal.
+/// Autocorrect and predictive text are disabled by default because terminal
+/// commands must remain literal. The injected keyboard-correction preference
+/// can opt into those system traits without changing the raw input transport.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     var onFirstResponderChanged: ((Bool) -> Void)?
@@ -885,6 +885,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardCorrectionPreferenceChanged),
+            name: MobileTerminalKeyboardCorrectionPreference.didChangeNotification,
+            object: keyboardCorrectionPreference
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -1619,25 +1625,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return String(describing: type(of: responder))
     }
     #endif
-}
-
-// MARK: - UITextInputTraits
-
-extension TerminalInputTextView {
-    // Autocorrect/predictive/smart substitutions are all off: the view forwards
-    // each keystroke to the remote terminal and keeps no in-progress word for the
-    // keyboard to correct against. Returning these as computed properties (rather
-    // than the `UITextView` stored traits the old design used) keeps the keyboard
-    // from offering corrections it could never apply.
-    var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }
-    var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
-    var spellCheckingType: UITextSpellCheckingType { get { .no } set {} }
-    var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
-    var smartDashesType: UITextSmartDashesType { get { .no } set {} }
-    var smartInsertDeleteType: UITextSmartInsertDeleteType { get { .no } set {} }
-    var inlinePredictionType: UITextInlinePredictionType { get { .no } set {} }
-    var keyboardType: UIKeyboardType { get { .default } set {} }
-    var returnKeyType: UIReturnKeyType { get { .default } set {} }
 }
 
 // MARK: - UITextInput (documentless conformance + delete-repeat anchor)

@@ -7,6 +7,7 @@ extension GhosttySurfaceRepresentable {
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
+            keyboardCorrectionPreference: keyboardCorrectionPreference,
             terminalPresentationIsActive: terminalPresentationIsActive,
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,

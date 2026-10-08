@@ -14,6 +14,8 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    private var keyboardCorrectionPreference
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
@@ -102,7 +104,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize,
             terminalTheme: terminalTheme,
-            terminalConfigTheme: terminalConfigTheme
+            terminalConfigTheme: terminalConfigTheme,
+            keyboardCorrectionPreference: keyboardCorrectionPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.useLegacyTerminalSizing = useLegacyTerminalSizing
@@ -251,6 +254,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
         var artifactFilesEnabled: Bool
         var terminalFolderTapEnabled: Bool
         var artifactChipGate: TerminalArtifactChipFeatureGate
@@ -392,6 +396,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             workspaceID: String,
             surfaceID: String,
             store: CMUXMobileShellStore,
+            keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+                MobileTerminalKeyboardCorrectionPreference(),
             terminalPresentationIsActive: Bool = true,
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
@@ -411,6 +417,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
+            self.keyboardCorrectionPreference = keyboardCorrectionPreference
             self.terminalPresentationIsActive = terminalPresentationIsActive
             self.artifactFilesEnabled = artifactFilesEnabled
             self.terminalFolderTapEnabled = terminalFolderTapEnabled
@@ -1603,6 +1610,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
             let view = TerminalComposerView(
                 store: store,
+                keyboardCorrectionPreference: keyboardCorrectionPreference,
                 terminalID: surfaceID,
                 requestHeightRemeasure: { [weak self] in
                     // Content changed (a line added/removed, or cleared after send): live

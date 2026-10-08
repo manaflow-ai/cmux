@@ -106900,6 +106900,124 @@
           }
         }
       }
+    },
+    "mobile.settings.keyboardCorrections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autocomplete and Autocorrect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オートコンプリートと自動修正"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autovervollständigung und Autokorrektur"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie prédictive et correction automatique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإكمال التلقائي والتصحيح التلقائي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autocompletado y autocorrección"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動完成與自動更正"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动完成与自动纠正"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 완성 및 자동 수정"
+          }
+        }
+      }
+    },
+    "mobile.settings.keyboardCorrectionsFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow iOS to suggest, autocorrect, and spell-check terminal input. Off by default because corrections can change commands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSによるターミナル入力の候補表示、自動修正、スペルチェックを許可します。コマンドが変わる可能性があるため、デフォルトではオフです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt iOS, Terminaleingaben vorzuschlagen, automatisch zu korrigieren und auf ihre Schreibweise zu prüfen. Standardmäßig deaktiviert, da Korrekturen Befehle ändern können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser iOS à suggérer, corriger automatiquement et vérifier l’orthographe des saisies du terminal. Désactivé par défaut, car les corrections peuvent modifier les commandes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لـ iOS باقتراح إدخال الطرفية وتصحيحه تلقائيًا والتحقق من إملائه. يكون متوقفًا افتراضيًا لأن التصحيحات قد تغيّر الأوامر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que iOS sugiera, corrija automáticamente y revise la ortografía de las entradas del terminal. Está desactivado por defecto porque las correcciones pueden cambiar los comandos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 iOS 為終端機輸入提供建議、自動更正及拼字檢查。預設關閉，因為更正可能會改變指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 iOS 为终端输入提供建议、自动纠正和拼写检查。默认关闭，因为纠正可能会更改命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS가 터미널 입력을 제안하고 자동 수정하며 맞춤법을 검사하도록 허용합니다. 수정으로 명령어가 바뀔 수 있어 기본적으로 꺼져 있습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
