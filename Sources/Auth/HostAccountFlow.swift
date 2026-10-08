@@ -40,7 +40,16 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
         return billingPlanIdentityID == currentIdentity?.id
-            && billingPlanTeamID == confirmedTeamID
+            && billingPlanTeamID == billingScopeTeamID
+    }
+
+    /// Canonical billing scope. Stack's synthetic personal team is still
+    /// exposed through ``confirmedTeamID`` for pickers, but the billing API
+    /// represents that scope by omitting `teamId`.
+    private var billingScopeTeamID: String? {
+        guard let teamID = confirmedTeamID,
+              teamID != currentIdentity?.id else { return nil }
+        return teamID
     }
 
     /// Drops an entitlement snapshot when auth or team scope changes. The
@@ -48,7 +57,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// instead of briefly reusing the previous team's answer.
     func invalidateBillingPlanIfScopeChanged() {
         guard billingPlanState.accountID == currentIdentity?.id,
-              billingPlanState.teamID == confirmedTeamID else {
+              billingPlanState.teamID == billingScopeTeamID else {
             billingPlanState = .unknown
             return
         }
@@ -100,11 +109,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Cloud scope and persisted machine preferences follow confirmed authority.
     var confirmedTeamID: String? {
         _ = teamObservationRevision
-        // Stack can expose the account's synthetic personal team using the
-        // account id. The billing endpoint treats that as personal scope.
-        guard let teamID = coordinator.resolvedTeamID,
-              teamID != coordinator.currentUser?.id else { return nil }
-        return teamID
+        return coordinator.resolvedTeamID
     }
 
     var isWorkingOnAuth: Bool {
@@ -270,7 +275,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // Keep a verified answer for the same scope visible while refreshing.
         // A changed account/team fails `hasLoadedBillingPlan` closed until its
         // matching response arrives, so the card cannot reuse another scope.
-        let requestedTeamID = confirmedTeamID
+        let requestedTeamID = billingScopeTeamID
         let tokens = try? await coordinator.currentTokens()
 
         do {
@@ -281,7 +286,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 teamID: requestedTeamID
             )
             guard currentIdentity?.id == identityID,
-                  confirmedTeamID == requestedTeamID,
+                  billingScopeTeamID == requestedTeamID,
                   billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
@@ -294,7 +299,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
             guard currentIdentity?.id == identityID,
-                  confirmedTeamID == requestedTeamID,
+                  billingScopeTeamID == requestedTeamID,
                   billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: requestedTeamID)
             return false
