@@ -1682,6 +1682,67 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
+  // The exec route owns its answer deadline: the Mac client gives up at the
+  // requested timeout plus 5 s, so a provider answer that comes later (a
+  // background-request poll failing at 75 s on a 60 s exec, production
+  // 2026-10-08) never reaches anyone. At the deadline the workflow answers
+  // the command's timeout itself, and a provider failure after the command's
+  // own timeout has elapsed is that same timeout.
+  const execDeadlineFixture = (exec: VmProviderGatewayShape["exec"], key: string) => {
+    const vm = testCloudVmRow({
+      id: `00000000-0000-4000-8000-0000000001${key}`,
+      userId: `user-workflow-exec-deadline-${key}`,
+      providerVmId: `provider-vm-exec-deadline-${key}`,
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec,
+      getStatus: () => Effect.succeed("running" as const),
+    };
+    return { vm, usageEvents, layer: workflowLayer(repo, provider) };
+  };
+
+  test("exec answers the command timeout at its deadline when the provider has not answered", async () => {
+    const { vm, usageEvents, layer } = execDeadlineFixture(() => Effect.never, "91");
+    const startedAt = Date.now();
+    const result = await Effect.runPromise(
+      execVm({
+        userId: vm.userId,
+        providerVmId: vm.providerVmId!,
+        command: "sleep 999",
+        timeoutMs: 60_000,
+        deadlineAtMs: startedAt + 150,
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not finish within 60s");
+    expect(usageEvents.find((event) => event.eventType === "vm.exec")?.metadata).toMatchObject({ exitCode: 124 });
+  });
+
+  test("exec reads a provider failure after the command timeout elapsed as that timeout", async () => {
+    const late = providerOperationError("exec", "Internal server error");
+    const { vm, layer } = execDeadlineFixture(
+      () => Effect.sleep("80 millis").pipe(Effect.andThen(Effect.fail(late))),
+      "92",
+    );
+    const result = await Effect.runPromise(
+      execVm({
+        userId: vm.userId,
+        providerVmId: vm.providerVmId!,
+        command: "sleep 999",
+        timeoutMs: 20,
+        deadlineAtMs: Date.now() + 5_000,
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(result.exitCode).toBe(124);
+    expect(result.stderr).toContain("may still be running");
+  });
+
   test("exec preflight resume failure propagates the resume error without exec", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000103",
