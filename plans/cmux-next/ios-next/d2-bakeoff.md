@@ -21,12 +21,14 @@ synthetic: the direct carrier has no TURN alternate, so forcing `.turn` after a 
 not model a reachable path. Treat that row as unsupported until the rig has two real direct
 endpoints (or omit it from carrier comparisons).
 
-The B5 signaling adapter gate is now closed at `da1d07e41d320b8c083aa5a493f220b3c46897bf`.
+The B5 signaling adapter library gate is closed at `da1d07e41d320b8c083aa5a493f220b3c46897bf`.
 `BenchSignalingAdapters` retains one `SignalRouter` for the V1 and V2 sessions, accepts the real
 control-plane channel or an in-memory test endpoint, validates pinned WebRTC/WireGuard host keys,
 and constructs the corresponding `LinkCarrier`. The hosted `CmuxLinkBench` suite passed 10 tests
-at this head (`65a3315778434ba00f434fbe`). This makes device-manifest capture executable; it does
-not claim that Cloudflare TURN, HostDO signaling, WAN paths, or phone power measurements have run.
+at this head (`65a3315778434ba00f434fbe`). The iOS/CLI benchmark entry points and standalone host
+remain direct-only until their accepting-side V1/V2 wiring lands, so this does not claim that
+device-manifest capture, Cloudflare TURN, HostDO signaling, WAN paths, or phone power measurements
+have run.
 
 ## 1. Decision
 

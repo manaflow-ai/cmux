@@ -44,8 +44,9 @@ supersedes the baseline above. B5's split V1/V2 signaling adapters are now lande
 `CmuxLinkBench`: descriptors carry pinned WebRTC and WireGuard host keys, one retained
 `SignalRouter` consumes either B1 control-plane signaling or an in-memory endpoint, and
 `BenchSplitClient` runs the shared workload set against V1 or V2. Hosted package execution
-at this head (`65a3315778434ba00f434fbe`, 10 tests) passed. This closes the implementation
-gate for D2 device manifests; Cloudflare TURN deployment, real signaling credentials, and
+at this head (`65a3315778434ba00f434fbe`, 10 tests) passed. This closes the shared-library
+adapter gate. The iOS/CLI benchmark entry points and standalone host still need explicit V1/V2
+selection and accepting-side wiring; Cloudflare TURN deployment, real signaling credentials, and
 device/WAN/power measurements remain open.
 
 The remaining work separates independent implementation from shared runtime dependencies:
@@ -204,9 +205,10 @@ The local bakeoff records a DEV-only loopback decision. F2's first split slice n
 `cmux-link-bench serve`/`client` path and the shared `BenchSplitClient` library: it exchanges a
 pinned descriptor, runs the shared connect/echo/flood/bulk workloads through `LinkSession`, and
 writes the regular report plus a checked manifest. The iOS DEV Link bench screen is implemented and
-provenance-safe; B5's V1/V2 signaling adapters now land behind the same split fixture, so the next
-executable gate is a device manifest with real HostDO signaling and TURN credentials. No device
-JSON has been captured yet. The V3 direct roam measurement
+provenance-safe; B5's V1/V2 signaling adapters now land behind the same split fixture, but the
+benchmark entry points and accepting-side host are still direct-only. The next implementation gate
+is explicit V1/V2 selection plus real HostDO signaling and TURN credentials before a device
+manifest can be captured. No device JSON has been captured yet. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
 before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 blocked-send

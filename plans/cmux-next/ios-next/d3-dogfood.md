@@ -231,10 +231,11 @@ comes from. Steps run on the tagged pair `nxd3` (section 6).
 ### 2.7 Measurements (D2)
 
 33. The D2 device re-measure plan (d2-bakeoff.md 6): F2 direct split mode, the iOS DEV Link bench
-    screen, and B5 V1/V2 signaling adapters are implemented. The remaining gate is real HostDO/TURN
-    configuration and an authorized device run; then record C1 `TerminalLatencyReport` (echo p50/p95,
-    frame age) idle and under `yes | head -c 500M`, plus a 10 min Power Profiler trace per carrier
-    (section 6.5).
+    screen, and the shared B5 V1/V2 signaling adapters are implemented. The benchmark entry points
+    and accepting-side host remain direct-only; wire explicit V1/V2 selection first, then use real
+    HostDO/TURN configuration and an authorized device run to record C1 `TerminalLatencyReport`
+    (echo p50/p95, frame age) idle and under `yes | head -c 500M`, plus a 10 min Power Profiler
+    trace per carrier (section 6.5).
 
 ## 3. UI tests
 
