@@ -293,6 +293,131 @@ done <<<"$runs"
 # one that reported on this exact head; a skipped lane remains a passing
 # conclusion, while a pending or red lane blocks the merge.
 if [ "$base" = feat-cmux-next ]; then
+  # A check run that has not been created yet (native jobs still queued behind
+  # the Linux lanes) or a rerun after a runner loss leaves the old verdict in
+  # place, so also wait for every cmux-next.yml run on this exact head to finish.
+  # --override cannot bypass this: a pending run has no verdict to waive.
+  if ! next_runs_json=$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?head_sha=$sha&per_page=20" 2>/dev/null) \
+    || ! next_pending=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)[]
+      | select(.head_sha == null or .head_sha == $sha)
+      | select(.status != "completed")
+      | "\(.id) attempt \(.run_attempt // 1) is \(.status)"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot read cmux-next workflow runs for $sha" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
+  if [ -n "$next_pending" ]; then
+    refuse \
+      "not green: cmux-next run still pending on $sha ($(tr '\n' ';' <<<"$next_pending" | sed 's/;$//')); --override cannot bypass a run that has not finished" \
+      "wait for the cmux-next workflow run to complete on the exact head, then retry"
+  fi
+  # A cancelled run is completed too: heads merged between cancelling stale runs
+  # and rerunning them (#17653, #18079, #18080, #18083) with no native job run.
+  # Routing skips happen inside a run that concludes success, so the newest run
+  # per event must succeed. A failed run is a red lane --override may waive;
+  # one cancelled, skipped or timed out has no verdict to waive.
+  if ! next_verdicts=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)
+      | map(select(.head_sha == null or .head_sha == $sha))
+      | group_by(.event // "")[]
+      | max_by(.id)
+      | "\(.id) attempt \(.run_attempt // 1) (\(.event // "unknown")) is \(.conclusion // "unknown")"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot parse cmux-next workflow runs for $sha" \
+      'retry after GitHub returns valid workflow run metadata'
+  fi
+  # No run is fine only for a pull request outside the workflow's pull_request
+  # paths filter; ci-status on the exact head still gates it. A change the filter
+  # covers gets a run, so none yet means GitHub has not created it (#18100 merged
+  # seconds after a push). Read the filter from this head and fail closed.
+  if [ -z "$next_verdicts" ]; then
+    if ! next_workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$sha" \
+        -H 'Accept: application/vnd.github.raw' 2>/dev/null) || [ -z "$next_workflow" ] \
+      || ! next_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+      refuse \
+        "not green: no cmux-next run on $sha, and its paths filter or changed files cannot be read" \
+        'restore GitHub API access, then retry the exact-head check'
+    fi
+    if ! next_covered=$(python3 -c '
+import re, sys
+def pull_request_paths(text):
+    # The on.pull_request.paths list, by indentation; the workflow is ours.
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"^\s+pull_request:\s*$", line):
+            base = len(line) - len(line.lstrip())
+            paths, in_paths = [], False
+            for line in lines[i + 1:]:
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                indent = len(line) - len(line.lstrip())
+                if indent <= base:
+                    break
+                if re.match(r"^\s+paths:\s*$", line):
+                    in_paths = True
+                    continue
+                item = re.match(r"^\s+-\s+(.+?)\s*$", line)
+                if in_paths and item:
+                    paths.append(item.group(1).strip("\"\x27"))
+                elif in_paths and not item:
+                    in_paths = False
+            return paths
+    return None
+def glob(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+paths = pull_request_paths(open(sys.argv[1]).read())
+if not paths:
+    sys.exit(2)
+rules = [(p.startswith("!"), glob(p.lstrip("!"))) for p in paths]
+for name in open(sys.argv[2]).read().split():
+    included = False
+    for negated, rule in rules:
+        if rule.match(name):
+            included = not negated
+    if included:
+        print(name)
+' <(printf '%s' "$next_workflow") <(printf '%s\n' "$next_files") 2>/dev/null); then
+      refuse \
+        "not green: no cmux-next run on $sha, and its pull_request paths filter cannot be parsed" \
+        'check .github/workflows/cmux-next.yml on the exact head, then retry'
+    fi
+    if [ -n "$next_covered" ]; then
+      refuse \
+        "not green: no cmux-next run on $sha yet, but it changes paths the workflow covers ($(head -n 3 <<<"$next_covered" | tr '\n' ' ' | sed 's/ $//')); --override cannot bypass a run that does not exist" \
+        "wait for GitHub to create and finish the cmux-next run on the exact head, then retry"
+    fi
+  fi
+  while IFS= read -r verdict; do
+    [ -n "$verdict" ] || continue
+    case "$verdict" in
+      *" is success") ;;
+      *" is failure")
+        if [ -z "$override_reason" ]; then
+          refuse \
+            "not green: cmux-next run $verdict on $sha" \
+            "fix the failing cmux-next lane, or pass --override with the base-red evidence"
+        fi
+        ;;
+      *)
+        refuse \
+          "not green: cmux-next run $verdict on $sha; its native jobs did not all run, and --override cannot bypass that" \
+          "rerun the cmux-next workflow on the exact head and wait for it to succeed, then retry"
+        ;;
+    esac
+  done <<<"$next_verdicts"
   for next_check in \
     "cmux-next Release compile (Xcode 26)" \
     "cmux app scheme compile (Debug)" \

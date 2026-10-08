@@ -82,13 +82,11 @@ test("the pane draws no session list of its own: agent chats live in the window'
     expect(container.querySelector(".acpmux-sidebar-toggle")).toBeNull();
     expect(container.querySelector(".acpmux-session-row")).toBeNull();
     expect(container.querySelector(".acpmux-header")).not.toBeNull();
-    // Finding another chat from inside the pane goes through Search chats.
+    // Finding another chat goes through the command palette's chats page (decision K1, one
+    // palette): the pane has no chat search of its own.
     await act(async () => host.cmuxAcpmuxBridge!.command!("searchChats"));
-    const first = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-search-row")].find(
-      (row) => row.querySelector(".acpmux-search-label")!.textContent === "First",
-    )!;
-    await act(async () => first.click());
-    expect(selected).toEqual(["a"]);
+    expect(container.querySelector(".acpmux-search-layer")).toBeNull();
+    expect(selected).toEqual([]);
   } finally {
     await act(async () => root.unmount());
     delete host.cmuxAcpmuxActions;

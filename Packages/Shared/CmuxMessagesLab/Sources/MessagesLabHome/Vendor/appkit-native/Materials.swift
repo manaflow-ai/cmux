@@ -9,13 +9,18 @@ import SwiftUI
 
 /// The compose bar's Liquid Glass: the field (NSGlassEffectView behind the
 /// text view) and the round "+" and emoji buttons (glass circles holding
-/// borderless NSButtons), grouped in one NSGlassEffectContainerView so the
-/// system renders them as one glass group (merging when closer than
-/// `mergeSpacing`, as system glass does). The field follows the shared field
-/// geometry; a height change is animated by `FieldAnimation`.
+/// borderless NSButtons). The buttons share one NSGlassEffectContainerView
+/// (merging when closer than `mergeSpacing`, as system glass does); the field
+/// has its own container, because only a container's `alphaValue` fades the
+/// glass (the send's field fade; the buttons do not fade in Messages). At
+/// rest the field is 9.5 pt from each button, so the field never merged with
+/// them. The field follows the shared field geometry; a height change is
+/// animated by `FieldAnimation`.
 final class FieldChrome: NSView {
     let container = NSGlassEffectContainerView()
     private let group = FlippedView()
+    let fieldContainer = NSGlassEffectContainerView()
+    private let fieldGroup = FlippedView()
     let field = NSGlassEffectView()
     let plusGlass = NSGlassEffectView()
     let emojiGlass = NSGlassEffectView()
@@ -32,6 +37,9 @@ final class FieldChrome: NSView {
         container.spacing = FieldChrome.mergeSpacing
         container.contentView = group
         addSubview(container)
+        fieldContainer.spacing = FieldChrome.mergeSpacing
+        fieldContainer.contentView = fieldGroup
+        addSubview(fieldContainer)
         field.cornerRadius = 15
         field.style = .regular
         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
@@ -42,7 +50,7 @@ final class FieldChrome: NSView {
         #if compiler(>=6.4)
         if #available(macOS 27.0, *) { field.effectIsInteractive = true }
         #endif
-        group.addSubview(field)
+        fieldGroup.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
             g.cornerRadius = 15
@@ -80,6 +88,8 @@ final class FieldChrome: NSView {
         super.layout()
         container.frame = bounds
         group.frame = bounds
+        fieldContainer.frame = bounds
+        fieldGroup.frame = bounds
     }
 
     func place(field f: CGRect, plus p: CGRect, emoji e: CGRect) {
@@ -118,12 +128,44 @@ final class FieldChrome: NSView {
     }
     func markAnimating(to r: CGRect) { animatingTo = r }
 
-    /// The send's glass fade (catalyst's field opacity pulse): an opacity
-    /// keyframe animation on the glass view's own layer (public: any
-    /// layer-backed view's layer takes animations).
+    /// The send's glass fade (catalyst's field opacity pulse, `field.opacity`;
+    /// Messages fades only the field, not the "+" and emoji glass). Opacity on
+    /// the glass view's layer, on its internal layers, or the glass view's own
+    /// `alphaValue` shows nothing (A/B takes ffalpha/ffhide-*-take80): the
+    /// system draws the glass from its container. The field's own container
+    /// fades it: an opacity keyframe animation on the container's layer, on the
+    /// render server (no main-thread frame can delay it).
+    /// `MLAB_FIELD_FADE` (A/B only): `link` sets the container's `alphaValue`
+    /// on the main thread at each display frame instead (one frame late in
+    /// take 83 when the send's commit ran long), `off` leaves the field as is.
     func sendPulse(begin: CFTimeInterval) {
-        guard let l = field.layer else { return }
-        Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
+        switch FieldChrome.fadeMode {
+        case "off": return
+        case "link":
+            fadeBegin = begin
+            if fadeLink == nil {
+                let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
+                l.add(to: .main, forMode: .common)
+                fadeLink = l
+            }
+            fadeLink?.isPaused = false
+        default:
+            guard let l = fieldContainer.layer else { return }
+            Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
+        }
+    }
+
+    private static let fadeMode = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] ?? "layer"
+    private var fadeBegin: CFTimeInterval = 0
+    private var fadeLink: CADisplayLink?
+
+    @objc private func fadeFrame(_ link: CADisplayLink) {
+        let e = Springs.fieldOpacity
+        let tau = link.targetTimestamp - fadeBegin
+        let done = tau >= e.settleTime
+        let v = done ? 1 : CGFloat(min(1, max(0, e.value(tau, from: 1, to: 1))))
+        if fieldContainer.alphaValue != v { fieldContainer.alphaValue = v }
+        if done { link.isPaused = true }
     }
 }
 

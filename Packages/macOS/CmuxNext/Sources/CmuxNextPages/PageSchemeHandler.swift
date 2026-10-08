@@ -30,16 +30,31 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let body: Data
     }
 
-    private let page: PageDescriptor
-    private let root: URL
-    private weak var dynamicSource: (any PageDynamicResourceSource)?
+    struct Served {
+        let page: PageDescriptor
+        let root: URL
+        weak var dynamicSource: (any PageDynamicResourceSource)?
+    }
+
+    private let resolve: (String) -> Served?
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
     init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil) {
-        self.page = page
-        self.root = root.standardizedFileURL.resolvingSymlinksInPath()
-        self.dynamicSource = dynamicSource
+        let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
+        let host = page.id.lowercased()
+        resolve = { $0 == host ? served : nil }
+    }
+
+    /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
+    init(resolve: @escaping (String) -> Served?) {
+        self.resolve = resolve
+    }
+
+    private func served(_ url: URL) -> Served? {
+        guard url.scheme?.lowercased() == PageDescriptor.scheme,
+              let host = url.host?.lowercased() else { return nil }
+        return resolve(host)
     }
 
     /// The page's directory inside this module's resource bundle (`Resources/pages/<resource>`).
@@ -50,8 +65,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
-              let url = request.url,
-              Self.route(for: url, page: page, root: root) != nil
+              let url = request.url, let served = served(url),
+              Self.route(for: url, page: served.page, root: served.root) != nil
         else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
@@ -76,19 +91,20 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
     /// before), or the dynamic source's answer (a 404 when it has none).
     func reply(to url: URL) async -> Reply? {
-        switch Self.route(for: url, page: page, root: root) {
+        guard let served = served(url) else { return nil }
+        switch Self.route(for: url, page: served.page, root: served.root) {
         case nil:
             return nil
         case .file(let file):
             guard let data = await Self.read(file) else { return nil }
-            return Self.reply(url: url, page: page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
+            return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
         case .dynamic(let request):
-            guard let resource = await dynamicSource?.resource(for: request) else {
-                return Self.reply(url: url, page: page, status: 404, mimeType: "text/plain", body: Data())
+            guard let resource = await served.dynamicSource?.resource(for: request) else {
+                return Self.reply(url: url, page: served.page, status: 404, mimeType: "text/plain", body: Data())
             }
             let fallback = Self.mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
             let type = resource.mimeType.flatMap(Self.validMIMEType) ?? fallback
-            return Self.reply(url: url, page: page, status: 200, mimeType: type, body: resource.data)
+            return Self.reply(url: url, page: served.page, status: 200, mimeType: type, body: resource.data)
         }
     }
 

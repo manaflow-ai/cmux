@@ -20,7 +20,17 @@ extension AgentPaneModel {
     /// The folders a page's `file.open` may name a file under: the pane's own roots and the
     /// folders the user added to it (the add-folder sheet).
     func fileOpenRoots() -> [String] {
-        roots() + transport.addedRoots
+        roots() + transport.addedRoots + sessionRoots()
+    }
+
+    /// The active session's own folder (the cwd the daemon reported for it), when the session is
+    /// in the pane's scope (the pane started it or the user opened it here). Never `/` or the home
+    /// folder, which would make every file a root.
+    func sessionRoots() -> [String] {
+        guard let id = sessionId, transport.sessions.contains(id), let folder = transport.sessions.folder(of: id),
+              let canonical = AcpmuxPathPolicy.canonical(folder), canonical != "/",
+              canonical != (AcpmuxPathPolicy.canonical(NSHomeDirectory()) ?? NSHomeDirectory()) else { return [] }
+        return [canonical]
     }
 
     /// The file a page's `file.open` may open for `target`, or the refusal: under a root

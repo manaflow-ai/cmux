@@ -3,7 +3,7 @@
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
-use crate::cli::command::{Cli, Command, flatten};
+use crate::cli::command::{Cli, Command, RouterCmd, flatten};
 use crate::cli::errors;
 use crate::cli::run::run_client;
 use crate::daemon::{DaemonOptions, connect};
@@ -93,6 +93,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
         }
+        Some(Command::Router(RouterCmd::Serve)) => {
+            cmux_coderouter::serve(crate::config::home()).await
+        }
         Some(Command::DaemonRun {
             listen,
             token,
@@ -138,6 +141,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 preset,
             })
             .await
+        }
+        Some(Command::Harness(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::harness::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
         }
         Some(Command::Skill) => {
             use std::io::Write;

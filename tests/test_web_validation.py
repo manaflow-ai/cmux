@@ -16,6 +16,33 @@ import web_validation as gate
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
+class CmuxNextBaseWebVerdict(unittest.TestCase):
+    """feat-cmux-next pushes run ci-web's checks under the same `web / ...` names as PRs.
+
+    ci.yml runs only on pull requests, so on 2026-10-07 react-apps-check was red on feat-cmux-next
+    unseen, and gh-merge-green's base-aware excusal had no base verdict for any web check.
+    """
+
+    def setUp(self):
+        # Text, not YAML: this file runs on a bare runner Python without PyYAML.
+        self.text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text()
+
+    def test_every_feat_cmux_next_push_runs_it(self):
+        self.assertRegex(self.text, r"\non:\n  push:\n    branches: \[feat-cmux-next\]\n")
+        self.assertNotIn("pull_request", self.text)
+        self.assertNotIn("paths:", self.text)
+
+    def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
+        self.assertIn(
+            "jobs:\n  web:\n    uses: ./.github/workflows/ci-web.yml\n    with:\n"
+            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
+            self.text,
+        )
+
+    def test_a_later_push_never_cancels_a_verdict(self):
+        self.assertIn("group: cmux-next-web-${{ github.sha }}\n  cancel-in-progress: false\n", self.text)
+
+
 class WebValidationTests(unittest.TestCase):
     def test_web_inputs_and_mixed_changes_are_selected(self):
         for path in (
@@ -176,6 +203,19 @@ class WebValidationTests(unittest.TestCase):
                 self.assertIn("uses: actions/cache@", block)
                 self.assertIn("path: ~/.bun/install/cache", block)
                 self.assertIn(f"hashFiles('{lockfile}')", block)
+
+    def test_webviews_tests_run_on_a_runner_with_room_for_the_suite(self):
+        """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
+        (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
+        self.assertIn("scripts/ci/run-webviews-tests.sh", block)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertNotIn("4vcpu", runs_on)
+        self.assertIn("'blacksmith-8vcpu-ubuntu-2404'", runs_on)
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

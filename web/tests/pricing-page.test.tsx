@@ -114,7 +114,7 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
 
 describe("localized pricing page", () => {
-  test("hides Go and all annual offers when the Go rollout is disabled", async () => {
+  test("hides Go when the Go rollout is disabled", async () => {
     const previous = process.env.CMUX_TEST_GO_PLAN_DISABLED;
     process.env.CMUX_TEST_GO_PLAN_DISABLED = "1";
     try {
@@ -123,8 +123,6 @@ describe("localized pricing page", () => {
       expect(html).toContain("Get Max");
       expect(html).not.toContain("Get Go");
       expect(html).not.toContain("$10");
-      expect(html).not.toContain("Save 20%");
-      expect(html).not.toContain("interval=year");
       expect(html).toContain("25% repeat(5,15%)");
     } finally {
       if (previous === undefined) delete process.env.CMUX_TEST_GO_PLAN_DISABLED;
@@ -168,15 +166,15 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("shows monthly prices only even for old annual pricing links", async () => {
+  test("offers yearly billing on Pro only", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain("Save 20%");
-    expect(html).not.toContain("interval=year");
-    expect(html).not.toContain("billed annually");
+    expect(html).toContain("$480 billed yearly, save 20%");
+    expect(html).toContain("$40");
+    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);
   });
 
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {

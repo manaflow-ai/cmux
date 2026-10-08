@@ -25,8 +25,54 @@ final class TranscriptModel {
     /// Replace the rows. With `ghostsAt`, rows that disappear stay as ghosts at
     /// their old place.
     func set(_ specs: [RowSpec], at t: Double, ghosts: Bool) {
+        merge(specs, from: 0, at: t, ghosts: ghosts)
+        rebuild()
+    }
+
+    /// Live rows (not ghosts), and the index of the first ghost (rows.count: none).
+    private(set) var liveCount = 0
+    private var lowestGhost = 0
+
+    /// Index in `rows` of live row number `n` (`rows.count` for n == liveCount). Walks back from
+    /// the end: the cost follows the rows after it.
+    func modelIndex(ofLive n: Int) -> Int {
+        var i = rows.count, live = liveCount
+        while live > n, i > 0 {
+            i -= 1
+            if !rows[i].ghost { live -= 1 }
+        }
+        return i
+    }
+
+    /// Where a tail update that replaces the live rows from live row `cut` on starts in `rows`:
+    /// at that row, or earlier at the first ghost (the merge then sees every fading row it may
+    /// place, and the rows before it hold no ghost). Nil when only `set` is exact: a new row's
+    /// key also names a row before that point.
+    func tailStart(fromLive cut: Int, _ tail: [RowSpec]) -> Int? {
+        let m0 = min(modelIndex(ofLive: cut), lowestGhost)
+        for s in tail { if let j = index[s.key], j < m0 { return nil } }
+        return m0
+    }
+
+    /// `set(livePrefix + tail)` for a change that keeps the live rows before live row `cut`:
+    /// rows before `m0` (from `tailStart`) keep their rows, positions and index entries; only the
+    /// rest is merged and re-indexed. The cost follows the tail, not the history.
+    func setTail(from m0: Int, liveCut cut: Int, _ tail: [RowSpec], at t: Double, ghosts: Bool) {
+        let mc = modelIndex(ofLive: cut)
+        var specs: [RowSpec] = []
+        specs.reserveCapacity(tail.count + mc - m0)
+        for i in m0..<mc where !rows[i].ghost { specs.append(rows[i].spec) }
+        specs += tail
+        let previous = merge(specs, from: m0, at: t, ghosts: ghosts)
+        rebuild(from: m0, previous: previous)
+    }
+
+    /// Merge `specs` into the rows from `m0` on (rows before stay). Returns the rows it replaced.
+    @discardableResult
+    private func merge(_ specs: [RowSpec], from m0: Int, at t: Double, ghosts: Bool) -> [Row] {
         let newKeys = Set(specs.map(\.key))
-        let old = rows.filter { !$0.ghost }
+        let previous = m0 == 0 ? rows : Array(rows[m0...])
+        let old = previous.filter { !$0.ghost }
         var oldIndex: [String: Int] = [:]
         oldIndex.reserveCapacity(old.count)
         for (i, r) in old.enumerated() { oldIndex[r.spec.key] = i }
@@ -52,14 +98,13 @@ final class TranscriptModel {
             oi += 1
         }
         // Ghosts that are still fading keep their place too.
-        let previous = rows
-        let fading = rows.filter(\.ghost)
-        rows = result
-        for g in fading where index(ofKey: g.spec.key) == nil { insertGhost(g, previous) }
-        rebuild()
+        let fading = previous.filter(\.ghost)
+        if m0 == 0 { rows = result } else { rows.replaceSubrange(m0..., with: result) }
+        for g in fading where index(ofKey: g.spec.key, from: m0) == nil { insertGhost(g, previous, base: m0) }
+        return previous
     }
 
-    private func index(ofKey key: String) -> Int? { rows.firstIndex { $0.spec.key == key } }
+    private func index(ofKey key: String, from base: Int = 0) -> Int? { rows[base...].firstIndex { $0.spec.key == key } }
 
     /// Put a ghost that is still fading back right after the row it followed
     /// (the first row if none). It used to be appended at the end: a second
@@ -67,14 +112,15 @@ final class TranscriptModel {
     /// arrive within 50 ms) moved the older "Read" ghost to the end of the
     /// list, and its spring slid it down across the new rows ("row receipt
     /// jumps 15-37 pt", cmux-next flight recorder, 2026-10-05).
-    private func insertGhost(_ g: Row, _ previous: [Row]) {
+    /// (`previous`: the replaced rows from `base` on.)
+    private func insertGhost(_ g: Row, _ previous: [Row], base: Int) {
         guard let k = previous.firstIndex(where: { $0.spec.key == g.spec.key }) else { rows.append(g); return }
         var j = k - 1
         while j >= 0 {
-            if let at = index(ofKey: previous[j].spec.key) { rows.insert(g, at: at + 1); return }
+            if let at = index(ofKey: previous[j].spec.key, from: base) { rows.insert(g, at: at + 1); return }
             j -= 1
         }
-        rows.insert(g, at: 0)
+        rows.insert(g, at: base)
     }
 
     /// Paging splice (no animation): replace rows at the two ends.
@@ -95,7 +141,7 @@ final class TranscriptModel {
         return false
     }
 
-    var hasGhosts: Bool { rows.contains(where: \.ghost) }
+    var hasGhosts: Bool { liveCount < rows.count }
 
     /// Rows that draw a thread connector, with their root's row (nil: the
     /// root is not loaded, the connector runs to the top of the loaded rows).
@@ -118,6 +164,32 @@ final class TranscriptModel {
             index[r.spec.key] = i
         }
         offsets[rows.count] = y
+        liveCount = rows.count - rows.lazy.filter(\.ghost).count
+        lowestGhost = rows.firstIndex(where: \.ghost) ?? rows.count
+    }
+
+    /// `rebuild` for a tail update from `m0` (no ghost before it): index entries of the replaced
+    /// rows go, the tail's are added; offsets and connectors before `m0` stay.
+    private func rebuild(from m0: Int, previous: [Row]) {
+        for r in previous where (index[r.spec.key] ?? -1) >= m0 { index[r.spec.key] = nil }
+        var y = offsets[m0]
+        offsets.removeSubrange(m0...)
+        var ghostsInTail = 0
+        lowestGhost = rows.count
+        for i in m0..<rows.count {
+            let r = rows[i]
+            offsets.append(y)
+            if r.ghost { ghostsInTail += 1; if lowestGhost == rows.count { lowestGhost = i } } else { y += r.spec.total }
+            index[r.spec.key] = i
+        }
+        offsets.append(y)
+        liveCount = rows.count - ghostsInTail
+        // A connector's root is an older message: replies before m0 keep theirs.
+        connectors.removeAll { $0.reply >= m0 }
+        for i in m0..<rows.count {
+            guard !rows[i].ghost, case let .part(p) = rows[i].spec.kind, let root = p.connectorRoot else { continue }
+            connectors.append((i, index[root]))
+        }
     }
 
     /// Content top of row i relative to the first slot (bottom aligned in its
@@ -156,6 +228,43 @@ final class TranscriptModel {
         }
     }
     var snapshot: Snapshot { Snapshot(index: index, offsets: offsets, rows: rows) }
+
+    /// Positions and rows before a change, for the change's deltas, without copying the history:
+    /// rows before `from` are read from the model (a tail update leaves them as they were), rows
+    /// from `from` on are a copy taken before the change. `from` 0 shares the arrays (a full `set`
+    /// or splice replaces them, so nothing is copied).
+    struct TailSnapshot {
+        let model: TranscriptModel
+        let from: Int
+        let count: Int
+        private let rows: [Row]
+        private let offsets: [CGFloat]
+        private let tailIndex: [String: Int]
+        init(_ m: TranscriptModel, from: Int) {
+            model = m; self.from = from; count = m.rows.count
+            if from == 0 { rows = m.rows; offsets = m.offsets; tailIndex = m.index; return }
+            rows = Array(m.rows[from...]); offsets = Array(m.offsets[from...])
+            var idx: [String: Int] = [:]
+            idx.reserveCapacity(rows.count)
+            for (j, r) in rows.enumerated() { idx[r.spec.key] = from + j }
+            tailIndex = idx
+        }
+        func index(_ key: String) -> Int? {
+            if let i = tailIndex[key] { return i }
+            if from > 0, let j = model.index[key], j < from { return j }
+            return nil
+        }
+        func row(_ i: Int) -> Row { i >= from ? rows[i - from] : model.rows[i] }
+        func contentTop(_ key: String) -> CGFloat? {
+            guard let i = index(key) else { return nil }
+            let r = row(i)
+            let o = { (k: Int) in k >= self.from ? self.offsets[k - self.from] : self.model.offsets[k] }
+            return r.ghost ? o(i) + r.spec.gap : o(i + 1) - r.spec.height
+        }
+        /// Every old key in order (UICollectionView's diff only).
+        var keys: [String] { model.rows[..<min(from, model.rows.count)].map(\.spec.key) + rows.map(\.spec.key) }
+    }
+    func tailSnapshot(from: Int) -> TailSnapshot { TailSnapshot(self, from: from) }
 }
 
 /// Bottom-anchored layout. Rows sit at `rowsBottom - total + offset`, where
@@ -318,6 +427,21 @@ final class MotionLedger {
     var isEmpty: Bool { entries.isEmpty }
 }
 
+/// The ledger entries a cell has added to its layers. A cell adds a row's live entries in ledger
+/// order (ids only grow), each once, so the set is "every id up to the last one added": no hashing
+/// and no storage that grows per entry (a Set<Int> was most of decorate's allocations).
+struct AppliedEntries: ExpressibleByArrayLiteral {
+    private(set) var last = Int.min
+    init(arrayLiteral ids: Int...) { ids.forEach { insert($0) } }
+    func contains(_ id: Int) -> Bool { id <= last }
+    mutating func insert(_ id: Int) {
+        assert(id > last, "ledger entries are added in id order")
+        last = max(last, id)
+    }
+    /// For logs: the last id added (empty: none).
+    func sorted() -> [Int] { last == Int.min ? [] : [last] }
+}
+
 /// One transcript row: off-main bitmap, an outgoing gradient fill under it,
 /// a thread connector, and typing dots that animate on the render server.
 final class RowCell: UICollectionViewCell {
@@ -325,7 +449,9 @@ final class RowCell: UICollectionViewCell {
     private(set) var spec: RowSpec?
     private(set) var key = ""
     /// Ledger entries already added to this cell's layers.
-    var applied = Set<Int>()
+    var applied: AppliedEntries = []
+    /// The window's container-motion serial this cell's row was last checked against (-1: not yet).
+    var motionChecked = -1
 
     let fillContainer = CALayer()
     let fillGradient = CAGradientLayer()
@@ -340,6 +466,8 @@ final class RowCell: UICollectionViewCell {
     let receiptOld = CALayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
+    /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
+    var markdownOverlay: MarkdownOverlay?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -361,6 +489,13 @@ final class RowCell: UICollectionViewCell {
     static var inPaging = false
     /// Rows past the budget that waited for an off-main bitmap.
     static var overBudget = 0
+    /// Rows whose content is hidden by a hold when they appear (the sent row under its flying
+    /// bubble, a received text before its delayed fade-in): their bitmap is drawn off main, not
+    /// in the commit that adds them. The window view removes a key at the row's reveal and shows
+    /// the bitmap then (drawn on main only if it has not arrived). Capture draws synchronously.
+    static var deferredKeys = Set<String>()
+    /// Bitmaps of deferred rows requested off main (bench evidence).
+    static var deferredRenders = 0
     /// Main-thread drawing per run-loop turn (one frame's work): enough for
     /// a send, a reply, receipts and a normal scroll; a fling faster than the
     /// prefetch draws the rest off main.
@@ -444,15 +579,21 @@ final class RowCell: UICollectionViewCell {
         connectorState = nil
         clearAnimations()
         applied = []
+        motionChecked = -1
         key = ""
         tiled?.detach(self)
+        markdownOverlay?.detach()
+        CustomRows.host?.detach(self)
         dropWant()
     }
 
     func clearAnimations() {
         layer.removeAllAnimations()
         contentView.layer.removeAllAnimations()
-        for l in [fillContainer, bitmap, connector, connectorLine, typingContainer, receiptOld] { l.removeAllAnimations() }
+        // fillGradient is a sublayer of fillContainer (removeAllAnimations does not recurse): a reused cell kept
+        // the previous row's gradient counter-springs (ledger .fillGradient) while `applied` restarted empty.
+        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, receiptOld] { l.removeAllAnimations() }
+        badge?.removeAllAnimations(); badgeGlyph?.removeAllAnimations()
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
     }
 
@@ -480,7 +621,7 @@ final class RowCell: UICollectionViewCell {
         // new palette or new content) before anything changes.
         let showingThisRow = key == spec.key && bitmap.contents != nil
         let repaint = palette != Fixture.paletteGeneration
-        if key != spec.key { clearAnimations(); applied = []; key = spec.key }
+        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0 }
         if let w = pendingWant, w != spec { dropWant() }
         if palette != Fixture.paletteGeneration {
             palette = Fixture.paletteGeneration
@@ -507,7 +648,8 @@ final class RowCell: UICollectionViewCell {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Long text: no bubble-sized bitmap (TiledBubble.swift, shared/LONG-MESSAGES.md).
-        if TiledBubble.applies(spec) { TiledBubble.configure(self, spec); CATransaction.commit(); return }
+        configureBadge(spec)
+        if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
@@ -531,12 +673,13 @@ final class RowCell: UICollectionViewCell {
         // Old bitmaps are freed off the main thread (vm_deallocate blocked main
         // for up to 291 ms in the uikit-virtual profile).
         Reclaimer.release(receiptOld.contents)
+        let deferred = !RowCell.deferredKeys.isEmpty && RowCell.deferredKeys.contains(spec.key)
         if let img = RowBitmaps.shared.image(for: spec) {
             Reclaimer.release(bitmap.contents)
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
-        } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow)
+        } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow)
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
@@ -554,7 +697,13 @@ final class RowCell: UICollectionViewCell {
             // budget (a fling faster than the prefetch, about 70,000 pt/s in
             // the bench): the row waits for its off-main bitmap.
             let want = spec
-            if !(repaint && showingThisRow) {
+            if deferred {
+                RowCell.deferredRenders += 1
+                Reclaimer.release(bitmap.contents)
+                MediaPlaceholder.clear(bitmap)
+                bitmap.frame = bitmapFrame
+                bitmap.contents = nil
+            } else if !(repaint && showingThisRow) {
                 RowCell.overBudget += 1
                 Reclaimer.release(bitmap.contents)
                 MediaPlaceholder.clear(bitmap)
@@ -578,6 +727,8 @@ final class RowCell: UICollectionViewCell {
             }
         }
         receiptOld.contents = nil
+        MarkdownOverlay.configure(self, spec)
+        CustomRows.host?.configure(self, spec)
         CATransaction.commit()
     }
 
@@ -597,6 +748,7 @@ final class RowCell: UICollectionViewCell {
         MediaPlaceholder.clear(bitmap)
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
+        CustomRows.host?.configure(self, spec)
     }
 
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
@@ -620,6 +772,104 @@ final class RowCell: UICollectionViewCell {
         dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
     }
 
+    // MARK: My tapback badge
+
+    /// The part and begin time (layer time) of a tapback I just added: the window view sets it
+    /// around the commit that adds it, and that row's badge pops in.
+    static var badgePop: (PartRef, CFTimeInterval)?
+    /// My tapback badge: blue, the window-anchored gradient of my bubbles (a row bitmap cannot
+    /// know its window position; PartRenderer.drawReactions skips mine there). A box 40 x 44 pt
+    /// with the disc center at (20, 20): the gradient masked by the disc and tails, the glyph above.
+    private(set) var badge: CALayer?
+    private(set) var badgeFill: CAGradientLayer?
+    private var badgeGlyph: CALayer?
+    private var badgeState = "", badgeTop: CGFloat = 0
+    private static var badgeGlyphs: [String: CGImage] = [:]
+    private static let badgeBox = CGSize(width: 40, height: 44)
+
+    private func configureBadge(_ spec: RowSpec) {
+        guard case let .part(p) = spec.kind, let i = p.reactions.firstIndex(where: { $0.senderId == PartRenderer.me }) else {
+            if let badge, !badge.isHidden { badge.isHidden = true; badgeState = "" }
+            return
+        }
+        let kind = p.reactions[i].kind
+        let side: CGFloat = p.outgoing ? -1 : 1
+        let c = PartRenderer.badgeCenter(body: RowDraw.bodyRect(spec), outgoing: p.outgoing, index: i)
+        let pop = RowCell.badgePop.flatMap { $0.0 == p.ref ? $0.1 : nil }
+        let state = "\(kind)|\(c.x)|\(c.y)|\(i)|\(side)|\(Fixture.paletteGeneration)"
+        if state == badgeState, pop == nil { badge?.isHidden = false; return }
+        badgeState = state
+        let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
+                                             "hidden": NSNull(), "transform": NSNull(), "anchorPoint": NSNull(), "frame": NSNull()]
+        if badge == nil {
+            // The mask sits on a holder at the box: the gradient moves inside it with windowY.
+            let box = CALayer(), holder = CALayer(), fill = CAGradientLayer(), mask = CAShapeLayer(), glyph = CALayer()
+            for l in [box, holder, fill, mask, glyph] as [CALayer] { l.actions = noActions }
+            holder.mask = mask
+            holder.addSublayer(fill)
+            box.addSublayer(holder); box.addSublayer(glyph)
+            badge = box; badgeFill = fill; badgeGlyph = glyph
+        }
+        guard let box = badge, let fill = badgeFill, let glyph = badgeGlyph else { return }
+        if box.superlayer !== contentView.layer { contentView.layer.addSublayer(box) }
+        box.isHidden = false
+        let size = Self.badgeBox
+        // The pop scales about the middle of the disc and tails (Messages' first dot sits there:
+        // 1 pt toward the tails' side and 3 pt below the disc center).
+        box.anchorPoint = CGPoint(x: (20 + side) / size.width, y: 23 / size.height)
+        box.bounds = CGRect(origin: .zero, size: size)
+        box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
+        box.contentsScale = Fixture.renderScale
+        badgeTop = c.y - 20
+        fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
+        fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+        RowCell.placeFill(fill, windowTop: windowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
+        if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
+            holder.frame = CGRect(origin: .zero, size: size)
+            mask.frame = holder.bounds
+            mask.path = PartRenderer.badgePath(center: CGPoint(x: 20, y: 20), side: side, tails: i == 0).cgPath
+        }
+        let key = "\(kind)|\(Fixture.renderScale)|\(Fixture.paletteGeneration)"
+        let img: CGImage
+        if let cached = Self.badgeGlyphs[key] { img = cached } else {
+            img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
+                PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
+            }
+            Self.badgeGlyphs[key] = img
+        }
+        glyph.contents = img
+        glyph.contentsScale = Fixture.renderScale
+        // The heart's own pop scales about the glyph's middle (1.25 pt below the disc center).
+        glyph.anchorPoint = CGPoint(x: 0.5, y: 21.25 / size.height)
+        glyph.bounds = CGRect(origin: .zero, size: size)
+        glyph.position = CGPoint(x: size.width / 2, y: 21.25)
+        if let begin = pop { Self.pop(box: box, glyph: glyph, begin: begin) }
+    }
+
+    /// Messages' pop of my new tapback (macOS 27, lossless tapback-menu-heart-take1, times from
+    /// our react commit, which Messages' rows follow 90 ms later): the badge grows from a dot at
+    /// +86 ms (spring 0.247 s, bounce 0.087; rms 0.025 of full size), with the glyph inside it;
+    /// at +136 ms the glyph starts again from nothing and grows with an overshoot to 1.24 and
+    /// back (spring 0.63 s, bounce 0.596; rms 0.016). Keyframes sampled at 240 Hz.
+    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2466, bounce: 0.087))
+    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
+    private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
+        func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
+            let n = Int(end * 240)
+            let a = CAKeyframeAnimation(keyPath: "transform.scale")
+            a.values = (0...n).map { NSNumber(value: max(0.001, f(Double($0) / 240))) }
+            a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
+            a.duration = end
+            a.beginTime = begin
+            a.fillMode = .backwards
+            a.calculationMode = .linear
+            return a
+        }
+        let d = popDisc, g = popGlyph
+        box.add(keyframes({ $0 < d.delay ? 0 : d.spring.progress($0 - d.delay) }, until: d.delay + 1.0), forKey: "messageslab.pop")
+        glyph.add(keyframes({ $0 < g.delay ? 1 : g.spring.progress($0 - g.delay) }, until: g.delay + 1.8), forKey: "messageslab.pop")
+    }
+
     private func configureFill(_ spec: RowSpec) {
         guard RowDraw.needsFill(spec), case let .part(p) = spec.kind else {
             fillContainer.isHidden = true
@@ -634,7 +884,88 @@ final class RowCell: UICollectionViewCell {
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
         fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
-        fillGradient.frame = fillFrame(width: spec.width)  // cmux: a pane taller than the measured window
+        placeFillGradient(width: spec.width)
+    }
+
+    /// The window band the outgoing fill gradients span (window y): the transcript's visible
+    /// height and a margin above and below it for scrolling and springs. The colour ramp stays at
+    /// window y 0...gradientHeight with flat ends: Messages keeps that fixed point mapping when only
+    /// the window height changes (resize-bottom references: same colour at the same window y at
+    /// 826 and 1098 pt), and the row bitmaps draw it so (drawsBeforeStartLocation,
+    /// drawsAfterEndLocation). A CAGradientLayer draws nothing outside its bounds: a bubble outside
+    /// the band showed no fill under its text (cmux-next, windows taller than 1041 pt).
+    struct FillSpan: Equatable {
+        /// Window y of the band's top and bottom.
+        var top: CGFloat, bottom: CGFloat
+        /// The visible transcript height (window y 0...viewport).
+        var viewport: CGFloat
+        init(viewport h: CGFloat, margin m: CGFloat) { top = -m; bottom = h + m; viewport = h }
+        /// iOS and a cell that no window view placed yet: one screen of the measured height each side.
+        static let standard = FillSpan(viewport: Fixture.gradientHeight, margin: Fixture.gradientHeight)
+    }
+    /// Set by the window view on layout and resize; no animation.
+    var fillSpan = FillSpan.standard {
+        didSet { if fillSpan != oldValue { placeFills() } }
+    }
+    /// Extra band below for a row that slides in from far below its place while its fill moves
+    /// with it (a fold's rows below the message: the slide holds the far part). Cleared with the row.
+    private(set) var fillReachBelow: CGFloat = 0
+    func extendFillReach(below d: CGFloat) {
+        guard d > fillReachBelow else { return }
+        fillReachBelow = d
+        placeFills()
+    }
+    /// Negative control for `--coverage-check --coverage-height`: the gradient spans only its
+    /// 1041 pt ramp (the fill-less bubbles below it in taller windows).
+    static let noGradientEnds = ProcessInfo.processInfo.arguments.contains("--no-gradient-ends")
+
+    /// `g` (a window-anchored gradient in a layer whose top is at window y `windowTop`) spans the
+    /// band; startPoint and endPoint keep the ramp at window y 0...gradientHeight, and the layer
+    /// extends its end colours past them.
+    static func placeFill(_ g: CAGradientLayer, windowTop: CGFloat, width: CGFloat, span: FillSpan, reachBelow: CGFloat) {
+        if noGradientEnds {
+            g.frame = CGRect(x: 0, y: -windowTop, width: width, height: Fixture.gradientHeight)
+            g.startPoint = CGPoint(x: 0.5, y: 0); g.endPoint = CGPoint(x: 0.5, y: 1)
+            return
+        }
+        let top = span.top, h = span.bottom + reachBelow - span.top
+        g.frame = CGRect(x: 0, y: top - windowTop, width: width, height: h)
+        g.startPoint = CGPoint(x: 0.5, y: -top / h)
+        g.endPoint = CGPoint(x: 0.5, y: (Fixture.gradientHeight - top) / h)
+    }
+
+    /// Whether the visible part of a body at window y bodyTop...bodyBottom lies inside the fill's band.
+    func fillCovers(bodyTop: CGFloat, bodyBottom: CGFloat) -> Bool {
+        // Only the visible part counts: a long bubble reaches far past the window.
+        let a = max(bodyTop, 0), b = min(bodyBottom, fillSpan.viewport)
+        guard b > a, !RowCell.noGradientEnds else { return true }
+        return a >= fillSpan.top - 0.5 && b <= fillSpan.bottom + fillReachBelow + 0.5
+    }
+
+    private func placeFillGradient(width: CGFloat) {
+        RowCell.placeFill(fillGradient, windowTop: windowY, width: width, span: fillSpan, reachBelow: fillReachBelow)
+        assertFillCovers()
+    }
+
+    /// Debug builds: the visible part of the bubble (model geometry) lies inside its fill's band.
+    private func assertFillCovers() {
+        #if DEBUG
+        guard let spec, !fillContainer.isHidden, !fillGradient.isHidden else { return }
+        let body = RowDraw.bodyRect(spec)
+        assert(fillCovers(bodyTop: windowY + body.minY, bodyBottom: windowY + body.maxY),
+               "outgoing bubble \(spec.key) at window y \(windowY + body.minY)...\(windowY + body.maxY) leaves its fill span \(fillSpan)")
+        #endif
+    }
+
+    /// The fill and my badge's fill follow a new band (resize) or reach.
+    private func placeFills() {
+        guard !fillContainer.isHidden || !(badge?.isHidden ?? true) else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if !fillContainer.isHidden { placeFillGradient(width: fillGradient.bounds.width) }
+        if let badgeFill, !(badge?.isHidden ?? true) {
+            RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
+        }
+        CATransaction.commit()
     }
 
     /// cmux: the outgoing gradient's colours and their locations from one
@@ -647,23 +978,16 @@ final class RowCell: UICollectionViewCell {
         fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
     }
 
-    /// cmux: the gradient layer in cell coordinates. It spans MessagesLab's
-    /// measured 1041 pt window, so in a taller pane a row whose fill would end
-    /// below that window takes the gradient's deepest band (the same colour
-    /// `Fixture.color(in:atPx:)` gives a static bitmap there) instead of
-    /// falling outside the layer and drawing with no fill under its text.
-    func fillFrame(width: CGFloat) -> CGRect {
-        let height = fillContainer.bounds.height
-        let span = max(Fixture.gradientHeight, height)
-        return CGRect(x: 0, y: -min(windowY, span - height), width: width, height: span)
-    }
-
     /// Window y of the cell's top: the outgoing fill shades with it.
     var windowY: CGFloat = 0 {
         didSet {
-            guard windowY != oldValue, !fillContainer.isHidden else { return }
+            guard windowY != oldValue else { return }
+            let fill = !fillContainer.isHidden, mine = badge.map { !$0.isHidden } ?? false
+            guard fill || mine else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            fillGradient.frame = fillFrame(width: fillGradient.frame.width)  // cmux: clamped to the pane
+            let top = RowCell.noGradientEnds ? 0 : fillSpan.top
+            if fill { fillGradient.frame.origin.y = top - windowY; assertFillCovers() }
+            if mine { badgeFill?.frame.origin.y = top - (windowY + badgeTop) }
             CATransaction.commit()
         }
     }
@@ -710,18 +1034,27 @@ final class RowCell: UICollectionViewCell {
         connectorLine.position = CGPoint(x: mirrored ? w - x : x, y: bottom + 1.3)
     }
 
-    /// The previous receipt text, drawn so it can fade out over the new one.
-    func setPreviousReceipt(_ bold: String, _ rest: String) {
+    /// The previous receipt text, drawn so it can fade out over the new one. `cached`: the previous
+    /// receipt row and its bitmap. On AppKit that bitmap is the same drawing (same renderer, span,
+    /// size and scale), so it is used as is when its geometry matches (no text drawing in the
+    /// commit that changes the receipt); UIKit row bitmaps are wide-gamut, so it draws there.
+    func setPreviousReceipt(_ bold: String, _ rest: String, cached: (RowSpec, CGImage)? = nil) {
         guard let spec else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         receiptOld.frame = bitmap.frame
         let span = RowDraw.drawSpan(spec)
+        Reclaimer.release(receiptOld.contents)
+        if receiptOld.superlayer == nil { contentView.layer.insertSublayer(receiptOld, above: bitmap) }
+        var reuse: CGImage?
+        #if !canImport(UIKit)
+        if let (old, img) = cached, case let .receipt(b, r) = old.kind, b == bold, r == rest, old.height == spec.height,
+           old.width == spec.width, RowDraw.drawSpan(old) == span, CGFloat(img.width) == (bitmap.bounds.width * Fixture.renderScale).rounded(),
+           CGFloat(img.height) == (bitmap.bounds.height * Fixture.renderScale).rounded() { reuse = img }
+        #endif
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = Fixture.renderScale
         fmt.opaque = false
-        Reclaimer.release(receiptOld.contents)
-        if receiptOld.superlayer == nil { contentView.layer.insertSublayer(receiptOld, above: bitmap) }
-        receiptOld.contents = UIGraphicsImageRenderer(size: bitmap.bounds.size, format: fmt).image { ctx in
+        receiptOld.contents = reuse ?? UIGraphicsImageRenderer(size: bitmap.bounds.size, format: fmt).image { ctx in
             ctx.cgContext.translateBy(x: -span.lowerBound, y: 0)
             RowDraw.drawReceipt(ctx.cgContext, bold, rest, receiptRight: spec.metrics.receiptRight, top: RowDraw.margin)
         }.cgImage

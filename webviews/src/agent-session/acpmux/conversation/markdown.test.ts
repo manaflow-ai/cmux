@@ -2,7 +2,7 @@
 // the agent-pane reference prototype (src/conversation/markdown.test.ts).
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
+import { createElement, type ComponentType } from "react";
 import { Markdown, parseMarkdown } from "./Markdown";
 import { normalizeMath } from "./mathDelimiters";
 import specimen from "../../../../scripts/agent-pane/specimen.json";
@@ -15,6 +15,7 @@ const specimenAnswer =
     ? answerUpdate.content.text
     : "";
 const html = (source: string) => renderToStaticMarkup(createElement(Markdown, null, source));
+const TestMarkdown = Markdown as unknown as ComponentType<{ githubRepository?: string }>;
 
 describe("math delimiters", () => {
   test("\\[ … \\] display blocks, also across lines, become $$ … $$", () => {
@@ -98,6 +99,14 @@ describe("the pane's earlier renderer gaps", () => {
     expect(out).not.toContain("[ ]");
     expect(out).not.toContain("[x]");
   });
+
+  test("checked tasks expose an accessible checkbox and a check mark", () => {
+    const out = html("- [x] done");
+    expect(out).toContain('role="checkbox"');
+    expect(out).toContain('aria-checked="true"');
+    expect(out).toContain('aria-readonly="true"');
+    expect(out).toContain('class="cv-checkbox__check"');
+  });
 });
 
 describe("links", () => {
@@ -106,6 +115,46 @@ describe("links", () => {
     const unsafe = html("[run](javascript:alert(1))");
     expect(unsafe).not.toContain("<a");
     expect(unsafe).toContain("run");
+  });
+
+  test.each([undefined, "manaflow-ai/cmux"])(
+    "does not nest GitHub references inside labels with repository %s",
+    (githubRepository) => {
+      const out = renderToStaticMarkup(
+        createElement(
+          TestMarkdown,
+          {
+            githubRepository,
+          },
+          "[Fix #1234 and upstream/cmux#56](https://example.com) ![upstream/cmux#5678](https://example.com/image.png)",
+        ),
+      );
+      expect(out.match(/href="https:\/\/github\.com/g) ?? []).toHaveLength(0);
+      expect(out).toContain('href="https://example.com/"');
+    },
+  );
+
+  test("linkifies bare and qualified GitHub references in prose", () => {
+    const out = renderToStaticMarkup(
+      createElement(
+        TestMarkdown,
+        {
+          githubRepository: "manaflow-ai/cmux",
+        },
+        "Fix #1234 and upstream/cmux#56.",
+      ),
+    );
+    expect(out).toContain('href="https://github.com/manaflow-ai/cmux/issues/1234"');
+    expect(out).toContain('href="https://github.com/upstream/cmux/issues/56"');
+    expect(out).toContain('title="https://github.com/manaflow-ai/cmux/issues/1234"');
+  });
+
+  test("keeps references in code spans, fences and unknown repositories as text", () => {
+    const out = html("`#1234` and #1234\n\n```text\n#1234\n```");
+    expect(out).not.toContain('href="https://github.com/');
+    expect(out).toContain("#1234");
+    const qualified = html("upstream/cmux#56");
+    expect(qualified).toContain('href="https://github.com/upstream/cmux/issues/56"');
   });
 });
 

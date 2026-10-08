@@ -43,13 +43,14 @@ enum PaneHandlers {
             registry.bind(id, invoke: { split(ctx, $0, direction: direction) })
         }
         registry.bind("newPaneAutoLayout", invoke: { invocation in
-            guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
-            let frame = content.layoutView.frame(of: pane.layoutPaneID) ?? .zero
-            let preferred: PaneDirection = frame.width >= frame.height ? .right : .down
-            let other: PaneDirection = preferred == .right ? .down : .right
-            // The longer side first; the other axis when only it has room.
-            let fitsPreferred = if case .split = ctx.services.splitRoom(for: pane.pane, edge: edge(preferred)) { true } else { false }
-            split(ctx, invocation, direction: fitsPreferred ? preferred : other)
+            guard let focused = ctx.paneController(invocation), focused.workspace != nil else { return }
+            // Zellij's new pane: the largest shown scrolling pane, never a docked
+            // column; a run that names a pane splits that one (PanePlacementRouting).
+            let pane = PanePlacementRouting.autoLayoutTarget(ctx, invocation, from: focused)
+            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, from: focused)
+            // The longer side first; the other axis when only it has room; split refuses when neither has.
+            let (preferred, fitting) = PanePlacementRouting.autoLayoutDirection(ctx, pane)
+            split(ctx, aimed, direction: fitting ?? preferred)
         })
     }
 

@@ -386,6 +386,57 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
     );
 }
 
+/// `acpmux daemon shutdown` as the CLI runs it, against this daemon.
+fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["daemon", "shutdown"])
+        .args(extra)
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux daemon shutdown")
+}
+
+/// `acpmux daemon shutdown` does what its help says: it stops the daemon
+/// and every agent process, hosted agents and their hosts included. On
+/// cmux-lawrence (2026-10-06) it reported success against the brain's
+/// acpmux and left the "rollback-throwaway" session's agent host running.
+#[tokio::test]
+async fn the_cli_shutdown_ends_every_agent_and_its_host() {
+    let mut daemon = Daemon::new("clis", "approve-all");
+    let (_session, host, client) = gated_turn(&daemon).await;
+    let out = cli_shutdown(&daemon, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    drop(client);
+    assert!(
+        gone_within(host["harness_pid"].as_i64().unwrap(), Duration::from_secs(10)),
+        "the agent outlived acpmux daemon shutdown"
+    );
+    assert!(
+        gone_within(host["host_pid"].as_i64().unwrap(), Duration::from_secs(10)),
+        "the agent host outlived acpmux daemon shutdown"
+    );
+}
+
+/// `--keep-agents` is the explicit durable stop (a restart): hosted agents
+/// keep running for the next daemon to adopt.
+#[tokio::test]
+async fn the_cli_shutdown_with_keep_agents_leaves_hosted_agents_running() {
+    let mut daemon = Daemon::new("clik", "approve-all");
+    let (_session, host, client) = gated_turn(&daemon).await;
+    let out = cli_shutdown(&daemon, &["--keep-agents"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    drop(client);
+    let harness = host["harness_pid"].as_i64().unwrap();
+    assert!(alive(harness), "--keep-agents ended the agent");
+    // This test started it: end it now that the check is done.
+    // SAFETY: the host's own pid from its record; ends this test's agent.
+    unsafe { libc::kill(host["host_pid"].as_i64().unwrap() as i32, libc::SIGTERM) };
+    assert!(gone_within(harness, Duration::from_secs(10)));
+}
+
 /// "Keep Sessions Running" and every other shutdown leave hosted agents
 /// running mid-turn for the next daemon.
 #[tokio::test]

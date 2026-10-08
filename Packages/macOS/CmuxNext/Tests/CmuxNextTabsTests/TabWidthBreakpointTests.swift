@@ -80,9 +80,9 @@ struct TabWidthBreakpointTests {
     }
 }
 
-/// Every tab in the row draws its subtle separator in the gap after its
-/// pill: next to the selected and hovered tabs, across the pinned edge, and
-/// after the last tab (between it and the + button).
+/// The strip wires Chrome's separator rule (TabSeparatorVisibility) into
+/// its cells: the selected and the hovered tab hide the separators on both
+/// sides, the line before + follows the last tab, and hover applies at once.
 @MainActor @Suite struct TabSeparatorTests {
     private func makeStrip(_ tabs: [TabItem], selected: String) -> (TabStripView, NSWindow) {
         let model = TabStripModel(tabs: tabs, selectedID: TabID(selected))
@@ -96,20 +96,24 @@ struct TabWidthBreakpointTests {
         return (strip, window)
     }
 
-    @Test func separatorsStayNextToTheSelectedAndHoveredTabsAndBeforeThePlusButton() {
+    @Test func selectedAndHoveredTabsHideTheSeparatorsOnBothSides() {
         let tabs = (0..<6).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
         let (strip, window) = makeStrip(tabs, selected: "t2")
         defer { window.close() }
         func separators() -> [Bool] { (0..<6).map { strip.cells[TabID("t\($0)")]!.showsSeparator } }
-        #expect(separators() == [true, true, true, true, true, true])
+        #expect(separators() == [true, false, false, true, true, true])
         strip.setHovered(TabID("t4"))
-        #expect(separators() == [true, true, true, true, true, true])
+        #expect(separators() == [true, false, false, false, false, true])
+        strip.setHovered(TabID("t5"))
+        #expect(separators() == [true, false, false, true, false, false])
+        strip.setHovered(nil)
+        #expect(separators() == [true, false, false, true, true, true])
     }
 
     @Test func separatorsCrossThePinnedEdge() {
         let tabs = (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)", isPinned: $0 < 2) }
         let (strip, window) = makeStrip(tabs, selected: "t0")
         defer { window.close() }
-        #expect((0..<4).map { strip.cells[TabID("t\($0)")]!.showsSeparator } == [true, true, true, true])
+        #expect((0..<4).map { strip.cells[TabID("t\($0)")]!.showsSeparator } == [false, true, true, true])
     }
 }

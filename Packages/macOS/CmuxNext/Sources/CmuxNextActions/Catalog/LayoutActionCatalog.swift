@@ -55,6 +55,15 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 .pane, "arrow.up.arrow.down", cli: "pane swap-down", keywords: ["pane", "move"], targets: [.pane]),
             row("closePane", String(localized: "action.closePane", defaultValue: "Close Pane", table: "LayoutActions", bundle: .module),
                 .pane, "xmark.rectangle", cli: "pane close", keywords: ["pane", "remove"], targets: [.pane]),
+            // Chrome's Close Other Tabs for panes (cx-k9go): no question; each closed
+            // pane's tabs go to the closed history and an undo toast offers them back.
+            ActionDescriptor(
+                id: "pane.closeOthers",
+                title: String(localized: "action.pane.closeOthers", defaultValue: "Close Other Panes", table: "LayoutActions", bundle: .module),
+                keywords: ["pane", "close", "others", "only"], category: .pane, symbol: "xmark.rectangle", surfaces: [.palette, .contextMenu],
+                targets: [.pane], cliName: "pane close-others",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .close, 601)])
+            ),
             row("renamePane", String(localized: "action.renamePane", defaultValue: "Rename Pane…", table: "LayoutActions", bundle: .module),
                 .pane, "pencil", cli: "pane rename", keywords: ["pane", "title"], targets: [.pane],
                 arguments: [CatalogArgument.nameString.optional]),
@@ -93,8 +102,14 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
         [
             row("terminal.selectAll", String(localized: "action.terminal.selectAll", defaultValue: "Select All", table: "LayoutActions", bundle: .module),
                 .terminal, "selection.pin.in.out", cli: "terminal select-all", keywords: ["select", "copy"], targets: [.tab]),
-            row("terminal.clear", String(localized: "action.terminal.clear", defaultValue: "Clear Screen and Scrollback", table: "LayoutActions", bundle: .module),
-                .terminal, "clear", cli: "terminal clear", keywords: ["clear", "scrollback", "reset"], targets: [.tab]),
+            // Decision K1: Cmd-K clears the focused terminal (Terminal.app, iTerm2 and Ghostty
+            // `clear_screen`) and is no other default shortcut.
+            ActionDescriptor(
+                id: "terminal.clear",
+                title: String(localized: "action.terminal.clear", defaultValue: "Clear Screen and Scrollback", table: "LayoutActions", bundle: .module),
+                keywords: ["clear", "scrollback", "reset"], defaultShortcut: Shortcut("k", modifiers: [.command]), category: .terminal,
+                symbol: "clear", surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.tab], cliName: "terminal clear"
+            ),
             row("terminal.increaseFontSize", String(localized: "action.terminal.increaseFontSize", defaultValue: "Increase Font Size", table: "LayoutActions", bundle: .module),
                 .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab]),
             row("terminal.decreaseFontSize", String(localized: "action.terminal.decreaseFontSize", defaultValue: "Decrease Font Size", table: "LayoutActions", bundle: .module),

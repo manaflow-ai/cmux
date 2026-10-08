@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "../App";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
 import { installSolidBackdrop } from "../backdrop";
-import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "../labels";
+import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { diffPageClient } from "../diff/page";
 import { bootPageDiff } from "../diff/pageBoot";
@@ -34,8 +34,7 @@ function readEmbeddedConfig(): DiffViewerConfig | null {
 export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
   const embedded = readEmbeddedConfig();
   if (embedded) {
-    renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
-    return Promise.resolve();
+    return renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
   }
   const page = diffPageClient();
   if (!page) {
@@ -61,7 +60,12 @@ export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
 }
 
 /** Applies the config's appearance, labels and status, then renders the viewer. */
-export function renderDiffSurface(rootElement: HTMLElement, config: DiffViewerConfig, languages: unknown): void {
+export async function renderDiffSurface(
+  rootElement: HTMLElement,
+  config: DiffViewerConfig,
+  languages: unknown,
+): Promise<void> {
+  await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
   installDiffLanguageHostAPI(languages);
   applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));

@@ -12,12 +12,9 @@ enum SectionStrings {
     static var newTerminal: String { String(localized: "sidebar.builtin.newTerminal", defaultValue: "New Terminal Tab", bundle: .module) }
     static var newBrowser: String { String(localized: "sidebar.builtin.newBrowser", defaultValue: "New Browser Tab", bundle: .module) }
     static var newAgentChat: String { String(localized: "sidebar.builtin.newAgentChat", defaultValue: "New Agent Chat", bundle: .module) }
-    static var newWorkspace: String { String(localized: "sidebar.builtin.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
-    static var importSync: String { String(localized: "sidebar.builtin.importSync", defaultValue: "Import and Sync", bundle: .module) }
+    static var searchChats: String { String(localized: "sidebar.builtin.searchChats", defaultValue: "Search Chats", bundle: .module) }
     /// Short tile captions (a tiles section's items, Safari's favorites).
     static var appStoreCaption: String { String(localized: "sidebar.builtin.appStore.caption", defaultValue: "Apps", bundle: .module) }
-    static var newWorkspaceCaption: String { String(localized: "sidebar.builtin.newWorkspace.caption", defaultValue: "New", bundle: .module) }
-    static var importSyncCaption: String { String(localized: "sidebar.builtin.importSync.caption", defaultValue: "Import", bundle: .module) }
     /// The rail's button for items that do not fit.
     static var customize: String { String(localized: "sidebar.builtin.customize", defaultValue: "Customize Appearance", bundle: .module) }
     /// An icon's tooltip with its shortcut: "Settings (⌘,)".

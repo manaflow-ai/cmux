@@ -30,12 +30,19 @@ final class SidebarLayoutService {
     @ObservationIgnored private(set) var pending: [(key: String, op: SidebarLayoutOp, inFlight: Bool)] = []
     @ObservationIgnored private var prototype = SidebarLayoutMemoryOwner()
     @ObservationIgnored private let prototypeEnabled: @MainActor () -> Bool
-    @ObservationIgnored private let remote: (any SidebarLayoutRemote)?
+    @ObservationIgnored let remote: (any SidebarLayoutRemote)?
     @ObservationIgnored private let onRefused: @MainActor (String) -> Void
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var legacyObservation: Task<Void, Never>?
+    /// The owner's layout has been read once (migrations plan against it).
+    @ObservationIgnored private var fetched = false
     /// The sections migration went out this session (at most once, so an
     /// owner that refuses it is not asked again on every fetch).
     @ObservationIgnored private var migrationSent = false
+    /// Sessions whose legacy pins went out as tiles this run (`migrateLegacyPins`).
+    @ObservationIgnored var legacyPinsSent: Set<String> = []
+    /// Sessions whose legacy flags were cleared this run (`migrateLegacyPins`).
+    @ObservationIgnored var legacyPinsCleared: Set<String> = []
     /// This Mac added Recents to the layout, or saw it there, once.
     @ObservationIgnored private let recentsOffered: UserDefaults
     static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
@@ -53,6 +60,7 @@ final class SidebarLayoutService {
 
     isolated deinit {
         observation?.cancel()
+        legacyObservation?.cancel()
     }
 
     /// Follows the owner: fetch when it becomes reachable and after each
@@ -67,9 +75,14 @@ final class SidebarLayoutService {
                 self.resendInterrupted()
             }
         }
+        // task-owner: the service (cancelled in deinit); event-driven (Observation).
+        // A session tree that loads, or a legacy pin that changes, re-runs the one-time pin move.
+        legacyObservation = Task { [weak self] in
+            for await _ in Observations({ remote.legacyPins }) { self?.migrateIfNeeded() }
+        }
     }
 
-    private var usesOwner: Bool { remote?.isAvailable ?? false }
+    var usesOwner: Bool { remote?.isAvailable ?? false }
 
     /// Why edits are refused now, or nil when they apply.
     var unavailableReason: String? {
@@ -115,7 +128,7 @@ final class SidebarLayoutService {
                 } else {
                     self.settle(key, confirmed: nil)
                     Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
-                    self.onRefused(String(describing: error))
+                    self.onRefused(RefusalStrings.describe(error))
                 }
             }
         }
@@ -146,6 +159,7 @@ final class SidebarLayoutService {
         // task-owner: one sidebar_layout.get
         Task { [weak self] in
             guard let confirmed = try? await remote.get() else { return }
+            self?.fetched = true
             self?.adopt(confirmed)
             self?.recompute()
             self?.migrateIfNeeded()
@@ -159,8 +173,14 @@ final class SidebarLayoutService {
     /// layout the user changed is never touched. Waits for a quiet log, so
     /// it reads the owner's layout rather than one with the user's edits in
     /// flight.
-    private func migrateIfNeeded() {
-        guard !migrationSent, pending.isEmpty else { return }
+    func migrateIfNeeded() {
+        guard fetched, usesOwner, pending.isEmpty else { return }
+        migrateSections()
+        if pending.isEmpty { migrateLegacyPins() }
+    }
+
+    private func migrateSections() {
+        guard !migrationSent else { return }
         // Recents is added once per Mac: a layout without it after that is one the user removed it from.
         let offered = recentsOffered.bool(forKey: Self.recentsOfferedKey)
         let ops = mirror.layoutMigrationOps(offeringRecents: !offered)

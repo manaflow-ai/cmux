@@ -185,7 +185,7 @@ impl Mux {
                 incarnation.as_deref(),
                 None,
                 None,
-                &WorkspaceMutation::local(IDLE_CLOSE_MUTATION_ORIGIN),
+                &WorkspaceMutation::daemon_local(IDLE_CLOSE_MUTATION_ORIGIN),
             ) {
                 Ok(_) => closed.push(terminal_id),
                 Err(error) => self.report_internal_diagnostic(format!(

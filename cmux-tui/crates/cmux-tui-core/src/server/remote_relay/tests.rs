@@ -222,6 +222,10 @@ fn only_the_section_4_commands_pass_the_gate() {
         "new-conversation-tab",
         "conversation-agent-token",
         "conversation-import",
+        "chief-inspect",
+        "cloud-mux-subscribe",
+        "cloud-mux-unsubscribe",
+        "cloud-mux-ack",
         "conversation-bind",
         "conversation-create",
         // Attachment bytes stay on the trusted local socket (no relay reads yet).

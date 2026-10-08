@@ -24,7 +24,8 @@ struct RemoteRdCoreTests {
     /// A frame body (`u32 au_len, u64 t_capture_us, u32 ref_frame`, access
     /// unit) split into `shardLen`-byte data shards, the last zero-padded.
     static func datagrams(
-        frame: UInt32, keyframe: Bool, accessUnit: [UInt8], tCapture: UInt64, shardLen: Int, firstSeq: UInt16
+        frame: UInt32, keyframe: Bool, accessUnit: [UInt8], tCapture: UInt64, shardLen: Int, firstSeq: UInt16,
+        stream: UInt16 = 0
     ) -> [Data] {
         let ref: UInt32 = keyframe ? UInt32.max : frame - 1
         var body = le(UInt32(accessUnit.count)) + le(tCapture) + le(ref) + accessUnit
@@ -32,7 +33,7 @@ struct RemoteRdCoreTests {
         body += [UInt8](repeating: 0, count: count * shardLen - body.count)
         return (0..<count).map { i in
             let h = header(
-                flags: keyframe ? 0x01 : 0, frame: frame, index: UInt16(i), count: UInt16(count),
+                flags: keyframe ? 0x01 : 0, stream: stream, frame: frame, index: UInt16(i), count: UInt16(count),
                 transportSeq: firstSeq &+ UInt16(i)
             )
             return Data(h + body[(i * shardLen)..<((i + 1) * shardLen)])
@@ -99,6 +100,19 @@ struct RemoteRdCoreTests {
         let request = try #require(try core.feedback(nowMicros: 50_100).first)
         #expect(request[24] == 1)
         #expect(Array(request[20..<24]) == Self.le(UInt32(900)))
+    }
+
+    /// rd change C5: a bulk chunk (stream frame type 3: u64 transfer, u64
+    /// offset, bytes) comes out as a `.bulk` message, not as a datagram.
+    @Test func aBulkChunkOnTheStreamCarrierIsABulkMessage() throws {
+        let core = try #require(RemoteRdCore(carrier: .stream))
+        let chunk = Data(Self.le(UInt64(2)) + Self.le(UInt64(0)) + [UInt8](repeating: 3, count: 100))
+        var frame = Data([3])
+        frame += Data(Self.le(UInt32(chunk.count)))
+        frame += chunk
+        try core.push(streamBytes: frame, nowMicros: 1)
+        #expect(try core.popMessage() == .bulk(chunk))
+        #expect(try core.popMessage() == nil)
     }
 
     @Test func streamCarrierYieldsControlMessagesAndFrames() throws {

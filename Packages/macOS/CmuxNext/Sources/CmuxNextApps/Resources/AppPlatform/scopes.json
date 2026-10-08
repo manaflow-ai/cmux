@@ -649,6 +649,10 @@
       "scope": "inbox:write",
       "class": "mutation"
     },
+    "integration.approval.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
     "integration.complete": {
       "scope": "integration:write",
       "class": "mutation"
@@ -1191,6 +1195,14 @@
     },
     "session.window.title.set": {
       "scope": "session:write",
+      "class": "mutation"
+    },
+    "sidebar_layout.get": {
+      "scope": "sidebar_layout:read",
+      "class": "read"
+    },
+    "sidebar_layout.update": {
+      "scope": "sidebar_layout:write",
       "class": "mutation"
     },
     "sidebar_view.ensure": {

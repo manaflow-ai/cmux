@@ -44,6 +44,8 @@ export function formatString(text: string, args: readonly string[]): string {
 
 export function createStrings(table: StringTable, tags: readonly string[] = navigatorLanguages()): Strings {
   const language = resolveLanguage(tags, Object.keys(table));
+  followDocumentLanguage(Object.keys(table));
+  setDocumentLanguage(language);
   const local = table[language] ?? {};
   const english = table.en ?? {};
   const t = (key: string) => local[key] ?? english[key] ?? key;
@@ -55,6 +57,27 @@ export function createStrings(table: StringTable, tags: readonly string[] = navi
 }
 
 function navigatorLanguages(): readonly string[] {
-  if (typeof navigator === "undefined") return ["en"];
-  return navigator.languages?.length ? navigator.languages : [navigator.language ?? "en"];
+  const nav = globalThis.document?.defaultView?.navigator ?? globalThis.navigator;
+  return nav?.languages?.length ? nav.languages : [nav?.language ?? "en"];
+}
+
+// A document owns one languagechange listener, shared by every string table on the page.
+const documentLanguages = new WeakMap<Document, { available: readonly string[] }>();
+
+/** Updates the page metadata for the locale actually selected by its string catalog. */
+export function setDocumentLanguage(language: string): void {
+  const root = globalThis.document?.documentElement;
+  if (!root) return;
+  root.lang = language;
+  root.dir = /^(ar|fa|he|ur|ps|sd|ug|yi)(-|$)/i.test(language) ? "rtl" : "ltr";
+}
+
+function followDocumentLanguage(available: readonly string[]): void {
+  const doc = globalThis.document;
+  if (!doc?.documentElement || documentLanguages.has(doc)) return;
+  const state = { available };
+  documentLanguages.set(doc, state);
+  doc.defaultView?.addEventListener("languagechange", () => {
+    setDocumentLanguage(resolveLanguage(navigatorLanguages(), state.available));
+  });
 }
