@@ -29,10 +29,12 @@ actor FakeOwner: InstallAuthTransport {
     var failNextChallenge = false
     var prefixOverride: String?
     var grants: [[String]] = []
-    /// `kind`, `platform`, `name` and whether `op_classes` was sent, per register call.
-    var registrations: [[String: String]] = []
+    /// `kind`, `name` and `platform` of every install.register call.
+    var registered: [[String: String]] = []
     /// The backend's default grant for an `ios` install.
     static let iosDefaultGrant = ["read", "mutate-own", "cloud-link"]
+    /// The backend's mac default (user.ts defaultInstallClasses, cx-wb5.64).
+    static let macDefaultGrant = ["read", "mutate-own", "mutate-shared", "cloud-link"]
     /// The backend's ENVIRONMENT (challenge prefix and token issuer).
     var environment = "staging"
     /// When set, tokens name this issuer environment instead.
@@ -95,14 +97,14 @@ actor FakeOwner: InstallAuthTransport {
             let key = body["idempotency_key"] as! String
             if let replay = ledger[key] { return try reply(["ok": true, "value": ["id": replay], "replayed": true]) }
             let params = body["params"] as! [String: Any]
-            registrations.append(["kind": params["kind"] as? String ?? "", "platform": params["platform"] as? String ?? "",
-                                  "name": params["name"] as? String ?? "", "device_name": params["device_name"] as? String ?? "",
-                                  "op_classes": params["op_classes"] == nil ? "default" : "narrowed"])
-            let requested = params["op_classes"] as? [String] ?? Self.iosDefaultGrant
+            let kind = params["kind"] as? String ?? ""
+            registered.append(["kind": kind, "name": params["name"] as? String ?? "", "platform": params["platform"] as? String ?? ""])
+            let allowed = kind == "mac" ? Self.macDefaultGrant : Self.iosDefaultGrant
+            let requested = params["op_classes"] as? [String] ?? allowed
             grants.append(requested)
             // The backend lets a caller narrow its kind's default grant, never widen it
             // (backend/apps/api/src/domains/user.ts defaultInstallClasses + install.register).
-            if requested.contains(where: { !Self.iosDefaultGrant.contains($0) }) {
+            if requested.contains(where: { !allowed.contains($0) }) {
                 return try reply(["ok": false, "error": ["code": "validation.invalid", "message": "op_classes may only narrow the default install grant"]])
             }
             let jwk = params["public_jwk"] as! [String: String]
@@ -157,10 +159,11 @@ final class TestClock: @unchecked Sendable { var now = Date() }
 actor RecordBox { var value: InstallRecord?; func set(_ v: InstallRecord?) { value = v } }
 
 func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRecord? = nil, session: Bool = true,
-                box: RecordBox = RecordBox(), clock: TestClock = TestClock(), clientVersion: String? = "2.4.0") -> InstallAuthClient {
+                box: RecordBox = RecordBox(), clock: TestClock = TestClock(), clientVersion: String? = "2.4.0",
+                profile: InstallProfile = .ios) -> InstallAuthClient {
     InstallAuthClient(transport: owner, signer: signer, sessionToken: session ? { @Sendable in "session-token" } : nil,
                       stackUser: "stack_1", deviceName: "Aziz", clientVersion: clientVersion, record: record,
-                      onRecord: { await box.set($0) }, now: { clock.now })
+                      profile: profile, onRecord: { await box.set($0) }, now: { clock.now })
 }
 
 @Suite struct InstallAuthClientTests {
@@ -273,6 +276,25 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         #expect(await signer.rotations == 1)
     }
 
+    @Test func thePhoneRegistersAsAnIOSInstall() async throws {
+        let owner = FakeOwner()
+        _ = try await makeClient(owner, SoftwareSigner()).installToken()
+        #expect(await owner.registered == [["kind": "ios", "name": "cmux iOS", "platform": "ios"]])
+    }
+
+    /// cx-wb5.64: the Mac app registers kind mac with the phone grant plus
+    /// mutate-shared (never execute), and sign-out revokes it the same way.
+    @Test func theMacRegistersAsAMacInstallWithItsGrantAndSignOutRevokes() async throws {
+        let owner = FakeOwner(), signer = SoftwareSigner()
+        let client = makeClient(owner, signer, profile: .mac)
+        #expect(try await client.installToken() == FakeOwner.expectedToken(1))
+        #expect(await owner.registered == [["kind": "mac", "name": "cmux", "platform": "macos"]])
+        #expect(await owner.grants == [["read", "mutate-own", "mutate-shared", "cloud-link"]])
+        #expect(!InstallProfile.mac.opClasses.contains("execute"))
+        try await client.revoke()
+        #expect(await owner.revoked == ["inst_1"])
+    }
+
     /// Enterprise P17: the owner gates token mint on `x-cmux-client-version`.
     @Test func theTokenRequestCarriesTheClientVersion() async throws {
         let owner = FakeOwner()
@@ -307,25 +329,5 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         #expect(throws: InstallAuthError.invalidPublicKey) { try PublicJWK(x963: Data(count: 64)) }
         #expect(InstallAuthClient.displayName("") == "iPhone")
         #expect(InstallAuthClient.displayName(String(repeating: "📱", count: 60)).utf16.count == 80)
-    }
-}
-
-@Suite struct InstallRegistrationTests {
-    @Test func theIPhoneRegistersANarrowedIOSInstall() async throws {
-        let owner = FakeOwner()
-        _ = try await makeClient(owner, SoftwareSigner()).installToken()
-        #expect(await owner.registrations == [["kind": "ios", "platform": "ios", "name": "cmux iOS", "device_name": "Aziz",
-                                              "op_classes": "narrowed"]])
-    }
-
-    @Test func theMacRegistersAMacInstallWithTheOwnersDefaultGrant() async throws {
-        let owner = FakeOwner()
-        let client = InstallAuthClient(transport: owner, signer: SoftwareSigner(), sessionToken: { @Sendable in "session-token" },
-                                       stackUser: "stack_1", deviceName: "", clientVersion: "1.0", record: nil,
-                                       registration: .macOS)
-        #expect(try await client.installToken() == FakeOwner.expectedToken(1))
-        #expect(await owner.registrations == [["kind": "mac", "platform": "macos", "name": "cmux", "device_name": "Mac",
-                                              "op_classes": "default"]])
-        #expect(await client.environment == "staging")
     }
 }

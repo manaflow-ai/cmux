@@ -62,6 +62,8 @@ export interface Env {
   readonly FREESTYLE_API_URL?: string
   /** Var: the snapshot team VMs boot from (lane 1's image with the team role). */
   readonly TEAM_VM_SNAPSHOT?: string
+  /** Var: "1" turns on the team VM bind (vm-image.md 6b; development and staging until the backend lead's review). */
+  readonly TEAM_VM_BIND_ENABLED?: string
   /** Var: provider slug prefix of NEW team VMs; staging must start with `cmuxnp-stg-`, other non-production envs with `cmuxnp-dev-` (FREESTYLE-NAMES). */
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */

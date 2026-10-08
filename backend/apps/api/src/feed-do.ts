@@ -1,6 +1,7 @@
 import type { EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
+import { approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { feedBadge } from "./domains/feed-notify.ts"
@@ -85,6 +86,50 @@ export class FeedDO extends OwnerDO<FeedState> {
   protected override systemPrincipal(entity: string, source: string): Principal {
     const base = super.systemPrincipal(entity, source)
     return source === `user:${entity}` ? { ...base, user: entity } : base
+  }
+
+  /**
+   * G8: a team's ConnectionDO (or CloudDO, `source` cloud) posts an approve request for an op that
+   * waits for this user's decision. Server code only (DO RPC); the principal is
+   * `system:<source>:<team>` with this feed's user, the item's poster kind is integration, and the
+   * person's answer goes back to that owner through the outbox (feed-approvals.ts). Idempotent by `key`.
+   */
+  async integrationApproval(entity: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource = "connections"): Promise<{ ok: true; item: string } | { ok: false; message: string }> {
+    if (source !== "connections" && source !== "cloud") return { ok: false, message: "unknown approval source" }
+    const principal: Principal = { identity: `system:${source}:${team}`, kind: "system", user: entity }
+    const cloud = source === "cloud"
+    const params = { type: "request", kind: "approve", title: cloud ? "Approve a Cloud change from your device" : "Approve an action by an agent", prompt, priority: "high", expires_in_ms: expiresInMs, poster: { kind: "integration", label: cloud ? "Cloud" : "Integrations" } }
+    const res = await this.submit(entity, principal, { t: "op", op: "feed.post", params, idempotency_key: key, origin: "script" })
+    const result = res.frames.find((f) => f.t === "result")
+    if (result && result.t === "result") return { ok: true, item: (result.value as { item: { id: string } }).item.id }
+    const rej = res.frames.find((f) => f.t === "reject")
+    return { ok: false, message: rej && rej.t === "reject" ? rej.message : "the feed did not take the request" }
+  }
+
+  /** The team of the integration approve item `item` (same poster-scope check), or null (cx-3bi.16.12). */
+  async integrationItemTeam(entity: string, item: string): Promise<string | null> {
+    if (!this.isBound(entity)) return null
+    const found = this.bind(entity).currentState.items[item]
+    return found ? (approvalOf(found)?.team ?? null) : null
+  }
+
+  /**
+   * G8: the team whose ConnectionDO posted this user's approve request for `request` (the item's
+   * poster scope must name it, feed-approvals.ts), or null. The Worker routes
+   * integration.approval.get there after TeamDO confirms membership. Never binds a feed it does not serve.
+   */
+  async integrationApprovalTeam(entity: string, request: string): Promise<string | null> {
+    return (await this.approvalPosterOf(entity, request))?.team ?? null
+  }
+
+  /** The team and posting owner (ConnectionDO or CloudDO) of this user's approve request for `request`, or null. */
+  async approvalPosterOf(entity: string, request: string): Promise<{ team: string; source: ApprovalSource } | null> {
+    if (!this.isBound(entity)) return null
+    for (const item of Object.values(this.bind(entity).currentState.items)) {
+      const a = approvalOf(item)
+      if (a?.request === request) return { team: a.team, source: a.source }
+    }
+    return null
   }
 
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */

@@ -122,7 +122,7 @@ const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: st
 /** Is `install` still this team's server for `host`, with no revocation pending? TeamDO decides before UserDO hears of a revoke. */
 export const serverPlacementActive = (state: TeamState, rows: RowReader | undefined, host: string, install: string): boolean => {
   const h = hostOf(state, rows, host)
-  return h?.kind === "server" && h.enrolled_by === install && !state.server_revocations?.[install]
+  return h?.kind === "server" && h.enrolled_by === install && !h.orphaned && !state.server_revocations?.[install]
 }
 
 /** A HostDO control socket's role (b1-control-do.md 2), resolved from this team's directory. */

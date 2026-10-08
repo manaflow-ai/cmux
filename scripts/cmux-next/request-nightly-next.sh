@@ -56,7 +56,11 @@ required_job="cmux-next Release compile (Xcode 26)"
 # A commit whose nightly.yml lacks the NIGHTLY_NEXT_NOTARY_PAUSED gate would
 # notarize even while the pause is on (cx-f58x), so it is never promoted.
 has_notary_gate() { # <sha>
-  git show "$1:.github/workflows/nightly.yml" 2>/dev/null | grep -q NIGHTLY_NEXT_NOTARY_PAUSED
+  # Read the whole file first: `git show | grep -q` fails under pipefail when
+  # grep stops at an early match and git show gets SIGPIPE.
+  local workflow
+  workflow="$(git show "$1:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  [[ "$workflow" == *NIGHTLY_NEXT_NOTARY_PAUSED* ]]
 }
 
 request() { # <sha>
@@ -84,16 +88,20 @@ if [[ "$mode" == release-compile-green ]]; then
   exit 0
 fi
 
-# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit has
-# this tree key. Runs are newest first; promotion only moves forward.
+# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit
+# descends from <sha> and has this tree key. Runs are newest first; promotion
+# only moves forward. One fetch of the branch's recent history covers every
+# candidate (a fetch per commit took over 5 minutes in run 37820762809); a
+# commit it does not reach is older than <sha> or off the branch.
+git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
+  || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
 runs="$(gh api --paginate --slurp \
   "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
 while read -r run_id run_sha; do
   [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
-    git cat-file -e "$run_sha^{commit}" 2>/dev/null \
-      || git fetch -q --no-tags --depth=1 origin "$run_sha" 2>/dev/null \
-      || { echo "skipping ${run_sha:0:12}: could not fetch it" >&2; continue; }
+    git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
+    git merge-base --is-ancestor "$sha" "$run_sha" 2>/dev/null || continue
     run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)" || continue
     [[ "$run_key" == "$key" ]] || continue
   fi

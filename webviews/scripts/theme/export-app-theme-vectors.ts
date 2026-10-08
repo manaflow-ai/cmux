@@ -27,7 +27,6 @@ export function vectors(): string {
       name: theme.name,
       input: { background: theme.background, foreground: theme.foreground, palette: theme.palette },
       isDark: app.isDark,
-      accentSource: app.accentSource,
       tokens: app.tokens,
     };
   });

@@ -52,7 +52,7 @@
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": [], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
-    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId"], "acpmux": []},
+    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},
     "_acpmux/handoff_draft": {"params": ["handoffId", "revision", "draftKey", "capsule", "checkpoint"], "acpmux": []},

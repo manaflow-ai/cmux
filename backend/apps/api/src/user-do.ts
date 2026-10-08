@@ -1,12 +1,13 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
-import type { PushTarget } from "@cmux/protocol"
+import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
-import type { InstallClaims } from "./auth.ts"
+import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
@@ -15,12 +16,6 @@ import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } 
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
-import { sshDomain, type SshState } from "./domains/user-ssh.ts"
-import { notifyTargetsOf, type NotifyTargets } from "./domains/user-notify.ts"
-import { trustDomain, type TrustState } from "./domains/user-trust.ts"
-import { issueChallenge, redeemChallenge } from "./user-challenge.ts"
-import { crossUserTrust, pairingHosts, TRUST_SOCKET_OPS, TrustOps } from "./user-trust-ops.ts"
-const earliestOf = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b))
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
@@ -42,11 +37,6 @@ export class UserDO extends OwnerDO<UserState> {
   protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
-  /** Third stream `ssh:<user>` (b1-control-do.md 8): synced SSH host records, never a secret. */
-  private readonly ssh: SecondaryStream<SshState>
-  /** Fourth stream `trust:<user>` (b6-pairing.md): link key certs, guests, requests, remote hosts; written by `trustOps`. */
-  private readonly trust: SecondaryStream<TrustState>
-  private readonly trustOps: TrustOps
   /** Home push queue (home-push.ts): one row per conversation, the dedupe for redelivered and coalesced bumps. */
   private readonly homePush: HomePushQueue
 
@@ -66,19 +56,8 @@ export class UserDO extends OwnerDO<UserState> {
       // The list order index is derived owner data: its writes never reach subscribers.
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
-      maySubscribe: (_head, principal, entity) => this.ownStream(principal, entity)
+      maySubscribe: (_head, principal, entity) => principal.user === entity && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
     }, (ws, a) => this.socketLive(ws, a))
-    this.ssh = new SecondaryStream(ctx, this.sqlStore, { prefix: "ssh", tablePrefix: "ssh_", domain: sshDomain, owns: (op) => op.startsWith("ssh."), maySubscribe: (_s, p, entity) => this.ownStream(p, entity) }, (ws, a) => this.socketLive(ws, a))
-    this.trust = new SecondaryStream(ctx, this.sqlStore, { prefix: "trust", tablePrefix: "trust_", domain: trustDomain, owns: (op) => op.startsWith("trust."), maySubscribe: (_s, p, entity) => this.ownStream(p, entity) }, (ws, a) => this.socketLive(ws, a))
-    this.trustOps = new TrustOps({ env, trust: this.trust, scheduleAlarm: () => this.scheduleAlarm(), user: () => {
-      const e = this.existing()
-      return e ? { entity: e.stream.slice("user:".length), state: e.currentState } : undefined
-    } })
-  }
-
-  /** Inbox and ssh streams: the user only, never through a VM install. */
-  private ownStream(principal: Principal, entity: string): boolean {
-    return principal.user === entity && principal.install_kind !== "vm" && !(principal.install !== undefined && this.existing()?.currentState.installs[principal.install]?.kind === "vm")
   }
 
   /** The inbox engine of the bound user, opened on first use (also after hibernation). */
@@ -102,12 +81,10 @@ export class UserDO extends OwnerDO<UserState> {
       } catch {}
       return true
     }
-    // Pairing ops with async checks (signatures, TeamDO, PairingDO, the other account) reply when done.
-    if (frame.t === "op" && typeof frame.op === "string" && TRUST_SOCKET_OPS.has(frame.op)) { void this.trustOps.handle(ws, a.principal, frame); return true }
-    const stream = [this.inbox, this.ssh, this.trust].find((x) => x.handles(frame))
-    const engine = stream ? this.existing() : undefined
-    if (!stream || !engine) return false
-    stream.onFrame(ws, a, engine.stream.slice("user:".length), frame)
+    if (!this.inbox.handles(frame)) return false
+    const engine = this.existing()
+    if (!engine) return false
+    this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
     this.scheduleAlarm()
     return true
   }
@@ -125,9 +102,8 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected override nextWakeAt(): number | null {
-    const entity = this.boundInbox() ? this.existing()!.stream.slice("user:".length) : undefined
-    if (entity) for (const s of [this.ssh, this.trust]) s.open(entity)
-    const inbox = earliestOf(earliestOf(this.inbox.nextWakeAt(), this.ssh.nextWakeAt()), this.trust.nextWakeAt())
+    this.boundInbox()
+    const inbox = this.inbox.nextWakeAt()
     const pending = krlDueAt(this.boundEngine?.currentState, this.krlRetry, Date.now())
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
     const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
@@ -205,7 +181,6 @@ export class UserDO extends OwnerDO<UserState> {
   protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
     super.afterOp(principal, op, frames, params)
     this.closeRevoked(op, frames)
-    this.trustOps.afterInstallOp(op, frames, (work) => this.ctx.waitUntil(work)) // b6-pairing.md 5: a revoked install leaves trust: now
     const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
     if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
   }
@@ -228,12 +203,12 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   private async deliverKrlNotices(now: number): Promise<void> {
-    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at) => this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${at}`))
+    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at, teams) => this.submitSystem("install.ssh_revoke_done", { install, teams }, `ssh-revoke-done:${install}:${at}:${[...teams].sort().join(",")}`))
   }
 
   protected override onPrune(): void {
-    if (this.boundInbox()) for (const s of [this.ssh, this.trust]) s.open(this.existing()!.stream.slice("user:".length))
-    for (const s of [this.inbox, this.ssh, this.trust]) s.prune(Date.now())
+    this.boundInbox()
+    this.inbox.prune(Date.now())
   }
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
@@ -360,7 +335,6 @@ export class UserDO extends OwnerDO<UserState> {
       const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
       return refused ? { ok: false, ...refused } : { ok: true, value: confirmView(state), revision: "" }
     }
-    if (op === "pairing.hosts") return { ok: true, value: pairingHosts(state.user ? this.trust.open(state.user.id).currentState : undefined), revision: "" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }
@@ -401,14 +375,13 @@ export class UserDO extends OwnerDO<UserState> {
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }
-    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
-    const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
-    if (!revoked) return
-    this.closeSockets((p) => p.install === revoked, "install revoked")
-    // Every other owner with a socket of this install closes it now; failures retry from the alarm.
-    if (markInstallClosing(this.ctx.storage.sql, revoked, Date.now()) > 0) {
-      this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
-    }
+    if (op !== "install.revoke" && op !== "install.revoke_by_team" && op !== "user.team_left") return
+    const v = result && result.t === "result" ? (result.value as { id?: string; revoked?: Array<string>; sso_dropped?: Array<string> }) : undefined
+    // One install, or every install bound to a team the user left (cx-44j.47), and the ones that lost its SSO: their sockets
+    // carry the old principal, so they close and reconnect through the gate. Other owners' sockets close too; failures retry.
+    let marked = 0
+    for (const revoked of [...(v?.revoked ?? (v?.id ? [v.id] : [])), ...(v?.sso_dropped ?? [])]) [this.closeSockets((p) => p.install === revoked, "install revoked"), (marked += markInstallClosing(this.ctx.storage.sql, revoked, Date.now()))]
+    if (marked > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
   }
 
   /**
@@ -424,14 +397,22 @@ export class UserDO extends OwnerDO<UserState> {
     return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
   }
 
-  /** RPC from another UserDO's pairing handlers (user-trust-ops.ts): one cross-account trust write. */
-  async crossUserTrust(entity: string, op: string, params: unknown, key: string, from: string): Promise<SubmitResult> { return crossUserTrust(this.trustOps.host, entity, op, params, key, from) }
-
   /** Home attachment quota (home-attachment-quota.ts): every upload slot is charged; refunds and stored bytes by key. */
-  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> { return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN }
-  async refundAttachmentQuota(entity: string, key: string): Promise<void> { if (this.attachmentSql(entity)) quota.refund(this.ctx.storage.sql, key) }
-  async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> { if (this.attachmentSql(entity)) quota.recordStored(this.ctx.storage.sql, objectKey, bytes) }
-  async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> { if (this.attachmentSql(entity)) quota.releaseStored(this.ctx.storage.sql, objectKey) }
+  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> {
+    return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN
+  }
+
+  async refundAttachmentQuota(entity: string, key: string): Promise<void> {
+    if (this.attachmentSql(entity)) quota.refund(this.ctx.storage.sql, key)
+  }
+
+  async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> {
+    if (this.attachmentSql(entity)) quota.recordStored(this.ctx.storage.sql, objectKey, bytes)
+  }
+
+  async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> {
+    if (this.attachmentSql(entity)) quota.releaseStored(this.ctx.storage.sql, objectKey)
+  }
 
   /** Attachment counter tables of a bound user; false (no write) for an id this object never served. */
   private attachmentSql(entity: string): boolean {
@@ -448,9 +429,12 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** For FeedDO and Home push: the user's push targets whose install is still active (feed.md 7.3). */
-  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> { return (await this.notifyTargets(entity)).push }
-  /** For FeedDO (c7-notify.md): push targets with each install's preferences, and live Activity registrations. */
-  async notifyTargets(entity: string): Promise<NotifyTargets> { const e = this.existing(); return notifyTargetsOf(e && e.stream === `user:${entity}` ? e.currentState : undefined, Date.now()) }
+  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return []
+    const state = engine.currentState
+    return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
+  }
 
   /** For FeedDO and Home push: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
   async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
@@ -461,7 +445,7 @@ export class UserDO extends OwnerDO<UserState> {
 
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
@@ -470,18 +454,46 @@ export class UserDO extends OwnerDO<UserState> {
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
-    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}) }
+    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
   async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
     const engine = this.existing()
-    return issueChallenge(this.ctx.storage.sql, engine && engine.stream === `user:${entity}` ? engine.currentState : undefined, install, CHALLENGE_TTL_MS)
+    // One answer for every refusal, so the endpoint does not reveal which users or installs exist.
+    if (!engine || engine.stream !== `user:${entity}`) return { ok: false, message: "challenge refused" }
+    const inst = engine.currentState.installs[install]
+    if (!inst || inst.revoked_at !== null) return { ok: false, message: "challenge refused" }
+    const now = Date.now()
+    const nonce = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")
+    const sql = this.ctx.storage.sql
+    sql.exec(`DELETE FROM auth_challenges WHERE expires_at < ?`, now)
+    sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
+    return { ok: true, nonce, expires_at: now + CHALLENGE_TTL_MS }
   }
 
-  /** One-time challenge + ES256 signature by the install key + revocation check (user-challenge.ts). */
+  /** One-time challenge + ES256 signature by the install key + revocation check. */
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
-    return redeemChallenge(this.env, this.ctx.storage.sql, () => engine.currentState, install, nonce, signature, agent)
+    const sql = this.ctx.storage.sql
+    const row = sql.exec<{ install: string; expires_at: number }>(`SELECT install, expires_at FROM auth_challenges WHERE nonce = ?`, nonce).toArray()[0]
+    // Consume first: a nonce is single use even when the signature fails.
+    sql.exec(`DELETE FROM auth_challenges WHERE nonce = ?`, nonce)
+    if (!row || row.install !== install || row.expires_at < Date.now()) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
+    const state = engine.currentState
+    const inst = state.installs[install]
+    if (!inst || inst.revoked_at !== null || !state.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
+    const grant = state.grants[inst.grant]
+    if (!grant || grant.revoked_at !== null) return { ok: false, code: "auth.forbidden", message: "grant revoked" }
+    const ok = await verifyInstallSignature(inst.public_jwk, `${challengeMessagePrefix(this.env.ENVIRONMENT, install)}${nonce}`, signature)
+    if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
+    // Re-read after the await: a revoke may have committed during the verify.
+    const now = engine.currentState
+    const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
+    if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
+    // A chief token only for an unarchived chief of this user.
+    if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(inst.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
+    const emailDomain = emailDomainOf(now.user.email)
+    return { ok: true, user: now.user.id, team: isMachineInstallKind(inst.kind) && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}), ...(inst.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
