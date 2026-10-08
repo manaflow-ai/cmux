@@ -48,4 +48,25 @@ describe("changes options menu keyboard contract", () => {
     expect(document.querySelector("[role=menu]")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
+
+  test("restores trigger focus after an asynchronous copy action", async () => {
+    let finish!: () => void;
+    const root = await render(
+      <UiProvider container={document.body}>
+        <OptionsMenu
+          rows={[{ label: "Copy git apply command", run: () => new Promise<void>((resolve) => (finish = resolve)) }]}
+        />
+      </UiProvider>,
+    );
+    const trigger = root.querySelector<HTMLButtonElement>("button.acpmux-diff-tool")!;
+    await act(async () => trigger.click());
+    await settle();
+    await act(async () => document.querySelector<HTMLElement>("[role=menuitem]")!.click());
+    const field = document.createElement("input");
+    root.append(field);
+    await act(async () => field.focus());
+    await act(async () => finish());
+    await settle();
+    expect(document.activeElement).toBe(trigger);
+  });
 });

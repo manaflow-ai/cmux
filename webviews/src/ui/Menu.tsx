@@ -1,6 +1,6 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import { createContext, use, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { createContext, use, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -112,6 +112,7 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
 }
 
 export interface MenuButtonProps {
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   className?: string;
   /** The accessible name when the button shows only an icon. */
   label?: string;
@@ -122,6 +123,7 @@ export interface MenuButtonProps {
 }
 
 export function MenuButton({
+  buttonRef,
   className,
   label,
   disabled,
@@ -132,6 +134,7 @@ export function MenuButton({
   const context = use(MenuContext);
   return (
     <BaseMenu.Trigger
+      ref={buttonRef}
       className={cx("ui-button", className)}
       aria-label={label}
       aria-labelledby={ariaLabelledBy}
@@ -163,6 +166,7 @@ export function MenuButton({
 }
 
 export interface MenuPopupProps {
+  finalFocus?: boolean | RefObject<HTMLElement | null>;
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
@@ -170,12 +174,14 @@ export interface MenuPopupProps {
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", children }: MenuPopupProps) {
+export function MenuPopup({ className, side = "bottom", align = "start", finalFocus, children }: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
-        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
+        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
+          {children}
+        </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );

@@ -13,6 +13,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-scope-list{left:0;right:auto;min-width:200px}
 .acpmux-scope-list .acpmux-file-menu-item{justify-content:space-between;gap:12px}
 .acpmux-scope-separator{height:1px;margin:4px 8px;border:0;background:var(--agent-border)}
+.acpmux-file-menu-list>.ui-separator{display:block;height:1px;margin:4px 8px;border:0;background:var(--agent-border)}
 /* A git scope while it loads, when it fails, and when it is empty: centered in the diffs. */
 .acpmux-changes-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:240px;height:100%;padding:24px;box-sizing:border-box;text-align:center;color:var(--agent-text)}
 .acpmux-changes-state strong{font-size:15px;font-weight:500}
