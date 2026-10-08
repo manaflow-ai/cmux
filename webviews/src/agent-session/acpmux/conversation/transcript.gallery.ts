@@ -309,6 +309,17 @@ export default agentPaneEntry({
         summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
+    "turn-error-long": {
+      note: "A turn that failed with a long gateway error: the note wraps and the row grows.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.5, {
+          status: "failed",
+          error:
+            "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2945s). This is a server-side issue, usually temporary. Try again in a moment. If it persists, check your inference gateway (100.89.225.106:31415).",
+        }),
+      ]),
+    },
     "refused-retry": {
       note: "A prompt the host refused: why, and Retry.",
       snapshot: chat([
