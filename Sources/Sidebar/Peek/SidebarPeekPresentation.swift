@@ -6,9 +6,9 @@ import SwiftUI
 /// as a floating card, without rebuilding it.
 ///
 /// The whole point is that the two modes share one mounted subtree. cmux keeps
-/// the AppKit workspace table alive, parked off the leading edge, while the
-/// sidebar is hidden (see `retainsDefaultAppKitSidebarWhenHidden` in
-/// `ContentView`), so revealing it is a move, never a cold start. Peek rides
+/// the AppKit workspace table alive and drawn while the sidebar is hidden
+/// (see `retainsDefaultAppKitSidebarWhenHidden` in `ContentView` and
+/// `SidebarDockedPaneHost`), so revealing it is a move, never a cold start. Peek rides
 /// on that: the reveal has no table to build, which is what lets it be
 /// instant instead of merely fast.
 struct SidebarPeekPresentation: ViewModifier {
@@ -23,15 +23,11 @@ struct SidebarPeekPresentation: ViewModifier {
     let rendersAsCard: Bool
     /// The sidebar's resolved width.
     let width: CGFloat
-    /// Whether a dismissal should skip the exit slide. True when the card
-    /// is being superseded by the docked pane: the fixed sidebar replaces it
-    /// in place, and a card gliding off underneath reads as a ghost.
-    var dismissesInstantly: Bool = false
     /// The card's legibility tint (alpha included), resolved from the same
     /// appearance policy that paints the docked ground.
     var panelTint: Color = Color(nsColor: .windowBackgroundColor).opacity(0.52)
-    /// The card's glass material, matching the docked ground's. Nil when the
-    /// card's window is blurred by the compositor instead.
+    /// The card's glass material, matching the docked ground's. Nil draws
+    /// tint only.
     var panelGlassMaterial: NSVisualEffectView.Material? = .popover
     /// The material's alpha, matching the docked ground's frost thickness so
     /// the floating card is exactly as see-through as the docked pane.
@@ -40,15 +36,6 @@ struct SidebarPeekPresentation: ViewModifier {
     let panelMetrics: SidebarPeekPanelMetrics
     /// Acquires and releases the pointer hold as the pointer crosses the panel.
     let onPanelHoverChange: (Bool) -> Void
-    /// False until the card first appears. The panel is mounted lazily, so
-    /// it can arrive already revealed (switching to floating); gating on
-    /// this keeps that first reveal a slide instead of a pop.
-    @State private var cardHasAppeared = false
-
-    private var showsCard: Bool {
-        isRevealed && cardHasAppeared
-    }
-
     /// Outer width including the card's leading inset, so floating and docked
     /// place the list's leading edge identically.
     private var floatingWidth: CGFloat {
@@ -66,24 +53,12 @@ struct SidebarPeekPresentation: ViewModifier {
                 content.frame(width: width, alignment: .leading)
             }
             .frame(width: floatingWidth, alignment: .leading)
-            // Slide from just behind the window edge rather than from zero
-            // width. Animating the frame would re-lay-out every row on every
-            // frame of the reveal; translating a laid-out subtree does not.
-            .offset(x: showsCard ? 0 : -floatingWidth)
-            .opacity(showsCard ? 1 : 0)
-            .allowsHitTesting(showsCard)
-            .accessibilityHidden(!showsCard)
+            // Laid out where it rests. The panel host slides the whole card,
+            // glass included, on the render server (see
+            // SidebarPeekPanelWindowController), so the blur cannot trail it.
+            .allowsHitTesting(isRevealed)
+            .accessibilityHidden(!isRevealed)
             .onHover(perform: onPanelHoverChange)
-            .onAppear { cardHasAppeared = true }
-            // The exit is its own curve: a reveal wants a touch of arrival
-            // settle, but a dismissal should read as the panel leaving the
-            // screen, fast and without ceremony.
-            .animation(
-                showsCard
-                    ? SidebarPeekMotion.reveal
-                    : (dismissesInstantly ? nil : SidebarPeekMotion.dismiss),
-                value: showsCard
-            )
         } else {
             // The pane keeps its full width and its slot whether shown or
             // hidden: its host parks it by drawing only (see
@@ -99,17 +74,6 @@ struct SidebarPeekPresentation: ViewModifier {
 
 /// The motion curves the peek panel uses.
 enum SidebarPeekMotion {
-    /// Reveal and dismissal.
-    ///
-    /// A spring rather than an ease so an interrupted reveal (pointer leaves
-    /// mid-animation) retargets from wherever the panel currently is instead of
-    /// snapping. `bounce` is zero: this is a panel arriving, not a toy.
-    static let reveal = Animation.spring(response: 0.21, dampingFraction: 0.9)
-
-    /// Dismissal: faster than the reveal and fully damped, so the panel
-    /// slides off the edge rather than lingering or bouncing on its way out.
-    static let dismiss = Animation.spring(response: 0.2, dampingFraction: 1.0)
-
     /// Switching between docked and floating.
     ///
     /// Slower than the reveal because the terminal reflows with it, and a fast

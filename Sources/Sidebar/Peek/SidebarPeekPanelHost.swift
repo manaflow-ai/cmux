@@ -50,18 +50,12 @@ final class SidebarPeekPanelWindowController {
     private var lastMetrics: SidebarPeekPanelMetrics = .default
     /// Whether the previous update had the card revealed. Content pushes are
     /// skipped while hidden (repainting an invisible panel on every
-    /// ContentView update is pure cost); the one push after reveal flips to
-    /// false still lands so the exit animation runs.
+    /// ContentView update is pure cost).
     private var lastRevealed = false
     private var hasPushedContent = false
-    /// Compositor blur radius last pushed to the panel window, so the CGS
-    /// call only fires when the value (or the panel) changes.
-    private var appliedBlurRadius: Int?
-    /// Pending blur removal after the card hides; see `syncCompositorBlur`.
-    private var blurResetTask: Task<Void, Never>?
-    /// Clock for the blur-removal delay (injected-clock bounded-delay
-    /// policy, same as the drop fallback in the reorder controller).
-    private let blurResetClock: any Clock<Duration>
+    /// Bumped per slide, so a replaced slide's completion does nothing.
+    private var slideGeneration = 0
+    private static let slideKey = "cmux.peekCardSlide"
     /// Told when an editor inside the card takes or gives up the keyboard;
     /// see `SidebarPeekPanelWindow`.
     var onKeyboardFocusChange: ((Bool) -> Void)?
@@ -92,10 +86,6 @@ final class SidebarPeekPanelWindowController {
         WindowChromeMetrics.appTitlebarHeight + 2
     }
 
-    init(blurResetClock: any Clock<Duration> = ContinuousClock()) {
-        self.blurResetClock = blurResetClock
-    }
-
     deinit {
         // Thread-safe by NotificationCenter contract; the panel itself is
         // torn down by orderOut in detach or by the parent window closing.
@@ -109,7 +99,6 @@ final class SidebarPeekPanelWindowController {
         contentWidth: CGFloat,
         metrics: SidebarPeekPanelMetrics,
         acceptsMouse: Bool,
-        glassBlurRadius: Int?,
         content: AnyView
     ) {
         guard let parent, parent.isVisible else {
@@ -120,9 +109,8 @@ final class SidebarPeekPanelWindowController {
         lastMetrics = metrics
         ensurePanel(parent: parent)
         guard let panel, let hostingView else { return }
-        syncCompositorBlur(glassBlurRadius, revealed: acceptsMouse, panel: panel)
-        // Push content only while the card shows (or on the hide transition,
-        // which the slide-out animation needs). Pushing on every ContentView
+        // Push content only while the card shows (or on the hide transition).
+        // Pushing on every ContentView
         // update while hidden re-diffed the whole sidebar subtree during
         // workspace-switch churn, which is where the click-to-switch lag in
         // floating mode came from.
@@ -143,6 +131,9 @@ final class SidebarPeekPanelWindowController {
             }
             hasPushedContent = true
         }
+        if acceptsMouse != lastRevealed {
+            slideCard(revealed: acceptsMouse)
+        }
         lastRevealed = acceptsMouse
         // When the card is not revealed the panel must be transparent to the
         // pointer, or it would swallow the very edge hovers that arm the
@@ -159,44 +150,51 @@ final class SidebarPeekPanelWindowController {
         layoutPanel()
     }
 
-    /// Mirrors the docked ground's compositor blur onto the card's own window,
-    /// but only while the card is showing. The panel stays attached over the
-    /// leading column even when hidden, and a transparent window with a blur
-    /// radius blurs everything beneath it: with the card away that would be
-    /// the docked sidebar's own rows. Removal waits for the exit slide so the
-    /// card does not go clear mid-flight.
-    private func syncCompositorBlur(_ radius: Int?, revealed: Bool, panel: NSWindow) {
-        if radius == nil {
-            // No blur wanted at all (docked, or glass off): drop it now rather
-            // than after the exit delay, or the docked rows underneath start
-            // out blurred.
-            blurResetTask?.cancel()
-            blurResetTask = nil
-            applyCompositorBlur(nil, to: panel)
-        } else if revealed {
-            blurResetTask?.cancel()
-            blurResetTask = nil
-            applyCompositorBlur(radius, to: panel)
-        } else if appliedBlurRadius != nil, blurResetTask == nil {
-            // Cancellable: a re-reveal, a docked switch and detach all
-            // cancel it before it can strip the blur off a showing card.
-            blurResetTask = Task { @MainActor [weak self, blurResetClock] in
-                try? await blurResetClock.sleep(for: .milliseconds(320))
-                guard let self, !Task.isCancelled, let panel = self.panel else { return }
-                self.blurResetTask = nil
-                self.applyCompositorBlur(nil, to: panel)
+    /// Slides the whole card, its glass included, on the render server: one
+    /// spring on the hosting view's layer, model at identity so hit testing
+    /// and hover tracking stay where the card rests. A blur owned by the
+    /// moving layer cannot trail it, and a busy main thread cannot stall it.
+    /// A slide that interrupts another starts from the presented offset.
+    private func slideCard(revealed: Bool) {
+        guard let panel, let hostingView, let layer = hostingView.layer else { return }
+        let travel = panel.frame.width
+        var from: CGFloat = revealed ? -travel : 0
+        if layer.animation(forKey: Self.slideKey) != nil,
+           let presented = layer.presentation()?.value(forKeyPath: "transform.translation.x") as? NSNumber {
+            from = CGFloat(presented.doubleValue)
+        } else if !revealed, hostingView.isHidden {
+            return
+        }
+        slideGeneration &+= 1
+        let generation = slideGeneration
+        hostingView.isHidden = false
+        let animation = revealed
+            ? CASpringAnimation(perceptualDuration: 0.21, bounce: 0.1)
+            : CASpringAnimation(perceptualDuration: 0.2, bounce: 0)
+        animation.keyPath = "transform.translation.x"
+        animation.fromValue = from
+        animation.toValue = revealed ? 0 : -travel
+        animation.duration = animation.settlingDuration
+        animation.fillMode = .both
+        animation.isRemovedOnCompletion = false
+#if DEBUG
+        let probe = revealed
+            ? SidebarToggleSlideProbe.beginPeek(window: panel, since: SidebarPeekController.debugLastHoverUptime)
+            : nil
+#endif
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self, weak layer] in
+            MainActor.assumeIsolated {
+#if DEBUG
+                probe?.didLand(cpu: 0)
+#endif
+                guard let self, self.slideGeneration == generation else { return }
+                layer?.removeAnimation(forKey: Self.slideKey)
+                if !revealed { self.hostingView?.isHidden = true }
             }
         }
-    }
-
-    private func applyCompositorBlur(_ radius: Int?, to panel: NSWindow) {
-        guard radius != appliedBlurRadius else { return }
-        guard panel.windowNumber > 0 else { return }
-        WindowBackgroundComposition.blurController.setBackgroundBlur(
-            windowNumber: panel.windowNumber,
-            radius: radius ?? 0
-        )
-        appliedBlurRadius = radius
+        layer.add(animation, forKey: Self.slideKey)
+        CATransaction.commit()
     }
 
     private func ensurePanel(parent: NSWindow) {
@@ -207,6 +205,14 @@ final class SidebarPeekPanelWindowController {
 
         let hosting = SidebarPeekPanelHostingView(rootView: AnyView(EmptyView()))
         hosting.autoresizingMask = [.width, .height]
+        hosting.wantsLayer = true
+        // Starts hidden: the first reveal slides in instead of popping.
+        hosting.isHidden = true
+        // The card slides inside a still container (see `slideCard`).
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        container.wantsLayer = true
+        hosting.frame = container.bounds
+        container.addSubview(hosting)
 
         let panel = SidebarPeekPanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
@@ -222,7 +228,7 @@ final class SidebarPeekPanelWindowController {
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
         panel.collectionBehavior = [.fullScreenAuxiliary]
-        panel.contentView = hosting
+        panel.contentView = container
         panel.ignoresMouseEvents = true
         panel.onKeyboardFocusChange = { [weak self] hasFocus in
             self?.onKeyboardFocusChange?(hasFocus)
@@ -328,9 +334,7 @@ final class SidebarPeekPanelWindowController {
         hasPushedContent = false
         lastRevealed = false
         pendingCoalescedContent = nil
-        appliedBlurRadius = nil
-        blurResetTask?.cancel()
-        blurResetTask = nil
+        slideGeneration &+= 1
     }
 }
 
@@ -386,9 +390,6 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
     let contentWidth: CGFloat
     let metrics: SidebarPeekPanelMetrics
     let acceptsMouse: Bool
-    /// Compositor blur for the card's window; nil when the card blurs
-    /// through its own material instead.
-    let glassBlurRadius: Int?
     /// Told when an editor in the card (rename, checklist) takes or gives
     /// up the keyboard, so the owner can hold the peek open meanwhile.
     let onKeyboardFocusChange: (Bool) -> Void
@@ -427,7 +428,6 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
         let contentWidth = contentWidth
         let metrics = metrics
         let acceptsMouse = acceptsMouse
-        let glassBlurRadius = glassBlurRadius
         let content = content
         let push: @MainActor () -> Void = { [weak view] in
             controller.update(
@@ -435,7 +435,6 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
                 contentWidth: contentWidth,
                 metrics: metrics,
                 acceptsMouse: acceptsMouse,
-                glassBlurRadius: glassBlurRadius,
                 content: content
             )
         }

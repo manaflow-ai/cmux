@@ -34,9 +34,49 @@ final class SidebarPeekController: ObservableObject {
             objectWillChange.send()
         }
         machine = SidebarPeekMachine(policy: policy)
+#if DEBUG
+        Self.installDebugTrigger(for: self)
+#endif
         guard !policy.isEnabled else { return }
         send(.escapePressed)
     }
+
+#if DEBUG
+    /// When the latest activation-control hover arrived, for the probe.
+    static var debugLastHoverUptime: CFTimeInterval?
+    private static var debugTargets: [ObjectIdentifier: () -> SidebarPeekController?] = [:]
+    private static var isDebugTriggerRegistered = false
+
+    /// `notifyutil -p com.cmuxterm.debug.sidebar-peek` alternates a titlebar
+    /// toggle hover enter and exit on every window, for measuring the reveal.
+    private static func installDebugTrigger(for controller: SidebarPeekController) {
+        guard SidebarNavigationTimings.isEnabled else { return }
+        debugTargets[ObjectIdentifier(controller)] = { [weak controller] in controller }
+        guard !isDebugTriggerRegistered else { return }
+        isDebugTriggerRegistered = true
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        for target in SidebarPeekController.debugTargets.values {
+                            guard let controller = target() else { continue }
+                            if controller.presentsPanel {
+                                controller.pointerExitedEdge()
+                            } else {
+                                controller.pointerEnteredActivationControl()
+                            }
+                        }
+                    }
+                }
+            },
+            "com.cmuxterm.debug.sidebar-peek" as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+#endif
 
     // MARK: - Events
 
@@ -48,6 +88,9 @@ final class SidebarPeekController: ObservableObject {
     /// titlebar's sidebar toggle) is already a deliberate act, so the reveal
     /// starts the moment the pointer lands instead of after the edge dwell.
     func pointerEnteredActivationControl() {
+#if DEBUG
+        Self.debugLastHoverUptime = CACurrentMediaTime()
+#endif
         SidebarNavigationTimings.begin("peek")
         send(.pointerEnteredEdge)
         send(.dwellElapsed)

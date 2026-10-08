@@ -117,19 +117,11 @@ extension ContentView {
     /// above the terminal. Mounted from `sidebarPeekLifecycle` while
     /// `sidebarNeedsPeekPanel`.
     var sidebarPeekPanelHost: some View {
-        let appearance = windowAppearanceSnapshot
-        return SidebarWidthReader(layout: sidebarLayout) { width in
+        SidebarWidthReader(layout: sidebarLayout) { width in
             SidebarPeekPanelBridge(
                 contentWidth: width,
                 metrics: sidebarPeekPanelMetrics,
                 acceptsMouse: sidebarPanelCardIsRevealed,
-                // The card's own window gets the same compositor blur as the
-                // docked ground, so floating and docked glass match exactly.
-                // Never while docked: the panel then sits over the docked
-                // pane's rows and would blur them as they slide in.
-                glassBlurRadius: appearance.usesCompositorGlass && !sidebarState.occupiesLayout
-                    ? appearance.sidebarSettings.effectiveCompositorBlurRadius
-                    : nil,
                 onKeyboardFocusChange: { hasFocus in
                     // Typing into a rename or checklist field in the card
                     // keeps the peek up even after the pointer wanders off.
@@ -162,9 +154,11 @@ extension ContentView {
         var panelGlassOpacity = 1.0
         if case let .sidebarMaterial(materialPolicy) = appearance.policy(for: .leftSidebar) {
             panelTint = Color(nsColor: materialPolicy.tintColor)
-            // A nil material is the compositor-glass path: the card's window
-            // is blurred by the compositor, so no effect view is drawn.
-            panelGlassMaterial = materialPolicy.material
+            // The compositor-glass path has no material: the docked ground
+            // is blurred by the window. The card carries its own glass so the
+            // blur moves with it (a window-level blur on the fixed panel
+            // could not follow the slide).
+            panelGlassMaterial = materialPolicy.material ?? .hudWindow
             panelGlassOpacity = materialPolicy.opacity
         }
         // `isPresented: true` keeps the panel's list live even while hidden:
@@ -180,8 +174,6 @@ extension ContentView {
                 isRevealed: revealed,
                 rendersAsCard: true,
                 width: width,
-                // Docking supersedes the card in place: no exit slide.
-                dismissesInstantly: sidebarState.occupiesLayout,
                 panelTint: panelTint,
                 panelGlassMaterial: panelGlassMaterial,
                 panelGlassOpacity: panelGlassOpacity,
@@ -312,6 +304,14 @@ extension ContentView {
             .overlay(alignment: .leading) {
                 // Same slot and layering as the resizer overlay, which is
                 // the proven way in this codebase to receive pointer
+                // events over the portal-hosted terminal. A strip placed
+                // inside the layout stack can end up beneath the terminal's
+                // AppKit view and never see the pointer at all.
+                sidebarPeekEdgeStrip
+                    .zIndex(999)
+            }
+    }
+}
 
 /// Mirrors what AppDelegate injects into ContentView's hosting view.
 struct SidebarHostedEnvironment: ViewModifier {
@@ -350,13 +350,5 @@ struct SidebarHostedEnvironment: ViewModifier {
             .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
             .environment(\.settingsRuntime, settingsRuntime)
             .cmuxFontMagnificationEnvironment()
-    }
-}
-                // events over the portal-hosted terminal. A strip placed
-                // inside the layout stack can end up beneath the terminal's
-                // AppKit view and never see the pointer at all.
-                sidebarPeekEdgeStrip
-                    .zIndex(999)
-            }
     }
 }
