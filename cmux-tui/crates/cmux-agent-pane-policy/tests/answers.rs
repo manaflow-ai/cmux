@@ -69,3 +69,12 @@ fn answers_are_bounded_and_codex_values_hold_one_key() {
     assert!(refused("q", json!({"name": {"answers": [1]}})));
     assert!(refused("q", json!({"name": 3})));
 }
+
+#[test]
+fn a_permission_seen_once_without_a_question_is_no_question() {
+    let options = options();
+    let again = json!({"jsonrpc": "2.0", "method": "_acpmux/permission_pending", "params": {
+        "permissionId": "q", "request": {"toolCall": {"kind": "execute"}, "options": []}}});
+    options.observe(&frame(again), None);
+    assert_eq!(options.question_keys("q"), None);
+}
