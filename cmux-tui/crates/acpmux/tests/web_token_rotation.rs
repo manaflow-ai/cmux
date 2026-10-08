@@ -85,8 +85,8 @@ fn mode(home: &std::path::Path) -> u32 {
 }
 
 fn saved_token(home: &std::path::Path) -> String {
-    let v: Value = serde_json::from_slice(&std::fs::read(home.join("config.json")).unwrap())
-        .unwrap();
+    let v: Value =
+        serde_json::from_slice(&std::fs::read(home.join("config.json")).unwrap()).unwrap();
     v["websocket"]["token"].as_str().unwrap().to_owned()
 }
 
@@ -131,10 +131,14 @@ async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connectio
             .await
             .expect("the old token connects before the rotation");
     // It may not rotate the token itself.
-    let req = json!({"jsonrpc": "2.0", "id": 7, "method": "_acpmux/web_token_rotate", "params": {}});
-    futures::SinkExt::send(&mut web, tokio_tungstenite::tungstenite::Message::Text(req.to_string().into()))
-        .await
-        .unwrap();
+    let req =
+        json!({"jsonrpc": "2.0", "id": 7, "method": "_acpmux/web_token_rotate", "params": {}});
+    futures::SinkExt::send(
+        &mut web,
+        tokio_tungstenite::tungstenite::Message::Text(req.to_string().into()),
+    )
+    .await
+    .unwrap();
     let refused = loop {
         let frame = tokio::time::timeout(Duration::from_secs(10), web.next())
             .await

@@ -58,8 +58,8 @@ mod views;
 mod web_control;
 mod web_token;
 pub use web_control::Control;
-pub use web_token::WebToken;
 pub(crate) use web_control::ModeWrite;
+pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
