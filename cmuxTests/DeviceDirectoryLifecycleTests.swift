@@ -227,6 +227,132 @@ struct DeviceDirectoryLifecycleTests {
         #expect(directory.records.isEmpty, "Owning a Mac does not mean it has enabled Mac-to-Mac discovery")
     }
 
+    /// A registry over one discovered Mac whose session scope the test drives.
+    private final class TeamSwitchHarness {
+        var identity: AuthenticatedSessionIdentity? = AuthenticatedSessionIdentity(generation: 1, accountID: "test")
+        var teamID: String? = "team-a"
+        var directories: [DeviceDirectory] = []
+        var clients: [DeviceIrxClient] = []
+        var swapsInPlace = true
+    }
+
+    private func makeTeamSwitchRegistry(defaults: UserDefaults, clock: SidebarTestManualClock,
+                                        harness: TeamSwitchHarness) -> DeviceSurfaceProviderRegistry {
+        let peer = DeviceDiscoveredMac(bindingID: "binding-peer", deviceID: "peer", tag: "test",
+            displayName: "Peer", endpointID: try! CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+            pathHints: [], controlPlaneSupportsMacPeers: true)
+        return DeviceSurfaceProviderRegistry(
+            notificationCenter: NotificationCenter(),
+            sessionScope: { _ in (harness.identity, harness.teamID) },
+            makeAutomaticClient: { _, _ in
+                let client = DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
+                    journal: IrxJournal(subsystem: "dev.cmux.tests", category: "team-switch"))
+                harness.clients.append(client)
+                return client
+            },
+            allowsAutomaticConnections: { true },
+            swapsTeamInPlace: { harness.swapsInPlace },
+            makeDirectory: { _, _, teamID, _, client in
+                let directory = makeDirectory(defaults: defaults, clock: clock, teamID: teamID,
+                    automaticClient: client, serviceURL: { nil })
+                // Every directory starts out having discovered the peer once,
+                // standing in for the account directory's authenticated read.
+                directory.adopt(DeviceDirectory.CarriedState(records: [], registryDevices: [],
+                    authenticatedMacs: [peer], owners: [:], ownersKnown: false, hasLoadedRegistry: true))
+                harness.directories.append(directory)
+                return directory
+            },
+            isFeatureEnabled: { true }
+        )
+    }
+
+    @Test("A team switch keeps every My Devices row and provider, and retires the old team's client")
+    func teamSwitchKeepsRows() async throws {
+        let suite = "DevicesTeamSwitch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = SidebarTestManualClock()
+        let harness = TeamSwitchHarness()
+        let registry = makeTeamSwitchRegistry(defaults: defaults, clock: clock, harness: harness)
+        let catalog = SurfaceCatalog()
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: catalog, authorization: UnpairedDevices())
+        let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let provider = try #require(registry.provider(for: instance))
+        let oldClient = try #require(harness.clients.first)
+        var oldChanges = await oldClient.directoryChanges().makeAsyncIterator()
+        #expect(await oldChanges.next() != nil)
+        let rowsBefore = registry.directory?.records ?? []
+        #expect(!rowsBefore.isEmpty)
+
+        harness.teamID = "team-b"
+        registry.evaluate()
+
+        // Same provider object, still registered, rows visible at once.
+        #expect(registry.provider(for: instance) === provider)
+        #expect(registry.providerCount == 1)
+        #expect(registry.directory?.records == rowsBefore)
+        #expect(registry.directory?.hasLoadedRegistry == true)
+        #expect(harness.directories.count == 2)
+        // The link now dials with the new team's client; the old one is stopped.
+        let newClient = try #require(harness.clients.last)
+        var newChanges = await newClient.directoryChanges().makeAsyncIterator()
+        #expect(await newChanges.next() != nil)
+        #expect(newClient !== oldClient)
+        #expect(provider.link.automaticClient === newClient)
+        #expect(await oldChanges.next() == nil)
+        harness.identity = nil
+        registry.evaluate()
+        await clock.waitUntilIdle()
+    }
+
+    @Test("With the account directory off, a team switch rebuilds exactly as before")
+    func teamSwitchRebuildsWhenAccountDirectoryOff() async throws {
+        let suite = "DevicesTeamSwitchOff-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = SidebarTestManualClock()
+        let harness = TeamSwitchHarness()
+        harness.swapsInPlace = false
+        let registry = makeTeamSwitchRegistry(defaults: defaults, clock: clock, harness: harness)
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
+        let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let provider = try #require(registry.provider(for: instance))
+        harness.teamID = "team-b"
+        registry.evaluate()
+        #expect(registry.provider(for: instance) !== provider)
+        harness.identity = nil
+        registry.evaluate()
+        await clock.waitUntilIdle()
+    }
+
+    @Test("An account switch or sign-out still clears every row and provider")
+    func accountSwitchClearsRows() async throws {
+        let suite = "DevicesAccountSwitch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = SidebarTestManualClock()
+        let harness = TeamSwitchHarness()
+        let registry = makeTeamSwitchRegistry(defaults: defaults, clock: clock, harness: harness)
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
+        let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let provider = try #require(registry.provider(for: instance))
+        let firstClient = try #require(harness.clients.first)
+        var firstChanges = await firstClient.directoryChanges().makeAsyncIterator()
+        #expect(await firstChanges.next() != nil)
+
+        harness.identity = AuthenticatedSessionIdentity(generation: 2, accountID: "test")
+        registry.evaluate()
+        // A rebuild: the old provider is gone and a new one serves the row.
+        #expect(registry.provider(for: instance) !== provider)
+        #expect(await firstChanges.next() == nil)
+
+        harness.identity = nil
+        registry.evaluate()
+        #expect(registry.directory == nil)
+        #expect(registry.providerCount == 0)
+        await clock.waitUntilIdle()
+    }
+
     private func makeDirectory(
         defaults: UserDefaults,
         clock: SidebarTestManualClock,
