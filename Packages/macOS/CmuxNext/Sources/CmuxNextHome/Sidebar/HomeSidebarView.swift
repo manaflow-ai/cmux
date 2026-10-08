@@ -27,6 +27,9 @@ public final class HomeSidebarView: NSView {
     public var composeMenu: () -> NSMenu? = { nil }
 
     let list = CmuxSidebarView()
+    /// The strip above the search field: a drag there moves the window, as
+    /// on Messages' sidebar toolbar.
+    let dragStrip = HomeWindowDragStrip()
     /// Messages' compose button, in the strip above the search field.
     let compose = HomeComposeButton()
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
@@ -37,6 +40,7 @@ public final class HomeSidebarView: NSView {
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
+        addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
         compose.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: HomeConversationStrings.newMessage)
@@ -120,10 +124,14 @@ public final class HomeSidebarView: NSView {
         applyColors()
     }
 
+    /// MessagesLab's search field starts this far down.
+    static let stripHeight: CGFloat = 52
+
     public override func layout() {
         super.layout()
-        // MessagesLab's search field starts 52 pt down; the button sits centered in that strip.
+        // The search field starts `stripHeight` down; the button sits centered in that strip.
         let side: CGFloat = 28
+        dragStrip.frame = NSRect(x: 0, y: bounds.height - Self.stripHeight, width: bounds.width, height: Self.stripHeight)
         compose.frame = NSRect(x: bounds.width - side - 12, y: bounds.height - 26 - side / 2, width: side, height: side)
     }
 
@@ -135,4 +143,10 @@ final class HomeComposeButton: NSButton {
     weak var owner: HomeSidebarView?
 
     override func menu(for event: NSEvent) -> NSMenu? { owner?.composeMenu() }
+}
+
+/// Empty header space that drags the window (AppKit's own window drag).
+final class HomeWindowDragStrip: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
 }
