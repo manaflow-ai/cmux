@@ -105,8 +105,8 @@ The active wave is intentionally independent:
   manifest and provenance reproducible from either the manifest or its directory.
 - `323ef09dd3` bounds C8 picker admission and upload state with atomic batches, stable transfer ids,
   cancellation-safe late-progress suppression, retries, malformed owner-id rejection and focused
-  tests. The picker adapter and real C4 uploader remain a seam, so the attach button stays disabled
-  in the shell composition.
+  tests. `ab67558826` then wires the real C4 picker/uploader into the shell; the remaining limitation
+  is hosted runtime verification rather than a disabled attachment path.
 - `88c8e31c73` defines the C9 create/rename/kill tmux lifecycle protocol with server epochs, host-issued
   ids, bounded names and idempotency keys, canonical wire parameters and durable owner receipts. It
   does not execute SSH commands; the host adapter and live lifecycle verification remain open.
@@ -119,6 +119,16 @@ The active wave is intentionally independent:
   upload teardown plus a weak-model regression so an unfinished stream cannot retain a dismissed
   composer. `2dd297a2fb` preserves string-entry paths in D2 manifests and tests that string and object
   entries group identically without mixing experiments.
+- `d69ae0edca` closes D2 F7 at the application layer: direct TCP keeps Noise frame segments contiguous,
+  schedules queued interactive frames ahead of bulk, bounds active plus queued bulk to one maximum
+  frame, and wakes/cancels blocked admissions. The implementation is covered by pure queue tests;
+  WAN/device tail-latency confirmation remains a D2 evidence gate.
+- `49b298df07` serializes Cloud VM attach preparation and one-shot link-token minting across actor
+  suspension, validates the exact requested service and invalidates stale reconnect completions. The
+  Rust VM session host, HostDO VM admission and live underlay remain phase-2 dependencies.
+- `ab67558826` wires C8 task attachments through C4's shared PhotosUI/camera/document staging and
+  transfer coordinator, including verified owner upload references, bounded progress and cancellation
+  cleanup. Static guards pass; native package tests remain blocked by the known host/toolchain issue.
 
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
@@ -138,8 +148,9 @@ split `serve` mode, iOS has no Link bench screen, and no device JSON has been ca
 roam measurement is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path
 that the direct carrier cannot actually provide; it must be omitted or replaced with an alternate
 direct endpoint before it is compared with V1/V2 roaming. F8 is implemented in the session layer;
-F3 (continuous V1 RTT and cancellable full channel sends) and F7 (direct TCP head-of-line mitigation)
-remain open.
+F3 (continuous V1 RTT and cancellable full channel sends) remains open. F7's application-side
+head-of-line mitigation is implemented, but WAN/device evidence is still required before its tail-latency
+benefit is claimed.
 
 The post-F1/E1 results are nested in `plans/cmux-next/ios-next/bakeoff/results/e1/`. The checked-in
 `manifest.json` enumerates the ten exact result files, labels the run groups, and records source
