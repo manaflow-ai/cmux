@@ -12,6 +12,7 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         self.baseURL = baseURL
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
+        configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
         session = URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }
