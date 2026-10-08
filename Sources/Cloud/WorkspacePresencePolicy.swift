@@ -5,11 +5,28 @@ import Foundation
 struct WorkspacePresencePolicy {
     static let inactiveOpacity = 0.42
 
+    /// Shows focused collaborators first while preserving source order within each activity group.
     static func layout(participants: [WorkspacePresenceParticipant], maximumVisible: Int = 4) -> (visible: [WorkspacePresenceParticipant], overflow: Int) {
         let limit = max(1, maximumVisible)
-        return (Array(participants.prefix(limit)), max(0, participants.count - limit))
+        var active: [WorkspacePresenceParticipant] = []
+        var inactive: [WorkspacePresenceParticipant] = []
+        active.reserveCapacity(limit)
+        inactive.reserveCapacity(limit)
+        for participant in participants {
+            if participant.isActive {
+                if active.count < limit { active.append(participant) }
+            } else if inactive.count < limit {
+                inactive.append(participant)
+            }
+        }
+        var visible = Array(active.prefix(limit))
+        if visible.count < limit {
+            visible.append(contentsOf: inactive.prefix(limit - visible.count))
+        }
+        return (visible, max(0, participants.count - limit))
     }
 
+    /// Returns full opacity for focused participants and a muted opacity for passive viewers.
     static func avatarOpacity(for participant: WorkspacePresenceParticipant) -> Double {
         participant.isActive ? 1 : inactiveOpacity
     }

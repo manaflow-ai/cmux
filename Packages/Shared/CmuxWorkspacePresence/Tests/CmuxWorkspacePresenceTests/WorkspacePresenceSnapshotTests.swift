@@ -13,6 +13,7 @@ func snapshotValidation() throws {
     #expect(!valid.isValid(for: other))
 }
 
+/// Verifies activity encoding and compatibility with snapshots from older workers.
 @Test("participant activity is encoded on the wire and defaults for older snapshots")
 func participantActivityCoding() throws {
     let inactive = WorkspacePresenceParticipant(id: "u", displayName: "Ada", isActive: false)

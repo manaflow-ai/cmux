@@ -20,6 +20,7 @@ public struct WorkspacePresenceParticipant: Codable, Equatable, Identifiable, Se
         self.isActive = isActive
     }
 
+    /// Decodes activity when present and treats snapshots from older workers as active.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let rawURL = try c.decodeIfPresent(String.self, forKey: .avatarURL)
@@ -32,6 +33,7 @@ public struct WorkspacePresenceParticipant: Codable, Equatable, Identifiable, Se
                   isActive: try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true)
     }
 
+    /// Encodes the activity flag alongside the participant's profile metadata.
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
