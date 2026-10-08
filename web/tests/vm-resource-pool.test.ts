@@ -38,7 +38,10 @@ const PRO_POOL = { vcpus: 20, memoryMb: 40 * GB };
 /** The policy a Pro workflow passes to the repository for one billing scope. */
 const PRO_POOL_POLICY = {
   capacity: PRO_POOL,
-  legacyReservation: { vcpus: 4, memoryMb: 8 * GB },
+  // Markerless legacy rows are charged at the plan maximum until provider
+  // reconciliation proves their actual shape. This avoids undercounting a
+  // 12/16-vCPU machine created before reservation metadata existed.
+  legacyReservation: { vcpus: 32, memoryMb: 64 * GB },
   planId: "pro",
 };
 
@@ -218,19 +221,15 @@ describe("Cloud VM resource pool", () => {
     });
   }));
 
-  dbTest("legacy rows without a valid marker count at the plan's default machine size", () => withTeam(async team => {
+  dbTest("legacy rows without a valid marker reserve the plan maximum", () => withTeam(async team => {
     await seedVm(team, { status: "running" });
-    await seedVm(team, { status: "running" });
-    await seedVm(team, { status: "provisioning" });
     await seedVm(team, { status: "running", marker: { vcpus: "lots", memoryMb: 8 * GB, diskMb: 32768 } });
     const failure = await runRepo(repo => repo.beginCreate(createInput(team, { vcpus: 8, memoryMb: 16 * GB })).pipe(Effect.flip));
     expect(failure).toMatchObject({
       _tag: "VmResourcePoolExceededError",
       resource: "memoryMb",
-      used: { vcpus: 16, memoryMb: 32 * GB },
+      used: { vcpus: 64, memoryMb: 128 * GB },
     });
-    const fits = await runRepo(repo => repo.beginCreate(createInput(team, { vcpus: 4, memoryMb: 8 * GB })));
-    expect(fits.inserted).toBe(true);
   }));
 
   dbTest("concurrent creates cannot both take the last pool capacity", () => withTeam(async team => {

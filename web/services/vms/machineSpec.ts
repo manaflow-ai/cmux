@@ -24,9 +24,9 @@ export const MAX_PLAN_RESOURCE_POOL: VmComputeResources = { vcpus: 80, memoryMb:
 
 /**
  * Everything the repository needs to enforce a billing scope's pool inside
- * its create/resume/resize transaction. `legacyReservation` is the size used
- * for a live row without a valid reservation marker: the plan's default
- * machine, never the historical 5 vCPU / 20 GB marker default.
+ * its create/resume/resize transaction. `legacyReservation` is the
+ * conservative provider maximum used for a live row without a valid
+ * reservation marker until reconciliation records the actual dimensions.
  */
 export type VmResourcePoolPolicy = {
   readonly capacity: VmComputeResources;

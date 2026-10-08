@@ -53,6 +53,7 @@ import {
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   VM_RESOURCE_FORK_PENDING_METADATA_KEY,
+  VM_RESOURCE_RESERVATION_METADATA_KEY,
   hasVmResourceReservationMetadata,
   vmResourceReconcileRetryFromMetadata,
   vmResourceReservationForCreate,
@@ -972,7 +973,7 @@ function requireMeasuredMachineFitsPlan(
   providers: VmProviderGatewayShape,
   vm: Pick<CloudVmRow, "provider" | "providerVmId">,
   providerVmId: string,
-) {
+): Effect.Effect<VmResourceReservation, VmMemoryPlanError | VmProviderOperationError> {
   if (!providers.getStats) {
     return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "getStats" }));
   }
@@ -985,7 +986,7 @@ function requireMeasuredMachineFitsPlan(
         cause: new Error("provider stats timed out while checking the machine plan"),
       }),
     }),
-    Effect.flatMap((stats) => {
+    Effect.flatMap((stats): Effect.Effect<VmResourceReservation, VmMemoryPlanError | VmProviderOperationError> => {
       const memoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
       const vcpus = vmProviderResourceSize("vcpus", stats.cpus);
       if (memoryMb === null || vcpus === null) {
@@ -995,15 +996,16 @@ function requireMeasuredMachineFitsPlan(
           cause: new Error("provider returned incomplete machine dimensions while checking the plan"),
         }));
       }
+      const reservation = {
+        memoryMb,
+        vcpus,
+        // Disk is irrelevant to the memory/CPU entitlement check, but the
+        // reservation parser requires a complete shape.
+        diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? VM_DISK_MB_MAX,
+      } satisfies VmResourceReservation;
       return requireMachineFitsPlan(planId, {
-        cmuxResourceReservation: {
-          memoryMb,
-          vcpus,
-          // Disk is irrelevant to the memory/CPU entitlement check, but the
-          // reservation parser requires a complete shape.
-          diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? VM_DISK_MB_MAX,
-        },
-      });
+        cmuxResourceReservation: reservation,
+      }).pipe(Effect.as(reservation));
     }),
   );
 }
@@ -5040,6 +5042,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 /// machine stays visible and disposable while locked.
 function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
+    const repo = yield* VmRepository;
     let vm = yield* requireUserVm(input);
     if (input.callerPlanId === "go") {
       yield* requireGoShape("go", hasVmResourceReservationMetadata(vm.providerMetadata) ? vmResourceReservationFromMetadata(vm.providerMetadata) : null);
@@ -5074,7 +5077,23 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
         yield* requireMachineFitsPlan(input.callerPlanId, vm.providerMetadata);
       } else {
         const providers = yield* VmProviderGateway;
-        yield* requireMeasuredMachineFitsPlan(input.callerPlanId, providers, vm, input.providerVmId);
+        // Legacy rows are checked against live provider dimensions. Persist
+        // that measured claim before returning so a paused resume or another
+        // concurrent create counts the same CPU/RAM in the shared pool; the
+        // in-memory row is updated too for provider calls in this workflow.
+        const measured = yield* requireMeasuredMachineFitsPlan(input.callerPlanId, providers, vm, input.providerVmId);
+        if (repo.setResourceReservation) {
+          const persisted = yield* repo.setResourceReservation({ id: vm.id, reservation: measured });
+          if (persisted) {
+            vm = {
+              ...vm,
+              providerMetadata: {
+                ...vm.providerMetadata,
+                [VM_RESOURCE_RESERVATION_METADATA_KEY]: measured,
+              },
+            };
+          }
+        }
       }
     }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {

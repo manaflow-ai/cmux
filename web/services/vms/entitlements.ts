@@ -13,6 +13,7 @@ import {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
   PLAN_RESOURCE_POOL,
+  VM_PROVIDER_RESOURCE_BOUNDS,
   type VmComputeResources,
   type VmResourcePoolPolicy,
 } from "./machineSpec";
@@ -387,15 +388,20 @@ export function ladderVcpusForMemoryMb(memoryMb: number): number {
 }
 
 /**
- * The pool share of a live machine with no valid reservation marker: the
- * plan's default machine (8 GB / 4 vCPU on paid plans).
+ * The conservative pool share of a live machine with no valid reservation
+ * marker. A legacy row may have been created at any size or may have moved
+ * from Max to Pro, so a current-plan ceiling could still undercount it. Claim
+ * the provider's global maximum temporarily; the reconciler replaces this
+ * claim with measured dimensions.
  */
 export function legacyPoolReservationForPlan(
-  planId: string | null | undefined,
-  env: Record<string, string | undefined> = process.env,
+  _planId: string | null | undefined,
+  _env: Record<string, string | undefined> = process.env,
 ): VmComputeResources {
-  const memoryMb = defaultMemoryMbForPlan(planId, env);
-  return { vcpus: ladderVcpusForMemoryMb(memoryMb), memoryMb };
+  return {
+    vcpus: VM_PROVIDER_RESOURCE_BOUNDS.vcpus.max,
+    memoryMb: VM_PROVIDER_RESOURCE_BOUNDS.memoryMb.max,
+  };
 }
 
 /** The repository-side pool policy for one request, or null when the plan has no pool. */
