@@ -115,3 +115,22 @@ extension PanePaintHoldTests {
         #expect(page.alphaValue == 0)
     }
 }
+
+extension PanePaintHoldTests {
+    /// Cursor review (#18437): a pooled host retargeted to another page has
+    /// not painted the new document, though it painted the last one, so the
+    /// pane still holds its outgoing content until the new page paints.
+    @Test func aRetargetedPageTabKeepsTheOutgoingContent() throws {
+        let pane = pane()
+        let terminal = NSView()
+        pane.show(terminal)
+        let web = try #require(PageWebView(pooledHost: .settings))
+        web.paintedUptime = 1 // the Settings document painted
+        #expect(web.retarget(descriptor: .history, routes: []))
+        #expect(!web.hasPainted, "a new document has not painted")
+        let page = InternalPageView(key: "history-tab", page: .settings, content: web)
+        pane.show(page)
+        #expect(terminal.superview === pane.contentHost, "the pane went empty before the page painted")
+        #expect(page.alphaValue == 0)
+    }
+}

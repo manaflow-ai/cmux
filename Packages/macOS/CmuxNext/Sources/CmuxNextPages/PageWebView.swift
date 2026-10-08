@@ -305,7 +305,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public private(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
