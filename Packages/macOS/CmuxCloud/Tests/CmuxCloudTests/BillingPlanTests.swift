@@ -15,10 +15,16 @@ struct BillingPlanTests {
         #expect(state.canManageBilling)
     }
 
-    @Test("same-account failure preserves the last known answer")
+    @Test("same-account and team failure preserves the last known answer")
     func sameAccountFailurePreservesAnswer() {
-        let state = BillingPlanState(accountID: "account-a", isPro: true, canManageBilling: true)
-        #expect(state.applyingFailure(for: "account-a") == state)
+        let state = BillingPlanState(accountID: "account-a", teamID: "team-a", isPro: true, canManageBilling: true)
+        #expect(state.applyingFailure(for: "account-a", teamID: "team-a") == state)
+    }
+
+    @Test("different-team failure clears the answer")
+    func differentTeamFailureClearsAnswer() {
+        let state = BillingPlanState(accountID: "account-a", teamID: "team-a", isPro: true, canManageBilling: true)
+        #expect(state.applyingFailure(for: "account-a", teamID: "team-b") == .unknown)
     }
 
     @Test("different-account failure clears the answer")

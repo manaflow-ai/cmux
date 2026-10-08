@@ -27,6 +27,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
+    /// The confirmed team whose plan is known, or nil for personal scope.
+    var billingPlanTeamID: String? { billingPlanState.teamID }
     /// The most recent plan request. Only it may write, so an older request
     /// that finishes late cannot overwrite a newer answer.
     @ObservationIgnored private var billingPlanRequestID: UUID?
@@ -34,6 +36,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
         return billingPlanIdentityID == currentIdentity?.id
+            && billingPlanTeamID == confirmedTeamID
     }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
@@ -245,10 +248,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
         let requestID = UUID()
         billingPlanRequestID = requestID
-        // Do not project the previous team/account's entitlement while this
-        // request is in flight. Unknown keeps Cloud enabled until a verified
-        // response arrives and avoids a false Free/Upgrade state.
-        billingPlanState = .unknown
+        // Keep a verified answer for the same scope visible while refreshing.
+        // A changed account/team fails `hasLoadedBillingPlan` closed until its
+        // matching response arrives, so the card cannot reuse another scope.
+        let requestedTeamID = confirmedTeamID
         let tokens = try? await coordinator.currentTokens()
 
         do {
@@ -260,6 +263,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
+                teamID: requestedTeamID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling
             )
@@ -268,7 +272,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
             guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
-            billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: requestedTeamID)
             return false
         }
     }

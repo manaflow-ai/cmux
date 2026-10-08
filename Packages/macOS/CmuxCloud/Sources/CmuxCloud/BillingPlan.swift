@@ -4,6 +4,8 @@ import Foundation
 public struct BillingPlanState: Sendable, Equatable {
     /// The account whose entitlement is known, or `nil` while unknown.
     public let accountID: String?
+    /// The confirmed team whose entitlement is known, or `nil` for personal scope.
+    public let teamID: String?
     /// Whether the known account includes Cloud access.
     public let isPro: Bool
     /// Whether the known account can manage billing through the hosted portal.
@@ -13,10 +15,12 @@ public struct BillingPlanState: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - accountID: The account owning the snapshot, or `nil` when unknown.
+    ///   - teamID: The confirmed team owning the snapshot, or `nil` for personal scope.
     ///   - isPro: Whether the account includes Cloud access.
     ///   - canManageBilling: Whether billing can be managed in the hosted portal.
-    public init(accountID: String?, isPro: Bool, canManageBilling: Bool) {
+    public init(accountID: String?, teamID: String? = nil, isPro: Bool, canManageBilling: Bool) {
         self.accountID = accountID
+        self.teamID = teamID
         self.isPro = isPro
         self.canManageBilling = canManageBilling
     }
@@ -25,13 +29,18 @@ public struct BillingPlanState: Sendable, Equatable {
     public static var unknown: Self { Self(accountID: nil, isPro: false, canManageBilling: false) }
 
     /// Applies a successful response to the account that requested it.
-    public func applyingSuccess(for accountID: String, isPro: Bool, canManageBilling: Bool) -> Self {
-        Self(accountID: accountID, isPro: isPro, canManageBilling: canManageBilling)
+    public func applyingSuccess(
+        for accountID: String,
+        teamID: String? = nil,
+        isPro: Bool,
+        canManageBilling: Bool
+    ) -> Self {
+        Self(accountID: accountID, teamID: teamID, isPro: isPro, canManageBilling: canManageBilling)
     }
 
-    /// Retains an existing answer for the same account and clears other answers.
-    public func applyingFailure(for accountID: String) -> Self {
-        self.accountID == accountID ? self : .unknown
+    /// Retains an existing answer for the same account and confirmed team.
+    public func applyingFailure(for accountID: String, teamID: String? = nil) -> Self {
+        self.accountID == accountID && self.teamID == teamID ? self : .unknown
     }
 }
 

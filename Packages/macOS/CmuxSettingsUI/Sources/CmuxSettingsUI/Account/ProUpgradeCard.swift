@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import Observation
 import SwiftUI
@@ -58,6 +59,9 @@ struct ProUpgradeCard: View {
             if hovering, presentation == .free {
                 flow?.prefetchProUpgrade()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            retryGeneration &+= 1
         }
         .task(id: refreshKey) {
             await plan.refresh(flow: flow, key: refreshKey)
