@@ -331,11 +331,15 @@ struct CloudPortsVPNAffordanceTests {
         let first = machineNode(id: "first")
         let second = machineNode(id: "second")
         coordinator.apply(nodes: [first, second])
+        // Materialize the document height before scrolling; otherwise the
+        // initial pre-layout frame has no scroll range for the second machine.
+        container.layoutSubtreeIfNeeded()
         coordinator.portsDemand.reconcile(coordinator: coordinator)
         #expect(requested == [.cloud("first")])
 
         let outline = try #require(coordinator.outlineView)
         outline.scrollRowToVisible(outline.row(forItem: second))
+        container.layoutSubtreeIfNeeded()
         coordinator.portsDemand.reconcile(coordinator: coordinator)
         #expect(requested == [.cloud("first"), .cloud("second")])
     }
