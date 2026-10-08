@@ -319,7 +319,10 @@ impl OptChat {
             return Err(Error::Fatal(e.clone()));
         }
         let done = match st.store.append(&messages, state) {
-            Ok(done) => done,
+            Ok(done) => {
+                crate::fault::fault("append:after-commit");
+                done
+            }
             Err(e) => {
                 st.set_fatal(format!("writing messages: {e}"));
                 self.shared.changed.notify_all();
