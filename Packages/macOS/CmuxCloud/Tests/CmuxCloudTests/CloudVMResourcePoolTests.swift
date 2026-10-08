@@ -41,6 +41,18 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func validatorCapsLegacyLadderAtTheCurrentPlanCeiling() throws {
+        let limits: [String: Any] = [
+            "planId": "pro",
+            "memoryOptionsMb": [4096, 8192, 16384, 24576, 32768, 65536],
+            "maxVcpus": 32,
+        ]
+        let plan = try CloudVMResizePlanValidator().plan(from: limits)
+        #expect(plan.limits.maxMemoryMb == 16 * 1024)
+        #expect(plan.limits.maxVcpus == 8)
+    }
+
+    @Test
     func validatorRejectsPartiallyPopulatedPool() {
         #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
             try CloudVMResizePlanValidator().plan(from: [
@@ -56,8 +68,9 @@ struct CloudVMResourcePoolTests {
     func plansWithoutAPoolAndOlderServersDecodeNoPool() {
         #expect(CloudVMResourcePool(limits: ["planId": "go", "poolVcpus": NSNull(), "poolMemoryMb": NSNull()]) == nil)
         #expect(CloudVMResourcePool(limits: ["planId": "pro", "maxActiveVms": 5]) == nil)
-        // A pool without usage reads as nothing in use.
-        #expect(CloudVMResourcePool(limits: ["poolVcpus": 80, "poolMemoryMb": 163840])?.usedMemoryMb == 0)
+        // A pool without usage is incomplete, so the client must not make
+        // resize decisions from an invented empty usage readout.
+        #expect(CloudVMResourcePool(limits: ["poolVcpus": 80, "poolMemoryMb": 163840]) == nil)
     }
 
     @Test

@@ -932,10 +932,20 @@ function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boole
 }
 
 /** Check the copied or requested shape before provisioning side effects. */
-function requireMemoryPlan(planId: string, memoryMb: number | null) {
+function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: number | null = null) {
   const maxMemoryMb = maxMemoryMbForPlan(planId);
-  if (memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb) {
-    return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
+  const maxVcpus = maxVcpusForPlan(planId);
+  const memoryFromVcpus = vcpus === null ? 0 : vcpus * VM_PLAN_MEMORY_MB_PER_VCPU;
+  const exceedsMemory = memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb;
+  const exceedsVcpus = vcpus !== null && vcpus > maxVcpus;
+  if (exceedsMemory || exceedsVcpus) {
+    return Effect.fail(new VmMemoryPlanError({
+      planId,
+      memoryMb: memoryMb === null
+        ? (vcpus === null ? null : memoryFromVcpus)
+        : Math.max(memoryMb, memoryFromVcpus),
+      maxMemoryMb,
+    }));
   }
   return Effect.void;
 }
@@ -957,6 +967,11 @@ function requireMachineFitsPlan(planId: string, metadata: Record<string, unknown
 
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
   return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
+}
+
+function requestedCreateVcpus(input: { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }): number | null {
+  const vcpus = Math.max(input.imageSize?.cpu ?? 0, input.resourceReservation?.vcpus ?? 0);
+  return vcpus > 0 ? vcpus : null;
 }
 
 const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
@@ -1072,7 +1087,11 @@ function resumesLiveMachine(origin: VmCreateOrigin | undefined): boolean {
 export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const runtimeBudgetSeconds = yield* requireGoCreate(input);
-    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
+    yield* requireMemoryPlan(
+      input.billingPlanId,
+      requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }),
+      requestedCreateVcpus(input as { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }),
+    );
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -1442,6 +1461,7 @@ export function openBaseVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
@@ -1481,6 +1501,7 @@ export function resetBaseVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
@@ -2214,7 +2235,7 @@ export function restoreVm(input: {
       })
       : undefined;
     yield* requireGoShape(input.billingPlanId, snapshotReservation);
-    yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null);
+    yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -2340,16 +2361,19 @@ function finalizeNativeForkReservation(
 
 function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayShape, providerVmId: string, planId: string) {
   return Effect.gen(function* () {
-    const sourceMemoryMb = hasVmResourceReservationMetadata(source.providerMetadata)
-      ? vmResourceReservationFromMetadata(source.providerMetadata).memoryMb
+    const sourceShape = hasVmResourceReservationMetadata(source.providerMetadata)
+      ? vmResourceReservationFromMetadata(source.providerMetadata)
       : yield* (providers.getStats
         ? providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
             Effect.timeout("5 seconds"),
-            Effect.map((stats) => vmProviderResourceSize("memoryMb", stats.memoryTotalMb)),
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.map((stats) => ({
+              memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb),
+              vcpus: vmProviderResourceSize("vcpus", stats.cpus),
+            })),
+            Effect.catchAll(() => Effect.succeed({ memoryMb: null, vcpus: null })),
           )
-        : Effect.succeed(null));
-    yield* requireMemoryPlan(planId, sourceMemoryMb);
+        : Effect.succeed({ memoryMb: null, vcpus: null }));
+    yield* requireMemoryPlan(planId, sourceShape.memoryMb, sourceShape.vcpus);
   });
 }
 

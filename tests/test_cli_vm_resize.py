@@ -174,15 +174,16 @@ class VMResizeTests(unittest.TestCase):
             self.assert_resize_request(server)
 
     def test_plan_ceiling_rejects_before_resize_mutation(self) -> None:
-        limits = {"planId": "pro", "maxVcpus": 16, "maxMemoryMb": 32 * 1024, "maxDiskMb": 128 * 1024}
-        with ResizeSocket(limits=limits) as server:
-            result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", "32"])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Pro plan", result.stderr)
-            self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
+        limits = {"planId": "pro", "maxVcpus": 8, "maxMemoryMb": 16 * 1024, "maxDiskMb": 128 * 1024}
+        for cpu in (12, 16):
+            with self.subTest(cpu=cpu), ResizeSocket(limits=limits) as server:
+                result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", str(cpu)])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Pro plan", result.stderr)
+                self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
 
     def test_pool_ceiling_rejects_compute_growth_before_resize_mutation(self) -> None:
-        limits = {"planId": "pro", "maxVcpus": 16, "maxMemoryMb": 32 * 1024,
+        limits = {"planId": "pro", "maxVcpus": 8, "maxMemoryMb": 16 * 1024,
                   "maxDiskMb": 128 * 1024, "poolVcpus": 20,
                   "poolMemoryMb": 40 * 1024, "usedVcpus": 18,
                   "usedMemoryMb": 32 * 1024}

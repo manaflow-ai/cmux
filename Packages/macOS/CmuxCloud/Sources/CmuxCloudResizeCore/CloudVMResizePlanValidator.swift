@@ -97,11 +97,19 @@ public struct CloudVMResizePlanValidator: Sendable {
         let maxMemoryFromLadder = (rawLimits["memoryOptionsMb"] as? [Any])?
             .compactMap(positiveLimit)
             .max()
-        let maxMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
+        // Older control planes sometimes published the whole ladder as
+        // `memoryOptionsMb` (or a stale 32 GiB Pro ceiling). Never let that
+        // compatibility path expand a plan beyond the current product tier.
+        let productMemoryCeiling = planID == "max"
+            ? 64 * 1_024
+            : planID == "go" ? 4 * 1_024 : 16 * 1_024
+        let advertisedMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
             ?? maxMemoryFromLadder
-            ?? (planID == "max" ? 64 * 1_024 : planID == "go" ? 4 * 1_024 : 16 * 1_024)
-        let maxVcpus = positiveLimit(rawLimits["maxVcpus"])
+            ?? productMemoryCeiling
+        let maxMemoryMb = min(advertisedMemoryMb, productMemoryCeiling)
+        let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
             ?? max(1, maxMemoryMb / 2_048)
+        let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
         let maxDiskMb = positiveLimit(rawLimits["maxDiskMb"]) ?? {
             switch planID {
             case "max": return 256 * 1_024

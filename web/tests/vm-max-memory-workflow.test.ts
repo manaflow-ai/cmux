@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
-import { createVm, forkVm, restoreVm, resumeVm } from "../services/vms/workflows";
+import { createVm, forkVm, openBaseVm, resetBaseVm, restoreVm, resumeVm } from "../services/vms/workflows";
 import { vmWorkflowErrorCause, VmProviderOperationError } from "../services/vms/errors";
 
 test("create, fork, and restore reject a 64 GB machine on Pro before provisioning", async () => {
@@ -32,6 +32,36 @@ test("create, fork, and restore reject a 64 GB machine on Pro before provisionin
     }
   }
   expect(creates).toBe(0);
+});
+
+test("Pro rejects a 12-vCPU create shape even when memory is within the plan ceiling", async () => {
+  const layer = Layer.mergeAll(
+    Layer.succeed(VmRepository, {} as VmRepositoryShape),
+    Layer.succeed(VmProviderGateway, {} as VmProviderGatewayShape),
+    Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+  );
+  const caller = {
+    userId: "u",
+    billingCustomerType: "user" as const,
+    billingTeamId: "u",
+    billingPlanId: "pro",
+    maxActiveVms: 5,
+    provider: "freestyle" as const,
+    image: "snapshot",
+  };
+  const invalidReservation = { vcpus: 12, memoryMb: 16 * 1024, diskMb: 96 * 1024 };
+  for (const program of [
+    createVm({ ...caller, resourceReservation: invalidReservation }).pipe(Effect.asVoid),
+    openBaseVm({ ...caller, imageSize: { name: "lgx", cpu: 12, memoryMb: 16 * 1024, storageMb: 96 * 1024 } }).pipe(Effect.asVoid),
+    resetBaseVm({ ...caller, imageSize: { name: "lgx", cpu: 12, memoryMb: 16 * 1024, storageMb: 96 * 1024 } }).pipe(Effect.asVoid),
+  ]) {
+    try {
+      await Effect.runPromise(program.pipe(Effect.provide(layer)));
+      throw new Error("expected plan rejection");
+    } catch (error) {
+      expect(vmWorkflowErrorCause(error)?._tag).toBe("VmMemoryPlanError");
+    }
+  }
 });
 
 test("Go rejects undersized CPU, memory, and disk before billing or provider work", async () => {

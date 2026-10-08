@@ -25,12 +25,14 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     /// - Parameter limits: The decoded `limits` JSON object.
     public init?(limits: [String: Any]) {
         guard let poolVcpus = Self.positiveInt(limits["poolVcpus"]),
-              let poolMemoryMb = Self.positiveInt(limits["poolMemoryMb"]) else { return nil }
+              let poolMemoryMb = Self.positiveInt(limits["poolMemoryMb"]),
+              let usedVcpus = Self.nonNegativeInt(limits["usedVcpus"]),
+              let usedMemoryMb = Self.nonNegativeInt(limits["usedMemoryMb"]) else { return nil }
         self.init(
             poolVcpus: poolVcpus,
             poolMemoryMb: poolMemoryMb,
-            usedVcpus: Self.nonNegativeInt(limits["usedVcpus"]) ?? 0,
-            usedMemoryMb: Self.nonNegativeInt(limits["usedMemoryMb"]) ?? 0
+            usedVcpus: usedVcpus,
+            usedMemoryMb: usedMemoryMb
         )
     }
 
@@ -137,7 +139,9 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     /// Parses a nonnegative integer from an untyped response value.
     private static func nonNegativeInt(_ raw: Any?) -> Int? {
         let value: Int?
-        if let number = raw as? NSNumber,
+        if raw is Bool {
+            value = nil
+        } else if let number = raw as? NSNumber,
                   CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite { value = Int(exactly: number.doubleValue) }
         else if let int = raw as? Int { value = int }
