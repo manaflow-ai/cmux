@@ -77,6 +77,9 @@ public struct AccountTeamCard: View {
                     .accessibilityIdentifier("SettingsTeamSubtitle")
             }
             Spacer(minLength: 12)
+                .overlay(alignment: .trailing) {
+                    saveIndicator(model.isInviting)
+                }
             if model.detail?.canInvite ?? false {
                 Button {
                     model.isComposingInvite.toggle()
@@ -146,9 +149,6 @@ public struct AccountTeamCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .overlay(alignment: .trailing) {
-            saveIndicator(model.isInviting).padding(.trailing, 1)
-        }
     }
 
     // MARK: Rows
@@ -179,6 +179,10 @@ public struct AccountTeamCard: View {
                 }
             }
             Spacer(minLength: 12)
+                .overlay(alignment: .trailing) {
+                    saveIndicator(pending)
+                        .accessibilityIdentifier("SettingsTeamSaving_\(member.userID)")
+                }
             if detail.canInvite, !member.isViewer {
                 Picker("", selection: Binding(
                     get: { member.role },
@@ -220,11 +224,6 @@ public struct AccountTeamCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .overlay(alignment: .trailing) {
-            saveIndicator(pending)
-                .padding(.trailing, 1)
-                .accessibilityIdentifier("SettingsTeamSaving_\(member.userID)")
-        }
         .accessibilityIdentifier("SettingsTeamMember_\(member.userID)")
     }
 
@@ -238,7 +237,10 @@ public struct AccountTeamCard: View {
                         Text(roleTitle(invitation.role)).cmuxFont(size: 11).foregroundColor(.secondary)
                     }
                     Spacer(minLength: 12)
-                    revokeControl(id: invitation.id) { model.revoke(invitation) }
+                        .overlay(alignment: .trailing) {
+                            saveIndicator(model.pendingID == invitation.id)
+                        }
+                    revokeControl { model.revoke(invitation) }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -254,7 +256,10 @@ public struct AccountTeamCard: View {
                 HStack(alignment: .center, spacing: 12) {
                     Text(model.linkSummary(link)).cmuxFont(size: 13, weight: .medium).lineLimit(1)
                     Spacer(minLength: 12)
-                    revokeControl(id: link.id) { model.revoke(link) }
+                        .overlay(alignment: .trailing) {
+                            saveIndicator(model.pendingID == link.id)
+                        }
+                    revokeControl { model.revoke(link) }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -263,16 +268,13 @@ public struct AccountTeamCard: View {
         }
     }
 
-    private func revokeControl(id: String, action: @escaping () -> Void) -> some View {
+    private func revokeControl(action: @escaping () -> Void) -> some View {
         Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
             .controlSize(.small)
             .disabled(model.pendingID != nil)
-            .overlay(alignment: .trailing) {
-                saveIndicator(model.pendingID == id).offset(x: 13)
-            }
     }
 
-    /// Draw in the row's existing trailing inset without changing its layout.
+    /// Draw in the existing flexible gap before the controls without moving them.
     @ViewBuilder
     private func saveIndicator(_ isSaving: Bool) -> some View {
         if isSaving {
