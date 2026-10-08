@@ -48,15 +48,15 @@ use effect_store::{
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
 use journal_extensions::create_journal_extensions_schema;
-pub(crate) use journal_extensions::{
-    JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
-    JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
-    JournalSegmentSealCommit, JournalSegmentSealStart,
-};
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
     JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducerManifest, JournalSegment,
+};
+pub(crate) use journal_extensions::{
+    JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
+    JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
+    JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;

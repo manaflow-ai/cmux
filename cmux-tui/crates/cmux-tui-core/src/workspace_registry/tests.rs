@@ -1,8 +1,8 @@
+use super::journal_extensions::JOURNAL_LIST_MAX_ITEMS;
 use super::*;
 use crate::resource::FrontendProjectionPublicId;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use super::journal_extensions::JOURNAL_LIST_MAX_ITEMS;
 
 const TERMINAL_ONE: &str = "00000000000040008000000000000001";
 const TERMINAL_TWO: &str = "00000000000040008000000000000002";
