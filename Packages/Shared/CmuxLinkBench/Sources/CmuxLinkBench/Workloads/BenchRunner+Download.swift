@@ -8,14 +8,17 @@ extension BenchRunner {
     func download(stream: String, priority: ChannelPriority, recordBytes: Int) async throws -> ThroughputResult {
         try await withFixture { fixture in
             let descriptor = ChannelDescriptor(stream: stream, reliability: .reliableOrdered, priority: priority)
-            let (local, remote) = try await fixture.openPair(descriptor)
+            let pair = try await fixture.openPair(descriptor)
+            let local = pair.local
             let counter = ByteCounter()
             let warm = FirstResult<Bool>()
             let warmup = 1 << 20
-            let sender = Task {
-                let chunk = Data(count: recordBytes)
-                while !Task.isCancelled {
-                    guard (try? await remote.send(chunk)) != nil else { return }
+            let sender = pair.remote.map { remote in
+                Task {
+                    let chunk = Data(count: recordBytes)
+                    while !Task.isCancelled {
+                        guard (try? await remote.send(chunk)) != nil else { return }
+                    }
                 }
             }
             let receiver = Task {
@@ -27,7 +30,7 @@ extension BenchRunner {
                 await warm.resolve(.success(false))
             }
             defer {
-                sender.cancel()
+                sender?.cancel()
                 receiver.cancel()
             }
             guard try await TimeLimit(.seconds(15)).run({ try await warm.value() }) == true else {

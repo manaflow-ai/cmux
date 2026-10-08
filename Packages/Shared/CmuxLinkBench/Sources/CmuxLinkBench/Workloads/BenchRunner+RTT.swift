@@ -17,14 +17,17 @@ extension BenchRunner {
         try await withFixture { fixture in
             let echo = try await EchoChannel.open(on: fixture)
             let descriptor = ChannelDescriptor(stream: "bench/bulk-bg", reliability: .reliableOrdered, priority: .bulk)
-            let (local, remote) = try await fixture.openPair(descriptor)
+            let pair = try await fixture.openPair(descriptor)
+            let local = pair.local
             let counter = ByteCounter()
             let flowing = FirstResult<Bool>()
             let threshold = 2 << 20
-            let sender = Task {
-                let chunk = Data(count: spec.bulkRecordBytes)
-                while !Task.isCancelled {
-                    guard (try? await remote.send(chunk)) != nil else { return }
+            let sender = pair.remote.map { remote in
+                Task {
+                    let chunk = Data(count: spec.bulkRecordBytes)
+                    while !Task.isCancelled {
+                        guard (try? await remote.send(chunk)) != nil else { return }
+                    }
                 }
             }
             let receiver = Task {
@@ -41,7 +44,7 @@ extension BenchRunner {
             let samples = try await pings(echo)
             let window = clock.now - start
             let bulkBytes = counter.bytes - bytesBefore
-            sender.cancel()
+            sender?.cancel()
             receiver.cancel()
             await local.close()
             await echo.close()

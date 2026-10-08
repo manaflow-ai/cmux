@@ -12,18 +12,24 @@ struct EchoChannel: Sendable {
     static let descriptor = ChannelDescriptor(stream: "bench/echo", reliability: .reliableOrdered, priority: .input)
     static let payload = Data(repeating: 0x61, count: 64)
 
-    static func open(on fixture: BenchFixture) async throws -> EchoChannel {
-        let (local, remote) = try await fixture.openPair(descriptor)
-        let echo = Task {
-            for await event in remote.events {
-                switch event {
-                case let .message(message): _ = try? await remote.send(message.payload)
-                case .gap: continue
-                case .closed: return
+    static func open(on fixture: any BenchFixtureProtocol) async throws -> EchoChannel {
+        let pair = try await fixture.openPair(descriptor)
+        let echo: Task<Void, Never>
+        if let remote = pair.remote {
+            echo = Task {
+                for await event in remote.events {
+                    switch event {
+                    case let .message(message): _ = try? await remote.send(message.payload)
+                    case .gap: continue
+                    case .closed: return
+                    }
                 }
             }
+        } else {
+            // Split mode: the serve process owns and services the remote end.
+            echo = Task {}
         }
-        return EchoChannel(local: local, echo: echo, replies: ReplyReader(channel: local))
+        return EchoChannel(local: pair.local, echo: echo, replies: ReplyReader(channel: pair.local))
     }
 
     /// One round trip; nil when no echo came within `limit`.

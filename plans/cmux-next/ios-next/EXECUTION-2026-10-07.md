@@ -157,11 +157,14 @@ evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
 ### D2 carrier audit
 
-The local bakeoff records a DEV-only loopback decision. F2 is still absent: `cmux-link-bench` has no
-split `serve` mode, iOS has no Link bench screen, and no device JSON has been captured. The V3 direct
-roam measurement is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path
-that the direct carrier cannot actually provide; it must be omitted or replaced with an alternate
-direct endpoint before it is compared with V1/V2 roaming. F8 is implemented in the session layer;
+The local bakeoff records a DEV-only loopback decision. F2's first split slice now has a real direct
+`cmux-link-bench serve`/`client` path and the shared `BenchSplitClient` library: it exchanges a
+pinned descriptor, runs the shared connect/echo/flood/bulk workloads through `LinkSession`, and
+writes the regular report plus a checked manifest. The iOS DEV Link bench screen and B5 signaling
+adapters for V1/V2 remain open, so no device JSON has been captured. The V3 direct roam measurement
+is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
+carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
+before it is compared with V1/V2 roaming. F8 is implemented in the session layer;
 F3 steady-state V1 RTT sampling is implemented, while cancellation of individual sends waiting on a
 full channel remains open. F7's application-side
 head-of-line mitigation is implemented, but WAN/device evidence is still required before its tail-latency

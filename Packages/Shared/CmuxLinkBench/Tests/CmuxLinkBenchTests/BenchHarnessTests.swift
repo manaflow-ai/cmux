@@ -1,4 +1,6 @@
 @testable import CmuxLinkBench
+import CmuxLinkDirect
+import Foundation
 import Testing
 
 /// The harness itself, on A3's in-process loopback carrier: every workload
@@ -26,5 +28,46 @@ struct BenchHarnessTests {
         #expect(report.reconnect?.failures == 0)
         #expect(report.reconnect?.sessionReconnected.allSatisfy { $0 } == true)
         #expect(report.roam?.pathAfter.allSatisfy { $0 == "turn" } == true)
+    }
+
+    @Test("split descriptor and manifest round trip")
+    func splitMetadata() throws {
+        let host = DirectIdentity()
+        let descriptor = BenchServeDescriptor(
+            hostID: "bench-host", address: "127.0.0.1", port: 4180,
+            hostKey: host.publicKey
+        )
+        let decoded = try BenchServeDescriptor.decode(JSONEncoder().encode(descriptor))
+        #expect(decoded == descriptor)
+        #expect(decoded.peer.hints["direct.hostKey"] == host.publicKey.base64)
+
+        let manifest = try BenchResultManifest(
+            name: "split", sourceCommit: "abc123", recordedAt: "2026-10-08",
+            description: "split metadata", results: [.init(path: "run.json", role: "split-session")]
+        )
+        let roundTrip = try BenchResultManifest.decode(manifest.encoded())
+        #expect(roundTrip == manifest)
+        #expect(throws: BenchSplitError.self) {
+            try BenchResultManifest(
+                name: "bad", sourceCommit: "abc", recordedAt: "now", description: "bad",
+                results: [.init(path: "../outside.json")]
+            )
+        }
+    }
+
+    @Test("split direct server serves the shared echo workload")
+    func splitDirectEcho() async throws {
+        let server = BenchSplitServer(configuration: .init(
+            hostID: "split-test", advertisedAddress: "127.0.0.1", localAddress: "127.0.0.1",
+            port: 0, allowAnyDevice: true
+        ))
+        let descriptor = try await server.start()
+        defer { Task { await server.stop() } }
+        let client = try BenchSplitClient(descriptor: descriptor, deviceIdentity: DirectIdentity())
+        var spec = BenchSpec(rig: .v3, quick: true, workloads: [.coldConnect])
+        spec.bulkRecordBytes = descriptor.bulkRecordBytes
+        let report = try await client.run(spec: spec)
+        #expect(report.errors.isEmpty, "\(report.errors)")
+        #expect(report.coldConnect?.firstByte.count == spec.connectSamples)
     }
 }

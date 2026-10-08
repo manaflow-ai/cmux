@@ -5,7 +5,7 @@ import Foundation
 /// One connected dialer session and host, built from a rig's endpoints the
 /// way the app wires them (`LinkSession` over a `PathSelector`, `LinkHost`
 /// over the acceptor).
-struct BenchFixture: Sendable {
+struct BenchFixture: BenchFixtureProtocol {
     let rig: any ConformanceHarness
     let dialer: LinkSession
     let host: LinkHost
@@ -64,7 +64,7 @@ struct BenchFixture: Sendable {
     }
 
     /// Opens a channel from the dialer; returns (dialer end, host end).
-    func openPair(_ descriptor: ChannelDescriptor) async throws -> (LinkChannel, LinkChannel) {
+    func openPair(_ descriptor: ChannelDescriptor) async throws -> BenchChannelPair {
         let local = try await dialer.openChannel(descriptor)
         let incoming = incoming
         guard let remote = try await TimeLimit(.seconds(10)).run({ await incoming.next() }) ?? nil else {
@@ -73,7 +73,7 @@ struct BenchFixture: Sendable {
         guard remote.stream == descriptor.stream else {
             throw BenchError.unexpected("host saw \(remote.stream), expected \(descriptor.stream)")
         }
-        return (local, remote)
+        return BenchChannelPair(local: local, remote: remote)
     }
 
     func shutdown() async {

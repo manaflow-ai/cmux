@@ -4,10 +4,11 @@ import PackageDescription
 // D2 bakeoff harness (plans/cmux-next/ios-next/d2-bakeoff.md): drives any
 // CmuxLink carrier and acceptor pair (V1 webrtc, V2 webrtc-wg, V3 direct, the
 // A3 loopback reference) through the same workloads and writes JSON results.
-// A benchmark tool, not app code: nothing here ships in the iOS or macOS app.
+// The library is also linked by the DEBUG-only iOS Link bench client. The
+// executable remains a macOS development tool and is never shipped.
 let package = Package(
     name: "CmuxLinkBench",
-    platforms: [.macOS(.v14)],
+    platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "CmuxLinkBench", targets: ["CmuxLinkBench"]),
         .executable(name: "cmux-link-bench", targets: ["cmux-link-bench"]),
@@ -32,8 +33,12 @@ let package = Package(
                 .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
             ]
         ),
-        .executableTarget(name: "cmux-link-bench", dependencies: ["CmuxLinkBench"]),
-        .testTarget(name: "CmuxLinkBenchTests", dependencies: ["CmuxLinkBench"]),
+        .executableTarget(name: "cmux-link-bench", dependencies: [
+            "CmuxLinkBench", .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+        ]),
+        .testTarget(name: "CmuxLinkBenchTests", dependencies: [
+            "CmuxLinkBench", .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+        ]),
     ],
     swiftLanguageModes: [.v6]
 )

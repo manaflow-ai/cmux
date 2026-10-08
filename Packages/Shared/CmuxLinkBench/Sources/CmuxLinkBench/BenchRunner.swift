@@ -10,16 +10,34 @@ import Foundation
 public struct BenchRunner: Sendable {
     public let spec: BenchSpec
     let rig: any ConformanceHarness
+    private let fixtureFactory: (@Sendable () async throws -> any BenchFixtureProtocol)?
     let clock = ContinuousClock()
 
     public init(spec: BenchSpec) {
         self.spec = spec
         rig = Self.makeRig(spec)
+        fixtureFactory = nil
     }
 
     init(spec: BenchSpec, rig: any ConformanceHarness) {
         self.spec = spec
         self.rig = rig
+        fixtureFactory = nil
+    }
+
+    /// Runs the same channel workloads against a fixture supplied by a split
+    /// client. The factory is invoked for every workload sample, preserving
+    /// the local harness's fresh-connection rule.
+    public init(
+        spec: BenchSpec,
+        fixtureFactory: @escaping @Sendable () async throws -> any BenchFixtureProtocol
+    ) {
+        self.spec = spec
+        // A split runner never uses the local rig. Keep a harmless reference
+        // for the raw/fault-only code paths, which are intentionally skipped
+        // by ``BenchSplitClient``.
+        self.rig = LoopbackHarness(name: "split-placeholder")
+        self.fixtureFactory = fixtureFactory
     }
 
     static func makeRig(_ spec: BenchSpec) -> any ConformanceHarness {
@@ -45,7 +63,7 @@ public struct BenchRunner: Sendable {
         let baseline = ProcessUsage()
         let started = clock.now
         var report = BenchReport(
-            rig: rig.name,
+            rig: fixtureFactory == nil ? rig.name : "split-\(spec.rig.carrier)",
             carrier: spec.rig.carrier,
             conditions: conditions,
             machine: MachineInfo.current(),
@@ -76,9 +94,11 @@ public struct BenchRunner: Sendable {
         report.bulkFile = await attempt(.bulkFile) {
             try await download(stream: "bench/bulk", priority: .bulk, recordBytes: spec.bulkRecordBytes)
         }
-        report.rawTransport = await attempt(.rawTransport) { try await rawDownload(recordBytes: spec.bulkRecordBytes) }
-        report.reconnect = await attempt(.reconnect) { try await recovery(.drop) }
-        report.roam = await attempt(.roam) { try await recovery(.roam) }
+        if fixtureFactory == nil {
+            report.rawTransport = await attempt(.rawTransport) { try await rawDownload(recordBytes: spec.bulkRecordBytes) }
+            report.reconnect = await attempt(.reconnect) { try await recovery(.drop) }
+            report.roam = await attempt(.roam) { try await recovery(.roam) }
+        }
         let final = ProcessUsage()
         report.memory = MemoryResult(
             baselineMaxResidentMiB: Double(baseline.maxResidentBytes) / 1_048_576,
@@ -90,6 +110,12 @@ public struct BenchRunner: Sendable {
     }
 
     private var conditions: BenchConditions {
+        if fixtureFactory != nil {
+            return BenchConditions(
+                shaped: false, rttMilliseconds: 0, loss: 0,
+                note: "split client to pinned remote host; CPU and memory cover the client process only; network shaping is external"
+            )
+        }
         if spec.rig.shapeable {
             return BenchConditions(
                 shaped: true, rttMilliseconds: spec.rttMilliseconds, loss: spec.loss,
@@ -105,8 +131,13 @@ public struct BenchRunner: Sendable {
     }
 
     /// Opens a fixture, runs `body`, always shuts it down.
-    func withFixture<T: Sendable>(_ body: (BenchFixture) async throws -> T) async throws -> T {
-        let fixture = try await BenchFixture.connect(rig)
+    func withFixture<T: Sendable>(_ body: (any BenchFixtureProtocol) async throws -> T) async throws -> T {
+        let fixture: any BenchFixtureProtocol
+        if let fixtureFactory {
+            fixture = try await fixtureFactory()
+        } else {
+            fixture = try await BenchFixture.connect(rig)
+        }
         do {
             let value = try await body(fixture)
             await fixture.shutdown()
