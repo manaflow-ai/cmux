@@ -307,7 +307,9 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
 
     public static let defaultSleep: @Sendable (TimeInterval) async -> Void = { delay in
         guard delay.isFinite, delay > 0 else { return }
-        let maximumDelay = TimeInterval(UInt64.max - 1) / 1_000_000_000
+        // Leave a full second of headroom for IEEE-754 rounding before the
+        // seconds-to-nanoseconds conversion.
+        let maximumDelay = TimeInterval(UInt64.max / 1_000_000_000 - 1)
         let nanoseconds = UInt64(min(delay, maximumDelay) * 1_000_000_000)
         do {
             try await Task.sleep(nanoseconds: nanoseconds)
