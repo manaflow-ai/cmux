@@ -65,7 +65,10 @@ if [ ! -d "$entry" ]; then
   mkdir -p "$(dirname "$entry")"
   # A private temp dir per build: two jobs on one host that miss the same key never
   # write into one directory (cx-t3e5).
+  # Builds a killed job left behind (a day old: no live build takes that long).
+  find "$(dirname "$entry")" -maxdepth 1 -name '*.tmp.*' -type d -mtime +0 -exec rm -rf {} + 2>/dev/null || true
   tmp="$(mktemp -d "$entry.tmp.XXXXXX")"
+  trap 'rm -rf "$tmp"' EXIT
   if ! "$BUILD" --out-root "$tmp"; then
     rm -rf "$tmp"
     echo "error: the cmux-next web bundles did not build" >&2
