@@ -77,7 +77,14 @@ extension GhosttyNSView {
         dock: DockSplitStore,
         ownership: SSHClipboardWriteSurfaceOwnershipIndex
     ) -> SurfaceMachineID? {
-        ownership.machine(for: panel.id) ?? dock.machineOwningSurface(panel.id)
+        // A local catalog projection can be a placeholder for a Dock panel
+        // whose transferred/restored owner is still SSH. Prefer a projected
+        // remote machine, then let Dock resolve that local placeholder before
+        // falling back to the catalog's local identity.
+        if let machine = ownership.machine(for: panel.id), !machine.isLocal {
+            return machine
+        }
+        return dock.machineOwningSurface(panel.id) ?? ownership.machine(for: panel.id)
     }
 
     private var currentSSHClipboardMachine: SurfaceMachineID? {
