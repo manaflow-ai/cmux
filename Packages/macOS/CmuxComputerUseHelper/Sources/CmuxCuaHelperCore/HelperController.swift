@@ -58,8 +58,9 @@ public final class HelperController: Sendable {
             guard let lines = buffer.append(Data(bytes[0..<count])) else { break }
             for line in lines { handle(line) }
         }
-        // RED STUB (commit 1): EOF is ignored.
-        while true { sleep(3600) }
+        controlLogger.notice("host control pipe closed; stopping")
+        shutdown()
+        onExit(0)
     }
 
     public func shutdown() {

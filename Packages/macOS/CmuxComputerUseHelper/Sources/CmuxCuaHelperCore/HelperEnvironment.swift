@@ -21,8 +21,15 @@ public struct HelperEnvironment: Sendable {
 
     static let windowChangeTimeoutMilliseconds = 100
 
-    // RED STUB (commit 1): nothing is forced.
-    public var required: [String: String] { [:] }
+    public var required: [String: String] {
+        [
+            "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
+            "CUA_TELEMETRY_ENABLED": "false",
+            "CUA_DRIVER_RS_UPDATE_CHECK": "false",
+            "CUA_DRIVER_WINDOW_CHANGE_TIMEOUT_MS": String(Self.windowChangeTimeoutMilliseconds),
+            "CUA_DRIVER_HOST_BUNDLE_ID": helperBundleID,
+        ]
+    }
 
     /// Forces the required values into this process before the driver loads
     /// (whatever the launcher passed). Call before any thread starts.

@@ -83,10 +83,21 @@ public enum AdmissionRefusal: String, Sendable, Equatable {
 /// Residual (phase 2): a process inside an acpmux agent tree, such as an
 /// agent's tool shell, passes checks 3-4 only when it runs the acpmux binary.
 enum AdmissionPolicy {
-    // RED STUB (commit 1): admits everyone.
-    static func checkIdentity(_ peer: PeerFacts, config: AdmissionConfig?) -> AdmissionRefusal? { nil }
+    static func checkIdentity(_ peer: PeerFacts, config: AdmissionConfig?) -> AdmissionRefusal? {
+        guard let config else { return .notConfigured }
+        guard peer.uid == config.helperUID else { return .foreignUser }
+        guard peer.signatureValid else { return .invalidSignature }
+        let knownHash = peer.cdhash.map { config.acpmuxCDHashes.contains($0) } ?? false
+        let knownRelease = config.acpmuxRequirement != nil && peer.satisfiesRequirement
+        guard knownHash || knownRelease else { return .unknownCode }
+        guard peer.ancestors.contains(where: config.acpmuxDaemons.contains) else { return .outsideAcpmuxTree }
+        return nil
+    }
 
-    static func checkSecret(_ presented: Data?, config: AdmissionConfig) -> AdmissionRefusal? { nil }
+    static func checkSecret(_ presented: Data?, config: AdmissionConfig) -> AdmissionRefusal? {
+        guard let presented, !presented.isEmpty else { return .missingSecret }
+        return constantTimeEqual(presented, config.secret) && !config.secret.isEmpty ? nil : .wrongSecret
+    }
 
     static func constantTimeEqual(_ a: Data, _ b: Data) -> Bool {
         guard a.count == b.count else { return false }
