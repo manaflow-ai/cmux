@@ -2975,7 +2975,7 @@ impl Mux {
 
     pub(crate) fn from_workspace_registry(
         session: String,
-        mut surface_options: SurfaceOptions,
+        surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
@@ -3013,7 +3013,6 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
-        surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
@@ -12339,7 +12338,6 @@ impl Mux {
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
-        options.browser_session_name = self.session.clone();
     }
 
     /// The latest machine-level model spend readout, or `None` when the

@@ -417,7 +417,10 @@ impl Hub {
         *session.turn.lock().unwrap() = None;
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
-            session.claude_unstored.store(false, Ordering::SeqCst);
+            let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
+            if was_unstored {
+                self.save_meta(session);
+            }
         }
         // Quit Everything already recorded this turn as cancelled.
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
