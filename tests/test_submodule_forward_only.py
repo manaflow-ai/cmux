@@ -146,6 +146,14 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not determine ancestry", result.stderr)
 
+    def test_changed_pointer_initializes_missing_submodule(self) -> None:
+        # The guard checkout starts without submodules. A changed pin must
+        # still be checked locally when its shallow repository can be restored.
+        b = self.commit_sub("changed pin subject")
+        self.pointer(b)
+        result = self.run_guard(remove_submodule=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_shallow_clone_gap_is_not_divergence(self) -> None:
         # CI checks submodules out shallowly. When a forward bump spans more
         # history than the clone holds, both commits exist locally but no
