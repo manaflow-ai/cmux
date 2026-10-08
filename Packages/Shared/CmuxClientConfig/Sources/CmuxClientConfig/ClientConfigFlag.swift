@@ -36,8 +36,6 @@ public extension ClientConfigFlag where Value == Bool {
     static let cmuxForLinux = Self(booleanKey: "cmux-for-linux")
     /// Enables Android download/sign-up surfaces.
     static let cmuxForAndroid = Self(booleanKey: "cmux-for-android")
-    /// Enables the production upgrade UI.
-    static let proUpgradeUIEnabledRelease = Self(booleanKey: "pro-upgrade-ui-enabled-release")
     /// Enables the production mobile connect button.
     static let mobileConnectButtonEnabledRelease = Self(booleanKey: "mobile-connect-button-enabled-release")
     /// Enables the iOS terminal Files chip. Defaults on so an unavailable

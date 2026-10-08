@@ -26,7 +26,8 @@ export default async function CloudOverviewPage({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.cloudOverview" });
-  // Nightly docs run ahead of the Cloud rollout, so only release docs show the beta opt-in.
+  // Nightly docs omit the release-only activation guidance, so only release
+  // docs show the beta opt-in.
   const showBetaNote = docsChannel() === "release";
 
   return (

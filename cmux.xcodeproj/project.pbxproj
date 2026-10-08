@@ -3195,6 +3195,7 @@
 		D10000000000000000A00018 /* SettingsAutomationBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */; };
 		D10000000000000000A0001A /* SettingsBrowserBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */; };
 		20F2B44223BBBA9A4ED185C4 /* SettingsComputersBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */; };
+		8A6F8FF7A90FFAD07DFF9F03 /* SettingsHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4252144220782379B2B347BE /* SettingsHostingView.swift */; };
 		D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */; };
 		D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
@@ -7628,6 +7629,7 @@
 		D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutomationBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBrowserBehaviorUITests.swift; sourceTree = "<group>"; };
 		83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComputersBehaviorUITests.swift; sourceTree = "<group>"; };
+		4252144220782379B2B347BE /* SettingsHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsHostingView.swift; sourceTree = "<group>"; };
 		D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLazyLoadHelpers.swift; sourceTree = "<group>"; };
 		D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsNavigation+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
@@ -12004,6 +12006,7 @@
 				6EFEF79A3659BA68F264C1CF /* GhosttyNSView+SSHClipboardTrust.swift */,
 				BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */,
 				ED55668F4F4B7ECEFC2AE923 /* SSHClipboardWriteSurfaceOwnershipIndex.swift */,
+				4252144220782379B2B347BE /* SettingsHostingView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16049,6 +16052,7 @@
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */,
+				8A6F8FF7A90FFAD07DFF9F03 /* SettingsHostingView.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,

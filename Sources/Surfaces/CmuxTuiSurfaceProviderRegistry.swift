@@ -10,8 +10,8 @@ import Foundation
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
 /// Authenticated fleet discovery also prepares the shared terminal carrier, even for
-/// an empty fleet. Both follow the Cloud rollout and activation marker; disabling
-/// Cloud or signing out stops the carrier without deleting persisted identities.
+/// an empty fleet. Both follow the managed Cloud policy and local activation marker;
+/// disabling Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
@@ -695,7 +695,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
     }
 
-    /// Cancels Cloud-only transport work when the remote gate closes while
+    /// Cancels Cloud-only transport work when the activation policy closes while
     /// retaining providers, catalog resources, and persisted pane identities.
     /// Re-enabling the gate reuses those providers on the next discovery pass.
     private func suspendCloudTransportsIfNeeded() {
