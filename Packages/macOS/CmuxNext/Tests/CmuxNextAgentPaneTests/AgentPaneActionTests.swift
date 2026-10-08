@@ -40,6 +40,26 @@ import Testing
         #expect(descriptor.defaultShortcut == nil)
     }
 
+    @Test func inspectorRefusesAutomationWithoutFocusAndAllowsExplicitFocus() {
+        let registry = ActionRegistry.standard()
+        var toggled = 0
+        var refusal: String?
+        registry.refusalObserver = { reason, _ in refusal = reason }
+        #expect(registry.bindAgentPaneInspector { _ in toggled += 1 })
+
+        #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(origin: .cli)))
+        #expect(toggled == 0)
+        #expect(refusal == "Opening the ACP inspector requires focus.")
+
+        #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(origin: .cli, focusRequested: true)))
+        #expect(toggled == 1)
+
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .user, allowsViewChange: false)) {
+            #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(origin: .cli, focusRequested: true)))
+        }
+        #expect(toggled == 1)
+    }
+
     /// The action and `debug.agent_pane inspector` call the page's bridge,
     /// which ignores the call until the page has loaded it.
     @Test func togglingTheInspectorCallsThePageBridge() throws {
