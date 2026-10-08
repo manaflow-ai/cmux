@@ -186,8 +186,10 @@ describe("Cloud ops from the Mac relay's install token (cx-wb5.65)", { timeout: 
     await runIn(x.stub, async (_i, state) => state.storage.sql.exec(`UPDATE integration_approvals SET expires_at = 1 WHERE request = ?`, requests[1]))
     expect(await fireAlarm(x.stub)).toBe(true)
     expect(await x.stub.readOp(x.team, x.p, "integration.approval.get", { request: requests[1] })).toMatchObject({ value: { state: "done" } })
-    // Each ran once; a further redelivery replays nothing new.
+    // A run cut off AFTER its op committed (before the row ended): the same key replays the committed intent, no second create.
+    await runIn(x.stub, async (_i, state) => state.storage.sql.exec(`UPDATE integration_approvals SET state = 'running', ended_at = NULL WHERE request = ?`, requests[0]))
     await redeliver(x, requests[0]!, 990_003)
+    expect(await x.stub.readOp(x.team, x.p, "integration.approval.get", { request: requests[0] })).toMatchObject({ value: { state: "done" } })
     expect(((await x.stub.fakeControl({})) as unknown as { creates: number }).creates).toBe(2)
   })
 

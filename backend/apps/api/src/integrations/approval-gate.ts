@@ -152,15 +152,20 @@ export type AnswerOutcome = { readonly kind: "ignore"; readonly reason: string }
 /** Requests whose provider call is awaiting in this object instance (lost on eviction, which is the point). */
 const running = new WeakMap<SqlStorage, Set<string>>()
 const inFlight = (sql: SqlStorage) => running.get(sql) ?? running.set(sql, new Set()).get(sql)!
-/** True while this instance awaits the run of `request` (CloudDO settles only runs that are not). */
-export const isInFlight = (sql: SqlStorage, request: string) => inFlight(sql).has(request)
-/** Runs `fn` with `request` marked in flight in this instance (cleared on return or throw). */
+/** CloudDO's in-flight runs, counted (two overlapping runs of one request must not clear each other's mark). */
+const cloudRuns = new WeakMap<SqlStorage, Map<string, number>>()
+const runsOf = (sql: SqlStorage) => cloudRuns.get(sql) ?? cloudRuns.set(sql, new Map()).get(sql)!
+/** True while this instance awaits a run of `request` (CloudDO settles only runs that are not). */
+export const isInFlight = (sql: SqlStorage, request: string) => inFlight(sql).has(request) || (runsOf(sql).get(request) ?? 0) > 0
+/** Runs `fn` with `request` counted in flight in this instance (released on return or throw). */
 export const withInFlight = async <T>(sql: SqlStorage, request: string, fn: () => Promise<T>): Promise<T> => {
-  inFlight(sql).add(request)
+  runsOf(sql).set(request, (runsOf(sql).get(request) ?? 0) + 1)
   try {
     return await fn()
   } finally {
-    inFlight(sql).delete(request)
+    const n = (runsOf(sql).get(request) ?? 1) - 1
+    if (n > 0) runsOf(sql).set(request, n)
+    else runsOf(sql).delete(request)
   }
 }
 
@@ -186,7 +191,7 @@ export const expireApprovals = (sql: SqlStorage, now: number) => {
   const stuck = sql.exec<{ request: string }>(`SELECT request FROM integration_approvals WHERE state = 'running' AND expires_at <= ?`, now).toArray()
   for (const { request } of stuck) {
     const row = approvalByRequest(sql, request)
-    if (row && !inFlight(sql).has(request)) settleRunning(sql, row, now)
+    if (row && !isInFlight(sql, request)) settleRunning(sql, row, now)
   }
 }
 
@@ -201,7 +206,7 @@ export const takeAnswer = (sql: SqlStorage, source: string, params: { request?: 
   if (source !== `feed:${row.user}`) return { kind: "ignore", reason: "not the requesting user's feed" }
   const current = settleExpiry(sql, row, now)
   // A run cut off by a restart (not in flight in this instance) is settled from the ledger, never run again.
-  if (current.state === "running" && !inFlight(sql).has(row.request)) return { kind: "settle", row }
+  if (current.state === "running" && !isInFlight(sql, row.request)) return { kind: "settle", row }
   if (current.state !== "pending") return { kind: "ignore", reason: `request is ${current.state}` }
   if (params.decision !== "allow") {
     endApproval(sql, row.request, "denied", now)

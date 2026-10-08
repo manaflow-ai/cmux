@@ -413,11 +413,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const m of machines) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
-    const entity = this.boundEntity()
-    if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
     await this.pauseSilent(now)
+    const entity = this.boundEntity()
+    if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))
     this.alertStale(now)
     for (const d of this.vmStatus.takeDue(now)) {
       const r = this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
