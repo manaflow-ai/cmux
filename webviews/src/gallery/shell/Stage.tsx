@@ -158,7 +158,7 @@ export function Stage({
   const [display, setDisplay] = useState<FrameState>({ query, run, frame, scale });
   const [pending, setPending] = useState<FrameState>();
   const promotion = useRef(0);
-  const pendingRef = useRef<FrameState>();
+  const pendingRef = useRef<FrameState | undefined>(undefined);
   pendingRef.current = pending;
   useEffect(() => {
     const requested = { query, run, frame: { width: frameWidth, height: frameHeight }, scale };
