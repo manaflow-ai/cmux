@@ -120,3 +120,38 @@ test("allocation failure waits for late VM ids before finally cleanup", async ()
   await run;
   expect(paused).toEqual(["vm-late"]);
 });
+
+test("a stage that keeps fetching renders once it says it is ready; navigation never waits for network idle", async () => {
+  // Run 37833947171: pages.markdown showcase never went 500 ms without a request, so
+  // goto(networkidle) timed out at 30 s although the stage had painted. The stage's own
+  // data-gallery-ready is the readiness signal; navigation waits only for load.
+  const { runLocal } = await import("./runner");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-busy-network-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([{ id: "busy", path_or_url: "https://example.test/" }]));
+  const waits: (string | undefined)[] = [];
+  let readyChecks = 0;
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async () => {},
+        goto: async (_url: string, options?: { waitUntil?: string }) => {
+          waits.push(options?.waitUntil);
+          if (options?.waitUntil === "networkidle") throw new Error("goto: Timeout 30000ms exceeded (the stage never goes network-idle)");
+        },
+        waitForFunction: async () => { readyChecks++; },
+        evaluate: async () => "1",
+        screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  }) } };
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results.map((r) => r.id)).toEqual(["busy"]);
+    expect(waits).toEqual(["load"]);
+    expect(readyChecks).toBe(1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
