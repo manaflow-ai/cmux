@@ -22,6 +22,12 @@ Wire form: the existing `icon` string fields, so stored rows and old readers sta
 Decoders: `IconValue` (Swift, CmuxNextDesign; the only rule in the app), `iconValue.ts` (page),
 `validate_presentation_icon` (daemon, the authority). SVG: an allowlist sanitizer with a real XML
 parser that re-serializes; the page copy is only for preview, the owner sanitizes again.
+Sanitizer: `cmux-tui-core` `presentation_store/svg_icon.rs` (static shapes, gradients, clip
+paths, masks, text; ids prefixed `cmux-icon-`, `url()` only to an id of the same icon; no DOCTYPE,
+href, style, script, animation or `foreignObject`). Rendering contract: frontends draw an SVG icon
+as an isolated image (`<img>`, a data or blob URL, a native image) at a frontend-chosen size, never
+inlined into a DOM. The picker's SVG tab stays off until the asset store calls
+`validate_presentation_icon_asset` on put.
 
 ## 2. One picker
 

@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, TryLockError};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
@@ -24,7 +24,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_engine::EngineConfig;
 use cmux_rd_proto::control::Control as RdControl;
 use cmux_rd_proto::{
-    MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer,
+    MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     encode_stream_frame,
 };
 use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
@@ -56,7 +56,7 @@ pub struct Options {
     /// contract in `launch.rs`).
     pub lifeline: bool,
     /// The per-launch secret a viewer's rd hello must carry as its token (the first
-    /// lifeline line); `None` serves any local viewer (a host run by hand).
+    /// lifeline line). `main` refuses to start without one; `None` admits nobody.
     pub secret: Option<String>,
 }
 
@@ -703,8 +703,19 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
     stdout.flush()?;
     drop(stdout);
     for conn in listener.incoming() {
-        let conn = conn?;
-        conn.set_nodelay(true)?;
+        // A failed accept or a peer that reset before setsockopt ends only
+        // that connection, never the listener.
+        let conn = match conn {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("serve: accept failed: {e}");
+                continue;
+            }
+        };
+        if let Err(e) = conn.set_nodelay(true) {
+            eprintln!("serve: connection dropped: {e}");
+            continue;
+        }
         match session(conn) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
             Err(e) => eprintln!("serve: session failed: {e}"),
@@ -714,39 +725,19 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
 }
 
 fn write_rd(stream: &mut TcpStream, control: &RdControl) -> std::io::Result<()> {
-    let json = serde_json::to_vec(control).map_err(std::io::Error::other)?;
-    let mut out = Vec::with_capacity(json.len() + 5);
-    encode_stream_frame(STREAM_CONTROL, &json, &mut out)
-        .map_err(|e| std::io::Error::other(format!("{e:?}")))?;
-    stream.write_all(&out)
+    crate::launch::write_control(stream, control)
 }
 
 /// One viewer: the rd handshake here, then frames to the UI thread until EOF.
 fn session(mut stream: TcpStream) -> std::io::Result<String> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut deframer = StreamDeframer::default();
     let mut buf = vec![0u8; 64 * 1024];
-    let hello = loop {
-        if let Ok(Some((kind, payload))) = deframer.next_frame() {
-            if kind == STREAM_CONTROL {
-                break serde_json::from_slice::<RdControl>(&payload)
-                    .map_err(std::io::Error::other)?;
-            }
-            continue;
-        }
-        let n = stream.read(&mut buf)?;
-        if n == 0 {
-            return Ok("left before hello".into());
-        }
-        deframer.extend(&buf[..n]);
-    };
-    // With a secret, the hello must carry it as its session token, before the
+    // The viewer is admitted (its hello carries the secret) before the
     // welcome: a refused viewer never opens the tab or sends input.
     let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
-    if let Err(reason) = crate::launch::authorize(secret.as_deref(), &hello) {
-        write_rd(&mut stream, &RdControl::Refused { reason: "unauthorized".into() })?;
-        return Ok(format!("refused: {reason}"));
-    }
+    let (hello, mut deframer) = match crate::launch::admit(&mut stream, secret.as_deref())? {
+        crate::launch::Admission::Admitted { hello, deframer } => (hello, deframer),
+        crate::launch::Admission::Refused(reason) => return Ok(reason),
+    };
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
         return Ok("the first control message is not hello".into());
     };

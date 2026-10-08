@@ -122,8 +122,10 @@ pub fn daemon_spec(
 pub const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 /// The agent environment the session host (and so every pane) may see:
-/// `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TZ` and `CMUX_TUI_*` settings except
-/// `CMUX_TUI_REMOTE_WS*` (the remote entry comes only from the host config).
+/// `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TZ`, `CMUX_TUI_*` settings except
+/// `CMUX_TUI_REMOTE_WS*` (the remote entry comes only from the host config),
+/// and the image's agent tool settings `CMUX_AGENT_TOOLS_*` and
+/// `CMUX_BROWSER_HOST_*` (the baked unit sets them for every terminal).
 /// Service-manager variables (`INVOCATION_ID`, `JOURNAL_STREAM`,
 /// `NOTIFY_SOCKET`, `LISTEN_*`) and `CMUX_SERVER_MODE` never pass.
 pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
@@ -133,6 +135,8 @@ pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(S
             matches!(k.as_str(), "PATH" | "LANG" | "LANGUAGE" | "TZ")
                 || k.starts_with("LC_")
                 || (k.starts_with("CMUX_TUI_") && !k.starts_with("CMUX_TUI_REMOTE_WS"))
+                || k.starts_with("CMUX_AGENT_TOOLS_")
+                || k.starts_with("CMUX_BROWSER_HOST_")
         })
         .collect();
     if !out.iter().any(|(k, _)| k == "PATH") {
@@ -321,6 +325,8 @@ mod tests {
             ("CMUX_TUI_REMOTE_WS_BIND", "[::]:1337"),
             ("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER", "1"),
             ("CMUX_TUI_STATE_DIR", "/s"),
+            ("CMUX_AGENT_TOOLS_BIN_DIR", "/opt/cmux/agent-tools/bin"),
+            ("CMUX_BROWSER_HOST_BIN", "/opt/cmux/store/x/cmux-browser-host"),
             ("INVOCATION_ID", "x"),
             ("JOURNAL_STREAM", "1:2"),
             ("NOTIFY_SOCKET", "/run/systemd/notify"),
@@ -332,7 +338,18 @@ mod tests {
         // The remote entry comes only from the host config: inherited
         // CMUX_TUI_REMOTE_WS_* variables could otherwise turn on the
         // trusted carrier behind the loader's back.
-        assert_eq!(kept, ["PATH", "LANG", "LC_ALL", "TZ", "CMUX_TUI_STATE_DIR"]);
+        assert_eq!(
+            kept,
+            [
+                "PATH",
+                "LANG",
+                "LC_ALL",
+                "TZ",
+                "CMUX_TUI_STATE_DIR",
+                "CMUX_AGENT_TOOLS_BIN_DIR",
+                "CMUX_BROWSER_HOST_BIN"
+            ]
+        );
         let no_path = inherited_env(Vec::new());
         assert_eq!(no_path, [("PATH".to_owned(), DEFAULT_PATH.to_owned())]);
     }
