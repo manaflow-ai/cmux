@@ -22,6 +22,8 @@ use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(all(test, unix))]
 mod journal_failure_tests;
 #[cfg(unix)]
+mod journal_reconnect;
+#[cfg(unix)]
 mod prelaunch;
 #[cfg(unix)]
 mod rehost;
@@ -3182,7 +3184,6 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3382,47 +3383,10 @@ impl Surface {
                             }
                             continue;
                         }
-                        if reconnect_mux.terminal_journal_enabled()
-                            && pty.journal_capture_supported
-                        {
-                            let checkpoint_key = format!(
-                                "host-reconnect:{}:{}:{}",
-                                identity.terminal_id,
-                                identity.incarnation,
-                                replacement_sequence_boundary
-                            );
-                            // The checkpoint is a journal-replay optimization:
-                            // failing to capture one only means the next replay
-                            // starts from an older boundary. Capture races with
-                            // every other terminal's concurrent reconnect
-                            // appends, so retry it in place a few times - and
-                            // never tear down the freshly reconnected, healthy
-                            // host over it. The old path disconnected and re-ran
-                            // the full reconnect up to 16 times per terminal,
-                            // each attempt's journal writes re-poisoning the
-                            // other terminals' captures.
-                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
-                                "terminal_host_reconnect",
-                                &checkpoint_key,
-                            );
-                            for attempt in 1u32..4 {
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(25 << attempt));
-                                checkpoint = reconnect_mux.create_journal_checkpoint(
-                                    "terminal_host_reconnect",
-                                    &checkpoint_key,
-                                );
-                            }
-                            match checkpoint {
-                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
-                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
-                                    &identity.terminal_id,
-                                    &error,
-                                ),
-                            }
-                        }
+                        // Bytes the host wrote while no daemon tap existed are
+                        // not in the journal: record that gap before any new
+                        // output (surface/journal_reconnect.rs).
+                        pty.journal_host_reconnect_gap(&reconnect_mux);
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,
