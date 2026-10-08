@@ -58,7 +58,7 @@ public struct FirefoxLoginReader {
                 skipped.undecryptable += 1
                 continue
             }
-            guard password.withUnsafeBytes { $0.isValidUTF8 } else {
+            guard password.withUnsafeBytes({ $0.isValidUTF8 }) else {
                 skipped.undecryptable += 1
                 continue
             }

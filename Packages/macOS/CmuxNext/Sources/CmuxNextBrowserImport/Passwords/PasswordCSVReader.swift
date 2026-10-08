@@ -40,7 +40,7 @@ public struct PasswordCSVReader: Sendable {
                 continue
             }
             let password = Self.secret(record[passwordColumn], in: bytes)
-            guard password.withUnsafeBytes { $0.isValidUTF8 } else {
+            guard password.withUnsafeBytes({ $0.isValidUTF8 }) else {
                 skipped.undecryptable += 1
                 continue
             }

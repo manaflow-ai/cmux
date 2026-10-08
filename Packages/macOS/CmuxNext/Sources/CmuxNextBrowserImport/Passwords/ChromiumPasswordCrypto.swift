@@ -45,7 +45,7 @@ public struct ChromiumPasswordCrypto: Sendable {
         guard !body.isEmpty, body.count % kCCBlockSizeAES128 == 0 else { throw .undecryptable }
         let plain = try crypt(CCOperation(kCCDecrypt), body)
         // Chromium saves passwords as UTF-8; anything else is a key that happened to leave valid padding.
-        guard plain.withUnsafeBytes { $0.isValidUTF8 } else { throw .undecryptable }
+        guard plain.withUnsafeBytes({ $0.isValidUTF8 }) else { throw .undecryptable }
         return plain
     }
 
