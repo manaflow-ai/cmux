@@ -120,10 +120,8 @@ fn a_non_loopback_bind_keeps_the_host_and_origin_rules() {
     // from `--ws-allow-host`; address literals pass (a rebound page always
     // sends the domain name it loaded from).
     let mux = Mux::new("ws-rule-wide-bind", SurfaceOptions::default());
-    let access = server::WebSocketAccess {
-        origins: Vec::new(),
-        hosts: vec!["mini.tail1234.ts.net".into()],
-    };
+    let access =
+        server::WebSocketAccess { origins: Vec::new(), hosts: vec!["mini.tail1234.ts.net".into()] };
     let server = server::serve_websocket_with_access(
         mux.clone(),
         "0.0.0.0:0".parse().unwrap(),

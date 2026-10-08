@@ -39988,7 +39988,7 @@ mod tests {
         // an explicit `y` (or the Approve button).
         let mux = Mux::new("pairing-explicit-confirm-test", SurfaceOptions::default());
         let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         let action =
             app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
