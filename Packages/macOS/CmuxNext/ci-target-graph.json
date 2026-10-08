@@ -216,6 +216,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
@@ -272,6 +273,7 @@
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextProcessEnvironment",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -470,6 +472,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDaemon",
+        "CmuxNextProcessEnvironment",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -544,7 +547,10 @@
         "CMUXMobileCore",
         "CmuxTheme"
       ],
-      "reads": []
+      "reads": [
+        "Resources/ghostty/themes/",
+        "schemas/theme/app-theme-vectors.json"
+      ]
     },
     "CmuxNextDictation": {
       "kind": "regular",
@@ -762,6 +768,21 @@
       "reads": [
         "cmux-tui/crates/cmux-app-host/app-test/palette-nav-vectors.json"
       ]
+    },
+    "CmuxNextProcessEnvironment": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextProcessEnvironment",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextProcessEnvironmentTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextProcessEnvironmentTests",
+      "targets": [
+        "CmuxNextProcessEnvironment"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextRemote": {
       "kind": "regular",
@@ -1031,6 +1052,7 @@
       "targets": [
         "CmuxNextCopyMode",
         "CmuxNextDesign",
+        "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
         "CmuxNextWakeups"
