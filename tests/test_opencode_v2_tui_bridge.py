@@ -81,14 +81,23 @@ const deferred = () => {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 };
-const repliesA = { permission: deferred(), form: deferred() };
+const repliesA = { permission: deferred(), form: deferred(), question: deferred() };
 const repliesB = { permission: deferred() };
 const makeLive = (name, environment, replies) => {
   const live = makeContext(name);
   live.location = { directory: `/tmp/${name}` };
   live.ui.router.onChange = (refresh) => { live.refresh = refresh; return () => {}; };
   live.data.listen = (callback) => { live.emit = callback; return () => {}; };
-  live.client = { permission: { reply: async (value) => { replies.permission?.resolve(value); } } };
+  live.client = {
+    permission: { reply: async (value) => { replies.permission?.resolve(value); } },
+    _client: {
+      post: async (request) => {
+        if (request.url === "/question/{requestID}/reply") {
+          replies.question?.resolve({ requestID: request.path.requestID, answers: request.body.answers });
+        }
+      },
+    },
+  };
   live.data.session.form = { reply: async (value, location) => { replies.form?.resolve({ value, location }); } };
   live.environment = environment;
   return live;
@@ -109,14 +118,17 @@ if (permissionA.decision !== undefined) throw new Error("permission reply used t
 const permissionFrame = observed.find((event) => event._opencode_request_id === "perm-a");
 if (permissionFrame?.tool_input?.action !== "edit" || permissionFrame?.tool_input?.resources?.[0] !== "/tmp/a/file") throw new Error("permission request details were dropped from the Feed frame");
 
-liveA.emit({ details: { type: "form.created", data: { sessionID: "child-a", form: { id: "form-a", fields: [{ key: "choice", type: "string", options: [{ label: "yes" }] }] } } } });
+liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-a", fields: [{ key: "choice", type: "string", options: [{ label: "yes" }] }] } } } });
 const formA = await Promise.race([repliesA.form.promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`form reply timed out (${JSON.stringify(observed)})`)), 2000))]);
 if (formA.value.sessionID !== "child-a" || formA.value.formID !== "form-a" || formA.value.answer.choice !== "yes") throw new Error("form reply was not mapped to its owning TUI");
+
+liveA.emit({ details: { type: "question.asked", data: { sessionID: "child-a", id: "question-a", questions: [{ id: "choice", question: "Continue?", options: [{ label: "yes" }] }] } } });
+const questionA = await Promise.race([repliesA.question.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("legacy question reply timed out")), 2000))]);
+if (questionA.requestID !== "question-a" || JSON.stringify(questionA.answers) !== JSON.stringify([["yes"]])) throw new Error("legacy question reply used the wrong TUI contract");
 
 liveB.emit({ details: { type: "session.updated", data: { sessionID: "child-b", info: { id: "child-b", time: { archived: true } } } } });
 
 liveA.ui.router.current = () => fixture.starterClosed.route;
-liveA.refresh?.();
 const beforeClosed = observed.length;
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-closed", action: "edit" } } });
 await new Promise((resolve) => setImmediate(resolve));

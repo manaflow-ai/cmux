@@ -20,6 +20,9 @@ function sessionID(event) {
     data.sessionID,
     data.sessionId,
     data.session_id,
+    data.form?.sessionID,
+    data.form?.sessionId,
+    data.form?.session_id,
     info.sessionID,
     info.sessionId,
     part.sessionID,
@@ -93,11 +96,13 @@ function createOwnership(ctx) {
     }
   }
   return {
-    // Router and tab state are refreshed by their change notifications. Keep
-    // the ownership predicate O(1) on the event path; supported runtimes that
-    // do not expose a notification can call refresh through this explicit
-    // invalidation handle when their route state changes.
-    belongs: (id) => Boolean(id && roots.has(rootFor(ctx, id))),
+    // OpenCode v2.0.21 exposes current()/list() but no stable route-change
+    // notification. Refresh on the event boundary so newly opened sessions
+    // are admitted and a closed starter surface cannot retain ownership.
+    belongs: (id) => {
+      refresh();
+      return Boolean(id && roots.has(rootFor(ctx, id)));
+    },
     refresh,
     dispose: () => disposers.forEach((stop) => { try { stop(); } catch (_) {} }),
   };

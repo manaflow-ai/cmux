@@ -63,6 +63,9 @@ const createCMUXFeed = async (ctx, options = {}) => {
       props.sessionID,
       props.sessionId,
       props.session_id,
+      props.form && props.form.sessionID,
+      props.form && props.form.sessionId,
+      props.form && props.form.session_id,
       info.sessionID,
       info.sessionId,
       part.sessionID,
@@ -195,6 +198,20 @@ const createCMUXFeed = async (ctx, options = {}) => {
   const replyForm = async (sessionId, formId, answer, legacyAnswers = null) => {
     if (disposed || !(await ownsSession(sessionId))) return;
     if (options.tui) {
+      if (legacyAnswers) {
+        if (
+          await tryRawClientRequest("post", {
+            url: "/question/{requestID}/reply",
+            path: { requestID: formId },
+            body: { answers: legacyAnswers },
+          })
+        ) return;
+        const reply = ctx?.client?.question?.reply;
+        if (typeof reply === "function") {
+          await reply.call(ctx.client.question, { requestID: formId, answers: legacyAnswers });
+          return;
+        }
+      }
       await ctx.data.session.form.reply({
         sessionID: sessionId,
         formID: formId,

@@ -305,6 +305,66 @@ await v1Hooks.event({
             )
             return 1
 
+        # A package installed before the ownership marker was introduced must
+        # leave a marker behind when unrelated files prevent full removal.
+        # That marker lets a later install reclaim only cmux's files.
+        extra_file = tui_directory / "user-extra.txt"
+        extra_file.write_text("preserve me", encoding="utf-8")
+        ownership_marker.unlink()
+        uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if uninstall.returncode != 0:
+            print("FAIL: legacy OpenCode plugin uninstall failed")
+            print(f"exit={uninstall.returncode}")
+            print(f"stdout={uninstall.stdout.strip()}")
+            print(f"stderr={uninstall.stderr.strip()}")
+            return 1
+        if not extra_file.exists() or not ownership_marker.exists():
+            print("FAIL: legacy uninstall did not preserve unrelated files and ownership marker")
+            return 1
+        reinstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if reinstall.returncode != 0 or not extra_file.exists():
+            print("FAIL: reinstall after legacy migration did not succeed")
+            print(f"exit={reinstall.returncode}")
+            print(f"stdout={reinstall.stdout.strip()}")
+            print(f"stderr={reinstall.stderr.strip()}")
+            return 1
+
+        # Never follow a user symlink while validating or overwriting the
+        # shared TUI package directory.
+        symlink_root = root / "symlink-config"
+        symlink_directory = symlink_root / "plugins" / "cmux"
+        symlink_directory.mkdir(parents=True)
+        symlink_target = root / "symlink-target.js"
+        symlink_target.write_text("// cmux-opencode-tui-plugin-server-marker v2\n", encoding="utf-8")
+        (symlink_directory / "index.js").symlink_to(symlink_target)
+        symlink_env = env.copy()
+        symlink_env["OPENCODE_CONFIG_DIR"] = str(symlink_root)
+        symlink_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=symlink_env,
+            timeout=20,
+        )
+        if symlink_install.returncode == 0:
+            print("FAIL: installer followed a symlinked OpenCode TUI package file")
+            return 1
+
     print("PASS: generated OpenCode plugin installs and imports as ESM")
     return 0
 

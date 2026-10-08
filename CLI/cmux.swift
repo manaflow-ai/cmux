@@ -34743,8 +34743,17 @@ export default {
         openCodeTUIPluginDirectory(in: configDir).appendingPathComponent(".cmux-owned", isDirectory: false)
     }
 
+    private func openCodeTUIPluginPathIsSymlink(_ url: URL) -> Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    private func openCodeTUIPluginDirectoryIsSymlink(in configDir: URL) -> Bool {
+        openCodeTUIPluginPathIsSymlink(openCodeTUIPluginDirectory(in: configDir))
+    }
+
     private func openCodeTUIPluginFileIsOwned(_ name: String, in directory: URL) -> Bool {
         let url = directory.appendingPathComponent(name, isDirectory: false)
+        guard !openCodeTUIPluginPathIsSymlink(url) else { return false }
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return false }
         switch name {
         case "package.json":
@@ -34763,7 +34772,15 @@ export default {
     private func validateOpenCodeTUIPluginDirectory(in configDir: URL) throws {
         let directory = openCodeTUIPluginDirectory(in: configDir)
         let fileManager = FileManager.default
+        if openCodeTUIPluginDirectoryIsSymlink(in: configDir) {
+            throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+        }
         if fileManager.fileExists(atPath: directory.path) {
+            for name in [".cmux-owned", "package.json", "index.js", "tui.js"] {
+                if openCodeTUIPluginPathIsSymlink(directory.appendingPathComponent(name, isDirectory: false)) {
+                    throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+                }
+            }
             let marked = openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory)
                 || openCodeTUIPluginFileIsOwned("index.js", in: directory)
             guard marked else {
@@ -35001,15 +35018,26 @@ export default {
     private func removeOpenCodeTUIPlugin(in configDir: URL) throws {
         let directory = openCodeTUIPluginDirectory(in: configDir)
         let fileManager = FileManager.default
-        guard openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory)
-                || openCodeTUIPluginFileIsOwned("index.js", in: directory) else { return }
+        if openCodeTUIPluginDirectoryIsSymlink(in: configDir) {
+            throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+        }
+        let markerURL = openCodeTUIPluginOwnershipURL(in: configDir)
+        let markerOwned = openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory)
+        let legacyOwned = openCodeTUIPluginFileIsOwned("index.js", in: directory)
+        guard markerOwned || legacyOwned else { return }
+        if legacyOwned && !markerOwned {
+            guard !openCodeTUIPluginPathIsSymlink(markerURL) else {
+                throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+            }
+            try (Self.openCodeTUIPluginOwnershipMarker + "\n").write(to: markerURL, atomically: true, encoding: .utf8)
+        }
         for name in ["package.json", "index.js", "tui.js"] where openCodeTUIPluginFileIsOwned(name, in: directory) {
             let url = directory.appendingPathComponent(name, isDirectory: false)
             if fileManager.fileExists(atPath: url.path) { try fileManager.removeItem(at: url) }
         }
         let remaining = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         if remaining.count == 1, openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory) {
-            try fileManager.removeItem(at: openCodeTUIPluginOwnershipURL(in: configDir))
+            try fileManager.removeItem(at: markerURL)
         }
         if (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?.isEmpty == true {
             try fileManager.removeItem(at: directory)
