@@ -116,6 +116,11 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var refreshGenerations: [UUID: UInt64] = [:]
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
     @ObservationIgnored private var attachTasks: [String: Task<Void, Never>] = [:]
+    /// Identifies the attach request that currently owns a surface. A canceled
+    /// request can still return from a provider, so its completion and event
+    /// callback must never clear or publish through a newer request.
+    @ObservationIgnored private var attachGenerations: [String: UInt64] = [:]
+    @ObservationIgnored private var nextAttachGeneration: UInt64 = 0
     @ObservationIgnored private var gridBySurface: [String: (columns: Int, rows: Int)] = [:]
     /// Surfaces asked to attach before the phone reported their grid. The
     /// phone owns SSH geometry (PRD D19), so the attach (and its one-shot
@@ -534,7 +539,8 @@ public final class MobileSSHComputers {
     /// returns it to idle. Leaves automatic-connect eligibility to callers.
     private func closeConnection(hostID: UUID) async {
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
-        for surfaceID in attachments.keys where MobileSSHIdentifier(surfaceID).hostID == hostID {
+        let surfaceIDs = Set(attachments.keys).union(attachTasks.keys)
+        for surfaceID in surfaceIDs where MobileSSHIdentifier(surfaceID).hostID == hostID {
             await detach(surfaceID: surfaceID)
         }
         for panelID in browserSessions.keys where MobileSSHIdentifier(panelID).hostID == hostID {
@@ -736,11 +742,25 @@ public final class MobileSSHComputers {
             attachAwaitingGrid.insert(surfaceID)
             return
         }
+        nextAttachGeneration &+= 1
+        let generation = nextAttachGeneration
+        attachGenerations[surfaceID] = generation
         attachTasks[surfaceID] = Task { [weak self] in
             guard let self else { return }
-            defer { self.attachTasks[surfaceID] = nil }
+            defer {
+                if self.attachGenerations[surfaceID] == generation {
+                    self.attachTasks[surfaceID] = nil
+                    // Keep the generation while the live attachment owns the
+                    // surface; its event callback uses the same token.
+                    if self.attachments[surfaceID] == nil {
+                        self.attachGenerations[surfaceID] = nil
+                    }
+                }
+            }
             do {
+                try Task.checkCancellation()
                 let provider = try await self.provider(for: hostID).provider(for: local)
+                try Task.checkCancellation()
                 replayBySurface[surfaceID] = Data()
                 sink?.sshDeliver(Self.replacement(replaying: Data()), surfaceID: surfaceID)
                 let attachment = try await provider.attach(
@@ -748,16 +768,35 @@ public final class MobileSSHComputers {
                     columns: grid.columns,
                     rows: grid.rows
                 ) { [weak self] event in
-                    self?.handle(event, surfaceID: surfaceID)
+                    self?.handle(event, surfaceID: surfaceID, generation: generation)
+                }
+                guard !Task.isCancelled,
+                      self.attachGenerations[surfaceID] == generation,
+                      !self.endedSurfaces.contains(surfaceID) else {
+                    await attachment.detach()
+                    return
                 }
                 attachments[surfaceID] = attachment
                 if let pending = pendingInputBySurface.removeValue(forKey: surfaceID) {
+                    guard !Task.isCancelled,
+                          self.attachGenerations[surfaceID] == generation,
+                          self.attachments[surfaceID] != nil,
+                          !self.endedSurfaces.contains(surfaceID) else { return }
                     await attachment.write(pending)
                 }
+                guard !Task.isCancelled,
+                      self.attachGenerations[surfaceID] == generation,
+                      self.attachments[surfaceID] != nil,
+                      !self.endedSurfaces.contains(surfaceID) else { return }
                 if let latest = gridBySurface[surfaceID], latest != grid {
                     await attachment.resize(columns: latest.columns, rows: latest.rows)
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled,
+                      self.attachGenerations[surfaceID] == generation,
+                      !self.endedSurfaces.contains(surfaceID) else { return }
                 pendingInputBySurface[surfaceID] = nil
                 fail(hostID: hostID, error)
                 sink?.sshDeliver(Self.errorNotice(Self.describe(error)), surfaceID: surfaceID)
@@ -767,6 +806,7 @@ public final class MobileSSHComputers {
 
     private func detach(surfaceID: String) async {
         attachAwaitingGrid.remove(surfaceID)
+        attachGenerations[surfaceID] = nil
         attachTasks.removeValue(forKey: surfaceID)?.cancel()
         sizingTasks[surfaceID] = nil
         if let attachment = attachments.removeValue(forKey: surfaceID) {
@@ -774,7 +814,8 @@ public final class MobileSSHComputers {
         }
     }
 
-    private func handle(_ event: MobileSSHAttachEvent, surfaceID: String) {
+    private func handle(_ event: MobileSSHAttachEvent, surfaceID: String, generation: UInt64) {
+        guard attachGenerations[surfaceID] == generation else { return }
         switch event {
         case .snapshot(let bytes):
             // A server snapshot (cmux-tui vt-state) is history too.
