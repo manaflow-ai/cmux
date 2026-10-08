@@ -128,7 +128,7 @@ declare namespace Cmux {
   type InputModifier = "shift" | "control" | "alt" | "meta"
   type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId; sso_team?: Cmux.TeamId; bound_machine?: string; capabilities?: Array<Cmux.ServerCapability> }
   type InstallId = string
-  type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+  type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
   type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
   type InviteId = string
   type JournalAppendResult = { producer_id: string; sequence: string; event_id: string }

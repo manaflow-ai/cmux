@@ -68,6 +68,8 @@ export default defineConfig({
           GOOGLE_RESTRICTED_SCOPES: "testing",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
+          // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).
+          TEAM_VM_BIND_ENABLED: "1",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
           CLOUD_API_ORIGIN: "https://api.test",

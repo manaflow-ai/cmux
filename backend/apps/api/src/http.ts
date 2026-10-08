@@ -38,6 +38,7 @@ import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
+import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -45,8 +46,8 @@ type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: f
 
 const env = workerEnv as unknown as Env
 
-/** VM install at bind (review P1): a VM token reaches only the cloud.vm.* ops for its own machine. */
-const vmRefused = (p: Principal, op: string) => p.install_kind === "vm" && !op.startsWith("cloud.vm.")
+/** Machine installs (machine-installs.ts): a VM token reaches only its own machine's ops. */
+const vmRefused = (p: Principal, op: string) => machineRefused(p.install_kind, op)
 
 const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   kind: p.kind,
@@ -211,7 +212,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const shape = yield* CurrentPrincipal
         // G8: a cross-team approval answer carries that team's SSO session (approval-route.ts answerPrincipal).
         const principal = yield* Effect.tryPromise({ try: () => answerPrincipal(env, toPrincipal(shape), payload.op, payload.params), catch: unreachable })
-        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
         const notLive = cloudNotLive(def.owner, payload.op)
@@ -377,7 +378,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
         const principal = toPrincipal(yield* CurrentPrincipal)
-        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         const notLive = cloudNotLive(def.owner, payload.op)
@@ -482,7 +483,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           ...(p.display_name ? { display_name: p.display_name } : {}),
           ...(p.sso_team ? { sso_team: p.sso_team } : {}),
           ...(p.stack_session ? { stack_session: p.stack_session } : {}),
-          ...(authed.install_kind === "vm" ? { install_kind: "vm" } : {})
+          ...(isMachineInstallKind(authed.install_kind) ? { install_kind: authed.install_kind } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })
