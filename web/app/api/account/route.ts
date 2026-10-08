@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, not, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, not, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -58,6 +58,8 @@ import {
   assertNoAccountAnalyticsForwardInProgress,
   assertNoAccountDeletionUserMutationInProgress,
   isBlockingAccountDeletionTombstone,
+  isStaleAccountDeletionTombstone,
+  ACCOUNT_DELETION_TOMBSTONE_LEASE_MS,
 } from "../../../services/account/deletionLock";
 import {
   unauthorized,
@@ -74,6 +76,8 @@ import {
 } from "../../../services/coderouter/repository";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import { authorizeCronRequest } from "../../../services/cronAuth";
+import { reportError } from "../../../services/observability/report";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
 import {
@@ -97,6 +101,25 @@ const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
 const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
 const HOSTED_TENANT_DELETE_BATCH_SIZE = 2;
 const HOSTED_TENANT_DELETE_PHASE_TIMEOUT_MS = 20_000;
+// Each resumed deletion repeats idempotent external cleanup (PostHog, Stripe,
+// TestFlight, VM providers, Stack), so one cron run finishes only a few.
+const ACCOUNT_DELETION_RESUME_BATCH_SIZE = 3;
+// attempt_count counts user and cron attempts together. The stuck production
+// rows already carry up to 8 user attempts, so the cap leaves each of them
+// at least 8 hourly cron attempts before it is reported and parked.
+const ACCOUNT_DELETION_RESUME_MAX_ATTEMPTS = 16;
+// Stop starting resumes once a run has used this much of maxDuration.
+const ACCOUNT_DELETION_RESUME_START_BUDGET_MS = 6 * 60 * 1000;
+// Tombstones parked at the retired hosted step.
+const HOSTED_CHECKPOINT_STATUSES = ["hosted_delete_pending", "legacy_delete_pending"] as const;
+// Statuses a live attempt holds and refreshes. Once the lease is stale, the
+// attempt timed out or crashed, and nothing else would ever pick it up.
+const LEASED_ATTEMPT_STATUSES = ["pending", "in_progress", "stack_delete_pending"] as const;
+
+// Three full deletions: each runs PostHog (10 s timeout), Stripe, TestFlight,
+// VM provider teardown, vault object deletion, and Stack calls. Matches the
+// VM route, whose destroy path this reuses.
+export const maxDuration = 600;
 
 type DeletableStackUser = {
   readonly id: string;
@@ -190,7 +213,255 @@ export async function DELETE(request: Request): Promise<Response> {
     userId: stackUser.id,
     originalStackMetadata: stackUser.clientReadOnlyMetadata,
   };
-  const progress: AccountDeletionProgress = {
+  const progress = initialAccountDeletionProgress();
+  try {
+    return await deleteAccount(context, progress);
+  } catch (error) {
+    return await accountDeletionFailureResponse(context, progress, error);
+  }
+}
+
+/**
+ * Vercel Cron entrypoint. Finishes account deletions that stopped at the
+ * hosted Subrouter tenant step without asking the user to request deletion
+ * again. Everything before that step already completed once, and every step
+ * is idempotent, so a resume replays the same path with a server-side Stack
+ * user. The hosted step needs the user's own Stack token, so resumes run only
+ * while hosted Subrouter is not configured (it is retired).
+ */
+export async function GET(request: Request): Promise<Response> {
+  const auth = authorizeCronRequest(request);
+  if (!auth.ok && auth.reason === "cron_secret_missing") {
+    return jsonResponse({ error: "service_unavailable" }, 503);
+  }
+  if (!auth.ok) return jsonResponse({ error: "unauthorized" }, 401);
+  try {
+    return jsonResponse({ ok: true, ...await resumeStalledAccountDeletions() });
+  } catch (error) {
+    logAccountDeleteError("account.delete.resume_failed", error);
+    return jsonResponse({ error: "account_delete_resume_failed" }, 500);
+  }
+}
+
+async function resumeStalledAccountDeletions(): Promise<{
+  readonly resumed: number;
+  readonly completed: number;
+  readonly retryable: number;
+}> {
+  if (hostedSubrouterServiceConfigured()) {
+    return { resumed: 0, completed: 0, retryable: 0 };
+  }
+  const startedAt = Date.now();
+  const staleBefore = new Date(startedAt - ACCOUNT_DELETION_TOMBSTONE_LEASE_MS);
+  const rows = await cloudDb()
+    .select({
+      userId: accountDeletionTombstones.userId,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
+    .from(accountDeletionTombstones)
+    .where(and(
+      isNotNull(accountDeletionTombstones.userId),
+      or(
+        inArray(accountDeletionTombstones.status, [...HOSTED_CHECKPOINT_STATUSES]),
+        and(
+          inArray(accountDeletionTombstones.status, [...LEASED_ATTEMPT_STATUSES]),
+          lt(accountDeletionTombstones.updatedAt, staleBefore),
+        ),
+      ),
+    ))
+    .orderBy(asc(accountDeletionTombstones.updatedAt))
+    .limit(ACCOUNT_DELETION_RESUME_BATCH_SIZE);
+  let completed = 0;
+  let retryable = 0;
+  for (const row of rows) {
+    if (!row.userId || !isResumableTombstone(row)) continue;
+    if (Date.now() - startedAt > ACCOUNT_DELETION_RESUME_START_BUDGET_MS) break;
+    if (await resumeAccountDeletion(row.userId, row.status)) completed += 1;
+    else retryable += 1;
+  }
+  return { resumed: completed + retryable, completed, retryable };
+}
+
+function isResumableTombstone(row: {
+  readonly status: string;
+  readonly updatedAt: Date | null;
+}): boolean {
+  if ((HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(row.status)) return true;
+  return (LEASED_ATTEMPT_STATUSES as readonly string[]).includes(row.status) &&
+    isStaleAccountDeletionTombstone(row.updatedAt);
+}
+
+/**
+ * Returns true once the tombstone is completed. A Stack user that still
+ * exists replays the normal deletion: markAccountDeletionTombstonePending
+ * takes the per-user advisory lock, refuses a tombstone whose lease is live,
+ * and adopts a stale one, and every later step is idempotent.
+ */
+async function resumeAccountDeletion(userId: string, status: string): Promise<boolean> {
+  let stackUser: unknown;
+  try {
+    stackUser = await getStackServerApp().getUser(userId);
+  } catch (error) {
+    logAccountDeleteError("account.delete.resume_stack_lookup_failed", error);
+    return false;
+  }
+  if (!stackUser) return await finishAccountDeletionWithoutStackUser(userId, status);
+  const candidate = stackUser as Partial<DeletableStackUser>;
+  if (typeof candidate.delete !== "function" || typeof candidate.update !== "function") {
+    return false;
+  }
+  const user = stackUser as DeletableStackUser;
+  const context: AccountDeletionContext = {
+    stackUser: user,
+    // Only the hosted tenant step reads the user's token, and resumes run
+    // only while that step is a no-op.
+    accessToken: "",
+    userId,
+    originalStackMetadata: user.clientReadOnlyMetadata,
+  };
+  const progress = initialAccountDeletionProgress();
+  let response: Response;
+  try {
+    response = await deleteAccount(context, progress);
+  } catch (error) {
+    response = await accountDeletionFailureResponse(context, progress, error);
+  }
+  if (response.status === 200) return true;
+  await settleFailedAccountDeletionResume(userId);
+  return false;
+}
+
+/**
+ * A resume that fails on a transient error (Stack 429, provider timeout)
+ * stays resumable until attempt_count reaches the cap. The normal failure
+ * path may have written `failed`; below the cap that becomes a `pending`
+ * tombstone, which the cron adopts once its lease is stale. At the cap the
+ * tombstone is `failed`, which the cron never selects, and Sentry gets a
+ * report. A tombstone held by a live attempt is left alone.
+ */
+async function settleFailedAccountDeletionResume(
+  userId: string,
+  options: { readonly restingStatus?: string } = {},
+): Promise<void> {
+  try {
+    const exhausted = await cloudDb().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+      const userIdHash = accountDeletionUserHash(userId);
+      const [row] = await tx
+        .select({
+          status: accountDeletionTombstones.status,
+          attemptCount: accountDeletionTombstones.attemptCount,
+        })
+        .from(accountDeletionTombstones)
+        .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+        .limit(1)
+        .for("update");
+      if (
+        !row ||
+        !(isRestingResumeFailureStatus(row.status) || row.status === options.restingStatus)
+      ) return null;
+      const now = new Date();
+      if (row.attemptCount >= ACCOUNT_DELETION_RESUME_MAX_ATTEMPTS) {
+        await tx
+          .update(accountDeletionTombstones)
+          .set({
+            status: "failed",
+            updatedAt: now,
+            errorMessage: "account deletion resume attempts exhausted",
+          })
+          .where(eq(accountDeletionTombstones.userIdHash, userIdHash));
+        return { attemptCount: row.attemptCount, lastStatus: row.status };
+      }
+      if (row.status === "failed") {
+        await tx
+          .update(accountDeletionTombstones)
+          .set({ status: "pending", updatedAt: now })
+          .where(eq(accountDeletionTombstones.userIdHash, userIdHash));
+      }
+      return null;
+    });
+    if (exhausted) {
+      reportError(
+        new Error("account deletion resume attempts exhausted"),
+        {
+          operation: "account_deletion_resume",
+          attempt_count: exhausted.attemptCount,
+          last_status: exhausted.lastStatus,
+        },
+        { fingerprint: ["account-deletion-resume-exhausted"] },
+      );
+    }
+  } catch (error) {
+    logAccountDeleteError("account.delete.resume_settle_failed", error);
+  }
+}
+
+function isRestingResumeFailureStatus(status: string): boolean {
+  return status === "failed" ||
+    (HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * The Stack user is gone: removed outside this flow after the tombstone
+ * reached the hosted step, or by this flow just before a crash in the
+ * Stack-delete phase. PostHog, billing, TestFlight, identity, VM, networking,
+ * and vault cleanup already ran in both cases.
+ *
+ * Only the Stack-delete phase also ran deleteCmuxOwnedAccountRows with the
+ * full personal-team scope, so only it can complete here. For a hosted
+ * checkpoint the personal teams can no longer be listed: the user-keyed rows
+ * are still removed, then the tombstone is failed (keeping user_id) and
+ * reported so an operator finishes the team-keyed rows.
+ */
+async function finishAccountDeletionWithoutStackUser(
+  userId: string,
+  status: string,
+): Promise<boolean> {
+  const hostedCheckpoint = (HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(status);
+  if (!hostedCheckpoint && status !== "stack_delete_pending") {
+    await markAccountDeletionTombstoneFailed(
+      userId,
+      new Error("Stack user is gone before pre-Stack cleanup was confirmed"),
+    );
+    return false;
+  }
+  const start = await markAccountDeletionTombstonePending(userId);
+  if (start.kind === "completed") return true;
+  if (start.kind !== "started") return false;
+  try {
+    await finishPostStackAccountCleanup(userId, [userId], {
+      deletePostHogPerson: false,
+    });
+  } catch (error) {
+    logAccountDeleteError("account.delete.resume_cleanup_failed", error);
+    if (hostedCheckpoint) {
+      await markAccountDeletionTombstoneHostedDeletePending(userId);
+      await settleFailedAccountDeletionResume(userId);
+    } else {
+      // Written by this resume under no live attempt (the Stack user is gone),
+      // so the cap applies to it as well.
+      await markAccountDeletionTombstoneStackDeletePending(userId);
+      await settleFailedAccountDeletionResume(userId, {
+        restingStatus: "stack_delete_pending",
+      });
+    }
+    return false;
+  }
+  if (hostedCheckpoint) {
+    const error = new Error("account deletion personal-team scope is unknown after the Stack user was removed");
+    await markAccountDeletionTombstoneFailed(userId, error);
+    reportError(error, { operation: "account_deletion_resume", last_status: status }, {
+      fingerprint: ["account-deletion-resume-team-scope-unknown"],
+    });
+    return false;
+  }
+  await markAccountDeletionTombstoneCompleted(userId);
+  return true;
+}
+
+function initialAccountDeletionProgress(): AccountDeletionProgress {
+  return {
     stackMetadataMarked: false,
     accountDeletionTombstoneStarted: false,
     cmuxOwnedRowsDeleted: false,
@@ -200,11 +471,6 @@ export async function DELETE(request: Request): Promise<Response> {
     destroyedVms: 0,
     restoreBillingEntitlementsOnFailure: true,
   };
-  try {
-    return await deleteAccount(context, progress);
-  } catch (error) {
-    return await accountDeletionFailureResponse(context, progress, error);
-  }
 }
 
 async function deleteAccount(
@@ -225,15 +491,7 @@ async function deleteAccount(
   // introduce a second validation failure after destructive work begins.
   const postHogDeletionConfig = postHogPersonDeletionConfig();
   const accountScope = await accountDeletionScopeForUser(stackUser);
-  const legacyTenantIds = await legacySubrouterTenantIdsForTeams(
-    accountScope.teamIds,
-  );
-  const hostedSubrouterDeletionRequired = shouldDeleteHostedSubrouterTenants({
-    clientConfigured: hostedSubrouter.tenantControlConfigured,
-    hostedDeletionStarted: tombstoneStart.hostedSubrouterDeletionStarted,
-    completedTeamIds: tombstoneStart.hostedSubrouterDeletedTeamIds,
-    legacyTenantIds,
-  });
+  const hostedSubrouterDeletionRequired = hostedSubrouterServiceConfigured();
   if (hostedSubrouterDeletionRequired) {
     hostedSubrouter.assertTenantDeletionConfigured();
   }
@@ -550,36 +808,15 @@ async function accountDeletionPushDeliveryInProgressResponse(
   );
 }
 
-async function legacySubrouterTenantIdsForTeams(
-  teamIds: readonly string[],
-): Promise<readonly string[]> {
-  if (teamIds.length === 0) return [];
-  const rows = await cloudDb()
-    .select({ tenantId: subrouterTenants.tenantId })
-    .from(subrouterTenants)
-    .where(inArray(subrouterTenants.teamId, teamIds));
-  return uniqueNonEmptyStrings(rows.map((row) => row.tenantId));
-}
-
-function shouldDeleteHostedSubrouterTenants(input: {
-  readonly clientConfigured: boolean;
-  readonly hostedDeletionStarted: boolean;
-  readonly completedTeamIds: readonly string[];
-  readonly legacyTenantIds: readonly string[];
-}): boolean {
-  const docsDeployment =
-    process.env.CMUX_DOCS_CHANNEL === "release" ||
-    process.env.CMUX_DOCS_CHANNEL === "nightly";
-  const managedDeployment =
-    process.env.VERCEL === "1" &&
-    process.env.VERCEL_ENV !== "preview" &&
-    !docsDeployment;
-  return input.clientConfigured ||
-    input.hostedDeletionStarted ||
-    input.completedTeamIds.length > 0 ||
-    input.legacyTenantIds.length > 0 ||
-    managedDeployment ||
-    Boolean(process.env.SUBROUTER_HOSTED_URL?.trim());
+/**
+ * Hosted Subrouter tenant deletion runs only while a deployment names the
+ * service. The hosted deployments (sr.cmux.com, staging.sr.cmux.com) were
+ * retired on 2026-09-30, and a deployment without SUBROUTER_HOSTED_URL has no
+ * tenant to delete, so the step completes as a no-op. A named service with a
+ * missing control token still fails closed before any mutation.
+ */
+function hostedSubrouterServiceConfigured(): boolean {
+  return Boolean(process.env.SUBROUTER_HOSTED_URL?.trim());
 }
 
 async function deleteHostedSubrouterTenantsForAccount(input: {

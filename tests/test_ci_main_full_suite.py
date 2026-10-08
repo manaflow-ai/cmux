@@ -171,6 +171,23 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(plan("success", False, False), "none")
         self.assertEqual(plan("cancelled", True, False), "none")
 
+    def test_a_repeat_red_run_edits_its_last_report(self):
+        jobs = [{"name": "macos / packages"}]
+        failures = [{"kind": "test", "file": "Foo.swift", "line": 3, "test": "FooTests.testBar"}]
+        signature = MODULE.red_signature(jobs, failures)
+        body = MODULE.failure_body(run(), jobs, "", failures, signature)
+        bot = {"id": 5, "user": {"login": "github-actions[bot]"}, "body": body}
+        self.assertEqual(MODULE.repeat_report([bot], signature), 5)
+        # Different failures, a human reply after it, or a lookalike from someone else post anew.
+        other = MODULE.red_signature(jobs, [{**failures[0], "test": "FooTests.testBaz"}])
+        self.assertNotEqual(other, signature)
+        self.assertIsNone(MODULE.repeat_report([bot], other))
+        self.assertIsNone(MODULE.repeat_report([bot, {"id": 6, "user": {"login": "leo"}, "body": "on it"}], signature))
+        self.assertIsNone(MODULE.repeat_report([{**bot, "user": {"login": "someone"}}], signature))
+        self.assertIsNone(MODULE.repeat_report([], signature))
+        # The signature ignores the run, so the next run of the same failures matches.
+        self.assertEqual(MODULE.red_signature(list(jobs), list(failures)), signature)
+
     def test_failure_body_lists_failing_jobs_and_run(self):
         jobs = MODULE.failing_jobs([
             {"name": "macos / app-host (1)", "conclusion": "failure", "html_url": "https://x/1"},
@@ -183,6 +200,28 @@ class ReportTests(unittest.TestCase):
         self.assertIn("macos / app-host (1)", body)
         self.assertIn("macos / packages", body)
         self.assertNotIn("app-host (2)", body)
+
+    def test_failure_body_lists_concrete_failures_and_the_data_prs_read(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import classify_failures
+
+        failures = [
+            {**classify_failures.failure("compile", "Sources/AppDelegate.swift", 20553,
+                                         message="cannot find type 'UpdateRelaunchBlockers' in scope"),
+             "job": "macos / macOS compile admission"},
+            {**classify_failures.failure("test", "CloudTreeOneMachineManyWorkspacesTests.swift", 212, "keeps rows",
+                                         "Expectation failed"), "job": "macos / app-host unit tests (2/7)"},
+        ]
+        body = MODULE.failure_body(run(html_url="https://run/1"), [], "", failures)
+        self.assertIn("Failures in the job logs:", body)
+        self.assertIn("- compile error in `Sources/AppDelegate.swift:20553` "
+                      "`cannot find type 'UpdateRelaunchBlockers' in scope` (macos / macOS compile admission)", body)
+        self.assertIn("- `CloudTreeOneMachineManyWorkspacesTests.swift:212` `keeps rows`", body)
+        data = classify_failures.parse_main_failures([body])
+        self.assertEqual(data["keys"], sorted(classify_failures.failure_key(f) for f in failures))
+        # A red run whose logs named nothing still records that, so a PR does not match a stale list.
+        self.assertEqual(classify_failures.parse_main_failures([MODULE.failure_body(run(), [], "", [])])["keys"], [])
+        self.assertNotIn("cmux-main-failures", MODULE.failure_body(run(), []))
 
     def test_failure_body_carries_the_attribution_section(self):
         body = MODULE.failure_body(run(), [], "### New since `abc`\n\nrow\n")

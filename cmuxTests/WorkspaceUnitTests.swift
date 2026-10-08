@@ -176,6 +176,31 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         }
     }
 
+    func testSolidFillDarkModeRowUsesChosenColorWhenBrighteningDisabled() {
+        let customHex = "#0E151B"
+        let brightened = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: customHex,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        XCTAssertNotEqual(brightened.color?.hexString(), customHex)
+
+        let unchanged = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: customHex,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil,
+            brightenInDarkMode: false
+        )
+        XCTAssertEqual(unchanged.color?.hexString(), customHex)
+        XCTAssertEqual(unchanged.opacity, brightened.opacity, accuracy: 0.001)
+    }
+
     func testInactiveWindowSelectionIsNeutralAndIncreaseContrastIsStronger() {
         for scheme in [ColorScheme.light, .dark] {
             let key = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: false)
@@ -2435,6 +2460,68 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
     }
 
+    func testSettingsFileStoreResolvesWorkspaceColorsBrightenInDarkMode() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceColors.brightenInDarkMode.userDefaultsKey
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "brightenInDarkMode": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+
+        // A non-boolean value is rejected, so the setting reverts to its default.
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "brightenInDarkMode": "no"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
@@ -4240,6 +4327,34 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
 
         XCTAssertNotEqual(rendered.hexString(), originalHex)
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+    }
+
+    func testDisplayColorDarkModeKeepsOriginalHexWhenBrighteningDisabled() {
+        XCTAssertTrue(SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue)
+        let originalHex = "#0E151B"
+        let rendered = WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .dark,
+            brightenInDarkMode: false
+        )
+
+        XCTAssertEqual(rendered?.hexString(), originalHex)
+    }
+
+    func testDisplayColorForceBrightStillBrightensWhenDarkModeBrighteningDisabled() {
+        let originalHex = "#1A5276"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark,
+                  forceBright: true,
+                  brightenInDarkMode: false
+              ) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
     }
 }

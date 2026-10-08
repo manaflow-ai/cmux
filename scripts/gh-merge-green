@@ -1,5 +1,6 @@
 #!/bin/bash
 # gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
 set -Eeuo pipefail
@@ -48,6 +49,64 @@ while [ -L "$script_path" ]; do
 done
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
 
+warn_checkout() {
+  printf 'warning: %s\n%s\n' "$1" "$repair_note" >&2
+}
+
+maybe_update_checkout() {
+  [ "${GH_MERGE_GREEN_NO_AUTO_UPDATE:-0}" = 1 ] && return 0
+  local checkout_root branch status current origin_main new_script
+  if ! checkout_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null); then
+    return 0
+  fi
+  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=all 2>/dev/null); then
+    warn_checkout "cannot inspect helper checkout $checkout_root; not auto-updating"
+    return 0
+  fi
+  if [ -n "$status" ]; then
+    warn_checkout "helper checkout $checkout_root is dirty; not auto-updating (commit or stash its changes)"
+    return 0
+  fi
+  if ! branch=$(git -C "$checkout_root" branch --show-current 2>/dev/null) || [ "$branch" != main ]; then
+    warn_checkout "helper checkout $checkout_root is not on main; not auto-updating"
+    return 0
+  fi
+  if ! git -C "$checkout_root" fetch --quiet origin main 2>/dev/null; then
+    warn_checkout "could not fetch origin/main for helper checkout $checkout_root; not auto-updating"
+    return 0
+  fi
+  if ! current=$(git -C "$checkout_root" rev-parse HEAD 2>/dev/null) ||
+     ! origin_main=$(git -C "$checkout_root" rev-parse refs/remotes/origin/main 2>/dev/null); then
+    warn_checkout "helper checkout $checkout_root has no readable origin/main; not auto-updating"
+    return 0
+  fi
+  [ "$current" = "$origin_main" ] && return 0
+  if git -C "$checkout_root" merge-base --is-ancestor "$current" "$origin_main" 2>/dev/null; then
+    if ! git -C "$checkout_root" merge --ff-only "$origin_main" >/dev/null 2>&1; then
+      warn_checkout "helper checkout $checkout_root could not fast-forward to origin/main; not auto-updating"
+      return 0
+    fi
+    new_script="$checkout_root/scripts/gh-merge-green"
+    if [ ! -x "$new_script" ]; then
+      warn_checkout "updated helper checkout $checkout_root has no executable scripts/gh-merge-green; not re-executing"
+      return 0
+    fi
+    GH_MERGE_GREEN_NO_AUTO_UPDATE=1 exec "$new_script" "$@"
+  fi
+  if git -C "$checkout_root" merge-base --is-ancestor "$origin_main" "$current" 2>/dev/null; then
+    warn_checkout "helper checkout $checkout_root is ahead of origin/main; not auto-updating"
+  else
+    warn_checkout "helper checkout $checkout_root has diverged from origin/main; not auto-updating"
+  fi
+}
+
+maybe_update_checkout "$ref" "$@"
+
+# --revert: one-command rollback. The revert PR lands through this same tool.
+if [ "$ref" = --revert ]; then
+  exec python3 "$script_dir/ci/revert_pr.py" "$@"
+fi
+
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
@@ -85,6 +144,27 @@ if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels 2>/dev/null); then
+  refuse \
+    "not green: cannot read $ref" \
+    'check the repository, pull request number, GitHub login, and network access'
+fi
+if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
+  refuse \
+    "not green: GitHub returned invalid metadata for $ref" \
+    'retry after GitHub returns headRefOid and baseRefName'
+fi
+IFS=$'\t' read -r sha base <<<"$fields"
+if [ -z "$sha" ] || [ -z "$base" ]; then
+  refuse \
+    "not green: GitHub metadata for $ref has no head SHA or base branch" \
+    'refresh the pull request metadata and retry'
+fi
+if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
+  refuse \
+    'exploration PR, needs a decision from Leo or the team before merging.' \
+    'remove the exploration label only after Leo or the team decides to merge'
+fi
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
@@ -114,25 +194,9 @@ if [ "$fix" -eq 1 ]; then
   exit 0
 fi
 
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName 2>/dev/null); then
-  refuse \
-    "not green: cannot read $ref" \
-    'check the repository, pull request number, GitHub login, and network access'
-fi
-if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
-  refuse \
-    "not green: GitHub returned invalid metadata for $ref" \
-    'retry after GitHub returns headRefOid and baseRefName'
-fi
-IFS=$'\t' read -r sha base <<<"$fields"
-if [ -z "$sha" ] || [ -z "$base" ]; then
-  refuse \
-    "not green: GitHub metadata for $ref has no head SHA or base branch" \
-    'refresh the pull request metadata and retry'
-fi
-
 # Require aggregate checks only when their workflow exists on the base. Otherwise
 # every reported exact-head check and status context must be completed successfully.
+workflow_response=''
 workflow_on_base() {
   local file="$1" response
   # A missing optional workflow is a normal negative result.  Disable the
@@ -144,6 +208,7 @@ workflow_on_base() {
   status=$?
   trap on_error ERR
   if [ "$status" -eq 0 ]; then
+    workflow_response="$response"
     return 0
   fi
   if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
@@ -154,15 +219,39 @@ workflow_on_base() {
     'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
 }
 
+# ci-status is required only when ci.yml or ci-macos.yml defines that job;
+# a ci.yml with only other jobs (bonsplit's `tests`) gets the all-checks path. Fails closed: a body that is missing, too large for the
+# contents API, or unreadable still requires ci-status.
+reports_ci_status() {
+  python3 -c '
+import base64, json, re, sys
+raw = sys.stdin.read()
+body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+try:
+    data = json.loads(body[1])
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
+except Exception:
+    sys.exit(0)
+if not text.strip():
+    sys.exit(0)
+sys.exit(0 if re.search(r"(?m)^\s+[\x22\x27]?ci-status[\x22\x27]?\s*:", text) else 1)
+' <<<"$workflow_response"
+}
+
 has_ci=0
 has_app_compile=0
-if workflow_on_base ci.yml; then has_ci=1; fi
-if workflow_on_base ci-macos.yml; then has_app_compile=1; fi
+if workflow_on_base ci.yml && reports_ci_status; then has_ci=1; fi
+if workflow_on_base ci-macos.yml; then
+  has_app_compile=1
+  if reports_ci_status; then has_ci=1; fi
+fi
 must=()
+excuse_runs=()
+red_lanes=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
-# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
-# Require it only if it was scheduled or the diff touches app code.
+# Use a conservative path fallback until the exact-head CI routing is available.
+needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
@@ -171,7 +260,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       'restore GitHub API access, then retry the exact-head check'
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
-    must+=("macos / macOS compile admission")
+    needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
@@ -186,11 +275,192 @@ if ! runs=$(jq -r '
   | last
   | [.name,.status,(.conclusion // "")]
   | @tsv
-' <<<"$check_runs_json" 2>/dev/null); then
+  ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
+
+# CI's package graph can exclude iOS-only Swift changes that the path fallback
+# includes. Accept an explicit skip only from GitHub Actions in the same suite
+# as the latest successful ci-status. Missing or unrelated routing stays closed.
+# A reported compile-admission check is still required below, even with a skip.
+if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
+  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+   | group_by(.name) | map(last)) as $latest
+  | ($latest[] | select(.name == "ci-status")) as $ci
+  | $ci.status == "completed" and $ci.conclusion == "success"
+    and $ci.app.slug == "github-actions" and $ci.check_suite.id != null
+    and any($latest[];
+      .name == "macos" and .status == "completed" and .conclusion == "skipped"
+      and .app.slug == "github-actions" and .check_suite.id == $ci.check_suite.id)
+' <<<"$check_runs_json" >/dev/null 2>&1; then
+  must+=("macos / macOS compile admission")
+fi
+
+# God-file, localization and concurrency lint fail only on the change itself, so
+# they are never waived: --override is for base-red or flaky lanes. Any such
+# check reported on the exact head must complete green, with or without it.
+while IFS=$'\t' read -r name st co; do
+  [ -n "$name" ] || continue
+  lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+  [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]] || continue
+  if [ "$st" != completed ]; then
+    refuse \
+      "not green: '$name' is $st/$co on $sha; --override cannot bypass god-file, l10n or concurrency lint" \
+      "wait for '$name' to complete on the exact head, then retry"
+  fi
+  case "$co" in
+    success|neutral|skipped) ;;
+    *)
+      refuse \
+        "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint" \
+        "fix what '$name' reports on the exact head, then retry"
+      ;;
+  esac
+done <<<"$runs"
+
+# Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
+# workflow. Its Release and native app checks are separate check runs, so the
+# legacy ci-status job on that branch cannot stand in for them. Require each
+# one that reported on this exact head; a skipped lane remains a passing
+# conclusion, while a pending or red lane blocks the merge.
+if [ "$base" = feat-cmux-next ]; then
+  # A check run that has not been created yet (native jobs still queued behind
+  # the Linux lanes) or a rerun after a runner loss leaves the old verdict in
+  # place, so also wait for every cmux-next.yml run on this exact head to finish.
+  # --override cannot bypass this: a pending run has no verdict to waive.
+  if ! next_runs_json=$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?head_sha=$sha&per_page=20" 2>/dev/null) \
+    || ! next_pending=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)[]
+      | select(.head_sha == null or .head_sha == $sha)
+      | select(.status != "completed")
+      | "\(.id) attempt \(.run_attempt // 1) is \(.status)"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot read cmux-next workflow runs for $sha" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
+  if [ -n "$next_pending" ]; then
+    refuse \
+      "not green: cmux-next run still pending on $sha ($(tr '\n' ';' <<<"$next_pending" | sed 's/;$//')); --override cannot bypass a run that has not finished" \
+      "wait for the cmux-next workflow run to complete on the exact head, then retry"
+  fi
+  # A cancelled run is completed too: heads merged between cancelling stale runs
+  # and rerunning them (#17653, #18079, #18080, #18083) with no native job run.
+  # Routing skips happen inside a run that concludes success, so the newest run
+  # per event must succeed. A failed run is a red lane --override may waive;
+  # one cancelled, skipped or timed out has no verdict to waive.
+  if ! next_verdicts=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)
+      | map(select(.head_sha == null or .head_sha == $sha))
+      | group_by(.event // "")[]
+      | max_by(.id)
+      | "\(.id) attempt \(.run_attempt // 1) (\(.event // "unknown")) is \(.conclusion // "unknown")"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot parse cmux-next workflow runs for $sha" \
+      'retry after GitHub returns valid workflow run metadata'
+  fi
+  # No run is fine only for a pull request outside the workflow's pull_request
+  # paths filter; ci-status on the exact head still gates it. A change the filter
+  # covers gets a run, so none yet means GitHub has not created it (#18100 merged
+  # seconds after a push). Read the filter from this head and fail closed.
+  if [ -z "$next_verdicts" ]; then
+    if ! next_workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$sha" \
+        -H 'Accept: application/vnd.github.raw' 2>/dev/null) || [ -z "$next_workflow" ] \
+      || ! next_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+      refuse \
+        "not green: no cmux-next run on $sha, and its paths filter or changed files cannot be read" \
+        'restore GitHub API access, then retry the exact-head check'
+    fi
+    if ! next_covered=$(python3 -c '
+import re, sys
+def pull_request_paths(text):
+    # The on.pull_request.paths list, by indentation; the workflow is ours.
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"^\s+pull_request:\s*$", line):
+            base = len(line) - len(line.lstrip())
+            paths, in_paths = [], False
+            for line in lines[i + 1:]:
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                indent = len(line) - len(line.lstrip())
+                if indent <= base:
+                    break
+                if re.match(r"^\s+paths:\s*$", line):
+                    in_paths = True
+                    continue
+                item = re.match(r"^\s+-\s+(.+?)\s*$", line)
+                if in_paths and item:
+                    paths.append(item.group(1).strip("\"\x27"))
+                elif in_paths and not item:
+                    in_paths = False
+            return paths
+    return None
+def glob(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+paths = pull_request_paths(open(sys.argv[1]).read())
+if not paths:
+    sys.exit(2)
+rules = [(p.startswith("!"), glob(p.lstrip("!"))) for p in paths]
+for name in open(sys.argv[2]).read().split():
+    included = False
+    for negated, rule in rules:
+        if rule.match(name):
+            included = not negated
+    if included:
+        print(name)
+' <(printf '%s' "$next_workflow") <(printf '%s\n' "$next_files") 2>/dev/null); then
+      refuse \
+        "not green: no cmux-next run on $sha, and its pull_request paths filter cannot be parsed" \
+        'check .github/workflows/cmux-next.yml on the exact head, then retry'
+    fi
+    if [ -n "$next_covered" ]; then
+      refuse \
+        "not green: no cmux-next run on $sha yet, but it changes paths the workflow covers ($(head -n 3 <<<"$next_covered" | tr '\n' ' ' | sed 's/ $//')); --override cannot bypass a run that does not exist" \
+        "wait for GitHub to create and finish the cmux-next run on the exact head, then retry"
+    fi
+  fi
+  while IFS= read -r verdict; do
+    [ -n "$verdict" ] || continue
+    case "$verdict" in
+      *" is success") ;;
+      *" is failure")
+        # Judged below: a failure the base branch also has is excused.
+        if [ -z "$override_reason" ]; then
+          excuse_runs+=(--run "${verdict%% *}")
+          red_lanes+=("cmux-next run $verdict")
+        fi
+        ;;
+      *)
+        refuse \
+          "not green: cmux-next run $verdict on $sha; its native jobs did not all run, and --override cannot bypass that" \
+          "rerun the cmux-next workflow on the exact head and wait for it to succeed, then retry"
+        ;;
+    esac
+  done <<<"$next_verdicts"
+  for next_check in \
+    "cmux-next Release compile (Xcode 26)" \
+    "cmux app scheme compile (Debug)" \
+    "cmux-next swift test"; do
+    if awk -F '\t' -v expected="$next_check" '$1 == expected { found = 1 } END { exit !found }' <<<"$runs"; then
+      must+=("$next_check")
+    fi
+  done
+fi
+
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
   for required in "${must[@]}"; do
@@ -215,11 +485,19 @@ if [ "$has_ci" -eq 0 ]; then
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
-    if [ "$st" != completed ] || [ "$co" != success ]; then
+    if [ "$st" != completed ]; then
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
-        "wait for or repair '$name'; every reported exact-head check must succeed without the aggregate workflow"
+        "wait for or repair '$name'; every reported exact-head check must complete without the aggregate workflow"
     fi
+    case "$co" in
+      success|neutral|skipped) ;;
+      *)
+        refuse \
+          "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+          "wait for or repair '$name'; success, neutral, and skipped pass without the aggregate workflow"
+        ;;
+    esac
   done <<<"$all_verdicts"
   [ "$reported" -gt 0 ] || refuse \
     "not green: no checks have reported on $sha" \
@@ -240,27 +518,38 @@ for name in "${must[@]+"${must[@]}"}"; do
     [ "$name" = ci-status ] && fix='wait for CI to complete on the pull request head, then retry the exact-head check'
     refuse "not green: '$name' is $st/$co on $sha" "$fix"
   fi
-  if [ "$co" != success ]; then
-    case "$co" in
-      failure|timed_out|cancelled|action_required|startup_failure|stale)
-        bad_required+=("$name")
-        ;;
-      *)
-        refuse \
-          "not green: '$name' has non-verdict conclusion $co on $sha" \
-          'rerun CI until the required check reports success or a completed red verdict'
-        ;;
-    esac
-  fi
+  case "$co" in
+    success|neutral|skipped) ;;
+    failure|timed_out|cancelled|action_required|startup_failure|stale)
+      bad_required+=("$name")
+      ;;
+    *)
+      refuse \
+        "not green: '$name' has non-verdict conclusion $co on $sha" \
+        'rerun CI until the required check reports success, neutral, skipped, or a completed red verdict'
+      ;;
+  esac
 done
-if [ "${#bad_required[@]}" -gt 0 ] && [ -z "$override_reason" ]; then
-  for name in "${bad_required[@]}"; do
-    fix="repair '$name' on the exact head, then retry"
-    if [ "$name" = ci-status ]; then
-      fix='repair CI for the pull request head, then retry the exact-head check'
-    fi
-    refuse "not green: '$name' is not successful on $sha" "$fix"
+# A red lane that fails the same way on the base branch's latest completed run
+# (same failed steps, test names and error lines) is excused and named; any
+# failure the base does not have, and any runner refusal, still blocks.
+if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excuse_runs[@]}" -gt 0 ]; }; then
+  excuse_args=("${excuse_runs[@]+"${excuse_runs[@]}"}")
+  for name in "${bad_required[@]+"${bad_required[@]}"}"; do
+    excuse_args+=(--check "$name")
+    red_lanes+=("'$name'")
   done
+  excuse_errors=$(mktemp)
+  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+      "${excuse_args[@]}" 2>"$excuse_errors"); then
+    why=$(cat "$excuse_errors")
+    rm -f "$excuse_errors"
+    refuse \
+      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (${why:-the base comparison failed})" \
+      "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
+  fi
+  rm -f "$excuse_errors"
+  printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
 if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi

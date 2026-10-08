@@ -29,9 +29,9 @@ struct AgentFeedActions {
     var filterChanged: @MainActor (AgentFeedFilter) -> Void = { _ in }
 }
 
-/// The one visual family every Feed action shares: native bordered controls
-/// with a compact rounded-rectangle shape. Primary uses the accent, neutral
-/// stays quiet, and destructive uses the system destructive tint.
+/// The one visual family every Feed action shares: compact social-feed pills
+/// with full-size hit regions. Primary uses the accent, neutral stays quiet,
+/// and destructive uses the system destructive tint.
 enum AgentFeedActionRole: Equatable {
     case primary
     case neutral
@@ -69,44 +69,50 @@ struct AgentFeedActionButton: View {
     }
 
     var body: some View {
-        Group {
-            if role == .primary {
-                button
-                    .buttonStyle(.borderedProminent)
-            } else {
-                button
-                    .buttonStyle(.bordered)
-            }
-        }
-        .tint(role.tint)
-        .controlSize(.regular)
-        .buttonBorderShape(.roundedRectangle(radius: 9))
-    }
-
-    private var button: some View {
         Button(role: role.buttonRole, action: action) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(role.tint)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(height: 32)
+                .background(background, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(role.tint.opacity(0.22), lineWidth: 1)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-        .frame(height: 44)
         .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    }
+
+    private var background: Color {
+        switch role {
+        case .primary: return Color.accentColor.opacity(0.16)
+        case .neutral: return Color.secondary.opacity(0.10)
+        case .destructive: return Color.red.opacity(0.12)
+        }
     }
 }
 
-/// The overflow menu label is a fourth action button, not a small trailing
-/// chip. Keeping its label flexible lets the surrounding action row give all
-/// four controls the same rectangle.
+/// Shares the action row's compact capsule and full-height touch target.
 struct AgentFeedOverflowMenuLabel: View {
     var body: some View {
         Image(systemName: "ellipsis")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .frame(height: 32)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
     }
 }
 
@@ -140,7 +146,7 @@ struct AgentFeedRow: View, Equatable {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             avatar
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 authorLine
                 if let quoted = model.presentation.quotedUserMessage {
                     quotedMessage(quoted)
@@ -345,7 +351,7 @@ struct AgentFeedRow: View, Equatable {
     /// the user's own words, secondary gray for the agent's.
     private func bubbleQuote(_ message: String, lineLimit: Int, sender: BubbleSender) -> some View {
         let tint: Color = sender == .user ? .accentColor : .secondary
-        return bubbleSide(
+        return HStack(spacing: 0) {
             bubbleContentPadding(
                 AgentFeedMarkdownText(
                     markdown: message,
@@ -357,12 +363,13 @@ struct AgentFeedRow: View, Equatable {
                 sender: sender,
                 vertical: 7
             )
+            .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(
                 AgentFeedBubbleShape(tailEdge: sender.tailEdge)
                     .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-            ),
-            sender: sender
-        )
+            )
+        }
+        .padding(.horizontal, 4)
     }
 
     private func barQuote(_ message: String) -> some View {
@@ -412,7 +419,6 @@ struct AgentFeedRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .disabled(isReplyPending || model.item.userReply != nil)
-        .padding(.top, 2)
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
     }
 
@@ -678,12 +684,9 @@ private struct AgentFeedDecisionControls: View {
             } label: {
                 AgentFeedOverflowMenuLabel()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .buttonBorderShape(.roundedRectangle(radius: 9))
-            .tint(.white.opacity(0.9))
+            .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .frame(minHeight: 44)
             .accessibilityIdentifier("MobileAgentFeedPermissionMore")
             .accessibilityLabel(String(
                 localized: "mobile.agentFeed.permission.moreOptions",
@@ -751,12 +754,9 @@ private struct AgentFeedExitPlanControls: View {
                 } label: {
                     AgentFeedOverflowMenuLabel()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .buttonBorderShape(.roundedRectangle(radius: 9))
-                .tint(.white.opacity(0.9))
+                .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(minHeight: 44)
                 .accessibilityIdentifier("MobileAgentFeedExitPlanMore")
                 .accessibilityLabel(String(
                     localized: "mobile.agentFeed.exitPlan.moreModes",
@@ -802,446 +802,6 @@ private struct AgentFeedExitPlanControls: View {
                 )
             ),
         ]
-    }
-}
-
-/// One question at a time, with native horizontal paging when a request has
-/// multiple prompts. Each option is an independent, full-width control so the
-/// answer surface stays readable inside a feed row.
-private struct AgentFeedQuestionControls: View {
-    let item: MobileAgentFeedItem
-    let isReplyPending: Bool
-    let actions: AgentFeedActions
-    @State private var selectedOptionIDsByQuestion: [String: Set<String>] = [:]
-    @State private var customTextByQuestion: [String: String] = [:]
-    @State private var pageIndex = 0
-    /// Natural height of each question page. The horizontal scroll track uses
-    /// the current page's height so a short page does not leave a large blank
-    /// block under its controls.
-    @State private var pageHeights: [Int: CGFloat] = [:]
-    @State private var scrolledPage: Int? = 0
-    @State private var editingCustomAnswerForQuestionID: String?
-    @FocusState private var focusedCustomAnswerQuestionID: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var questions: [MobileAgentFeedQuestion] {
-        return item.questions
-    }
-
-    private var isPaged: Bool { questions.count > 1 }
-
-    private var canSubmitAll: Bool {
-        AgentFeedQuestionAnswerDraft.answers(
-            for: questions,
-            drafts: drafts
-        ) != nil
-    }
-
-    private var drafts: [String: AgentFeedQuestionAnswerDraft] {
-        Dictionary(uniqueKeysWithValues: questions.map { question in
-            (
-                question.id,
-                AgentFeedQuestionAnswerDraft(
-                    selectedOptionIDs: selectedOptionIDsByQuestion[question.id] ?? [],
-                    customText: customTextByQuestion[question.id] ?? ""
-                )
-            )
-        })
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if isPaged {
-                pagerHeader
-                questionPager
-                pagerFooter
-            } else if let question = questions.first {
-                questionPage(question, index: 0)
-                submitButton(title: String(
-                    localized: "mobile.agentFeed.question.send",
-                    defaultValue: "Send",
-                    bundle: .module
-                ))
-            }
-        }
-        .disabled(isReplyPending)
-        .onAppear {
-            pageIndex = min(pageIndex, max(questions.count - 1, 0))
-            scrolledPage = pageIndex
-        }
-        .onChange(of: item.id) { _, _ in
-            pageIndex = 0
-            scrolledPage = 0
-            pageHeights = [:]
-            selectedOptionIDsByQuestion = [:]
-            customTextByQuestion = [:]
-            editingCustomAnswerForQuestionID = nil
-        }
-        .onChange(of: scrolledPage) { _, newValue in
-            guard let newValue, !questions.isEmpty else { return }
-            let clamped = min(max(newValue, 0), questions.count - 1)
-            if pageIndex != clamped {
-                pageIndex = clamped
-            }
-        }
-    }
-
-    /// A real horizontal scroll track gives the user continuous finger
-    /// tracking and native paging. `TabView(.page)` was fighting the row's
-    /// dynamic height and snapping back after an interrupted swipe.
-    private var questionPager: some View {
-        GeometryReader { geometry in
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
-                        questionPage(question, index: index)
-                            .frame(width: geometry.size.width, alignment: .top)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .allowsHitTesting(index == pageIndex)
-                            .accessibilityHidden(index != pageIndex)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                                guard pageHeights[index] != height else { return }
-                                pageHeights[index] = height
-                            }
-                            .id(index)
-                    }
-                }
-                .scrollTargetLayout()
-            }
-            .scrollTargetBehavior(.paging)
-            .scrollIndicators(.hidden)
-            .scrollPosition(id: $scrolledPage)
-            .scrollDisabled(isReplyPending)
-        }
-        .frame(height: max(pageHeights[pageIndex] ?? 180, 120))
-        .clipped()
-    }
-
-    private var pagerHeader: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(String(
-                    format: L10n.string(
-                        "mobile.agentFeed.question.progress",
-                        defaultValue: "Question %lld of %lld",
-                        bundle: .module
-                    ),
-                    Int64(pageIndex + 1),
-                    Int64(questions.count)
-                ))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Text(String(
-                    format: L10n.string(
-                        "mobile.agentFeed.question.answered",
-                        defaultValue: "%lld answered",
-                        bundle: .module
-                    ),
-                    Int64(answeredQuestionCount)
-                ))
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            }
-            HStack(spacing: 5) {
-                ForEach(questions.indices, id: \.self) { index in
-                    Button {
-                        moveToPage(index)
-                    } label: {
-                        Capsule()
-                            .fill(index == pageIndex ? Color.accentColor : Color.secondary.opacity(0.22))
-                            .frame(maxWidth: index == pageIndex ? 26 : 8, minHeight: 6, maxHeight: 6)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(String(
-                        format: L10n.string(
-                            "mobile.agentFeed.question.pageLabel",
-                            defaultValue: "Question %lld",
-                            bundle: .module
-                        ),
-                        Int64(index + 1)
-                    ))
-                }
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    /// Page navigation in the row's shared action-button family: a quiet
-    /// Previous, a filled accent Next with a trailing chevron. Navigation is
-    /// never disabled; only Submit is gated on complete answers.
-    private var pagerFooter: some View {
-        HStack(spacing: 8) {
-            if pageIndex > 0 {
-                pagerNavButton(
-                    title: String(
-                        localized: "mobile.agentFeed.question.previous",
-                        defaultValue: "Previous",
-                        bundle: .module
-                    ),
-                    chevron: "chevron.left",
-                    chevronLeading: true,
-                    role: .neutral
-                ) { moveToPage(pageIndex - 1) }
-            }
-            if pageIndex < questions.count - 1 {
-                pagerNavButton(
-                    title: String(
-                        localized: "mobile.agentFeed.question.next",
-                        defaultValue: "Next",
-                        bundle: .module
-                    ),
-                    chevron: "chevron.right",
-                    chevronLeading: false,
-                    role: .primary
-                ) { moveToPage(pageIndex + 1) }
-            } else {
-                submitButton(title: String(
-                    localized: "mobile.agentFeed.question.submitAll",
-                    defaultValue: "Submit all answers",
-                    bundle: .module
-                ))
-            }
-        }
-    }
-
-    private func pagerNavButton(
-        title: String,
-        chevron: String,
-        chevronLeading: Bool,
-        role: AgentFeedActionRole,
-        action: @escaping @MainActor () -> Void
-    ) -> some View {
-        Group {
-            if role == .primary {
-                pagerButton(
-                    title: title,
-                    chevron: chevron,
-                    chevronLeading: chevronLeading,
-                    action: action
-                )
-                .buttonStyle(.borderedProminent)
-            } else {
-                pagerButton(
-                    title: title,
-                    chevron: chevron,
-                    chevronLeading: chevronLeading,
-                    action: action
-                )
-                .buttonStyle(.bordered)
-            }
-        }
-        .tint(role.tint)
-        .controlSize(.regular)
-        .buttonBorderShape(.roundedRectangle(radius: 9))
-    }
-
-    private func pagerButton(
-        title: String,
-        chevron: String,
-        chevronLeading: Bool,
-        action: @escaping @MainActor () -> Void
-    ) -> some View {
-        Button {
-            action()
-        } label: {
-            HStack(spacing: 5) {
-                if chevronLeading {
-                    Image(systemName: chevron).font(.caption.weight(.bold))
-                }
-                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                if !chevronLeading {
-                    Image(systemName: chevron).font(.caption.weight(.bold))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 44)
-        }
-    }
-
-    private func moveToPage(_ newPage: Int) {
-        guard questions.indices.contains(newPage), newPage != pageIndex else { return }
-        pageIndex = newPage
-        let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.32)
-        withAnimation(animation) {
-            scrolledPage = newPage
-        }
-    }
-
-    private var answeredQuestionCount: Int {
-        questions.reduce(into: 0) { count, question in
-            if hasAnswer(for: question) { count += 1 }
-        }
-    }
-
-    @ViewBuilder
-    private func questionPage(_ question: MobileAgentFeedQuestion, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if let header = question.header, !header.isEmpty {
-                Text(header)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            if !question.prompt.isEmpty {
-                AgentFeedMarkdownText(markdown: question.prompt,
-                                      font: .subheadline.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if question.multiSelect {
-                Label(String(
-                    localized: "mobile.agentFeed.question.multiSelect",
-                    defaultValue: "Select all that apply",
-                    bundle: .module
-                ), systemImage: "checklist")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(Color.accentColor)
-                .padding(.top, 2)
-            }
-            VStack(spacing: 8) {
-                ForEach(question.options, id: \.id) { option in
-                    optionChip(option, question: question)
-                }
-                customAnswerControl(for: question)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 1)
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .contain)
-    }
-
-    private func submitButton(title: String) -> some View {
-        Button {
-            guard let answers = AgentFeedQuestionAnswerDraft.answers(for: questions, drafts: drafts) else { return }
-            actions.questionReply(item, answers)
-        } label: {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.regular)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
-        .disabled(!canSubmitAll || isReplyPending)
-        .accessibilityIdentifier("MobileAgentFeedQuestionSubmit")
-    }
-
-    private func hasAnswer(for question: MobileAgentFeedQuestion) -> Bool {
-        (drafts[question.id] ?? AgentFeedQuestionAnswerDraft()).hasAnswer
-    }
-
-    private func optionChip(
-        _ option: MobileAgentFeedQuestionOption,
-        question: MobileAgentFeedQuestion
-    ) -> some View {
-        let isSelected = selectedOptionIDsByQuestion[question.id]?.contains(option.id) == true
-        return Button {
-            var selected = selectedOptionIDsByQuestion[question.id] ?? []
-            if question.multiSelect {
-                if isSelected { selected.remove(option.id) } else { selected.insert(option.id) }
-            } else {
-                selected = [option.id]
-            }
-            selectedOptionIDsByQuestion[question.id] = selected
-            customTextByQuestion[question.id] = ""
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    AgentFeedMarkdownText(markdown: option.label,
-                                          font: .subheadline.weight(.medium))
-                        .multilineTextAlignment(.leading)
-                    if let description = option.description, !description.isEmpty {
-                        AgentFeedMarkdownText(markdown: description,
-                                              font: .caption,
-                                              color: .secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 4)
-                Image(systemName: question.multiSelect
-                    ? (isSelected ? "checkmark.square.fill" : "square")
-                    : (isSelected ? "checkmark.circle.fill" : "circle"))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.55))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .frame(minHeight: 52)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.10),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.accentColor.opacity(0.55), lineWidth: 1)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("MobileAgentFeedQuestionOption-\(question.id)-\(option.id)")
-    }
-
-    @ViewBuilder
-    private func customAnswerControl(for question: MobileAgentFeedQuestion) -> some View {
-        let isEditing = editingCustomAnswerForQuestionID == question.id
-        if isEditing || question.options.isEmpty {
-            TextField(
-                String(
-                    localized: "mobile.agentFeed.question.otherPlaceholder",
-                    defaultValue: "Your answer",
-                    bundle: .module
-                ),
-                text: Binding(
-                    get: { customTextByQuestion[question.id] ?? "" },
-                    set: {
-                        customTextByQuestion[question.id] = $0
-                        selectedOptionIDsByQuestion[question.id] = []
-                    }
-                ),
-                axis: .vertical
-            )
-            .lineLimit(2...5)
-            .focused($focusedCustomAnswerQuestionID, equals: question.id)
-            .textFieldStyle(.plain)
-            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-            .onAppear {
-                if isEditing { focusedCustomAnswerQuestionID = question.id }
-            }
-        } else {
-            Button {
-                editingCustomAnswerForQuestionID = question.id
-                focusedCustomAnswerQuestionID = question.id
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "pencil")
-                        .foregroundStyle(.tint)
-                    Text(String(
-                        localized: "mobile.agentFeed.question.other",
-                        defaultValue: "Other…",
-                        bundle: .module
-                    ))
-                    .font(.subheadline.weight(.medium))
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                .padding(.horizontal, 12)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .overlay {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.secondary.opacity(0.42), lineWidth: 1)
-            }
-            .accessibilityIdentifier("MobileAgentFeedQuestionOther-\(question.id)")
-        }
     }
 }
 
