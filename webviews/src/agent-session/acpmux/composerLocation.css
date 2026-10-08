@@ -250,6 +250,9 @@
   border-radius: 8px;
   color: var(--agent-muted);
 }
+.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
+  color: var(--acpmux-warning);
+}
 .acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover,
