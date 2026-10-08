@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import type { SubmitResult } from "../src/owner-do.ts"
 import { defaultInstallClasses } from "../src/domains/user.ts"
 import { createdAndBound, ensureUser, frame, installOf, person, post, reply, signedInWithInstall, SIZE } from "./cloud-bind-support.ts"
+import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -38,7 +39,14 @@ const macInstall = async (x: ReturnType<typeof person>): Promise<Principal> => {
 
 const feedItems = async (x: ReturnType<typeof person>) => {
   const r = await (feedStub(x.user) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<any> }).readOp(x.user, x.p, "feed.list", {})
-  return (r.value.items as Array<any>).filter((i) => i.kind === "approve")
+  return ((r.value?.items ?? []) as Array<any>).filter((i) => i.kind === "approve")
+}
+type CloudRpc = { systemDeliver(e: string, source: string, items: unknown): Promise<{ done: Array<number> }> }
+const runIn = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
+/** Redelivers the person's allow for `request` (the FeedDO outbox delivers at least once). */
+const redeliver = async (x: ReturnType<typeof person>, request: string, id: number) => {
+  const digest = (await x.stub.readOp(x.team, x.p, "integration.approval.get", { request })).value.digest as string
+  return (x.stub as unknown as CloudRpc).systemDeliver(x.team, `feed:${x.user}`, [{ id, op: "integration.approval.answered", key: `approval:${request}:${id}`, params: { request, decision: "allow", digest } }])
 }
 const answer = async (x: ReturnType<typeof person>, item: string, decision: "allow" | "deny") => {
   const r = reply(await (feedStub(x.user) as unknown as Stub).submit(x.user, x.p, { t: "op", op: "feed.answer", params: { item, answer: decision === "allow" ? { decision, scope: "once" } : { decision } }, idempotency_key: crypto.randomUUID(), origin: "user" }))
@@ -65,14 +73,19 @@ describe("Cloud ops from the Mac relay's install token (cx-wb5.65)", { timeout: 
     await ensureUser(x)
     const { machine } = await createdAndBound(x)
     const mac = installOf(x.p, MAC, "mac")
-    let last = ""
-    for (let i = 0; i < 10; i++) {
-      expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }))).t).toBe("result")
-      last = crypto.randomUUID()
-      expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.start", { machine }, last))).t).toBe("result")
+    const pause = async () => expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }))).t).toBe("result")
+    // A replay and a person's start come first: if they counted, the tenth install start below would be refused.
+    await pause()
+    const first = crypto.randomUUID()
+    expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.start", { machine }, first))).t).toBe("result")
+    expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.start", { machine }, first)))).toMatchObject({ t: "result", replayed: true })
+    await pause()
+    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine }))).t).toBe("result")
+    for (let i = 1; i < 10; i++) {
+      await pause()
+      expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.start", { machine }))).t, `start ${i + 1}`).toBe("result")
     }
-    expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.start", { machine }, last)))).toMatchObject({ t: "result", replayed: true })
-    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }))).t).toBe("result")
+    await pause()
     expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.start", { machine })))).toMatchObject({ t: "reject", code: "cloud.rate_limited", retryable: true })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine }))).t).toBe("result")
   })
@@ -130,6 +143,52 @@ describe("Cloud ops from the Mac relay's install token (cx-wb5.65)", { timeout: 
     expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.resize", { machine, size: { cpu: 4 } })))).toMatchObject({ t: "reject", code: "approval.pending" })
     expect(reply(await x.stub.submit(x.team, mac, frame("cloud.snapshot.create", { machine })))).toMatchObject({ t: "reject", code: "approval.pending" })
     expect((await feedItems(x)).map((i) => i.prompt.action.tool).sort()).toEqual(["cloud.machine.resize", "cloud.snapshot.create"])
+  })
+
+  it("least privilege: a read-only or iPhone-default install cannot ask (no prompt); an RPC principal that names an approval still waits; approval: keys are reserved", async () => {
+    const x = person()
+    const mac = await macInstall(x)
+    for (const classes of [["read"], [...defaultInstallClasses("ios")]]) {
+      expect(reply(await x.stub.submit(x.team, { ...mac, grant_classes: classes, install_kind: "ios" }, frame("cloud.machine.create", { size: SIZE })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    }
+    expect(await feedItems(x)).toHaveLength(0)
+    expect(reply(await x.stub.submit(x.team, { ...mac, approval: "apr_00000000000000000000000000000000" }, frame("cloud.machine.create", { size: SIZE })))).toMatchObject({ t: "reject", code: "approval.pending" })
+    expect(reply(await x.stub.submit(x.team, mac, frame("cloud.machine.pause", { machine: "vm_00000000000000000000" }, "approval:apr_00000000000000000000000000000000")))).toMatchObject({ t: "reject", code: "validation.invalid" })
+    expect(((await x.stub.fakeControl({})) as unknown as { creates: number }).creates).toBe(0)
+  })
+
+  it("an install revoked before the answer runs nothing; a redelivered answer runs a request once", async () => {
+    const x = person()
+    const mac = await macInstall(x)
+    const revoked = reply(await x.stub.submit(x.team, mac, frame("cloud.machine.create", { size: SIZE }))) as any
+    const [item] = await feedItems(x)
+    expect(reply(await userStub(x.user).submit(x.user, x.p, { t: "op", op: "install.revoke", params: { install: mac.install }, idempotency_key: crypto.randomUUID(), origin: "user" })).t).toBe("result")
+    await answer(x, item.id, "allow")
+    expect(await x.stub.readOp(x.team, x.p, "integration.approval.get", { request: revoked.details.request })).toMatchObject({ value: { state: "denied" } })
+    expect(((await x.stub.fakeControl({})) as unknown as { creates: number }).creates).toBe(0)
+    const again = await macInstall(x)
+    const pending = reply(await x.stub.submit(x.team, again, frame("cloud.machine.create", { size: SIZE }))) as any
+    const second = (await feedItems(x)).find((i) => i.prompt.action.input.approval.request === pending.details.request)
+    await answer(x, second.id, "allow")
+    await redeliver(x, pending.details.request, 990_001)
+    expect(((await x.stub.fakeControl({})) as unknown as { creates: number }).creates).toBe(1)
+  })
+
+  it("a run cut off by a restart settles by running the same key again, on redelivery and from the alarm, without breaking the alarm", async () => {
+    const x = person()
+    const mac = await macInstall(x)
+    const requests: Array<string> = []
+    for (let i = 0; i < 2; i++) requests.push((reply(await x.stub.submit(x.team, mac, frame("cloud.machine.create", { size: SIZE }))) as any).details.request)
+    // Both runs were started and then cut off (the object restarted before the op committed): running, not in flight.
+    await runIn(x.stub, async (_i, state) => state.storage.sql.exec(`UPDATE integration_approvals SET state = 'running'`))
+    await redeliver(x, requests[0]!, 990_002)
+    expect(await x.stub.readOp(x.team, x.p, "integration.approval.get", { request: requests[0] })).toMatchObject({ value: { state: "done" } })
+    await runIn(x.stub, async (_i, state) => state.storage.sql.exec(`UPDATE integration_approvals SET expires_at = 1 WHERE request = ?`, requests[1]))
+    expect(await fireAlarm(x.stub)).toBe(true)
+    expect(await x.stub.readOp(x.team, x.p, "integration.approval.get", { request: requests[1] })).toMatchObject({ value: { state: "done" } })
+    // Each ran once; a further redelivery replays nothing new.
+    await redeliver(x, requests[0]!, 990_003)
+    expect(((await x.stub.fakeControl({})) as unknown as { creates: number }).creates).toBe(2)
   })
 
   it("Worker: a mac install token's create answers approval.pending, and the person reads it through integration.approval.get", async () => {
