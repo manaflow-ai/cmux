@@ -585,10 +585,10 @@ impl Hub {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_session_id = state.session_id;
-            drop(m);
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
-            session.claude_unstored.store(true, Ordering::SeqCst);
+            m.claude_unstored = true;
+            drop(m);
             self.write_mode_state(
                 session,
                 [ModeWrite::Modes(state.modes), ModeWrite::ConfigOptions(state.config_options)],
