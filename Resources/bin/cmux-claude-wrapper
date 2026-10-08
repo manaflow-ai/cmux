@@ -2044,12 +2044,13 @@ CMUX_CLAUDE_LIFECYCLE_HOOKS
 }
 
 # Sets cmux_claude_standard_hook_settings_value to the exact bytes the bundled
-# CLI prints for `cmux hooks claude inject-settings`
-# (CLI/CMUXCLI+ClaudeHookSettings.swift: JSONSerialization with sorted keys
-# and unescaped slashes). The text is fixed: it does not depend on the
-# environment, the socket, or user settings.
+# CLI prints for `cmux hooks claude inject-settings` with the requested
+# PermissionRequest provider guard. The two supported values correspond to
+# the persisted Feed blocking setting; JSONSerialization keeps the remaining
+# document stable and sorted.
 cmux_claude_build_standard_hook_settings() {
-    local queued direct_cli
+    local queued direct_cli permission_timeout
+    permission_timeout="${1:-86400}"
     # JSON-escaped body of AgentHookSpoolProducer(agent: "claude").command(...)
     # wrapping CMUXCLI.queuedAgentHookShellCommand(agent: "claude") as its fallback.
     IFS= read -r queued <<'CMUX_CLAUDE_QUEUED_HOOK_COMMAND'
@@ -2071,7 +2072,7 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
 
     cmux_claude_standard_hook_settings_value='{"hooks":{'
     cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'
-    cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":86400,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":'"$permission_timeout"',"type":"command"}],"matcher":""}],'
     cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"}],'
     cmux_claude_standard_hook_settings_value+='"PreToolUse":[{"hooks":[{"command":"'"$direct_cli"' hooks claude cron-create-guard","timeout":5,"type":"command"}],"matcher":"CronCreate"},'"$q_prefix$pre_tool_use$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
@@ -2083,18 +2084,25 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     cmux_claude_standard_hook_settings_value+='},"preferredNotifChannel":"notifications_disabled"}'
 }
 
-# Fast path for the Node check below. It accepts one exact string: the
-# bundled CLI's standard document, which satisfies every Node requirement
-# (valid JSON object; synchronous cron-create-guard under the CronCreate
-# matcher; synchronous PermissionRequest feed; all five lifecycle hooks since
-# it sets notifications_disabled). Any other byte sequence, including a
-# different CLI version's output, returns 1 and takes the Node path unchanged.
+# Fast path for the Node check below. It accepts either exact standard document
+# emitted by the bundled CLI: the default 125-second provider guard or the
+# 86,400-second opt-in guard. Both satisfy every Node requirement (valid JSON
+# object; synchronous cron-create-guard under the CronCreate matcher;
+# synchronous PermissionRequest feed; all five lifecycle hooks since it sets
+# notifications_disabled). Any other byte sequence, including a different CLI
+# version's output, returns 1 and takes the Node path unchanged.
 cmux_claude_generated_hook_settings_are_standard() {
     local value="$1"
     local cmux_claude_standard_hook_settings_value=""
-    cmux_claude_build_standard_hook_settings
-    [[ -n "$cmux_claude_standard_hook_settings_value" &&
-          "$value" == "$cmux_claude_standard_hook_settings_value" ]]
+    for permission_timeout in 86400 125; do
+        cmux_claude_standard_hook_settings_value=""
+        cmux_claude_build_standard_hook_settings "$permission_timeout"
+        if [[ -n "$cmux_claude_standard_hook_settings_value" &&
+              "$value" == "$cmux_claude_standard_hook_settings_value" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 cmux_claude_generated_hook_settings_are_safe() {
