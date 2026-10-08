@@ -2,6 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Capture source provenance before any dependency or build preparation runs.
+# Fleet preparation may create generated files in this checkout; those files
+# are not source edits and must not make a tagged Mac bundle disagree with the
+# clean iOS archive built from the same commit.
+CMUX_SOURCE_GIT_SHA="$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || true)"
+CMUX_SOURCE_GIT_DIRTY=""
+if [[ -n "$CMUX_SOURCE_GIT_SHA" ]]; then
+  CMUX_SOURCE_GIT_DIRTY="$(git -C "$SCRIPT_DIR/.." status --porcelain 2>/dev/null || true)"
+fi
 RELOAD_ORIGINAL_ARGS=("$@")
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
@@ -1377,9 +1386,8 @@ fi
 # builds intentionally retain the blank project defaults.
 CMUX_GIT_SHA_VALUE=""
 if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
-  CMUX_GIT_SHA_VALUE="$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || true)"
-  if [[ -n "$CMUX_GIT_SHA_VALUE" ]] \
-      && [[ -n "$(git -C "$SCRIPT_DIR/.." status --porcelain 2>/dev/null)" ]]; then
+  CMUX_GIT_SHA_VALUE="$CMUX_SOURCE_GIT_SHA"
+  if [[ -n "$CMUX_GIT_SHA_VALUE" && -n "$CMUX_SOURCE_GIT_DIRTY" ]]; then
     CMUX_GIT_SHA_VALUE="${CMUX_GIT_SHA_VALUE}+"
   fi
 fi

@@ -36,6 +36,10 @@ assert 'git -C "$SCRIPT_DIR/.." rev-parse --short HEAD' in reload
 assert 'git -C "$SCRIPT_DIR/.." status --porcelain' in reload
 assert 'CMUX_GIT_SHA="$CMUX_GIT_SHA_VALUE"' in reload
 assert 'CMUX_DEV_TAG="$TAG"' in reload
+capture = reload.index('CMUX_SOURCE_GIT_SHA=')
+args = reload.index('RELOAD_ORIGINAL_ARGS=')
+assert capture < args, "source provenance must be captured before reload/build setup"
+assert 'CMUX_SOURCE_GIT_DIRTY' in reload
 
 debug_guard = re.search(
     r'if \[\[ "\$BUILD_CONFIGURATION" == Debug \]\]; then\n'
