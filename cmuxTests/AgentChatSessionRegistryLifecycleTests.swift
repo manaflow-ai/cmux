@@ -21,7 +21,7 @@ struct AgentChatSessionRegistryLifecycleTests {
 
         for (source, extraFields) in cases {
             let registry = AgentChatSessionRegistry()
-            let sessionID = "(source)-completed-session"
+            let sessionID = "\(source)-completed-session"
             let surfaceID = UUID().uuidString
             let times = (start: Date(timeIntervalSince1970: 100), prompt: Date(timeIntervalSince1970: 101), stop: Date(timeIntervalSince1970: 102), idle: Date(timeIntervalSince1970: 103), end: Date(timeIntervalSince1970: 104), lateIdle: Date(timeIntervalSince1970: 105))
 

@@ -107,6 +107,16 @@ extension AgentChatSessionRegistry {
             // is idle, so it must not create a synthetic working state.
             return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
+            // Claude and Grok can deliver their idle reminder asynchronously
+            // after the Stop hook. Once Stop has settled the session, that
+            // reminder is informational and must not reopen Needs input. The
+            // ended-session guard above handles the stronger SessionEnd
+            // boundary; this preserves the idle state between the two hooks.
+            if event.hookEventName == .notification,
+               isIdleReminderNotification(event),
+               case .idle = previous {
+                return previous
+            }
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
@@ -125,5 +135,17 @@ extension AgentChatSessionRegistry {
             return true
         }
         return false
+    }
+
+    private nonisolated static func isIdleReminderNotification(_ event: WorkstreamEvent) -> Bool {
+        guard event.hookEventName == .notification,
+              let data = event.extraFieldsJSON?.data(using: .utf8),
+              let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return ["notification_type", "reason"].contains { key in
+            guard let value = fields[key] as? String else { return false }
+            return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
+        }
     }
 }
