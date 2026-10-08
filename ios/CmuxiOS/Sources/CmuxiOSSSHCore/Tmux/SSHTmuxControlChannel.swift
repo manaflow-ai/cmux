@@ -167,8 +167,8 @@ actor SSHTmuxControlChannel: SSHShellChannel {
         var panes: [String] = []
         for line in lines {
             let fields = String(decoding: line, as: UTF8.self).split(separator: " ").map(String.init)
-            guard fields.count == 4, SSHTmuxWindow.validID(fields[0], prefix: "@"),
-                  SSHTmuxWindow.validID(fields[1], prefix: "%"),
+            guard fields.count == 4, SSHTmuxWindow.isValidID(fields[0], prefix: "@"),
+                  SSHTmuxWindow.isValidID(fields[1], prefix: "%"),
                   let width = Int(fields[2]), let height = Int(fields[3]), Self.validGrid(width, height) else {
                 throw SSHSessionFailure.shellRejected
             }
@@ -209,7 +209,7 @@ actor SSHTmuxControlChannel: SSHShellChannel {
             let rest = bytes.dropFirst(8)
             guard let separator = rest.firstIndex(of: 32) else { throw SSHSessionFailure.shellRejected }
             let id = String(decoding: rest[..<separator], as: UTF8.self)
-            guard SSHTmuxWindow.validID(id, prefix: "%") else { throw SSHSessionFailure.shellRejected }
+            guard SSHTmuxWindow.isValidID(id, prefix: "%") else { throw SSHSessionFailure.shellRejected }
             if ready, id == pane { try emit(SSHTmuxControlDecoder.unescape(Data(rest[rest.index(after: separator)...]))) }
             return
         }

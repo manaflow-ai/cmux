@@ -13,8 +13,8 @@ public struct SSHTmuxWindow: Hashable, Sendable {
     public let paneID: String?
 
     public init?(sessionID: String, windowID: String, serverPID: UInt32, serverStart: UInt64, paneID: String? = nil) {
-        guard serverPID > 0, serverStart > 0, Self.validID(sessionID, prefix: "$"), Self.validID(windowID, prefix: "@"),
-              paneID.map { Self.validID($0, prefix: "%") } ?? true else { return nil }
+        guard serverPID > 0, serverStart > 0, Self.isValidID(sessionID, prefix: "$"), Self.isValidID(windowID, prefix: "@"),
+              paneID.map { Self.isValidID($0, prefix: "%") } ?? true else { return nil }
         self.sessionID = sessionID
         self.windowID = windowID
         self.serverPID = serverPID
@@ -27,7 +27,7 @@ public struct SSHTmuxWindow: Hashable, Sendable {
     /// workspace still represents one terminal per tmux window, while the
     /// active pane target is refreshed by discovery.
     public func targetingPane(_ paneID: String) -> SSHTmuxWindow? {
-        Self.validID(paneID, prefix: "%")
+        Self.isValidID(paneID, prefix: "%")
             ? SSHTmuxWindow(sessionID: sessionID, windowID: windowID, serverPID: serverPID, serverStart: serverStart, paneID: paneID)
             : nil
     }

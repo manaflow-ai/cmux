@@ -99,8 +99,8 @@ public struct SSHSessionDiscovery: Sendable {
                         index: index, name: String(fields[8...].joined(separator: "\t").prefix(200)), isActive: fields[3] == "1",
                         target: .tmuxControl(binary: tmux, window: window)))
                 } else if fields.first == "P2", fields.count >= 4,
-                          SSHTmuxWindow.validID(fields[1], prefix: "@"),
-                          SSHTmuxWindow.validID(fields[2], prefix: "%"),
+                          SSHTmuxWindow.isValidID(fields[1], prefix: "@"),
+                          SSHTmuxWindow.isValidID(fields[2], prefix: "%"),
                           (fields[3] == "0" || fields[3] == "1") {
                     paneIDs[fields[1], default: []].insert(fields[2])
                     // A split window has several panes. Keep only an
@@ -111,7 +111,7 @@ public struct SSHSessionDiscovery: Sendable {
                         activePanes[fields[1]] = fields[2]
                     }
                 } else if fields.first == "L2", fields.count >= 2,
-                          SSHTmuxWindow.validID(fields[1], prefix: "@") {
+                          SSHTmuxWindow.isValidID(fields[1], prefix: "@") {
                     let id = fields[1]
                     if fields.count == 3, let layout = SSHTmuxLayout(validating: fields[2]),
                        layouts[id].map({ $0 == layout }) ?? true, !invalidLayouts.contains(id) {

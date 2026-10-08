@@ -47,24 +47,28 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
                 guard case .null = value else {
                     guard let string = value.stringValue, Self.validName(string) else { return nil }
                     name = string
-                    return Self.create(epoch: epoch, sessionID: sessionID, name: name)
+                    self = .createWindow(server: epoch, sessionID: sessionID, name: name)
+                    return
                 }
                 name = nil
             } else {
                 name = nil
             }
-            return Self.create(epoch: epoch, sessionID: sessionID, name: name)
+            self = .createWindow(server: epoch, sessionID: sessionID, name: name)
+            return
         case "ssh.tmux.window.rename":
             guard keys == Set(["server_pid", "server_start", "window_id", "name"]),
                   let windowID = object["window_id"]?.stringValue,
                   let name = object["name"]?.stringValue,
                   Self.validWindowID(windowID), Self.validName(name) else { return nil }
-            return Self.rename(epoch: epoch, windowID: windowID, name: name)
+            self = .renameWindow(server: epoch, windowID: windowID, name: name)
+            return
         case "ssh.tmux.window.kill":
             guard keys == Set(["server_pid", "server_start", "window_id"]),
                   let windowID = object["window_id"]?.stringValue,
                   Self.validWindowID(windowID) else { return nil }
-            return Self.kill(epoch: epoch, windowID: windowID)
+            self = .killWindow(server: epoch, windowID: windowID)
+            return
         default:
             return nil
         }
@@ -120,18 +124,6 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
         case .killWindow(let epoch, let windowID):
             epoch.serverPID > 0 && epoch.serverStart > 0 && Self.validWindowID(windowID)
         }
-    }
-
-    private static func create(epoch: SSHTmuxServerEpoch, sessionID: String, name: String?) -> Self {
-        .createWindow(server: epoch, sessionID: sessionID, name: name)
-    }
-
-    private static func rename(epoch: SSHTmuxServerEpoch, windowID: String, name: String) -> Self {
-        .renameWindow(server: epoch, windowID: windowID, name: name)
-    }
-
-    private static func kill(epoch: SSHTmuxServerEpoch, windowID: String) -> Self {
-        .killWindow(server: epoch, windowID: windowID)
     }
 
     private static func epoch(from object: [String: JSONValue]) -> SSHTmuxServerEpoch? {
