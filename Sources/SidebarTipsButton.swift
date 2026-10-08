@@ -137,7 +137,10 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
         guard let windowNumber, let window = NSApp.window(withWindowNumber: windowNumber),
               NSApp.isActive, window.isKeyWindow, window.attachedSheet == nil, NSApp.modalWindow == nil,
               !isPopoverPresented, !NSWorkspace.shared.isVoiceOverEnabled,
-              [CGEventType.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel].allSatisfy({
+              [CGEventType.keyDown, .keyUp, .flagsChanged,
+               .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+               .otherMouseDown, .otherMouseUp, .mouseMoved,
+               .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel].allSatisfy({
                   CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) >= 30
               }),
               let tipID = schedule.automaticTip(progress, tipIDs: tipIDs, now: Date()) else { return }
