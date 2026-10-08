@@ -12408,6 +12408,9 @@ struct CMUXCLI {
                 "fallback=\(fallsBackToOpenSSHInteractiveSession ? "unmanaged" : "managed")"
             )
         }
+        let resolvedRouteIdentifier = resolvedUserSSHConfiguration.flatMap {
+            sharingOptions.routeIdentifier(fromSSHConfigOutput: $0)
+        }
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
             into: inputSSHOptions.sshOptions,
             userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
@@ -12420,9 +12423,7 @@ struct CMUXCLI {
             routeSensitiveOptions: inputSSHOptions.identityFile.map { ["IdentityFile=\($0)"] } ?? [],
             // `%C` ignores proxy, identity and host-key options; a route that
             // sets them gets a master keyed by its whole resolved route.
-            routeIdentifier: resolvedUserSSHConfiguration.flatMap {
-                sharingOptions.routeIdentifier(fromSSHConfigOutput: $0)
-            }
+            routeIdentifier: resolvedRouteIdentifier
         )
         if resolvedUserSSHConfiguration != nil {
             sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
@@ -12440,7 +12441,8 @@ struct CMUXCLI {
            !sshOptions.remoteCommand.disablesTTY(in: sshOptions.sshOptions,
                hostRequestTTY: resolvedUserSSHConfiguration.flatMap { sshConfigurationValue(named: "requesttty", in: $0) }) {
             try runSSHTui(options: sshOptions, configuredRemoteCommand: configuredInteractiveRemoteCommand,
-                          client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+                          client: client, jsonOutput: jsonOutput, idFormat: idFormat,
+                          routeIdentifier: resolvedRouteIdentifier)
             return
         }
         let sshStartedAt = Date()
