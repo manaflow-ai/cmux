@@ -18,6 +18,7 @@ mkdir -p "$TMP/src/scripts/ci"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$TMP/src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$TMP/src/scripts/cmux-next/"
 echo reducer > "$TMP/src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$TMP/src"
 echo one > "$TMP/src/cmux-tui/a"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m one

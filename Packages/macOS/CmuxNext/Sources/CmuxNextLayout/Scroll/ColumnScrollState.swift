@@ -54,7 +54,10 @@ public nonisolated enum ColumnScrollEvent: Hashable, Sendable {
     /// `source` says what moved the focus when it changed.
     /// `reveals: false` (a divider or column-edge drag in progress) only
     /// anchors the camera; the reveal runs at the next sync that allows it.
-    case sync(ColumnStrip, focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool = true)
+    /// `anchor` is the column the camera keeps in place instead of the
+    /// focused one: the column under a resize drag, whose leading edge must
+    /// stay put so its edge follows the pointer (cx-ww20).
+    case sync(ColumnStrip, focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool = true, anchor: ColumnID? = nil)
     /// Center the column holding the pane once.
     case center(PaneID, animated: Bool)
     case gestureBegan
