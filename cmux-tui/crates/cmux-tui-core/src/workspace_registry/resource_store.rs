@@ -994,20 +994,14 @@ impl WorkspaceRegistry {
                     .context("stored agent projection is not valid JSON")?;
                 if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
                     let stored_result_json = canonical_json(&existing_value)?;
-                    tx.execute(
-                        "INSERT INTO resource_mutations(
-                           origin, idempotency_key, operation, fingerprint, result_json,
-                           committed_revision
-                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                        params![
-                            mutation.origin,
-                            mutation.id,
-                            OPERATION,
-                            fingerprint,
-                            stored_result_json,
-                            i64::try_from(previous_revision)
-                                .context("resource revision exceeds SQLite range")?,
-                        ],
+                    insert_resource_mutation(
+                        &tx,
+                        mutation,
+                        OPERATION,
+                        &fingerprint,
+                        &stored_result_json,
+                        i64::try_from(previous_revision)
+                            .context("resource revision exceeds SQLite range")?,
                     )?;
                     prune_resource_mutations(&tx)?;
                     tx.commit()?;
@@ -1066,18 +1060,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1151,18 +1140,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1256,18 +1240,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1528,18 +1507,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1647,18 +1621,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,

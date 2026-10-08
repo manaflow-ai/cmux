@@ -52,6 +52,15 @@ enum BookmarkHandlers {
             let index = invocation["index"]?.intValue ?? services.bookmarks.tree(profile).children(of: folder).count
             try apply(services, .move(id: node.id, parent: folder, index: index), profile)
         })
+        registry.bind("bookmark.copyLink", run: { invocation in
+            let node = try resolver.node(invocation, profile: resolver.profile(invocation))
+            guard let url = node.url else { throw ActionFailure(message: BookmarkAppStrings.folderHasNoLink) }
+            context.copy(url.absoluteString)
+        })
+        // A folder's menu leaves Copy Bookmark Link out (quiet: building a menu never refuses).
+        ActionTargetVisibility.hide("bookmark.copyLink", in: registry) { invocation in
+            (try? resolver.node(invocation, profile: resolver.profile(invocation)))?.isFolder == true
+        }
         registry.bind("bookmark.remove", run: { invocation in
             let profile = resolver.profile(invocation)
             let node = try resolver.node(invocation, profile: profile)

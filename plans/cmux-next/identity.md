@@ -176,10 +176,27 @@ WebSocket handshake, before the protocol starts:
 | Listener | Token | Origin and Host |
 | --- | --- | --- |
 | cmux-tui daemon `--ws` | `--ws-token` or a pairing credential in the first frame; a pairing request needs the user's approval (both exist) | added; `--ws-allow-origin` / `--ws-allow-host` add a web frontend dev server or a `tailscale serve` name |
-| acpmux web and WebSocket (`127.0.0.1:47811`) | made mandatory: a config with no token gets one; header or `?token=` | added; own origin (dashboard), `cmux-agent://pane` (the agent pane, once it loads from that scheme: a `loadFileURL` page sends `Origin: null`, measured on macOS 27), and `websocket.allowed_origins` |
+| acpmux web and WebSocket (`127.0.0.1:47811`) | made mandatory: a config with no token gets one; header or `?token=`; kept across launches in config.json (0600), rotated at once by `acpmux web --rotate-token` (see note) | added; own origin (dashboard), `cmux-agent://pane` (the agent pane, once it loads from that scheme: a `loadFileURL` page sends `Origin: null`, measured on macOS 27), and `websocket.allowed_origins` |
+| agent-chat sidecar (`agent-chat/server.ts`, `127.0.0.1:7739`) | per launch: made by the server (0600 token file) or read from `--token-fd`; `--token` and `CMUX_AGENT_CHAT_TOKEN` are refused at start; first path segment (`/<token>/...`, the browser surface cannot add headers), constant-time. `cmux-chat` passes tokened URLs to curl on stdin and opens a one-time code URL (`/o/<code>`, single use, 60 s, hashed, cap 16, page routes only) with `cmux open`, so no argv ever carries the token (cx-e3l1) | on every route, `/healthz`, `/o/` and the WebSocket upgrade included: a Host naming this server (loopback and its port), no Origin or the listener's own |
 | cmux-remote workspace HTTP | bearer token file (exists) | every `Origin` refused (no browser client); no `Host` rule, because it is meant to sit behind SSH forwarding or a TLS reverse proxy that keeps the public name |
 | cmux-remote direct WebSocket `/v1/link` | link handshake (exists) | already present (daemon.rs:1467, test browser_origin_is_rejected_by_direct_websocket_listener): every `Origin` refused; no `Host` rule, same reason |
 | HTTP MCP (new, section 7) | scoped MCP token | built in |
+
+Why the acpmux dashboard token is not per launch (D5 asks for a per-launch
+secret; cx-1dtj, 2026-10-08): the app, the TUI and `ssh://` peers re-read it
+at each connect and would follow a rotation, but three real clients cannot:
+a `ws://` peer added with `acpmux peer add <url> --token T` (a daemon on
+another machine reached over the tailnet, with no ssh), a dashboard link the
+user kept, and a browser on another machine behind `tailscale serve`. None has
+a channel that could hand it a new token at each start. So the token stays
+saved in `$ACPMUX_HOME/config.json`; the daemon narrows that file to 0600 at
+every start, and `acpmux web --rotate-token` (`_acpmux/web_token_rotate`, unix
+socket only) replaces it in the file and in the running listener at once,
+refuses the old token from the next handshake, and closes every Web and Peer
+connection that used it. The per-launch secrets D5 asks for are the LocalApp
+token (`run/localapp.token`) and the peer token (`run/peer.token`), which the
+app pane and peer daemons must also present; the dashboard token alone gives
+only Web rights under REMOTE-FLOOR.
 
 Notes from the slice 2 review:
 - Origins are compared after normalization (`parse_origin`: lowercase, no
@@ -207,6 +224,17 @@ Notes from the slice 2 review:
   remote token) is required.
 - The acpmux dashboard reads a request head up to 32 KiB (large localhost
   cookies); a larger head is refused.
+
+Known residuals for the agent-chat sidecar (cx-e3l1, 2026-10-08): the
+one-time open code that `cmux-chat` passes to `cmux open` is in argv, so a
+process that can read that argv (the same user on macOS; `/proc/<pid>/cmdline`
+on Linux) can race the browser surface to `/o/<code>` and read the token from
+the redirect. The code is single use, so the real open then fails visibly. The
+full fix is an app verb that takes the URL over its socket from stdin (`cmux
+open -`); the CmuxNext app also does not serve `browser.open_split` yet, so
+`cmux open <url>` opens nothing there today. Agents the sidecar starts run as
+the same user and can read its 0600 token file; they are inside this trust
+boundary.
 
 Raw TCP listeners (no HTTP) follow the same intent: loopback bind by default, a
 per-launch token before any frame, and an immediate close when the first bytes

@@ -9,6 +9,7 @@ import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
+import { questionFromPermission } from "./question/model";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -102,7 +103,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const sessionId = envelope?.sessionId ?? raw?.sessionId;
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
+  const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
   return {
+    ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
@@ -220,6 +223,7 @@ export function mergeToolItem(
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs:
         update.content === undefined
           ? placeDiffs(before?.diffs, update.locations)
@@ -261,6 +265,25 @@ function textFromContent(content: any): string {
   if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
+}
+
+/// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
+const MAX_TOOL_IMAGE_LENGTH = 8 * 1024 * 1024;
+
+/// The data URLs of ACP `image` content blocks (`{type: "image", mimeType, data}`, bare or in a
+/// `content` wrapper), images only and each under the cap.
+function imagesFromContent(content: any): string[] | undefined {
+  const found: string[] = [];
+  const visit = (block: any) => {
+    if (Array.isArray(block)) return block.forEach(visit);
+    if (block?.type === "content") return visit(block.content);
+    if (block?.type !== "image" || typeof block.data !== "string") return;
+    const type = String(block.mimeType ?? "");
+    if (/^image\/(png|jpeg|gif|webp)$/.test(type) && block.data.length <= MAX_TOOL_IMAGE_LENGTH)
+      found.push(`data:${type};base64,${block.data}`);
+  };
+  visit(content);
+  return found.length ? found : undefined;
 }
 
 function sessionUpdate(event: EventRecord): any | undefined {
@@ -1522,12 +1545,15 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
-  async permission(permissionId: string, optionId: string): Promise<void> {
+  /// Answers a permission: `optionId` picks an option (absent cancels the request), and
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", {
         sessionId: this.selectedSessionId,
         permissionId,
-        optionId,
+        ...(optionId === undefined ? {} : { optionId }),
+        ...(answers === undefined ? {} : { answers }),
       });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {

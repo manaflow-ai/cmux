@@ -1,6 +1,8 @@
 import codexRecording from "./fixtures/agent-session-events.ndjson?raw";
 import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
+import { permissionFromMessage } from "../acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
+import type { AgentQuestion } from "../acpmux/question/model";
 import { commandsFromUpdate } from "../acpmux/slashCommands";
 import { sessionEntry } from "../acpmux/sessionList";
 import { workedTurnRows } from "../acpmux/workedTurn";
@@ -354,6 +356,65 @@ function sessionListSnapshot(): AcpmuxSnapshot {
   return { ...baseSnapshot("Port the sidebar", "claude"), sessions, sessionId: "web-2" };
 }
 
+// The agent question fixtures the Swift package and its UI Gallery use
+// (Packages/Shared/CmuxAgentQuestion): each request goes through the pane's real mapping
+// (permissionFromMessage -> questionFromPermission); answered and cancelled fixtures take the
+// state the owner recorded.
+const questionFiles = import.meta.glob<{ default: unknown }>(
+  "../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/*.json",
+  { eager: true },
+);
+const QUESTION_FIXTURES = [
+  "pending-single",
+  "pending-multi",
+  "pending-with-preview",
+  "pending-4-questions",
+  "pending-other-typing",
+  "answered-collapsed",
+  "answered-remote-device",
+  "cancelled",
+  "codex-user-input",
+  "acp-interactive",
+  "chief-asks",
+];
+
+function questionFile(name: string): unknown {
+  const entry = Object.entries(questionFiles).find(([file]) => file.endsWith(`/Fixtures/${name}`));
+  return entry?.[1].default;
+}
+
+function questionSnapshot(name: string): AcpmuxSnapshot | undefined {
+  const record = questionFile(`${name}.request.json`) as { permissionId: string; session: string; request: unknown };
+  const expected = questionFile(`${name}.json`) as AgentQuestion | undefined;
+  if (!record || !expected) return undefined;
+  const harness = expected.source.harness === "codex" ? "codex" : "claude";
+  const base = baseSnapshot(`Question: ${name}`, harness);
+  const sessionId = base.sessionId!;
+  const permission = permissionFromMessage(
+    { ...(record.request as object), permissionId: record.permissionId, sessionId },
+    sessionId,
+  );
+  if (!permission?.question) return undefined;
+  const user: AcpmuxRow = {
+    id: `${name}-user`,
+    version: 1,
+    at: previewStartedAt,
+    kind: "user",
+    text: "Set up the API service.",
+  };
+  return {
+    ...base,
+    rows: [user],
+    isWorking: expected.state.kind === "pending",
+    permission: { ...permission, question: { ...permission.question, state: expected.state } },
+  };
+}
+
+const questionFixtures: PreviewFixture[] = QUESTION_FIXTURES.flatMap((name) => {
+  const snapshot = questionSnapshot(name);
+  return snapshot ? [{ id: `question-${name}`, label: `Question: ${name}`, snapshot }] : [];
+});
+
 export const previewFixtures: PreviewFixture[] = [
   { id: "codex-recording", label: "Codex recording", snapshot: codex.snapshot, replay: codex.replay },
   { id: "claude-recording", label: "Claude recording", snapshot: claude.snapshot, replay: claude.replay },
@@ -368,4 +429,5 @@ export const previewFixtures: PreviewFixture[] = [
   { id: "permission-queue", label: "Permission and queue", snapshot: permissionSnapshot() },
   { id: "session-list", label: "Session list", snapshot: sessionListSnapshot() },
   { id: "worked-turn", label: "Worked turn with edits", snapshot: workedTurnSnapshot() },
+  ...questionFixtures,
 ];

@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, machineName
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, machineName, githubRepository
     }
 
     public var protocolVersion: Int
@@ -76,6 +76,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
+    public var githubRepository: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

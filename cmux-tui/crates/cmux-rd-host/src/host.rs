@@ -41,7 +41,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", if cfg!(feature = "x264") { "x264" } else { "openh264" }),
+        codec: opts.str_or("codec", "openh264"),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
         threads: opts.num_or("threads", 2)?,

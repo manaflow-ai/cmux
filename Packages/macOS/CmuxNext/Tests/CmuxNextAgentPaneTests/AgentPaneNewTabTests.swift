@@ -210,7 +210,7 @@ import Testing
     @Test func newTabRunsOnlyTheImportAndSyncAction() async {
         let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
         var actions: [String] = []
-        model.onRunAction = { actions.append($0) }
+        model.onRunAction = { actions.append($0); return true }
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
         #expect(actions == ["palette.welcomeChecklist"])
@@ -221,24 +221,44 @@ import Testing
     @Test func newTabRunsAddHarnessAndAChatDoesNot() async {
         let newTabPage = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
         var actions: [String] = []
-        newTabPage.onRunAction = { actions.append($0) }
+        newTabPage.onRunAction = { actions.append($0); return true }
         #expect(await newTabPage.respond(to: .runAction("palette.addHarness"))["ok"] as? Bool == true)
         #expect(actions == ["palette.addHarness"])
         let chat = AgentPaneModel(host: MockAgentPaneHost())
-        chat.onRunAction = { actions.append($0) }
+        chat.onRunAction = { actions.append($0); return true }
         #expect(await chat.respond(to: .runAction("palette.addHarness"))["ok"] as? Bool == false)
         #expect(actions == ["palette.addHarness"])
     }
 
-    /// A blank chat's generic New opens the New Tab page; a chat runs no other app action.
-    @Test func aChatCanOpenTheNewTabPageAndNothingElse() async {
+    /// A chat's location row opens the connect flows (SSH…, cmux Cloud…; Lawrence 2026-10-06),
+    /// and a blank chat may open the New Tab page; a chat runs no other app action.
+    @Test func aChatRunsOnlyTheConnectFlowsAndTheNewTabPage() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var actions: [String] = []
-        model.onRunAction = { actions.append($0) }
+        model.onRunAction = { actions.append($0); return true }
+        // A connect flow needs the user's gesture (AgentPaneConnectActionGestureTests).
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("remote.connect"))["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
-        #expect(actions == ["newTab.page"])
+        #expect(actions == ["remote.connect", "newCloudMachine", "newTab.page"])
+    }
+
+    /// Signed out, cmux Cloud… is refused; the click starts sign-in instead
+    /// of doing nothing.
+    @Test func aRefusedCloudConnectStartsSignIn() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        var actions: [String] = []
+        model.onRunAction = { id in
+            actions.append(id)
+            return id != "newCloudMachine"
+        }
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
+        #expect(actions == ["newCloudMachine", "palette.auth.signIn"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a

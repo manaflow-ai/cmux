@@ -7,7 +7,7 @@ export interface ExternalReply {
   readonly ok: boolean
   readonly op: string
   readonly value?: unknown
-  readonly error?: { readonly code: string; readonly message: string; readonly retryable: boolean }
+  readonly error?: { readonly code: string; readonly message: string; readonly retryable: boolean; readonly details?: unknown }
   readonly transaction: string
   readonly idempotency_key: string
   readonly replayed: boolean

@@ -45,21 +45,26 @@ fn nodes_are_built_in_spec_order() {
     }
     assert!(chat.wait_idle(None, WAIT));
     let calls = calls.lock().unwrap();
-    // Messages are compressed one at a time, in order.
-    let level0: Vec<u64> = calls.iter().filter(|c| c.0.l == 0).map(|c| c.0.i).collect();
+    // Every message is compressed once.
+    let mut level0: Vec<u64> = calls.iter().filter(|c| c.0.l == 0).map(|c| c.0.i).collect();
+    level0.sort();
     assert_eq!(level0, (0..64).collect::<Vec<_>>());
     for (node, context, done_before) in calls.iter() {
-        // No call ever sees a placeholder or an id (section 4.2, 6).
+        // No call ever sees a placeholder (spec 4); its view ends at the node.
         assert!(!context.contains("not summarized yet"), "{node:?}");
-        assert!(!context.contains('|'), "{node:?}");
+        let upto = if node.l == 0 { node.start() } else { node.end() };
+        for line in context.lines().filter(|l| l.contains('|')) {
+            let (id, n) = line.split('|').next().unwrap().split_once('+').unwrap();
+            let end: u64 = id.parse::<u64>().unwrap() + n.parse::<u64>().unwrap();
+            assert!(end <= upto, "{node:?} saw {line:.20}");
+        }
         if node.l == 0 {
-            // Every earlier message was summarized before this one started.
-            for j in 0..node.i {
-                assert!(
-                    done_before.contains(&NodeId::new(0, j)),
-                    "{node:?} before 0+{j}"
-                );
-            }
+            // Spec 4 (gist 3c190e0): a message's node starts once fewer than
+            // 8 lines before it are still unbuilt.
+            let unbuilt = (0..node.i)
+                .filter(|j| !done_before.contains(&NodeId::new(0, *j)))
+                .count();
+            assert!(unbuilt < 8, "{node:?} started with {unbuilt} unbuilt before it");
         } else {
             let a = NodeId::new(node.l - 1, 2 * node.i);
             let b = NodeId::new(node.l - 1, 2 * node.i + 1);
@@ -153,7 +158,7 @@ fn the_size_loop_retries_in_the_same_conversation() {
     assert_eq!(seen[1][0].reply.text, "a".repeat(700));
     assert!(seen[1][0]
         .retry
-        .starts_with("That line is 700 bytes; the limit is 512."));
+        .starts_with("Too long: your line is 700 bytes, over the 512-byte limit."));
     assert!(seen[1][0].retry.ends_with("| ← LIMIT"));
     assert_eq!(chat.zoom(0, 1).unwrap(), format!("0+0|user: {}", long(0)));
     assert!(chat

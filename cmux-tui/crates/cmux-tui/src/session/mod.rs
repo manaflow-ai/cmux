@@ -427,7 +427,7 @@ fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
 }
 
 fn creation_mutation(receipt: &CreationReceipt) -> anyhow::Result<WorkspaceMutation> {
-    WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())
+    WorkspaceMutation::by_local_user(receipt.id.clone(), receipt.origin.clone())
 }
 
 fn creation_selector_fallbacks(
@@ -1639,7 +1639,7 @@ impl Session {
         };
         match self {
             Session::Local(mux) => {
-                let mutation = WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())?;
+                let mutation = creation_mutation(receipt)?;
                 let mut fields = Map::new();
                 fields.insert("direction".to_string(), json!(direction));
                 if let Some((cols, rows)) = size {

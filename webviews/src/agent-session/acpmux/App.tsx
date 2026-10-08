@@ -55,6 +55,8 @@ import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./question/QuestionCard";
+import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -84,6 +86,9 @@ import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
+import { chatImages, type ChatImage } from "./conversation/chatImages";
+import { ImageViewer } from "./conversation/ImageViewer";
+import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
@@ -120,6 +125,7 @@ type RowProps = {
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   onOpenDiff?: OpenDiff;
+  githubRepository?: string;
 };
 
 declare global {
@@ -219,7 +225,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row }: RowProps) {
+  function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
     if (row.kind === "user")
       return (
@@ -244,9 +250,14 @@ const MessageRow = memo(
           )}
         </div>
       );
-    return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;
+    return (
+      <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
+    );
   },
-  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+  (previous, next) =>
+    previous.row.id === next.row.id &&
+    previous.row.version === next.row.version &&
+    previous.githubRepository === next.githubRepository,
 );
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
@@ -323,7 +334,7 @@ const PermissionRow = memo(
           <strong>{t("permission.required")}</strong>
         </div>
       );
-    return <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />;
+    return <PermissionAsk permission={permission} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -505,6 +516,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  githubRepository,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -513,6 +525,7 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  githubRepository?: string;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -775,6 +788,7 @@ export function VirtualTranscript({
                   onToggleActivity={onToggleActivity}
                   onOpenDiff={onOpenDiff}
                   expanded={isExpanded}
+                  githubRepository={githubRepository}
                 />
               </RowFrame>
             );
@@ -788,6 +802,23 @@ export function VirtualTranscript({
 /// Answers `permission` with the option a button or key picked.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+
+/// Sends a question card's reply: the harness's option (absent cancels) and its answers.
+const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
+  void callNative("chat.permission", {
+    permissionId: permission.permissionId,
+    ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
+    ...(sent.answers === undefined ? {} : { answers: sent.answers }),
+  });
+
+/// A permission ask: a question card when the request asks a question, else its option buttons.
+function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
+  return permission.question ? (
+    <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+  ) : (
+    <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />
+  );
+}
 
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   const picker = usePickerCatalog(snapshot.catalog, {
@@ -854,6 +885,7 @@ function AcpmuxPane() {
   const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -878,6 +910,30 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
+  // Repository context follows the selected session, connection origin and cwd. A reconnect
+  // handshake for an existing session deliberately omits cwd, so key this lookup from the live
+  // snapshot instead of clearing a valid repository while the daemon is being replaced.
+  const githubRepositoryContext =
+    snapshot.origin === "local" && snapshot.summary?.cwd
+      ? `${snapshot.sessionId ?? snapshot.summary.sessionId}:local:${snapshot.summary.cwd}`
+      : undefined;
+  useEffect(() => {
+    const cwd = snapshot.summary?.cwd;
+    if (!githubRepositoryContext || !cwd) {
+      setGithubRepository(undefined);
+      return;
+    }
+    let current = true;
+    void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
+      .then((value) => {
+        if (!current) return;
+        setGithubRepository(typeof value?.repository === "string" && value.repository ? value.repository : undefined);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [githubRepositoryContext, snapshot.summary?.cwd]);
   const handoffLabels = useMemo(() => handoffStrings(t), [t]);
   const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
@@ -1095,6 +1151,14 @@ function AcpmuxPane() {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  // The image viewer holds the chat's images from when it opened; another chat closes it.
+  const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
+  const openImage = useCallback((src: string, alt: string) => {
+    const images = chatImages(turnRowsRef.current);
+    const index = images.findIndex((image) => image.src === src);
+    setImageView(index < 0 ? { images: [{ src, alt }], index: 0 } : { images, index });
+  }, []);
+  useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -1449,6 +1513,7 @@ function AcpmuxPane() {
           revealTurn?: unknown;
           chooseFolder?: boolean;
           machineName?: unknown;
+          githubRepository?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -1463,6 +1528,14 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        // Reconnect handshakes for an existing session do not carry its cwd. Keep the current
+        // repository until the snapshot effect observes a new session/origin/cwd; a fresh ready
+        // handshake has no prior context and must clear it when the host has no GitHub origin.
+        if (typeof host.githubRepository === "string" && host.githubRepository) {
+          setGithubRepository(host.githubRepository);
+        } else if (!reconnect) {
+          setGithubRepository(undefined);
+        }
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
@@ -1599,7 +1672,12 @@ function AcpmuxPane() {
               typeof accepted === "function" ? (accepted as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
-          "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
+          "chat.permission": ({ permissionId, optionId, answers }) =>
+            client.permission(
+              String(permissionId),
+              optionId === undefined || optionId === null ? undefined : String(optionId),
+              answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
+            ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
           "chat.permission_group.retry": () => client.permissions.retry(),
@@ -1960,31 +2038,34 @@ function AcpmuxPane() {
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
-    <ShellActionsContext.Provider value={shellActions}>
-      <TurnActionsContext.Provider value={turnActions}>
-        <TurnCountsContext.Provider value={turnCountsFor}>
-          <SessionRowsContext.Provider value={snapshot.rows}>
-            <VirtualTranscript
-              rows={transcriptRows}
-              sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-              canLoadOlder={snapshot.canLoadOlder}
-              expanded={expanded}
-              registry={registry}
-              // The Quick Composer has no room for the changes view; its file rows stay plain.
-              onOpenDiff={quick ? undefined : openDiff}
-              onToggleActivity={(id) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
-          </SessionRowsContext.Provider>
-        </TurnCountsContext.Provider>
-      </TurnActionsContext.Provider>
-    </ShellActionsContext.Provider>
+    <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+      <ShellActionsContext.Provider value={shellActions}>
+        <TurnActionsContext.Provider value={turnActions}>
+          <TurnCountsContext.Provider value={turnCountsFor}>
+            <SessionRowsContext.Provider value={snapshot.rows}>
+              <VirtualTranscript
+                rows={transcriptRows}
+                sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                githubRepository={githubRepository}
+                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                onOpenDiff={quick ? undefined : openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </SessionRowsContext.Provider>
+          </TurnCountsContext.Provider>
+        </TurnActionsContext.Provider>
+      </ShellActionsContext.Provider>
+    </ImageViewerContext.Provider>
   );
   const asks = (
     <>
@@ -2016,9 +2097,7 @@ function AcpmuxPane() {
               onUndo={trustAsk.undo}
             />
           )}
-          {individualPermission && (
-            <PermissionCard permission={individualPermission} onAnswer={answerPermission(individualPermission)} />
-          )}
+          {individualPermission && <PermissionAsk permission={individualPermission} />}
         </div>
       )}
     </>
@@ -2106,6 +2185,12 @@ function AcpmuxPane() {
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}
+        // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+        onConnect={(kind) =>
+          void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
+            () => undefined,
+          )
+        }
         projectChoices={freshChat && !quick ? newTabProjects : undefined}
         onBrowseProject={
           freshChat && !quick
@@ -2196,6 +2281,8 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
+              tools={newTab.tools}
+              inputToken={newTab.inputToken}
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,
@@ -2230,6 +2317,8 @@ function AcpmuxPane() {
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
+              inputToken={newTab.inputToken}
+              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : (
             <>
@@ -2323,6 +2412,14 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {imageView && (
+          <ImageViewer
+            images={imageView.images}
+            index={imageView.index}
+            onIndex={(index) => setImageView((current) => current && { ...current, index })}
+            onClose={() => setImageView(undefined)}
+          />
+        )}
       </section>
     </ShortcutsContext.Provider>
   );
