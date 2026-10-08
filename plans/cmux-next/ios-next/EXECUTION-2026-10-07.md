@@ -164,11 +164,11 @@ writes the regular report plus a checked manifest. The iOS DEV Link bench screen
 adapters for V1/V2 remain open, so no device JSON has been captured. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
-before it is compared with V1/V2 roaming. F8 is implemented in the session layer;
-F3 steady-state V1 RTT sampling is implemented, while cancellation of individual sends waiting on a
-full channel remains open. F7's application-side
-head-of-line mitigation is implemented, but WAN/device evidence is still required before its tail-latency
-benefit is claimed.
+before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 now has
+deterministic coverage for a real `WebRTCPeer.send` blocked by a full lane: cancellation removes only that
+send's waiter, admits no frame, and leaves the peer open (`495f05b762f`). F7's application-side head-of-line
+mitigation is implemented, but WAN/device evidence is still required before its tail-latency benefit is
+claimed.
 
 The post-F1/E1 results are nested in `plans/cmux-next/ios-next/bakeoff/results/e1/`. The checked-in
 `manifest.json` enumerates the ten exact result files, labels the run groups, and records source
