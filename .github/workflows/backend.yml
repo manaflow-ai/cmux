@@ -124,6 +124,9 @@ jobs:
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
         run: bun run test
+      - name: Dashboard tests (approvals, search params)
+        working-directory: backend/apps/dashboard
+        run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard
         run: bun run build

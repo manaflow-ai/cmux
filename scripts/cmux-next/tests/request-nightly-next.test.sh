@@ -29,6 +29,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 mkdir -p "$src/.github/workflows"
 # A real nightly.yml is large and names the gate early: a reader that stops at
@@ -150,6 +151,20 @@ request --tree-ready "$head"
 ! dispatched "$app" && ! dispatched "$head" || fail "a commit without a green Release compile must not be promoted:" "$(cat "$TMP/gh.log")"
 grep -q "Release compile" <<<"$out" || fail "the skip must name the Release compile:" "$out"
 
+# A commit with the same tree that does not descend from the published one
+# (an older line of history) is never requested: only commits from the tree's
+# publisher onward are candidates, so the job reads a short window.
+git_q -C "$src" checkout -q -b aside "$head^"
+echo two > "$src/cmux-tui/a"; echo aside > "$src/Aside.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "same tree, other line"
+aside=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$aside")" == "$(key "$head")" ]] || fail "fixture: the aside commit must share the tree"
+git_q -C "$src" checkout -q --detach "$head"
+runs 15 "$aside" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 15 completed success; jobs 11 completed success
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$aside" \
+  || fail "a same-tree commit that does not descend from the publisher must not be requested:" "$out" "$(cat "$TMP/gh.log")"
+
 # A run on another branch never counts.
 runs 12 "$app" other 11 "$head" other
 jobs 12 completed success; jobs 11 completed success
@@ -166,10 +181,10 @@ request --sha "$nogate" --release-compile-green
 grep -q "NIGHTLY_NEXT_NOTARY_PAUSED" <<<"$out" || fail "the refusal must name the gate:" "$out"
 runs 14 "$nogate" feat-cmux-next 11 "$head" feat-cmux-next
 jobs 14 completed success; jobs 11 completed success
-request --tree-ready "$nogate"
-[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$nogate" \
-  || fail "--tree-ready must pass over a commit without the gate for an older gated one:" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$nogate" \
+  || fail "--tree-ready must pass over a newer commit without the gate for the gated publisher:" "$out" "$(cat "$TMP/gh.log")"
 
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green

@@ -28,6 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ghosttyKeybinds: GhosttyKeybindSync?
     /// Watches the exact Ghostty files libghostty loaded and reloads them live.
     private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
+    /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`,
+    /// which owns their broker).
+    private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -158,6 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         services.pageHostPool.noteLikely()
         AgentTabImport.start(services)
+        // Other apps' sign-ins, before any request a launch by one delivers.
+        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: WebAuthSessionWindows(services: services)))
+        self.webAuthHandler = webAuthHandler
+        WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }

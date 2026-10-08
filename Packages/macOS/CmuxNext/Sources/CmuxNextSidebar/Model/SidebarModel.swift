@@ -56,7 +56,11 @@ public final class SidebarModel {
     /// (`AppsService.presence`). The layout keeps their places.
     public var suppressedApps: Set<String> = []
     /// Collapsed titled sections: client view state, saved with the window.
-    public var collapsedLayoutSections: Set<LayoutSectionID> = []
+    public var collapsedLayoutSections: Set<LayoutSectionID> = [] {
+        didSet { if collapsedLayoutSections != oldValue { onCollapsedLayoutSectionsChange?(collapsedLayoutSections) } }
+    }
+    /// Told the new set when a layout section collapses or expands (the App saves it).
+    @ObservationIgnored public var onCollapsedLayoutSectionsChange: ((Set<LayoutSectionID>) -> Void)?
     /// Collapsed top-level sections (Pinned, a machine): client view state,
     /// never sent to a daemon. `setSections` and the section toggle keep
     /// each section's `isCollapsed` equal to it, so the live remap of the

@@ -149,11 +149,25 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
 }
 
 /**
- * Default grant per install kind: the iPhone app gets read, mutate-own (L14-1) and the narrow
- * cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5); execute and riskier classes need their own grant.
+ * Default grant per install kind, and the most a register may ask for (it may narrow, never widen):
+ * - ios: read, mutate-own (L14-1) and the narrow cloud-link class (link_token, and a force-command
+ *   restricted team_vm.ssh_cert agent certificate: cx-wb5.66; CLOUD-LINK-FOLLOWUPS 5);
+ * - mac (the cmux Mac app, cx-wb5.64): the phone grant plus mutate-shared (start, pause, rename team
+ *   machines through the credential relay); never execute. An install with neither execute nor
+ *   cloud-link gets no SSH certificate (team-ssh-ca.ts). The kind is self-declared by the session holder
+ *   (a cli or web register keeps execute), so this caps a stolen install token, not the session;
+ *   no shipped client registered a mac install before this change, so no grant needs a migration;
+ * - vm: vm-self only; every other kind (cli, ...): all install classes.
+ * money and destructive are never install classes (G8 approvals, cx-wb5.65).
  */
 export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number] | "cloud-link" | "vm-self"> =>
-  kind === "ios" ? ["read", "mutate-own", "cloud-link"] : kind === "vm" ? ["vm-self"] : INSTALL_CLASSES
+  kind === "ios"
+    ? ["read", "mutate-own", "cloud-link"]
+    : kind === "mac"
+      ? ["read", "mutate-own", "mutate-shared", "cloud-link"]
+      : kind === "vm"
+        ? ["vm-self"]
+        : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
 export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
@@ -312,6 +326,29 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (!cur) return reject("selector.not_found", "install not found")
         if (cur.bound_team !== v.team) return reject("auth.forbidden", "install is not bound to this team")
         return revokeInstall(state, cur, ctx.now)
+      }
+      case "user.team_left": {
+        // Only the team's own TeamDO (system:team:<id>) after it removed this user (cx-44j.47).
+        const { team, at } = (params ?? {}) as { team?: unknown; at?: unknown }
+        if (typeof team !== "string" || p.kind !== "system" || p.identity !== `system:team:${team}`) return reject("auth.forbidden", "internal op of the team's TeamDO")
+        // Only installs that existed at the removal: a late delivery after a re-join keeps the new ones.
+        const before = typeof at === "number" ? at : ctx.now
+        let next = state
+        const outbox: Array<OutboxItem> = []
+        const revoked: Array<string> = []
+        for (const cur of Object.values(state.installs)) {
+          // Bound to the team, or authorized by the team's SSO: no authority derived from the team survives the removal.
+          // (an install bound to another team, such as that team's VM, keeps the other team's authority).
+          const fromTeam = cur.bound_team === team || (cur.bound_team === undefined && cur.sso_team === team)
+          if (!fromTeam || cur.revoked_at !== null || cur.created_at > before) continue
+          const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
+          if (!r.ok) return r
+          next = r.state
+          outbox.push(...(r.outbox ?? []))
+          revoked.push(cur.id)
+        }
+        if (revoked.length === 0) return { ok: true, state, value: { revoked }, changed: false }
+        return { ok: true, state: next, value: { revoked }, outbox }
       }
       case "user.team_index": {
         // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.
