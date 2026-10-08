@@ -466,6 +466,12 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 self.assertEqual(outputs, expected)
                 self.assertEqual(actual_groups, groups)
 
+    def test_syntax_only_python_uses_the_quality_lane(self):
+        # A syntax-only Python file should not pull in the serial preflight
+        # bucket just to run the repository-wide py_compile check.
+        _, groups = route_decision(["scripts/ci/new_syntax_only.py"])
+        self.assertEqual(groups, ("quality-determinism",))
+
     def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
