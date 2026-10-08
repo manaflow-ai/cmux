@@ -2,6 +2,7 @@ use super::*;
 use crate::resource::FrontendProjectionPublicId;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use super::journal_extensions::JOURNAL_LIST_MAX_ITEMS;
 
 const TERMINAL_ONE: &str = "00000000000040008000000000000001";
 const TERMINAL_TWO: &str = "00000000000040008000000000000002";
@@ -46,7 +47,13 @@ fn test_digest_hex(bytes: &[u8]) -> String {
 fn journal_lists_are_bounded_by_the_resource_catalog() {
     let registry = WorkspaceRegistry::in_memory("journal-list-bounds").unwrap();
     for sequence in 1..=(JOURNAL_LIST_MAX_ITEMS + 1) {
-        let digest = Sha256::digest(format!("checkpoint-{sequence}").as_bytes());
+        let digest_input = json!({
+            "source_sequence": sequence.to_string(),
+            "reducer_version": 1,
+            "state": {},
+            "content_refs": [],
+        });
+        let digest = Sha256::digest(canonical_json(&digest_input).unwrap().as_bytes());
         let checkpoint_id = format!("checkpoint_{}", test_digest_hex(&digest));
         registry
             .connection

@@ -49,9 +49,9 @@ use effect_store::{
 };
 use journal_extensions::create_journal_extensions_schema;
 pub(crate) use journal_extensions::{
-    JOURNAL_LIST_MAX_ITEMS, JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob,
-    JournalHookAttempt, JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan,
-    JournalHookState, JournalSegmentSealCommit, JournalSegmentSealStart,
+    JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
+    JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
+    JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
