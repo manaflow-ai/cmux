@@ -81,9 +81,11 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { canFork, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import { RenderCard, canRender } from "./conversation/RenderCard";
+import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
@@ -316,6 +318,15 @@ const PreviewRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
 );
+/// An ended turn's render call, live (conversation/RenderCard.tsx).
+const RenderRow = memo(
+  function RenderRow({ row }: RowProps) {
+    const tool = row.items?.[0]?.tool;
+    const call = tool && canRender() ? renderCall(tool) : undefined;
+    return call ? <RenderCard call={call} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
@@ -377,6 +388,7 @@ const defaultRegistry: NativeRegistry = {
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   [PREVIEW]: PreviewRow,
+  [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
