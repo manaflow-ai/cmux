@@ -353,6 +353,7 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
         var superProperties: [String: AnalyticsValue] = [:]
         var userID: String?
         var drainTask: Task<Void, Never>?
+        var suppressAutomaticDrain = false
         var wakeIterator = wakeStream.makeAsyncIterator()
 
         func scheduleDrain() {
@@ -373,7 +374,9 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
             if excess > 0 {
                 pending.removeFirst(excess)
             }
-            scheduleDrain()
+            if !suppressAutomaticDrain {
+                scheduleDrain()
+            }
         }
 
         func eventProperties(_ properties: [String: AnalyticsValue]) -> [String: AnalyticsValue] {
@@ -498,9 +501,12 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
         }
 
         while !Task.isCancelled, let _ = await wakeIterator.next() {
-            drainTask?.cancel()
-            drainTask = nil
             let work = state.takeWork()
+            if work.shouldDrain {
+                drainTask?.cancel()
+                drainTask = nil
+            }
+            suppressAutomaticDrain = work.shouldDrain
             for command in work.commands {
                 switch command {
                 case let .capture(name, properties):
@@ -535,6 +541,7 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
                     }
                 }
             }
+            suppressAutomaticDrain = false
             if work.shouldDrain {
                 await drain()
             }
