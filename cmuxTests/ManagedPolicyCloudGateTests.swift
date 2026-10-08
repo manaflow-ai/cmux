@@ -226,7 +226,18 @@ struct ManagedPolicyCloudGateTests {
         )
 
         let request = try #require(RecordingCloudURLProtocol.recorder.requests.first)
-        let bodyData = try #require(request.httpBody)
+        var bodyData = request.httpBody ?? Data()
+        if bodyData.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                try #require(count >= 0)
+                if count == 0 { break }
+                bodyData.append(contentsOf: buffer.prefix(count))
+            }
+        }
         let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
         #expect(body["visibility"] as? String == "team")
         #expect(body["token"] as? String == "sk-ant-oat01-test-token")
