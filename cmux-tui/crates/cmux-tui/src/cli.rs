@@ -21,7 +21,12 @@ mod extra_help;
 mod federation;
 #[cfg(unix)]
 mod frontend_browser;
+#[cfg(unix)]
+mod host_mount;
 mod lifecycle;
+#[cfg(unix)]
+#[cfg(unix)]
+pub(crate) use host_mount::early_unix_scope;
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;

@@ -18,6 +18,7 @@ use super::personal_store::{
 };
 use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
+mod group_marks;
 mod inputs;
 mod mixed_order;
 #[cfg(test)]

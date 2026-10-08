@@ -14,6 +14,14 @@ use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert}
 use crate::state::values::local_registry_id;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 
+/// Advertises `icon` on `workspace_group.update`, `WorkspaceGroupSnapshot`
+/// and `list-personal` groups.
+pub(crate) const WORKSPACE_GROUP_ICON_CAPABILITY: &str = "workspace-group-icon-v1";
+
+/// Advertises `pinned` on `workspace_group.update`, `WorkspaceGroupSnapshot`
+/// and `list-personal` groups.
+pub(crate) const WORKSPACE_GROUP_PIN_CAPABILITY: &str = "workspace-group-pin-v1";
+
 /// One personal state mutation.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "change", rename_all = "snake_case")]
@@ -36,6 +44,14 @@ pub(crate) enum PersonalChange {
         /// when absent, so older mutation fingerprints keep their shape.
         #[serde(skip_serializing_if = "Option::is_none")]
         top_index: Option<Option<usize>>,
+        /// The group's icon (`workspace-group-icon-v1`); `Some(None)`
+        /// clears it. Omitted when absent, like `top_index`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        icon: Option<Option<String>>,
+        /// Pin (save) or unpin the group (`workspace-group-pin-v1`).
+        /// Omitted when absent, like `top_index`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pinned: Option<bool>,
     },
     GroupDelete {
         group: String,
@@ -212,7 +228,16 @@ fn apply_personal(
                 .context("created group vanished")?;
             Ok(StateChanges::new(value, all_groups(tx)?))
         }
-        PersonalChange::GroupUpdate { group, name, color, collapsed, room, top_index } => {
+        PersonalChange::GroupUpdate {
+            group,
+            name,
+            color,
+            collapsed,
+            room,
+            top_index,
+            icon,
+            pinned,
+        } => {
             personal::update_group(
                 tx,
                 &group,
@@ -224,6 +249,14 @@ fn apply_personal(
             .map_err(|error| typed(error, "workspace_group", &group))?;
             if let Some(top_index) = top_index {
                 personal::set_group_top(tx, &group, top_index)
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
+            if let Some(icon) = &icon {
+                personal::set_group_icon(tx, &group, icon.as_deref())
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
+            if let Some(pinned) = pinned {
+                personal::set_group_pinned(tx, &group, pinned)
                     .map_err(|error| typed(error, "workspace_group", &group))?;
             }
             let value = personal::workspace_group_snapshot(tx, &group)?

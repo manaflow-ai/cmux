@@ -20329,6 +20329,138 @@
         }
       }
     },
+    "summary.none": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "なし"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無"
+          }
+        }
+      }
+    },
     "summary.outputs": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -25213,6 +25345,138 @@
         }
       }
     },
+    "trust.answerFirst": {
+      "comment": "Agent pane: why Send is off while the folder trust question (Trust / Don't trust) is open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجب عن سؤال الثقة أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo odgovorite na pitanje o povjerenju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Besvar spørgsmålet om tillid først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beantworte zuerst die Vertrauensfrage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer the trust question first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Responde primero a la pregunta de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Répondez d'abord à la question de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rispondi prima alla domanda sulla fiducia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "先に信頼の確認に答えてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមឆ្លើយសំណួរអំពីការទុកចិត្តជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 신뢰 질문에 답하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svar på spørsmålet om tillit først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw odpowiedz na pytanie o zaufanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Responda primeiro à pergunta de confiança"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала ответьте на вопрос о доверии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรดตอบคำถามเรื่องความเชื่อถือก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce güven sorusunu yanıtlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу дайте відповідь на запитання про довіру"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy trả lời câu hỏi về độ tin cậy trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先回答信任问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先回答信任問題"
+          }
+        }
+      }
+    },
     "trust.ask": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -26133,6 +26397,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "不會信任 {folder}"
+          }
+        }
+      }
+    },
+    "trust.untrustedNoPrompts": {
+      "comment": "Agent pane: why Send is off after the user chose Don't trust for the chat's folder; Undo is the action beside the answer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اخترت عدم الوثوق، لذلك لا ينفّذ الوكيل أي طلبات في هذا المجلد. اضغط تراجع لتغيير ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odabrali ste Ne vjeruj, pa agent ne izvršava upite u ovom folderu. Pritisnite Poništi da to promijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du valgte Stol ikke på, så agenten kører ingen prompter i denne mappe. Tryk på Fortryd for at ændre det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du hast „Nicht vertrauen“ gewählt, daher führt der Agent in diesem Ordner keine Prompts aus. Tippe auf „Rückgängig“, um das zu ändern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You chose Don't trust, so the agent runs no prompts in this folder. Press Undo to change it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elegiste No confiar, así que el agente no ejecuta peticiones en esta carpeta. Pulsa Deshacer para cambiarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous avez choisi Ne pas faire confiance : l'agent n'exécute aucune requête dans ce dossier. Appuyez sur Annuler pour changer cela."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hai scelto Non considerare attendibile, quindi l'agente non esegue prompt in questa cartella. Premi Annulla per cambiare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「信頼しない」を選んだため、エージェントはこのフォルダでプロンプトを実行しません。変更するには「元に戻す」を押してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកបានជ្រើសរើសកុំទុកចិត្ត ដូច្នេះភ្នាក់ងារមិនដំណើរការសំណើក្នុងថតនេះទេ។ ចុចមិនធ្វើវិញដើម្បីប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "신뢰하지 않음을 선택했으므로 에이전트가 이 폴더에서 프롬프트를 실행하지 않습니다. 변경하려면 실행 취소를 누르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du valgte Ikke stol på, så agenten kjører ingen ledetekster i denne mappen. Trykk Angre for å endre det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybrano Nie ufaj, więc agent nie wykonuje poleceń w tym folderze. Naciśnij Cofnij, aby to zmienić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Você escolheu Não confiar, então o agente não executa prompts nesta pasta. Pressione Desfazer para mudar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вы выбрали «Не доверять», поэтому агент не выполняет запросы в этой папке. Нажмите «Отменить», чтобы изменить это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุณเลือกไม่ไว้วางใจ เอเจนต์จึงไม่รันพรอมต์ในโฟลเดอร์นี้ กดเลิกทำเพื่อเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güvenme'yi seçtiniz, bu yüzden ajan bu klasörde istem çalıştırmıyor. Değiştirmek için Geri al'a basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ви вибрали «Не довіряти», тому агент не виконує запити в цій папці. Натисніть «Скасувати», щоб змінити це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bạn đã chọn Không tin cậy, nên tác nhân không chạy lời nhắc nào trong thư mục này. Nhấn Hoàn tác để thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你选择了“不信任”，因此代理不会在此文件夹中运行提示。按“撤销”可更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你選擇了「不信任」，因此代理不會在此資料夾中執行提示。按「還原」可更改。"
           }
         }
       }
@@ -38805,270 +39201,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "指令"
-          }
-        }
-      }
-    },
-    "composer.connectCloud": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud…"
-          }
-        }
-      }
-    },
-    "composer.connectSSH": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH…"
           }
         }
       }
@@ -67849,400 +67981,6 @@
         }
       }
     },
-    "agentHome.notice": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تبدأ المحادثات الجديدة في مساحة العمل هذه في مجلد خاص."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novi razgovori u ovom radnom prostoru počinju u privatnom folderu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nye chats i dette arbejdsområde starter i en privat mappe."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New chats in this workspace start in a private folder."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Los chats nuevos de este espacio de trabajo empiezan en una carpeta privada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le nuove chat in questo spazio di lavoro iniziano in una cartella privata."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このワークスペースの新しいチャットは、専用のフォルダで始まります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែកថ្មីក្នុងកន្លែងធ្វើការនេះ ចាប់ផ្តើមក្នុងថតឯកជន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 워크스페이스의 새 채팅은 전용 폴더에서 시작합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nye chatter i dette arbeidsområdet starter i en privat mappe."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowe czaty w tym obszarze roboczym zaczynają się w prywatnym folderze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novos chats neste espaço de trabalho começam em uma pasta privada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новые чаты в этом рабочем пространстве начинаются в отдельной папке."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทใหม่ในพื้นที่ทำงานนี้จะเริ่มในโฟลเดอร์ส่วนตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu çalışma alanındaki yeni sohbetler özel bir klasörde başlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нові чати в цьому робочому просторі починаються в окремій теці."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các cuộc trò chuyện mới trong không gian làm việc này bắt đầu trong một thư mục riêng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此工作区中的新聊天将在一个专用文件夹中开始。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此工作區中的新聊天會在一個專用資料夾中開始。"
-          }
-        }
-      }
-    },
-    "agentHome.choose": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختيار مجلد…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odaberi folder…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg mappe…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ordner auswählen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose Folder…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elegir carpeta…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisir un dossier…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli cartella…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを選択…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសថត…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "폴더 선택…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg mappe…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybierz folder…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolher pasta…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выбрать папку…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกโฟลเดอร์…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klasör seç…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вибрати теку…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn thư mục…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "选择文件夹…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇資料夾…"
-          }
-        }
-      }
-    },
-    "summary.none": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا شيء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "None"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ninguno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuno"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "なし"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มี"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無"
-          }
-        }
-      }
-    },
     "header.changes": {
       "comment": "Agent pane chat header",
       "extractionState": "manual",
@@ -73259,266 +72997,264 @@
         }
       }
     },
-    "trust.answerFirst": {
-      "comment": "Agent pane: why Send is off while the folder trust question (Trust / Don't trust) is open",
+    "agentHome.notice": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أجب عن سؤال الثقة أولًا"
+            "value": "تبدأ المحادثات الجديدة في مساحة العمل هذه في مجلد خاص."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prvo odgovorite na pitanje o povjerenju"
+            "value": "Novi razgovori u ovom radnom prostoru počinju u privatnom folderu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Besvar spørgsmålet om tillid først"
+            "value": "Nye chats i dette arbejdsområde starter i en privat mappe."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Beantworte zuerst die Vertrauensfrage"
+            "value": "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Answer the trust question first"
+            "value": "New chats in this workspace start in a private folder."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Responde primero a la pregunta de confianza"
+            "value": "Los chats nuevos de este espacio de trabajo empiezan en una carpeta privada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Répondez d'abord à la question de confiance"
+            "value": "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rispondi prima alla domanda sulla fiducia"
+            "value": "Le nuove chat in questo spazio di lavoro iniziano in una cartella privata."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "先に信頼の確認に答えてください"
+            "state": "translated",
+            "value": "このワークスペースの新しいチャットは、専用のフォルダで始まります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សូមឆ្លើយសំណួរអំពីការទុកចិត្តជាមុនសិន"
+            "value": "ការជជែកថ្មីក្នុងកន្លែងធ្វើការនេះ ចាប់ផ្តើមក្នុងថតឯកជន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "먼저 신뢰 질문에 답하세요"
+            "value": "이 워크스페이스의 새 채팅은 전용 폴더에서 시작합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svar på spørsmålet om tillit først"
+            "value": "Nye chatter i dette arbeidsområdet starter i en privat mappe."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najpierw odpowiedz na pytanie o zaufanie"
+            "value": "Nowe czaty w tym obszarze roboczym zaczynają się w prywatnym folderze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Responda primeiro à pergunta de confiança"
+            "value": "Novos chats neste espaço de trabalho começam em uma pasta privada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сначала ответьте на вопрос о доверии"
+            "value": "Новые чаты в этом рабочем пространстве начинаются в отдельной папке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โปรดตอบคำถามเรื่องความเชื่อถือก่อน"
+            "value": "แชทใหม่ในพื้นที่ทำงานนี้จะเริ่มในโฟลเดอร์ส่วนตัว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Önce güven sorusunu yanıtlayın"
+            "value": "Bu çalışma alanındaki yeni sohbetler özel bir klasörde başlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спершу дайте відповідь на запитання про довіру"
+            "value": "Нові чати в цьому робочому просторі починаються в окремій теці."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hãy trả lời câu hỏi về độ tin cậy trước"
+            "value": "Các cuộc trò chuyện mới trong không gian làm việc này bắt đầu trong một thư mục riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请先回答信任问题"
+            "value": "此工作区中的新聊天将在一个专用文件夹中开始。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請先回答信任問題"
+            "value": "此工作區中的新聊天會在一個專用資料夾中開始。"
           }
         }
       }
     },
-    "trust.untrustedNoPrompts": {
-      "comment": "Agent pane: why Send is off after the user chose Don't trust for the chat's folder; Undo is the action beside the answer",
+    "agentHome.choose": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اخترت عدم الوثوق، لذلك لا ينفّذ الوكيل أي طلبات في هذا المجلد. اضغط تراجع لتغيير ذلك."
+            "value": "اختيار مجلد…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odabrali ste Ne vjeruj, pa agent ne izvršava upite u ovom folderu. Pritisnite Poništi da to promijenite."
+            "value": "Odaberi folder…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Du valgte Stol ikke på, så agenten kører ingen prompter i denne mappe. Tryk på Fortryd for at ændre det."
+            "value": "Vælg mappe…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Du hast „Nicht vertrauen“ gewählt, daher führt der Agent in diesem Ordner keine Prompts aus. Tippe auf „Rückgängig“, um das zu ändern."
+            "value": "Ordner auswählen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You chose Don't trust, so the agent runs no prompts in this folder. Press Undo to change it."
+            "value": "Choose Folder…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elegiste No confiar, así que el agente no ejecuta peticiones en esta carpeta. Pulsa Deshacer para cambiarlo."
+            "value": "Elegir carpeta…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vous avez choisi Ne pas faire confiance : l'agent n'exécute aucune requête dans ce dossier. Appuyez sur Annuler pour changer cela."
+            "value": "Choisir un dossier…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hai scelto Non considerare attendibile, quindi l'agente non esegue prompt in questa cartella. Premi Annulla per cambiare."
+            "value": "Scegli cartella…"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "「信頼しない」を選んだため、エージェントはこのフォルダでプロンプトを実行しません。変更するには「元に戻す」を押してください。"
+            "state": "translated",
+            "value": "フォルダを選択…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អ្នកបានជ្រើសរើសកុំទុកចិត្ត ដូច្នេះភ្នាក់ងារមិនដំណើរការសំណើក្នុងថតនេះទេ។ ចុចមិនធ្វើវិញដើម្បីប្ដូរ។"
+            "value": "ជ្រើសថត…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "신뢰하지 않음을 선택했으므로 에이전트가 이 폴더에서 프롬프트를 실행하지 않습니다. 변경하려면 실행 취소를 누르세요."
+            "value": "폴더 선택…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Du valgte Ikke stol på, så agenten kjører ingen ledetekster i denne mappen. Trykk Angre for å endre det."
+            "value": "Velg mappe…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wybrano Nie ufaj, więc agent nie wykonuje poleceń w tym folderze. Naciśnij Cofnij, aby to zmienić."
+            "value": "Wybierz folder…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Você escolheu Não confiar, então o agente não executa prompts nesta pasta. Pressione Desfazer para mudar."
+            "value": "Escolher pasta…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вы выбрали «Не доверять», поэтому агент не выполняет запросы в этой папке. Нажмите «Отменить», чтобы изменить это."
+            "value": "Выбрать папку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คุณเลือกไม่ไว้วางใจ เอเจนต์จึงไม่รันพรอมต์ในโฟลเดอร์นี้ กดเลิกทำเพื่อเปลี่ยน"
+            "value": "เลือกโฟลเดอร์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Güvenme'yi seçtiniz, bu yüzden ajan bu klasörde istem çalıştırmıyor. Değiştirmek için Geri al'a basın."
+            "value": "Klasör seç…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ви вибрали «Не довіряти», тому агент не виконує запити в цій папці. Натисніть «Скасувати», щоб змінити це."
+            "value": "Вибрати теку…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bạn đã chọn Không tin cậy, nên tác nhân không chạy lời nhắc nào trong thư mục này. Nhấn Hoàn tác để thay đổi."
+            "value": "Chọn thư mục…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你选择了“不信任”，因此代理不会在此文件夹中运行提示。按“撤销”可更改。"
+            "value": "选择文件夹…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你選擇了「不信任」，因此代理不會在此資料夾中執行提示。按「還原」可更改。"
+            "value": "選擇資料夾…"
           }
         }
       }
@@ -77213,6 +76949,798 @@
         }
       }
     },
+    "newTabPage.tool.changes": {
+    "comment": "Agent pane New Tab Tools card",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "التغييرات"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Promjene"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ændringer"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Änderungen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Changes"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cambios"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Modifications"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Modifiche"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "変更"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ការផ្លាស់ប្តូរ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "변경 사항"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Endringer"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Zmiany"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Alterações"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Изменения"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "การเปลี่ยนแปลง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Değişiklikler"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Зміни"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Thay đổi"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "更改"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "變更"
+        }
+      }
+    }
+  },
+    "newTabPage.tool.terminal": {
+    "comment": "Agent pane New Tab Tools card",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "الطرفية"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Terminal"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminale"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ターミナル"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ស្ថានីយ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "터미널"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Терминал"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เทอร์มินัล"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Термінал"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminal"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "终端"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "終端"
+        }
+      }
+    }
+  },
+    "newTabPage.tool.files": {
+    "comment": "Agent pane New Tab Tools card",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "الملفات"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Datoteke"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Filer"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dateien"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Files"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Archivos"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Fichiers"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "File"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ファイル"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ឯកសារ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "파일"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Filer"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Pliki"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Arquivos"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Файлы"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ไฟล์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dosyalar"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Файли"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tệp"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "文件"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "檔案"
+        }
+      }
+    }
+  },
+    "newTabPage.tool.sideChat": {
+    "comment": "Agent pane New Tab Tools card",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "دردشة جانبية"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bočni chat"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sidechat"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Seitenchat"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Side chat"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chat lateral"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chat latéral"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chat laterale"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "サイドチャット"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ជជែកចំហៀង"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "사이드 채팅"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sidechat"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Czat boczny"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chat lateral"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Боковой чат"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แชตด้านข้าง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Yan sohbet"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Бічний чат"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Trò chuyện bên"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "侧边聊天"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "側邊聊天"
+        }
+      }
+    }
+  },
+    "newTabPage.tools": {
+    "comment": "Agent pane New Tab Tools",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "الأدوات"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Alati"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Værktøjer"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Werkzeuge"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tools"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Herramientas"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Outils"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Strumenti"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ツール"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ឧបករណ៍"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "도구"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Verktøy"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Narzędzia"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ferramentas"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Инструменты"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เครื่องมือ"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Araçlar"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Інструменти"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Công cụ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "工具"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "工具"
+        }
+      }
+    }
+  },
+    "newTabPage.moreOptions": {
+    "comment": "Agent pane New Tab Tools",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "المزيد من الخيارات"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Više opcija"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Flere muligheder"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Weitere Optionen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "More options"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Más opciones"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Plus d’options"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Altre opzioni"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "その他のオプション"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ជម្រើសបន្ថែម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "추가 옵션"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Flere alternativer"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Więcej opcji"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Mais opções"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Другие варианты"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ตัวเลือกเพิ่มเติม"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diğer seçenekler"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Інші параметри"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tùy chọn khác"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "更多选项"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "更多選項"
+        }
+      }
+    }
+  },
     "image.open" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -77471,6 +77999,1722 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "未知檔案"
+          }
+        }
+      }
+    },
+    "newTabPage.tool.splitRight": {
+    "comment": "Agent pane New Tab Tools menu",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تقسيم إلى اليمين"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podijeli desno"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opdel til højre"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nach rechts teilen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Split right"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir a la derecha"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diviser à droite"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividi a destra"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "右に分割"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បំបែកទៅស្តាំ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "오른쪽으로 분할"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Del til høyre"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podziel w prawo"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir à direita"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Разделить вправо"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แยกทางขวา"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sağa böl"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Розділити праворуч"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chia sang phải"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向右拆分"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向右分割"
+        }
+      }
+    }
+  },
+    "newTabPage.tool.splitDown": {
+    "comment": "Agent pane New Tab Tools menu",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تقسيم إلى الأسفل"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podijeli dolje"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opdel nedad"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nach unten teilen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Split down"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir hacia abajo"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diviser vers le bas"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividi verso il basso"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "下に分割"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បំបែកចុះក្រោម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "아래로 분할"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Del ned"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podziel w dół"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dividir para baixo"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Разделить вниз"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แยกด้านล่าง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aşağı böl"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Розділити вниз"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chia xuống"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向下拆分"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "向下分割"
+        }
+      }
+    }
+  },
+    "image.view" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فتح الصورة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvori sliku"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn billede"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bild öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir l’image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri immagine"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像を開く"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើករូបភាព"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지 열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne bilde"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz obraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir imagem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть изображение"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิดรูปภาพ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Görüntüyü aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити зображення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở hình ảnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打開影像"
+          }
+        }
+      }
+    },
+    "image.viewer" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "صورة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slika"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Billede"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bild"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Immagine"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបភាព"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bilde"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imagem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Изображение"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รูปภาพ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Görüntü"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зображення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hình ảnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "影像"
+          }
+        }
+      }
+    },
+    "composer.connectCloud": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud…"
+          }
+        }
+      }
+    },
+    "composer.connectSSH": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH…"
+          }
+        }
+      }
+    },
+    "image.close" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إغلاق"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zatvori"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Luk"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Schließen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cerrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fermer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiudi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "閉じる"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "닫기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lukk"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zamknij"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fechar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapat"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đóng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉"
+          }
+        }
+      }
+    },
+    "image.copied" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تم النسخ"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopirano"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopieret"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copiado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copié"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copiato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "コピーしました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានចម្លង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "복사됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopiert"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skopiowano"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copiado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скопировано"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คัดลอกแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopyalandı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скопійовано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã sao chép"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已拷贝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已拷貝"
+          }
+        }
+      }
+    },
+    "image.copy" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نسخ الصورة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopiraj sliku"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopiér billede"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bild kopieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copiar imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copier l’image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copia immagine"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像をコピー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចម្លងរូបភាព"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지 복사"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopier bilde"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopiuj obraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Copiar imagem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Копировать изображение"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คัดลอกรูปภาพ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Görüntüyü kopyala"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Копіювати зображення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sao chép hình ảnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拷贝图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拷貝影像"
+          }
+        }
+      }
+    },
+    "image.copyFailed" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذّر نسخ الصورة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kopiranje slike nije uspjelo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Billedet kunne ikke kopieres"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bild konnte nicht kopiert werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t copy image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se pudo copiar la imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de copier l’image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile copiare l’immagine"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像をコピーできませんでした"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចចម្លងរូបភាពបានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지를 복사할 수 없음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke kopiere bildet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie można skopiować obrazu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível copiar a imagem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось скопировать изображение"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คัดลอกรูปภาพไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Görüntü kopyalanamadı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося скопіювати зображення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể sao chép hình ảnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法拷贝图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法拷貝影像"
+          }
+        }
+      }
+    },
+    "image.position" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} من {count}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} od {count}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} af {count}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} von {count}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{index} of {count}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} de {count}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} sur {count}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} di {count}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index}/{count}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} នៃ {count}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index}/{count}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} av {count}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} z {count}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} de {count}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} из {count}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} จาก {count}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index}/{count}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index} з {count}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{index}/{count}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "第 {index} 张，共 {count} 张"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "第 {index} 張，共 {count} 張"
+          }
+        }
+      }
+    },
+    "image.previous" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الصورة السابقة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prethodna slika"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forrige billede"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vorheriges Bild"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imagen anterior"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Image précédente"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Immagine precedente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "前の画像"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបភាពមុន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이전 이미지"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forrige bilde"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Poprzedni obraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imagem anterior"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Предыдущее изображение"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รูปภาพก่อนหน้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Önceki görüntü"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Попереднє зображення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hình ảnh trước"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上一张图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上一張影像"
+          }
+        }
+      }
+    },
+    "image.next" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الصورة التالية"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sljedeća slika"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Næste billede"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nächstes Bild"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imagen siguiente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Image suivante"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Immagine successiva"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "次の画像"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបភាពបន្ទាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다음 이미지"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neste bilde"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Następny obraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Próxima imagem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Следующее изображение"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รูปภาพถัดไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sonraki görüntü"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наступне зображення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hình ảnh tiếp theo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下一张图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下一張影像"
           }
         }
       }
@@ -82355,6 +84599,666 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "代理"
+          }
+        }
+      }
+    },
+    "diagram.chart" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المخطط"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grafikon"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diagram"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diagramm"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chart"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gráfico"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Graphique"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grafico"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "グラフ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គំនូសតាង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "차트"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diagram"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wykres"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gráfico"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Диаграмма"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แผนภูมิ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grafik"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Діаграма"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Biểu đồ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "图表"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "圖表"
+          }
+        }
+      }
+    },
+    "diagram.code" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الرمز"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kod"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kode"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Code"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Código"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Code"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Codice"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "コード"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កូដ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "코드"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kode"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kod"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Código"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Код"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โค้ด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kod"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Код"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mã"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代码"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "程式碼"
+          }
+        }
+      }
+    },
+    "diagram.failed" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذر رسم هذا المخطط: {reason}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije moguće nacrtati ovaj grafikon: {reason}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke tegne diagrammet: {reason}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Diagramm konnte nicht gezeichnet werden: {reason}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't draw this chart: {reason}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se pudo dibujar este gráfico: {reason}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de dessiner ce graphique : {reason}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile disegnare questo grafico: {reason}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このグラフを描画できませんでした: {reason}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចគូរគំនូសតាងនេះបានទេ៖ {reason}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 차트를 그릴 수 없습니다: {reason}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke tegne diagrammet: {reason}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie udało się narysować wykresu: {reason}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível desenhar este gráfico: {reason}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось построить диаграмму: {reason}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "วาดแผนภูมินี้ไม่ได้: {reason}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu grafik çizilemedi: {reason}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося побудувати діаграму: {reason}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể vẽ biểu đồ này: {reason}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法绘制此图表：{reason}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法繪製此圖表：{reason}"
+          }
+        }
+      }
+    },
+    "media.expand" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "توسيع"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Proširi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Udvid"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vergrößern"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ampliar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agrandir"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espandi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拡大"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពង្រីក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "확대"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utvid"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiększ"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Expandir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Развернуть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขยาย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Genişlet"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розгорнути"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở rộng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "放大"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "放大"
+          }
+        }
+      }
+    },
+    "media.player" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مشغل الوسائط"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Medijski plejer"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Medieafspiller"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Medienplayer"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media player"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Reproductor multimedia"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lecteur multimédia"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lettore multimediale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "メディアプレーヤー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្មវិធីចាក់មេឌៀ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "미디어 플레이어"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mediespiller"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odtwarzacz multimediów"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Player de mídia"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Медиаплеер"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เครื่องเล่นสื่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Medya oynatıcı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Медіаплеєр"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trình phát media"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "媒体播放器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "媒體播放器"
           }
         }
       }

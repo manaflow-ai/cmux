@@ -32,7 +32,8 @@ public nonisolated enum SettingsSchema {
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
     public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
+        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
+        TerminalFontSetting().sizePath,
     ]
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and

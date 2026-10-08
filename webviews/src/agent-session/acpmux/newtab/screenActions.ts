@@ -13,6 +13,8 @@ export function newTabScreenActions(deps: {
   showAllChats(): void;
   /// Runs a shell mode command in the chat the page becomes, in `cwd` (shell/shellRuns.ts).
   runShell(command: string, cwd?: string): void;
+  inputReady?(token: string): void;
+  openFolder?(path: string): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -33,7 +35,7 @@ export function newTabScreenActions(deps: {
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
       deps.leave();
-      deps.runShell(command, cwd);
+      ignore(callNative("tab.open", { kind: "terminal", text: command, run: true, ...(cwd ? { cwd } : {}) }));
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {
@@ -41,7 +43,9 @@ export function newTabScreenActions(deps: {
       deps.selectSession(sessionId);
     },
     onShowAll: deps.showAllChats,
+    onRunAction: (id) => ignore(callNative("action.run", { id })),
     onTouched: () => ignore(callNative("newTab.touched")),
-    onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),
+    onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
+    onOpenFolder: (path) => ignore(callNative("tab.open", { kind: "terminal", text: "", cwd: path })),
   };
 }
