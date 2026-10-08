@@ -1,6 +1,6 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import { createContext, use, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { createContext, use, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -9,6 +9,7 @@ import { UI_ANCHOR_GAP } from "./anchor";
 export interface MenuProps {
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
 }
 
@@ -23,7 +24,7 @@ interface MenuContextValue {
 const MenuContext = createContext<MenuContextValue | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
-export function Menu({ open, onOpenChange, children }: MenuProps) {
+export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
@@ -104,7 +105,12 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
   };
   return (
     <MenuContext value={context}>
-      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen}>
+      <BaseMenu.Root
+        modal={false}
+        open={isOpen}
+        onOpenChange={setMenuOpen}
+        onOpenChangeComplete={onOpenChangeComplete}
+      >
         {children}
       </BaseMenu.Root>
     </MenuContext>
@@ -163,19 +169,23 @@ export function MenuButton({
 }
 
 export interface MenuPopupProps {
+  id?: string;
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "center" | "end";
+  finalFocus?: boolean | RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", children }: MenuPopupProps) {
+export function MenuPopup({ id, className, side = "bottom", align = "start", finalFocus, children }: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
-        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
+        <BaseMenu.Popup id={id} className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
+          {children}
+        </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );
