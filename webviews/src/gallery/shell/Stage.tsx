@@ -153,9 +153,10 @@ export function Stage({
     const intentTarget: EventTarget = scrollTarget ?? window;
     const parentWindow = iframe.ownerDocument.defaultView;
     const frameWindow = iframe.contentWindow;
-    const intentSources = [intentTarget, parentWindow, frameWindow].filter(
-      (target, index, sources): target is EventTarget => Boolean(target) && sources.indexOf(target) === index,
-    );
+    const uniqueEventTargets = (targets: (EventTarget | null)[]): EventTarget[] =>
+      Array.from(new Set(targets.filter((target): target is EventTarget => target !== null)));
+    const intentSources = uniqueEventTargets([intentTarget, frameWindow]);
+    const keyboardSources = uniqueEventTargets([parentWindow, frameWindow]);
     const expireTransientIntent = () => {
       if (pointerIntent) return;
       intentPending = false;
@@ -185,25 +186,27 @@ export function Stage({
       if (SCROLL_KEYS.has((event as KeyboardEvent).key)) markTransientIntent();
     };
     const addIntentListener = (
+      sources: EventTarget[],
       type: string,
       listener: EventListener,
       options?: AddEventListenerOptions | boolean,
     ) => {
-      for (const source of intentSources) source.addEventListener(type, listener, options);
+      for (const source of sources) source.addEventListener(type, listener, options);
     };
     const removeIntentListener = (
+      sources: EventTarget[],
       type: string,
       listener: EventListener,
       options?: EventListenerOptions | boolean,
     ) => {
-      for (const source of intentSources) source.removeEventListener(type, listener, options);
+      for (const source of sources) source.removeEventListener(type, listener, options);
     };
-    addIntentListener("wheel", markTransientIntent, { passive: true, capture: true });
-    addIntentListener("touchmove", markTransientIntent, { passive: true, capture: true });
-    addIntentListener("pointermove", markPointerIntent, { passive: true, capture: true });
-    addIntentListener("pointerup", clearPointerIntent, { passive: true, capture: true });
-    addIntentListener("pointercancel", clearPointerIntent, { passive: true, capture: true });
-    addIntentListener("keydown", markKeyboardIntent, true);
+    addIntentListener(intentSources, "wheel", markTransientIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "touchmove", markTransientIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "pointermove", markPointerIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "pointerup", clearPointerIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "pointercancel", clearPointerIntent, { passive: true, capture: true });
+    addIntentListener(keyboardSources, "keydown", markKeyboardIntent, true);
     const onScroll = () => {
       const result = scrollStateAfterEvent(scrollTarget, iframe, baseline, userMoved, intentPending);
       baseline = result.baseline;
@@ -214,12 +217,12 @@ export function Stage({
     intentTarget.addEventListener("scroll", onScroll, { passive: true });
     const removeIntentListeners = () => {
       if (intentFrame) cancelAnimationFrame(intentFrame);
-      removeIntentListener("wheel", markTransientIntent, true);
-      removeIntentListener("touchmove", markTransientIntent, true);
-      removeIntentListener("pointermove", markPointerIntent, true);
-      removeIntentListener("pointerup", clearPointerIntent, true);
-      removeIntentListener("pointercancel", clearPointerIntent, true);
-      removeIntentListener("keydown", markKeyboardIntent, true);
+      removeIntentListener(intentSources, "wheel", markTransientIntent, true);
+      removeIntentListener(intentSources, "touchmove", markTransientIntent, true);
+      removeIntentListener(intentSources, "pointermove", markPointerIntent, true);
+      removeIntentListener(intentSources, "pointerup", clearPointerIntent, true);
+      removeIntentListener(intentSources, "pointercancel", clearPointerIntent, true);
+      removeIntentListener(keyboardSources, "keydown", markKeyboardIntent, true);
       intentTarget.removeEventListener("scroll", onScroll);
     };
     const restore = () => {
