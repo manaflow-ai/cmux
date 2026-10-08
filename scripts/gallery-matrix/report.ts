@@ -364,11 +364,12 @@ order.forEach((status) => {
   if (status === "unchanged") {
     const section = el("section", {"data-status": status});
     const failed = list.filter(([o]) => o.play && o.play.status === "fail");
+    const unchanged = list.filter(([o]) => !o.play || o.play.status !== "fail");
     if (failed.length) section.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
     const details = el("details", {});
     details.append(
-      el("summary", {"data-summary": "unchanged"}, list.length + " unchanged"),
-      el("ul", {class: "plain"}, ...list.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
+      el("summary", {"data-summary": "unchanged"}, unchanged.length + " unchanged"),
+      el("ul", {class: "plain"}, ...unchanged.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
     );
     section.append(details);
     main.append(section);

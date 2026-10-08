@@ -297,6 +297,19 @@ test("entry-filter counts only outcomes belonging to the selected entry", () => 
   });
 });
 
+test("play-failed unchanged states stay out of the unchanged list", () => {
+  const html = diffPage(
+    [
+      outcome({ entry: "agent-pane.composer", status: "unchanged", play: { status: "fail" } }),
+      outcome({ entry: "pages.markdown", status: "unchanged" }),
+    ],
+    meta,
+  );
+  // The page gives failed states their own cards. They must not also be counted in the folded list.
+  expect(html).toContain('const unchanged = list.filter(([o]) => !o.play || o.play.status !== "fail");');
+  expect(html).toContain('unchanged.length + " unchanged"');
+});
+
 test("a played state gets a filmstrip; a step that moved changes the state even when the final still holds", () => {
   const closed = image(60, 40);
   const open = image(60, 40, [{ x: 30, y: 4, w: 20, h: 20, rgb: [0, 0, 255] }]);
