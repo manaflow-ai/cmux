@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import entry from "../src/agent-session/acpmux/header/ChatHeaderTools.gallery";
 import type { PlayContext, PlayTarget } from "../src/gallery/play";
 import { UiProvider } from "../src/ui/UiProvider";
-import { click, installDom, press, render, restoreDom, settle, unmount } from "./viewer-empty-dom";
+import { click, installDom, press, render, restoreDom, unmount } from "./viewer-empty-dom";
 
 beforeAll(installDom);
 afterEach(unmount);
