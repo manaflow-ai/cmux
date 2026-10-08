@@ -6,6 +6,7 @@ import {
   FREE_PLAN_ID,
   PRO_PLAN_ID,
   resolveProPlanStatus,
+  type ProReconcileUser,
 } from "../../../../services/billing/pro";
 import {
   billingSeatsFromMetadata,
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
  * tell the client whether to offer checkout/portal actions or "ask an admin".
  */
 async function explicitTeamPlanResponse(
-  user: TeamBillingAccessUser & { readonly isAnonymous?: boolean },
+  user: TeamBillingAccessUser & ProReconcileUser,
   teamId: string,
   billingAvailable: boolean,
 ) {

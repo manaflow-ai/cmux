@@ -25,9 +25,12 @@ extension HostAccountFlow {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.invalidateBillingPlanIfScopeChanged()
+                let scopeChanged = self.invalidateBillingPlanIfScopeChanged()
                 self.teamObservationRevision &+= 1
                 self.syncReceivedInvitationsPolling()
+                if scopeChanged {
+                    self.scheduleBillingPlanRefresh()
+                }
                 self.observeCoordinator()
             }
         }

@@ -1,5 +1,14 @@
 import Foundation
 
+/// The account plan state shown by the Settings account row.
+public enum AccountPlanStatus: Equatable, Sendable {
+    case checking
+    case unavailable
+    case free
+    case pro
+    case managedPro
+}
+
 /// Host-supplied dependency the package's ``AccountSection`` uses to
 /// render and drive the sign-in / sign-out flow.
 ///
@@ -78,6 +87,9 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Re-fetches the billing plan state used by the Pro account row.
     func refreshBillingPlan() async
 
+    /// Retries a failed billing lookup through the host-owned plan coordinator.
+    func retryBillingPlan() async
+
     /// Opens the hosted Stripe customer portal in the user's default browser.
     func openBillingPortal()
 
@@ -100,6 +112,10 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
+
+    /// Immutable presentation state for the account plan row. The host owns
+    /// its refresh, scope, foreground, and failure transitions.
+    var accountPlanStatus: AccountPlanStatus { get }
 }
 
 extension AccountFlow {
@@ -107,6 +123,10 @@ extension AccountFlow {
     public var confirmedTeamID: String? { selectedTeamID }
 
     public func prefetchProUpgrade() {}
+
+    public func retryBillingPlan() async {
+        await refreshBillingPlan()
+    }
 
     /// Package-only hosts can use the identity and auth activity as their
     /// authentication answer because they do not own a separate coordinator.
@@ -117,4 +137,13 @@ extension AccountFlow {
     /// Package-only hosts do not have a remote billing source, so their
     /// existing behavior remains the immediately available upgrade action.
     public var isProStatusKnown: Bool { true }
+
+    /// Package-only hosts have no remote plan phase to expose.
+    public var accountPlanStatus: AccountPlanStatus {
+        if isWorkingOnAuth { return .checking }
+        guard currentIdentity != nil else { return .free }
+        guard isProStatusKnown else { return .checking }
+        if isProActive { return canManageBilling ? .managedPro : .pro }
+        return .free
+    }
 }

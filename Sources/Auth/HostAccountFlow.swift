@@ -20,6 +20,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let browserSignIn: HostBrowserSignInFlow
     var isProUpgradeAvailable: Bool { true }
     private(set) var billingPlanState = BillingPlanState.unknown
+    @ObservationIgnored private var billingPlanRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var billingPlanActivationObserver: NSObjectProtocol?
+    private var billingPlanRefreshing = false
+    private var billingPlanLookupFailed = false
     /// Exposes Pro only when the stored answer belongs to the live account and
     /// confirmed team scope. A team switch invalidates the old answer before
     /// the replacement request completes.
@@ -28,6 +32,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var canManageBilling: Bool { hasLoadedBillingPlan && billingPlanState.canManageBilling }
     var isProStatusKnown: Bool {
         !isWorkingOnAuth && (currentIdentity == nil || hasLoadedBillingPlan)
+    }
+    /// The host-owned presentation snapshot for the Settings account plan row.
+    var accountPlanStatus: AccountPlanStatus {
+        if isWorkingOnAuth || billingPlanRefreshing { return .checking }
+        guard currentIdentity != nil else { return .free }
+        if billingPlanLookupFailed { return .unavailable }
+        guard hasLoadedBillingPlan else { return .checking }
+        if isProActive { return canManageBilling ? .managedPro : .pro }
+        return .free
     }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
@@ -55,12 +68,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Drops an entitlement snapshot when auth or team scope changes. The
     /// account card can then show Checking while the new scope is fetched,
     /// instead of briefly reusing the previous team's answer.
-    func invalidateBillingPlanIfScopeChanged() {
+    @discardableResult
+    func invalidateBillingPlanIfScopeChanged() -> Bool {
         guard billingPlanState.accountID == currentIdentity?.id,
               billingPlanState.teamID == billingScopeTeamID else {
             billingPlanState = .unknown
-            return
+            billingPlanLookupFailed = false
+            return true
         }
+        return false
     }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
@@ -84,7 +100,24 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
+        billingPlanActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleBillingPlanRefresh()
+            }
+        }
         startCoordinatorObservation()
+        scheduleBillingPlanRefresh()
+    }
+
+    deinit {
+        billingPlanRefreshTask?.cancel()
+        if let billingPlanActivationObserver {
+            NotificationCenter.default.removeObserver(billingPlanActivationObserver)
+        }
     }
 
     var currentIdentity: AccountIdentity? {
@@ -208,6 +241,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     func signOut() async {
         await browserSignIn.signOut()
         billingPlanState = .unknown
+        billingPlanRefreshing = false
+        billingPlanLookupFailed = false
     }
 
     /// Set for the whole switch so sign-in gates show its progress instead of
@@ -252,6 +287,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
         billingPlanState = .unknown
+        billingPlanRefreshing = false
+        billingPlanLookupFailed = false
     }
 
     func refreshCurrentUser() async {
@@ -261,17 +298,39 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
+        billingPlanRefreshTask?.cancel()
         _ = await refreshBillingPlanAndReportSuccess()
+    }
+
+    /// Retries the host-owned billing lookup after a failed plan request.
+    func retryBillingPlan() async {
+        await refreshBillingPlan()
+    }
+
+    /// Starts a foreground or scope-triggered lookup without exposing a task
+    /// or generation counter to the Settings view.
+    func scheduleBillingPlanRefresh() {
+        billingPlanRefreshTask?.cancel()
+        guard currentIdentity != nil, isAuthenticated, !isWorkingOnAuth else { return }
+        billingPlanRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.refreshBillingPlanAndReportSuccess()
+            if !Task.isCancelled { self.billingPlanRefreshTask = nil }
+        }
     }
 
     @discardableResult
     func refreshBillingPlanAndReportSuccess() async -> Bool {
         guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
             billingPlanState = .unknown
+            billingPlanRefreshing = false
+            billingPlanLookupFailed = false
             return false
         }
         let requestID = UUID()
         billingPlanRequestID = requestID
+        billingPlanRefreshing = true
+        billingPlanLookupFailed = false
         // Keep a verified answer for the same scope visible while refreshing.
         // A changed account/team fails `hasLoadedBillingPlan` closed until its
         // matching response arrives, so the card cannot reuse another scope.
@@ -294,14 +353,22 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling
             )
+            billingPlanRefreshing = false
+            billingPlanLookupFailed = false
             return true
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
-            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                guard billingPlanRequestID == requestID else { return false }
+                billingPlanRefreshing = false
+                return false
+            }
             guard currentIdentity?.id == identityID,
                   billingScopeTeamID == requestedTeamID,
                   billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: requestedTeamID)
+            billingPlanRefreshing = false
+            billingPlanLookupFailed = true
             return false
         }
     }
