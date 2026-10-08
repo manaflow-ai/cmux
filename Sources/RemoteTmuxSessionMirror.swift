@@ -232,6 +232,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             },
             onReconnectReady: { [weak self] in
                 self?.forceResizeAllVisibleMirrors()
+                self?.workspace?.remoteTmuxBrowserProxyDidReconnect()
             },
             onExit: { [weak self] in
                 self?.handleConnectionExited()

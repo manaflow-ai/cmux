@@ -2931,6 +2931,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { splitLayout.isProgrammaticSplit }
         set { splitLayout.isProgrammaticSplit = newValue }
     }
+    /// Narrower than `isProgrammaticSplit` — true only around `newBrowserSplit`'s
+    /// own `splitPane` call in a mirror workspace. See its set site.
+    private var isProgrammaticMirrorBrowserSplit = false
+    /// Reentrancy guard for the `didMoveTab` snap-back — see its set site.
+    private var isSnappingBackMirrorTab = false
     var activeMovingTabSplitFocusIntent: MovingTabSplitFocusIntent?
     var activeSplitSpaceDividerPosition: CGFloat?
     var splitSpaceAdmissionBypassDepth = 0
@@ -4917,6 +4922,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult func detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded() -> Bool {
         guard isRemoteTmuxMirror else { return false }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeAll(); remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; remoteTmuxWindowMirrors.removeAll()
+        applyRemoteProxyEndpointUpdate(nil)
+        // A mirror's browser panel routes through this workspace's proxy
+        // without being `isRemoteWorkspace` (`newBrowserSplit`/`newBrowserSurface`
+        // pass `routesThroughRemoteProxy: isRemoteTmuxMirror`); clearing
+        // `isRemoteTmuxMirror` and nil'ing the endpoint above leaves such a
+        // panel parked forever waiting for a proxy endpoint nothing will
+        // ever acquire again. Re-home it onto the local store the same way
+        // `reattachToWorkspace` already does when a browser panel is
+        // dragged from a remote workspace onto a local one.
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            browserPanel.reattachToWorkspace(
+                id,
+                isRemoteWorkspace: false,
+                proxyEndpoint: nil,
+                remoteStatus: nil,
+                routesThroughRemoteProxy: false
+            )
+        }
         AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
         return true
     }
@@ -8497,7 +8521,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         for panel in panels.values {
             (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
-        _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        // The Dock stays agnostic to ssh-tmux mirrors entirely (its own
+        // `DockRemoteBrowserSettings`/`makeBrowserPanel` never learn about
+        // `isRemoteTmuxMirror`, deliberately) — a Dock browser panel here
+        // always uses the shared local website-data store, so it must never
+        // receive a mirror's proxy endpoint at all, or `setRemoteProxyEndpoint`
+        // would write this mirror's SOCKS config onto that shared store.
+        if !isRemoteTmuxMirror {
+            _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        }
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -9932,14 +9964,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
 
-        let browserEnabled: Bool = {
-#if DEBUG
-            // Tests that inspect the construction boundary must exercise the
-            // split-space preflight, independent of the user's browser toggle.
-            if debugBrowserSplitPanelConstructionProbe != nil { return true }
-#endif
-            return BrowserAvailabilitySettings.isEnabled()
-        }()
+        if isRemoteTmuxMirror {
+            // `reorderRemoteTmuxMirrorTabs` requires every tmux-window tab to
+            // live in one pane (the tab strip); this split adds a second,
+            // dedicated pane for a single side-by-side browser tab, capped
+            // at those two panes.
+            guard bonsplitController.allPaneIds.count < 2 else {
+                return nil
+            }
+        }
+
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
         // including session restore (mirrors the Dock restore behavior).
         let creationPermittedWhileDisabled = creationPolicy.permitsCreationWhenBrowserDisabled
@@ -10079,12 +10114,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bypassRemoteProxy: Bool = false,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
-        guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
-        // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
-        // has no browser concept). A local browser tab here would be an orphan
-        // that the mirror's rebuild() never reconciles, breaking the 1:1
-        // invariant — so refuse browser creation in a mirror workspace.
-        if isRemoteTmuxMirror { return nil }
+        guard !isRetiredFromOwningTabManager,
+              acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
+        // Unlike `newBrowserSplit` (capped at one dedicated pane in a mirror —
+        // see its own doc comment), a browser TAB here is unconstrained: it
+        // always attaches via `bonsplitController.createTab(inPane:)` on the
+        // workspace's own top-level split tree — the exact same call
+        // `addRemoteTmuxDisplayPane` already uses to create each
+        // tmux-window's own tab. It lives as a genuine sibling tab next to
+        // the tmux-window tabs, session-scoped only (browser panels are
+        // never restored into a mirror workspace — see
+        // `isRestorableInSessionSnapshot`).
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
         // including session restore (mirrors the Dock restore behavior).
@@ -11554,6 +11594,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+            // `reattachToWorkspace` marks the panel as routing through this
+            // mirror's proxy, but a mirror's endpoint is normally nil until
+            // something acquires it — unlike `newBrowserSplit`/`newBrowserSurface`
+            // (which always create the first browser content for a mirror,
+            // so they always acquire), a browser panel dragged in from
+            // another workspace could be the first browser content this
+            // specific mirror has ever seen. Without this, it would just sit
+            // parked forever with no forward ever requested.
+            if isRemoteTmuxMirror {
+                ensureRemoteTmuxBrowserProxyForward()
+            }
         } else if let deferredBrowserPanel = detached.panel as? DeferredBrowserPanel {
             deferredBrowserPanel.updateWorkspaceId(id)
         } else if let filePreviewPanel = detached.panel as? FilePreviewPanel {
@@ -14660,11 +14711,15 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
         guard !isRetiredFromOwningTabManager else { return false }
-        // In a remote tmux mirror, split means tmux `split-window`; always veto
-        // local splits so the mirror never gains an orphan pane.
+        // In a remote tmux mirror, a split means tmux `split-window` — veto
+        // the local split and redirect there so the mirror never gains an
+        // orphan tmux-backed pane. Allow the one validated exception via
+        // `isProgrammaticMirrorBrowserSplit` — see its set site in
+        // `newBrowserSplit`.
         guard isRemoteTmuxMirror else {
             return admitsBonsplitUISplit(of: pane, orientation: orientation)
         }
+        if isProgrammaticMirrorBrowserSplit { return true }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
             _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
@@ -14685,6 +14740,46 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        // Bonsplit has no `shouldMoveTab` pre-veto, so a dragged tmux-window
+        // tab must be snapped back here, after the fact. `didMoveTab` only
+        // fires for a genuine cross-pane move — a same-pane reorder goes
+        // through `didReorderTabsInPane` instead (see
+        // `BonsplitController.moveTab`) — and a mirror has nowhere legal for
+        // a tmux-window tab to cross INTO except the tab-strip pane it
+        // started in, so any tmux-window tab reaching here already left
+        // illegally, unconditionally, regardless of `destination` — see
+        // `remoteTmuxTabStripPaneId`'s own doc for why comparing against it
+        // here isn't safe.
+        if isRemoteTmuxMirror,
+           !isSnappingBackMirrorTab,
+           let movedPanelId = panelIdFromSurfaceId(tab.id),
+           remoteTmuxSessionMirror?.windowId(forPanel: movedPanelId) != nil {
+            // The snap-back below is itself a cross-pane move, so it fires
+            // this same delegate method again, synchronously, for the same
+            // tab — without this flag the inner call would see "a
+            // tmux-window tab just crossed panes" and try to snap it back
+            // again, forever.
+            isSnappingBackMirrorTab = true
+            // That move can itself have closed an emptied, non-last source
+            // pane (the mirror's only tmux-window tab, dragged out) — the
+            // snap-back then has nowhere to land, but that isn't a violated
+            // invariant (all tmux-window tabs — there being only one — now
+            // share the single remaining pane), so fall through to normal
+            // handling below instead of returning early and skipping it.
+            let snappedBack = controller.moveTab(tab.id, toPane: source)
+            isSnappingBackMirrorTab = false
+            if snappedBack {
+                // A plain append (no prior index to restore) and, unlike a
+                // same-pane reorder, a cross-pane move never calls
+                // `remoteTmuxWindowOrderSync` — so tmux's real window order
+                // and the local strip now disagree until something resyncs
+                // them. `rebuild()` already re-derives local order from
+                // `connection.windowOrder` as part of its reconcile (see
+                // `RemoteTmuxSessionMirror.rebuildTopology`), fixing both.
+                remoteTmuxSessionMirror?.rebuild()
+                return
+            }
+        }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String
