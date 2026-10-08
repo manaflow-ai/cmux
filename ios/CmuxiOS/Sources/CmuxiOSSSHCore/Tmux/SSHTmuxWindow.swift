@@ -38,6 +38,13 @@ public struct SSHTmuxWindow: Hashable, Sendable {
             && bytes.dropFirst().allSatisfy { (48...57).contains($0) }
     }
 
+    // String literals passed by the discovery parser are intentionally kept
+    // as strings at the call site; convert the single-byte tmux prefix here.
+    static func validID(_ value: String, prefix: String) -> Bool {
+        guard prefix.utf8.count == 1, let byte = prefix.utf8.first else { return false }
+        return validID(value, prefix: byte)
+    }
+
     public static func isValidID(_ value: String, prefix: Character) -> Bool {
         guard let byte = prefix.asciiValue else { return false }
         return validID(value, prefix: byte)

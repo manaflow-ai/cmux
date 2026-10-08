@@ -44,27 +44,27 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
                   Self.validSessionID(sessionID) else { return nil }
             let name: String?
             if let value = object["name"] {
-                guard case .null = value else {
+                if case .null = value {
+                    name = nil
+                } else {
                     guard let string = value.stringValue, Self.validName(string) else { return nil }
                     name = string
-                    return Self.create(epoch: epoch, sessionID: sessionID, name: name)
                 }
-                name = nil
             } else {
                 name = nil
             }
-            return Self.create(epoch: epoch, sessionID: sessionID, name: name)
+            self = .createWindow(server: epoch, sessionID: sessionID, name: name)
         case "ssh.tmux.window.rename":
             guard keys == Set(["server_pid", "server_start", "window_id", "name"]),
                   let windowID = object["window_id"]?.stringValue,
                   let name = object["name"]?.stringValue,
                   Self.validWindowID(windowID), Self.validName(name) else { return nil }
-            return Self.rename(epoch: epoch, windowID: windowID, name: name)
+            self = .renameWindow(server: epoch, windowID: windowID, name: name)
         case "ssh.tmux.window.kill":
             guard keys == Set(["server_pid", "server_start", "window_id"]),
                   let windowID = object["window_id"]?.stringValue,
                   Self.validWindowID(windowID) else { return nil }
-            return Self.kill(epoch: epoch, windowID: windowID)
+            self = .killWindow(server: epoch, windowID: windowID)
         default:
             return nil
         }
