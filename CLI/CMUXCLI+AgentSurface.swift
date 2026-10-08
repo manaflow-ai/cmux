@@ -321,11 +321,18 @@ extension CMUXCLI {
         context: AgentSurfaceContext,
         idFormat: CLIIDFormat
     ) throws -> [String: Any] {
-        [
+        let resultWindowID = result["window_id"] as? String
+        let resultWorkspaceID = result["workspace_id"] as? String
+        let snapshotContext = AgentSurfaceContext(
+            windowID: context.windowID ?? resultWindowID,
+            workspaceID: context.workspaceID ?? resultWorkspaceID,
+            allWindows: context.allWindows
+        )
+        return [
             "schema_version": 1,
             "action": action,
             "result": formatIDs(result, mode: idFormat),
-            "state": try agentSurfaceSnapshot(client: client, context: context, idFormat: idFormat),
+            "state": try agentSurfaceSnapshot(client: client, context: snapshotContext, idFormat: idFormat),
         ]
     }
 
@@ -388,11 +395,19 @@ extension CMUXCLI {
         if let workspaceRaw, workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw CLIError(message: "agents surface split: --workspace requires a value")
         }
+        if let surfaceRaw, surfaceRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents surface split: --surface requires a value")
+        }
         if let windowOverride, windowOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw CLIError(message: "agents surface split: --window requires a value")
         }
         let windowID = try normalizeWindowHandle(windowRaw ?? windowOverride, client: client)
-        let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowID, allowCurrent: true)
+        let workspaceID = try normalizeWorkspaceHandle(
+            workspaceRaw,
+            client: client,
+            windowHandle: windowID,
+            allowCurrent: surfaceRaw == nil
+        )
         let surfaceID = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceID, windowHandle: windowID)
         var params: [String: Any] = ["direction": direction.lowercased()]
         if let windowID { params["window_id"] = windowID }
