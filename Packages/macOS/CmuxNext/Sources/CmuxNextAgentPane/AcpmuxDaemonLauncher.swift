@@ -125,6 +125,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     private static func reap(_ pid: pid_t) {
         var status: Int32 = 0
         var result: pid_t
+        // wakeup-allow: a blocking wait for the launch shell's exit, retried only when a signal interrupts it.
         repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
         if result == -1 {
             let failure = errno

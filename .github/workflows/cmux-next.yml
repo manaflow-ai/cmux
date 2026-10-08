@@ -42,6 +42,11 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
