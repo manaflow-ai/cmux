@@ -19884,6 +19884,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod agent_roster_restore;
     mod column_update;
     mod dock_columns;
     mod kitty_reservation;
