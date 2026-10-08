@@ -18,12 +18,14 @@ export const worker = (exports as unknown as { default: Fetcher }).default
  */
 export const returnNextRPC = async <T>(stub: unknown, method: string, value: T) => {
   await inDO(stub, async (instance) => {
+    const target = instance
     const prototype = Object.getPrototypeOf(instance) as Record<string, unknown>
     const descriptor = Object.getOwnPropertyDescriptor(prototype, method)
     if (!descriptor || typeof descriptor.value !== "function") throw new Error(`missing RPC method ${method}`)
     Object.defineProperty(prototype, method, {
       ...descriptor,
-      value: async function (..._args: unknown[]) {
+      value: async function (this: unknown, ...args: unknown[]) {
+        if (this !== target) return Reflect.apply(descriptor.value as (...args: unknown[]) => unknown, this, args)
         Object.defineProperty(prototype, method, descriptor)
         return value
       }
