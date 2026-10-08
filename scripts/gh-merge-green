@@ -139,6 +139,13 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
+skip_vercel=0
+if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
+  # Vercel is an optional preview deployment status in this repository.  An
+  # explicit, auditable override may waive that one external status when it is
+  # pending or red; all other pending statuses remain merge blockers.
+  skip_vercel=1
+fi
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
     'not green: --override cannot be combined with --main-fix' \
@@ -477,6 +484,10 @@ if [ "$has_ci" -eq 0 ]; then
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
+    if [ "$skip_vercel" -eq 1 ] && [ "$name" = Vercel ]; then
+      echo "note: --override waived Vercel $st/$co status" >&2
+      continue
+    fi
     if [ "$st" != completed ]; then
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
