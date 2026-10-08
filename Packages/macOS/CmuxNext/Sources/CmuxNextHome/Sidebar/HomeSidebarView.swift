@@ -11,6 +11,9 @@ import MessagesLabSidebar
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
+    /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
+    /// there); call `update` before returning so the tiles land smoothly.
+    public var onPlacePinned: (ConversationID, Int) -> Void = { _, _ in }
     /// Mark as Read (the menu offers it only while the conversation has unread messages).
     public var onMarkRead: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
@@ -45,6 +48,7 @@ public final class HomeSidebarView: NSView {
         addSubview(compose)
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
+        list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
         list.onSetRead = { [weak self] read, id in if read { self?.onMarkRead(ConversationID(id)) } }
         list.menuItems = { [weak self] id in self?.menuItems(ConversationID(id)) ?? [] }
         list.searchSection = { [weak self] query in
@@ -74,6 +78,11 @@ public final class HomeSidebarView: NSView {
         guard model != self.model else { return }
         self.model = model
         list.show((model.pinned + model.rows).map(Self.entry), pinned: model.pinned.map(\.id.rawValue))
+    }
+
+    /// Each pinned tile's and row's frame in window points from the top-left (`debug.home page`).
+    public var itemFramesInWindow: [(id: ConversationID, pinned: Bool, frame: NSRect)] {
+        list.itemFramesInWindow.map { (ConversationID($0.id), $0.pinned, $0.frame) }
     }
 
     /// Selects `id` without reporting it (the page already shows it).

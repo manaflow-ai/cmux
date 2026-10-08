@@ -1,0 +1,48 @@
+--- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
++++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
+@@ -74,7 +74,7 @@
+     private var generation = 0
+     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
+     private let cache = SidebarBitmapCache()
+-    private let avatars = SidebarAvatarCache()
++    let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
+     private let textCache = SidebarTextCache()
+     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
+     private var bellSecondary: CGImage?, bellSelected: CGImage?
+@@ -82,7 +82,10 @@
+     private var pending: Set<SidebarBitmapKey> = []
+     private var rowLayers: [Int: SidebarRowLayer] = [:]
+     private var pool: [SidebarRowLayer] = []
+-    private var tileLayers: [SidebarRowLayer] = []
++    // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
++    private(set) var tileLayers: [SidebarRowLayer] = []
++    // cmux: the pin drag in progress (Cmux/SidebarPinDrag.swift).
++    let pinDragState = SidebarPinDragState()
+     private let hoverLayer = CALayer()
+     private let menuRing = CALayer()
+     private var hovered: Hit?
+@@ -221,6 +224,7 @@
+         layoutDocument()
+         tile(force: true)
+         updateAccessibility()
++        pinDragDidReload() // cmux: a drag follows the new data; a drop lands
+     }
+ 
+     // MARK: Geometry
+@@ -321,7 +325,7 @@
+ 
+     @objc private func clipMoved() { tile(force: false) }
+ 
+-    private var renderContext: SidebarRenderContext {
++    var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
+         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
+                              space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
+                              bellSecondary: bellSecondary, bellSelected: bellSelected, now: Date())
+@@ -1078,6 +1082,7 @@
+         window?.makeFirstResponder(self)
+         guard let c = controller, let h = c.hit(point(event)) else { return }
+         c.highlight(c.snapshot.items[c.item(h)].id, reveal: false)
++        c.trackPinDrag(from: event, in: self) // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift)
+     }
+     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+     override func keyDown(with event: NSEvent) {

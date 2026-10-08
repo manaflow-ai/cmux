@@ -44,6 +44,10 @@ final class HomeSidebarSource {
     private(set) var pins = HomePins()
     @ObservationIgnored var onSelect: (ConversationID) -> Void = { _ in }
     @ObservationIgnored var onStart: (HomeContact) -> Void = { _ in }
+    #if DEBUG
+    /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
+    @ObservationIgnored var debugRows: [InboxRow] = []
+    #endif
 
     init(store: HomePinStore, account: @escaping @MainActor () -> String, rows: @escaping @MainActor () -> [InboxRow],
          me: @escaping @MainActor () -> ParticipantID?, contacts: @escaping @MainActor () -> [HomeContact]) {
@@ -54,8 +58,17 @@ final class HomeSidebarSource {
         self.contacts = contacts
     }
 
+    /// The store's rows (plus DEBUG fixture rows).
+    private func listed() -> [InboxRow] {
+        #if DEBUG
+        return debugRows.isEmpty ? rows() : rows() + debugRows
+        #else
+        return rows()
+        #endif
+    }
+
     func model(now: Date = Date()) -> HomeSidebarModel {
-        HomeSidebarModel(rows: rows(), pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(), now: now)
+        HomeSidebarModel(rows: listed(), pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(), now: now)
     }
 
     func select(_ id: ConversationID) { onSelect(id) }
@@ -64,8 +77,16 @@ final class HomeSidebarSource {
 
     /// Pins or unpins `id` and keeps it for this account.
     func setPinned(_ on: Bool, _ id: ConversationID) {
-        guard let row = rows().first(where: { $0.id == id }) else { return }
+        guard let row = listed().first(where: { $0.id == id }) else { return }
         pins.setPinned(on, row)
+        store.save(pins, account: account())
+    }
+
+    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there) and
+    /// keeps the order with this account's pins.
+    func place(_ id: ConversationID, at index: Int) {
+        let shown = HomeSidebarModel(rows: listed(), pins: pins, me: me()).pinned.map(\.id)
+        pins.place(id, at: index, shown: shown)
         store.save(pins, account: account())
     }
 

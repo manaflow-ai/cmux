@@ -34,6 +34,10 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugMouse.send(call.params, services: services))
             },
+            .mainActor("debug.home.sidebar_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeSidebarFixture.handle(call.params, services: services))
+            },
             .mainActor("debug.tab_drag") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugTabDrag.report(services: services))
