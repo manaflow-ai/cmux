@@ -35,6 +35,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-76f5f8c7cc614d4f42cf67031cda488cbf8bae0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 - SHA-256 `b2d2528bb20da61bf882f0ba772ff6060cf29e821d5897af79c17bc1f9aee9e4`
   is pinned in `scripts/ghosttykit-checksums.txt`.
+- The coverage-only `76f5f8c7c` follow-up leaves the ReleaseFast binary
+  byte-identical to `fff35f432`; the exact-SHA release reuses that verified
+  archive after the hosted build dispatch had no runner assignment.
 - Conflict note: keep the CJK ranges on CoreText's direct fallback path so
   locale-sensitive selection and the deferred face loading behavior remain
   intact. Leave generic collection discovery available for other scripts.
