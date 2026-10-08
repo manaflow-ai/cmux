@@ -1657,3 +1657,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_poll_notary_submission.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_opencode_v2_tui_bridge.py"
+lane = "manual"
+reason = "Focused OpenCode V2 Node bridge harness; it uses a TUI/socket fixture and is run by the OpenCode regression verification command."
