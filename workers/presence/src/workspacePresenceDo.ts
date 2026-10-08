@@ -82,20 +82,31 @@ export class WorkspacePresence extends DurableObject {
   private leases(): ViewerLease[] {
     return this.ctx.getWebSockets().flatMap((ws) => { const lease = this.lease(ws); return lease ? [lease] : []; });
   }
-  /** Sends one current snapshot, using a supplied roster when broadcast has already built it. */
-  private snapshot(ws: WebSocket, participants?: readonly ViewerParticipant[]): void {
+  /** Sends one current snapshot, returning false when the socket had to be evicted. */
+  private snapshot(ws: WebSocket, participants?: readonly ViewerParticipant[]): boolean {
     const lease = this.lease(ws);
-    if (!lease || lease.expiresAt <= Date.now()) return;
+    if (!lease || lease.expiresAt <= Date.now()) return true;
     try {
       ws.send(JSON.stringify({ type: "workspace.presence", version: 1, scope: lease.scope,
         renewAfterMs: VIEW_RENEW_MS,
         participants: participants ?? workspaceViewers(this.leases(), Date.now()) }));
-    } catch { ws.serializeAttachment(null); }
+      return true;
+    } catch {
+      ws.serializeAttachment(null);
+      return false;
+    }
   }
-  /** Builds one roster and shares it across every eligible socket in the room. */
+  /** Builds one roster, refreshing once if a failed send removes a lease. */
   private broadcast(): void {
     const participants = workspaceViewers(this.leases(), Date.now());
-    for (const ws of this.ctx.getWebSockets()) this.snapshot(ws, participants);
+    let sendFailed = false;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (!this.snapshot(ws, participants)) sendFailed = true;
+    }
+    if (sendFailed) {
+      const refreshedParticipants = workspaceViewers(this.leases(), Date.now());
+      for (const ws of this.ctx.getWebSockets()) this.snapshot(ws, refreshedParticipants);
+    }
   }
   private async schedule(): Promise<void> {
     const now = Date.now();
