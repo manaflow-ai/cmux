@@ -123,6 +123,270 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     }
                 }
             });
+            tokio::spawn(async move {
+                while let Some(line) = out_rx.recv().await {
+                    if wr.write_all(line.as_bytes()).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            serve_connection(hub, in_rx, out_tx).await;
+        });
+    }
+}
+
+const INDEX_HTML: &str = include_str!("../../web/index.html");
+
+/// One TCP port serves both the dashboard page (plain HTTP GET) and the
+/// WebSocket protocol. The request head is peeked, never consumed, so the
+/// WebSocket handshake still sees the full request.
+///
+/// Every request passes the localhost listener rule first
+/// (plans/cmux-next/identity.md section 4): a loopback `Host`, no foreign
+/// `Origin`, and the token, which is mandatory.
+pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: String) -> Result<()> {
+    let listener = bind_ws(&addr).await?;
+    serve_ws(hub, listener, token).await
+}
+
+/// Bind the dashboard/WebSocket port. `127.0.0.1:0` picks a free port; read
+/// it back with `local_addr`.
+pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
+    let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {addr}"))?;
+    let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| addr.to_owned());
+    tracing::info!("web + websocket listening on {local}");
+    Ok(listener)
+}
+
+/// The origin of the app's bundled agent pane page (a `cmux-agent` URL
+/// scheme handler). A `file://` page would send `Origin: null`, which every
+/// localhost listener refuses.
+pub const AGENT_PANE_ORIGIN: &str = "cmux-agent://pane";
+
+/// The Origin and Host rule of this listener: its own origin (the
+/// dashboard page), the agent pane, and the origins and hosts the config
+/// adds (`websocket.allowed_origins`, `websocket.allowed_hosts`). Never
+/// `null`. An entry that does not parse is skipped with a warning.
+pub fn listener_policy(
+    address: std::net::SocketAddr,
+    extra_origins: &[String],
+    extra_hosts: &[String],
+) -> ListenerPolicy {
+    let mut policy = ListenerPolicy::for_bind(address).with_origin(AGENT_PANE_ORIGIN);
+    for origin in extra_origins {
+        if cmux_local_auth::parse_origin(origin).is_none() {
+            tracing::warn!(
+                "websocket.allowed_origins: ignoring {origin:?} (not scheme://host[:port])"
+            );
+            continue;
+        }
+        policy = policy.with_origin(origin);
+    }
+    for host in extra_hosts {
+        policy = policy.with_host(host);
+    }
+    policy
+}
+
+/// Validate a `--allow-dev-origin` value: only a loopback `http` origin with
+/// an explicit port (a page dev server on this machine). Anything else is an
+/// error, so the flag can never admit a web site.
+pub fn dev_origin(value: &str) -> Result<String> {
+    let origin = cmux_local_auth::parse_origin(value)
+        .ok_or_else(|| anyhow::anyhow!("--allow-dev-origin {value:?} is not scheme://host:port"))?;
+    let rest = origin
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow::anyhow!("--allow-dev-origin {value:?} must be http"))?;
+    let (host, port) = rest
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("--allow-dev-origin {value:?} needs a port"))?;
+    anyhow::ensure!(
+        matches!(host, "127.0.0.1" | "localhost" | "[::1]") && port.parse::<u16>().is_ok(),
+        "--allow-dev-origin {value:?} must be a loopback host with a port"
+    );
+    Ok(origin)
+}
+
+/// An accepted web socket streams many small ACP deltas: send each at once (no Nagle delay).
+fn tune_ws_socket(stream: &tokio::net::TcpStream) {
+    if let Err(e) = stream.set_nodelay(true) {
+        tracing::debug!("ws TCP_NODELAY: {e}");
+    }
+}
+
+pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
+    serve_ws_with(hub, listener, token, WsAuth::default()).await
+}
+
+/// The proofs a WebSocket connection may present beyond the dashboard
+/// token: this launch's LocalApp token (`local_app.rs`) and peer token
+/// (`peer_auth.rs`). Without one, no connection gets that origin.
+#[derive(Default, Clone)]
+pub struct WsAuth {
+    pub local_app: Option<Arc<local_app::LocalAppAuth>>,
+    pub peer: Option<Arc<peer_auth::PeerAuth>>,
+}
+
+/// How long a connection may wait before its first frame decides whether it
+/// is the local app (`local_app.rs`); after it, it is remote-origin.
+const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `serve_ws` with this launch's LocalApp and peer tokens: a connection
+/// that meets every LocalApp condition is served as `Origin::LocalApp`, one
+/// that proves the peer token as `Origin::Peer`, any other as `Origin::Web`.
+pub async fn serve_ws_with(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+) -> Result<()> {
+    anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
+    let bound = listener.local_addr()?;
+    let (extra_origins, extra_hosts) = {
+        let config = hub.config.read().await;
+        let (mut origins, hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
+        origins.extend(config.dev_origins.iter().cloned());
+        (origins, hosts)
+    };
+    let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
+    // Each handshake checks the token current at that moment: a rotation
+    // (`hub/web_token.rs`) applies from the next one on.
+    hub.web_token.set(token);
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("ws accept failed: {e}");
+                continue;
+            }
+        };
+        tune_ws_socket(&stream);
+        let hub = hub.clone();
+        let token = hub.web_token.current();
+        // Subscribed before the handshake, so a rotation during it still
+        // closes a connection that presented the old token.
+        let rotated = hub.web_token.changed();
+        let policy = policy.clone();
+        let local_app = auth.local_app.clone();
+        let peer_auth = auth.peer.clone();
+        tokio::spawn(async move {
+            let mut head = [0u8; 4096];
+            let n = match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                stream.peek(&mut head),
+            )
+            .await
+            {
+                Ok(Ok(n)) => n,
+                _ => return,
+            };
+            // The peek only routes the request. Each path checks the full
+            // head it parses: serve_http reads it, tungstenite parses the
+            // upgrade request for the callback.
+            let head_text = String::from_utf8_lossy(&head[..n]).into_owned();
+            if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
+                serve_http(stream, &policy, &token, peer).await;
+                return;
+            }
+            let expected = token.clone();
+            // The upgrade request's Origin headers, for the LocalApp check.
+            let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_origins = seen_origins.clone();
+            // Its peer token headers, for the Peer check.
+            let seen_peer: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_peer = seen_peer.clone();
+            let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                                 resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+                let values = |name: &str| {
+                    req.headers()
+                        .get_all(name)
+                        .iter()
+                        .map(|value| value.to_str().unwrap_or("\u{0}"))
+                        .collect::<Vec<_>>()
+                };
+                let refuse = |refusal: Refusal| {
+                    tokio_tungstenite::tungstenite::http::Response::builder()
+                        .status(refusal.status())
+                        .body(Some(refusal.reason().to_owned()))
+                        .expect("static response")
+                };
+                if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
+                    return Err(refuse(refusal));
+                }
+                *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values("origin").into_iter().map(str::to_owned).collect();
+                *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
+                let header = req
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(cmux_local_auth::bearer_token);
+                let query = req.uri().query().and_then(cmux_local_auth::query_token);
+                cmux_local_auth::check_token(header.or(query), &expected)
+                    .map(|()| resp)
+                    .map_err(refuse)
+            };
+            let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
+                Ok(ws) => ws,
+                Err(e) => {
+                    tracing::warn!("ws handshake from {peer} rejected: {e}");
+                    return;
+                }
+            };
+            let (mut sink, mut source) = ws.split();
+            let (in_tx, in_rx) = mpsc::channel::<String>(256);
+            let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+            // The first frame decides LocalApp; it reaches the protocol
+            // handler without the token.
+            let mut origin = Origin::Web;
+            let mut first = None;
+            let presented =
+                std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
+            if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
+                origin = Origin::Peer;
+            } else if let Some(auth) = &local_app {
+                let frame = tokio::time::timeout(FIRST_FRAME, async {
+                    while let Some(Ok(frame)) = source.next().await {
+                        if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
+                            return Some(t.to_string());
+                        }
+                    }
+                    None
+                })
+                .await
+                .ok()
+                .flatten();
+                let origins = seen_origins.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let hello = local_app::Hello {
+                    listener: bound,
+                    peer,
+                    origins: &origins,
+                    first_frame: frame.as_deref(),
+                };
+                if auth.is_local_app(&hello) {
+                    origin = Origin::LocalApp;
+                }
+                first = frame.map(|f| local_app::strip_token(&f));
+            }
+            if let Some(first) = first
+                && in_tx.send(first).await.is_err()
+            {
+                return;
+            }
+            let reader = tokio::spawn(async move {
+                while let Some(Ok(frame)) = source.next().await {
+                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
+                        && in_tx.send(t.to_string()).await.is_err()
+                    {
+                        break;
+                    }
+                }
+            });
             // Ends the writer when the server ends the connection itself:
             // other tasks may still hold a clone of `out_tx`.
             let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
