@@ -1645,3 +1645,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_notarization_recovery_manifest.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reverse_test_impact_route.py"
+lane = "linux-guard"
