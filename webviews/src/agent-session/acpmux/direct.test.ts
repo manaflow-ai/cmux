@@ -9,6 +9,7 @@ import {
 } from "./direct";
 import type { EventRecord } from "./direct";
 import { AcpWireLog } from "./wire";
+import { diffRows } from "./model";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isNewChat } from "./EmptyState";
 import { translate } from "./i18n";
@@ -1612,6 +1613,51 @@ describe("direct client session state", () => {
       [1, 2000],
       [3, 6000],
     ]);
+  });
+
+  test("turn completion publishes a new assistant row so the streaming caret can disappear", async () => {
+    const chunk: EventRecord = {
+      sessionId: "a",
+      seq: 2,
+      at: 2000,
+      dir: "in",
+      kind: "agent_message_chunk",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: "a",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done." } },
+        },
+      },
+    };
+    const result: EventRecord = {
+      sessionId: "a",
+      seq: 3,
+      at: 3000,
+      dir: "mux",
+      kind: "turn_result",
+      msg: { status: "completed" },
+    };
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 1, "run it")] }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    await settle();
+    ScriptedSocket.current.notify("_acpmux/event", chunk);
+    await settle();
+    const before = latest();
+    const beforeRows = new Map(before.rows.map((row) => [row.id, row]));
+    const assistantId = before.rows.find((row) => row.kind === "assistant")?.id;
+    expect(assistantId).toBeDefined();
+    expect(before.rows.find((row) => row.kind === "assistant")?.streaming).toBe(true);
+    ScriptedSocket.current.notify("_acpmux/event", result);
+    await settle();
+    const after = latest();
+    expect(after.rows.find((row) => row.kind === "assistant")?.streaming).toBe(false);
+    expect(diffRows(beforeRows, after.rows).updated.map((row) => row.id)).toContain(assistantId!);
   });
 
   test("a prompt queued during a turn does not restart that turn's count", async () => {

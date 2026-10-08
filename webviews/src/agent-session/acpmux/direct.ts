@@ -1174,10 +1174,7 @@ export class AcpmuxDirectClient {
         this.groupedPermissions.clear();
         if (this.streamingAssistant) {
           const row = this.rows.get(this.streamingAssistant);
-          if (row) {
-            row.streaming = false;
-            row.version += 1;
-          }
+          if (row) this.rows.set(row.id, { ...row, streaming: false, version: row.version + 1 });
         }
         this.rows.delete("typing");
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
