@@ -2,9 +2,10 @@ import type { Principal } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "../policy-gate.ts"
 import type { SignInRules } from "../team-do.ts"
+import type { ApprovalSource } from "../domains/feed-approvals.ts"
 
 interface FeedStub {
-  integrationApprovalTeam(user: string, request: string): Promise<string | null>
+  approvalPosterOf(user: string, request: string): Promise<{ team: string; source: ApprovalSource } | null>
 }
 interface TeamStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: boolean }>
@@ -26,20 +27,30 @@ const live: RouteDeps = { rules: (env, team, user) => signInRules(env, team, use
  * personal and email-domain teams). In every other case the reader stays as it is; the
  * ConnectionDO still requires the row's user.
  */
-export const approvalReader = async (env: Env, reader: Principal, params: unknown, deps: RouteDeps = live): Promise<Principal> => {
+export const approvalReader = async (env: Env, reader: Principal, params: unknown, deps: RouteDeps = live): Promise<Principal> => (await approvalRoute(env, reader, params, deps)).reader
+
+/**
+ * approvalReader plus the owner that holds the request: the team's CloudDO for a Cloud request
+ * from an install (cx-wb5.65), else its ConnectionDO (the op's catalog owner).
+ */
+export const approvalRoute = async (env: Env, reader: Principal, params: unknown, deps: RouteDeps = live): Promise<{ reader: Principal; owner: "cloud:ConnectionDO" | "cloud:CloudDO" }> => {
   const request = (params as { request?: unknown } | null)?.request
-  if (reader.kind !== "session" || !reader.user || typeof request !== "string") return reader
+  const stay = { reader, owner: "cloud:ConnectionDO" as const }
+  if (reader.kind !== "session" || !reader.user || typeof request !== "string") return stay
   const feed = env.FEED_DO.get(env.FEED_DO.idFromName(reader.user)) as unknown as FeedStub
-  const team = await feed.integrationApprovalTeam(reader.user, request)
-  if (!team || team === reader.team) return reader
+  const poster = await feed.approvalPosterOf(reader.user, request)
+  if (!poster) return stay
+  const owner = poster.source === "cloud" ? ("cloud:CloudDO" as const) : ("cloud:ConnectionDO" as const)
+  const team = poster.team
+  if (team === reader.team) return { reader, owner }
   const asMember: Principal = { ...reader, team }
   const teamDO = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamStub
   const member = await teamDO.readOp(team, asMember, "team.members.list", { limit: 1 })
-  if (!member.ok) return reader
+  if (!member.ok) return stay
   const rules = await deps.rules(env, team, reader.user)
-  if (!rules.sso_required) return asMember
+  if (!rules.sso_required) return { reader: asMember, owner }
   const withSso = await deps.sso(env, asMember, team)
-  return ssoRefusal(withSso, rules, team) ? reader : withSso
+  return ssoRefusal(withSso, rules, team) ? stay : { reader: withSso, owner }
 }
 
 /** The answer an approval delivery carries (feed-approvals.ts approvalDecision). */
