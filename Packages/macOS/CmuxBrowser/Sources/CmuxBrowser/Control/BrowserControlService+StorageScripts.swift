@@ -1,10 +1,12 @@
 import Foundation
 
 /// JavaScript builders and parameter normalization for the `browser storage.*`
-/// control commands (`storage.get`, `storage.set`, `storage.clear`).
+/// control commands (`storage.get`, `storage.set`, `storage.clear`), plus the
+/// storage half of `browser.state.save` and `browser.state.load`.
 ///
 /// Every string returned here started as the script the corresponding
-/// `v2BrowserStorage*` method previously assembled inline in `TerminalController`.
+/// `v2BrowserStorage*` or `v2BrowserState*` method previously assembled inline in
+/// `TerminalController`.
 /// The owning `@MainActor` controller keeps the WebKit
 /// evaluation seam and the per-surface ref/workspace state, normalizes the raw
 /// result via ``BrowserControlService/normalizeJSValue(_:isUndefinedSentinel:)``,
@@ -136,7 +138,13 @@ extension BrowserControlService {
             if (!st) return out;
             for (let i = 0; i < st.length; i++) {
               const k = st.key(i);
-              out[k] = st.getItem(k);
+              // Define own properties so a literal "__proto__" key stays data.
+              Object.defineProperty(out, k, {
+                value: st.getItem(k),
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
             }
             return out;
           };
@@ -151,14 +159,18 @@ extension BrowserControlService {
     /// Builds the `browser.state.load` page-world script.
     ///
     /// Clears each storage area named in the payload and writes its entries,
-    /// coercing values to strings and writing `null` as the empty string.
+    /// coercing values to strings and writing `null` as the empty string. The
+    /// payload goes through `JSON.parse` rather than an object literal, because a
+    /// literal `"__proto__"` key in an object literal sets the prototype and
+    /// drops the saved entry.
     /// - Parameter storageLiteral: the saved `{ local, session }` storage object,
     ///     already encoded as a JSON literal by the caller.
     /// - Returns: a self-invoking JavaScript expression.
     public func storageRestoreScript(storageLiteral: String) -> String {
-        """
+        let payloadText = jsonLiteral(storageLiteral)
+        return """
         (() => {
-          const payload = \(storageLiteral);
+          const payload = JSON.parse(\(payloadText));
           const apply = (st, data) => {
             if (!st || !data || typeof data !== 'object') return;
             st.clear();
