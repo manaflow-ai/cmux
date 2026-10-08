@@ -52,7 +52,12 @@ reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no pe
 Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
 this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
 link from `acpmux web`, and give a `ws://` peer that pins the old token the new one; the app,
-the TUI and `ssh://` peers read it again by themselves. The page follows the Codex
+the TUI and `ssh://` peers read it again by themselves. The token stays the same across
+launches on purpose: a `ws://` peer, a kept link and a browser on another machine have no way
+to receive a new token at each start (the app's own LocalApp token and the peer token do change
+at each launch). The daemon keeps `config.json` at mode 0600. `acpmux web --rotate-token`
+replaces the token at once: the old link stops working and open dashboard and peer connections
+that used it are closed. The page follows the Codex
 desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
 <project>?`, the harness and permission chips pick its settings, the project name opens the
 directory picker, with separate harness, model, and permission buttons, and the session is created when you send the first message), sessions
