@@ -5,9 +5,9 @@
  *
  * - `vm`: a personal Cloud machine (cloud-vm.ts): the cloud.vm.* ops for its own machine.
  * - `team-vm`: a team VM (team-vm-bind-run.ts, vm-image.md 6b): its team's SSH CA and KRL, its
- *   VM status and the team journal (TeamVmDO admits only the epoch's bound install there).
+ *   members' Linux accounts (team_vm.accounts, the S4 reconciler), its VM status and the team journal (TeamVmDO admits only the epoch's bound install there).
  */
-export const TEAM_VM_INSTALL_OPS: ReadonlySet<string> = new Set(["team_vm.ssh_ca", "team_vm.status", "team_vm.journal.append", "team_vm.journal.high_water", "team_vm.journal.read"])
+export const TEAM_VM_INSTALL_OPS: ReadonlySet<string> = new Set(["team_vm.ssh_ca", "team_vm.accounts", "team_vm.status", "team_vm.journal.append", "team_vm.journal.high_water", "team_vm.journal.read"])
 
 export const isMachineInstallKind = (kind: string | undefined): boolean => kind === "vm" || kind === "team-vm"
 

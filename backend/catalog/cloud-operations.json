@@ -5797,6 +5797,42 @@
         }
       }
     },
+    "TeamVmAccountUser": {
+      "kind": "object",
+      "fields": {
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "uid": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "class": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SshCertClass"
+          }
+        },
+        "principals": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
     "TeamVmError": {
       "kind": "object",
       "fields": {
@@ -45904,6 +45940,137 @@
               "jit",
               "created_at",
               "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team_vm.accounts": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "users": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamVmAccountUser"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team ssh accounts",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamVmAccountUser"
+            }
+          }
+        },
+        "required": [
+          "team",
+          "users"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "SshCertClass": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          },
+          "TeamVmAccountUser": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "integer"
+              },
+              "class": {
+                "$ref": "#/$defs/SshCertClass"
+              },
+              "principals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "user",
+              "uid",
+              "class",
+              "principals"
             ],
             "additionalProperties": true
           }

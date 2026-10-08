@@ -64,6 +64,7 @@ describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
   let sentAttachments: { name: string; kind: string }[][];
+  let imported: string[];
   const textarea = () => promptField();
   const rows = () =>
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
@@ -107,6 +108,9 @@ describe("acpmux composer slash menu", () => {
             sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
           },
           onStop: () => {},
+          onImportFile: (file: File) => {
+            imported.push(file.name);
+          },
         }),
       ),
     );
@@ -116,6 +120,7 @@ describe("acpmux composer slash menu", () => {
   beforeEach(() => {
     sent = [];
     sentAttachments = [];
+    imported = [];
     root = createRoot(dom.window.document.getElementById("root")!);
   });
   afterEach(async () => {
@@ -136,6 +141,19 @@ describe("acpmux composer slash menu", () => {
     expect(menu()).toBeNull();
     await type("say /com");
     expect(menu()).toBeNull();
+  });
+
+  test("a cmux-owned /import opens the transcript picker instead of sending to the agent", async () => {
+    await render(snapshot([{ name: "import", description: "Import a chat", hint: "JSONL file", source: "cmux" }]));
+    await type("/import");
+    await key("Enter");
+    expect(sent).toEqual([]);
+    expect(textarea().value).toBe("");
+    const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-import-input")!;
+    const file = new dom.window.File(["{}"], "chat.jsonl", { type: "application/json" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    expect(imported).toEqual(["chat.jsonl"]);
   });
 
   test("arrows move the selection and Enter writes the command without sending", async () => {
