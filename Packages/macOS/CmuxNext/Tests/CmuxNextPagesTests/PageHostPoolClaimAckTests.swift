@@ -16,6 +16,10 @@ struct PageHostPoolClaimAckTests {
         let pool = Self.pool(window)
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         let spare = try #require(await Self.settledSpare(pool))
+        // The off-window page can miss the 50 ms wall-clock budget under shared-WebKit load, and a
+        // timeout reloads the document. A manual clock leaves the acknowledgement as the only way the
+        // claim ends.
+        spare.claimState.clock = ClaimTestClock()
         // A marker on the spare's document: a reload or a new load drops it.
         _ = try await spare.webKitView.callAsyncJavaScript("window.__claimProbe = 'spare'; return true;", contentWorld: .page)
 
