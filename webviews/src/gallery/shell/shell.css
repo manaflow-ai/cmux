@@ -203,6 +203,8 @@ body {
 }
 .gallery-segmented {
   display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
   gap: 8px;
   border: 1px solid var(--g-line);
   border-radius: 6px;
