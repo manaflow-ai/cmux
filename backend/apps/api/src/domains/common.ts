@@ -11,7 +11,13 @@ export const reject = (code: string, message: string, details?: unknown): { ok: 
 
 /** Decodes params with the op's Effect Schema (pure; runs on owner and mirrors alike). */
 /** install.register_server params: install.register's plus the VM install's bound machine. */
-export const InstallRegisterServerParams = Schema.Struct({ ...InstallRegister.params.fields, bound_machine: Schema.optionalKey(MachineId), capabilities: Schema.optionalKey(ServerCapabilities) })
+export const InstallRegisterServerParams = Schema.Struct({
+  ...InstallRegister.params.fields,
+  bound_machine: Schema.optionalKey(MachineId),
+  capabilities: Schema.optionalKey(ServerCapabilities),
+  /** When the server last saw the principal's sso_team fresh (a pairing approval, a machine create; cx-44j.51). */
+  sso_seen_at: Schema.optionalKey(Schema.Int)
+})
 
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})

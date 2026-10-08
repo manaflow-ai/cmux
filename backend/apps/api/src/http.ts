@@ -111,6 +111,11 @@ const cloudNotLive = (owner: string, op: string) =>
   owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
+/** The sign-in policy gate could not reach a TeamDO or UserDO (cx-44j.51): logged here, a fixed retryable answer out. */
+const gateUnreachable = (e: unknown) => {
+  console.error(JSON.stringify({ msg: "sign-in policy unreachable", error: String(e) }))
+  return new OwnerUnreachable({ code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", retryable: true })
+}
 
 /** Principal for a given owner: TeamDO calls carry the grant classes UserDO resolved. */
 const principalFor = (owner: string, p: Principal) =>
@@ -193,9 +198,9 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         // Team policy (P17-4): SSO (own team and the email domain's team), updates.minimumVersion against x-cmux-client-version.
         const request = yield* HttpServerRequest.HttpServerRequest
-        const rules = yield* Effect.promise(() => signInRules(env, r.team, r.user))
+        const rules = yield* Effect.tryPromise({ try: () => signInRules(env, r.team, r.user), catch: gateUnreachable })
         const minted = { identity: r.install, kind: "install" as const, user: r.user, team: r.team, ...(r.sso_team ? { sso_team: r.sso_team } : {}), ...(r.email_domain ? { email_domain: r.email_domain } : {}) }
-        const gate = yield* Effect.promise(() => ssoGate(env, minted))
+        const gate = yield* Effect.tryPromise({ try: () => ssoGate(env, minted), catch: gateUnreachable })
         const refusedMint = gate.refusal ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
         if (refusedMint) return yield* new PolicyRefused(refusedMint)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(env, r))
@@ -257,10 +262,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // install.register and server pairing bind the new install to the SSO team whose sign-in created this session (P17-4). The
         // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
         let submitter = principal
-        if ((payload.op === "install.register" || payload.op === "server.pair.approve") && shape.stack_session && !principal.sso_team) {
+        // Always asked fresh here (never the gate's cached answer): the new install keeps sso_team for good (cx-44j.51).
+        if ((payload.op === "install.register" || payload.op === "server.pair.approve") && shape.stack_session) {
           const stackSession = shape.stack_session
-          const found = yield* Effect.promise(() => withAnySsoSession(env, { ...principal, stack_session: stackSession }))
-          if (found.sso_team) submitter = { ...principal, sso_team: found.sso_team }
+          const { sso_team: _cached, ...bare } = principal
+          const found = yield* Effect.tryPromise({ try: () => withAnySsoSession(env, { ...bare, stack_session: stackSession }), catch: gateUnreachable })
+          submitter = found.sso_team ? { ...bare, sso_team: found.sso_team } : bare
         }
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
@@ -317,7 +324,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         // agents.allowedClasses (P17-4): a chief is the "mux" class.
         if (payload.op === "chief.create") {
-          const rules = yield* Effect.promise(() => signInRules(env, principal.team!, principal.user!))
+          const rules = yield* Effect.tryPromise({ try: () => signInRules(env, principal.team!, principal.user!), catch: gateUnreachable })
           if (!rules.allowed_classes.includes("mux")) return yield* new PolicyRefused({ code: "policy.denied", message: "your team does not allow chiefs (agents.allowedClasses)" })
         }
         // A chief's MuxDO is keyed by its agent id; the principal carries install_kind (withGrantClasses).
@@ -463,7 +470,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
         // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
         // sessions and installs not from their SSO.
         // A TeamDO or UserDO the gate asks can be briefly unreachable: retryable 503, never a 500 (cx-44j.51).
-        const gate = yield* Effect.tryPromise({ try: () => ssoGate(env, authed), catch: unreachable })
+        const gate = yield* Effect.tryPromise({ try: () => ssoGate(env, authed), catch: gateUnreachable })
         if (gate.refusal) return yield* new PolicyRefused(gate.refusal)
         const p = gate.principal
         const shape: CurrentPrincipalShape = {

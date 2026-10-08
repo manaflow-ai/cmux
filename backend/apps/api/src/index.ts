@@ -98,8 +98,8 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
   if (authenticated.install_kind === "vm") return Response.json({ ok: false, error: { code: "auth.forbidden", message: "a VM install has no presence key" } }, { status: 403 })
-  const gate = await ssoGate(env, authenticated).catch(() => null)
-  if (!gate) return gateUnreachable("ssoGate")
+  const gate = await ssoGate(env, authenticated).catch((e: unknown) => (console.error(JSON.stringify({ msg: "sso gate unreachable", error: String(e) })), null))
+  if (!gate) return gateUnreachable("presence key")
   if (gate.refusal) return Response.json({ ok: false, error: gate.refusal }, { status: 403 })
   const { stack_session: _session, email_domain: _domain, ...principal } = gate.principal
   const user = authenticated.user

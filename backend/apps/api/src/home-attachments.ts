@@ -133,7 +133,7 @@ const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-share
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return { status: 401, code: "auth.unauthenticated", message: "sign in first" }
   if (authenticated.install_kind === "vm") return { status: 403, code: "auth.forbidden", message: "a VM install has no Home access" }
-  const gate = await ssoGate(env, authenticated).catch(() => null)
+  const gate = await ssoGate(env, authenticated).catch((e: unknown) => (console.error(JSON.stringify({ msg: "sso gate unreachable", error: String(e) })), null))
   // A TeamDO or UserDO the gate asks was unreachable: retryable, never a 500 (cx-44j.51).
   if (!gate) return { status: 503, code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", extra: { retryable: true } }
   if (gate.refusal) return { status: 403, code: "auth.forbidden", message: gate.refusal.message }

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import { makeUserDomain, type UserState } from "../src/domains/user.ts"
 import { deliverKrlNotices, type KrlRetry } from "../src/user-krl.ts"
 import { clearSignInRules } from "../src/policy-gate.ts"
+import { bindBody, bindFile, frame, person, reply, SIZE } from "./cloud-bind-support.ts"
 
 /**
  * cx-44j.51: what a team removal leaves behind. (1) A machine created under the team's SSO and bound
@@ -38,6 +39,12 @@ describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
     const cloud: Principal = { identity: `system:cloud:${LEFT}`, kind: "system", user: USER, team: LEFT, sso_team: LEFT }
     const vm = must(domain.reduce(left.state, "install.register_server", vmParams(1), ctx(cloud)))
     expect(vm.value.sso_team).toBeUndefined()
+    // Seen fresh after the removal (a pairing approval, a machine created after a re-join): stamped.
+    const later = must(domain.reduce(left.state, "install.register_server", { ...vmParams(9), sso_seen_at: 4_500 }, ctx(cloud)))
+    expect(later.value.sso_team).toBe(LEFT)
+    expect(later.state.sso_left?.[LEFT]).toBeUndefined()
+    // Seen before the removal (the machine's stored creator_sso_team): not stamped.
+    expect(must(domain.reduce(left.state, "install.register_server", { ...vmParams(8), sso_seen_at: 3_000 }, ctx(cloud))).value.sso_team).toBeUndefined()
     // The person signs in through the team's SSO again: their next install carries it, and so does a later VM.
     const session: Principal = { identity: `session:${USER}`, kind: "session", user: USER, team: TEAM, stack_user_id: "s", sso_team: LEFT }
     const fresh = must(domain.reduce(vm.state, "install.register", { public_jwk: jwk(2), kind: "cli", name: "cli", device_name: "laptop", platform: "macos" }, ctx(session)))
@@ -107,5 +114,24 @@ describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
     expect(asked).toEqual(["team_b"])
     const done = must(domain.reduce(after.state, "install.ssh_revoke_done", { install: "inst_1", teams: ["team_b"] }, ctx({ identity: "system:user", kind: "system" })))
     expect(done.state.ssh_revoke_pending).toEqual({})
+  })
+
+  it("a machine whose creator left its team does not bind (no VM install for an ex-member)", async () => {
+    const owner = person()
+    const x = person(owner.team)
+    // The member creates a machine in the owner's team while still a member.
+    await inDO(x.stub, async (instance) => {
+      instance.creatorIsMember = async () => true
+    })
+    const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
+    if (created.t !== "result") throw new Error(JSON.stringify(created))
+    const machine = created.value.machine.id as string
+    const file = await bindFile(x.stub, machine)
+    const { body } = await bindBody(x, machine, file.json.bind_token)
+    // Removed before the VM came up.
+    await inDO(x.stub, async (instance) => {
+      instance.creatorIsMember = async () => false
+    })
+    expect(await x.stub.bindMachine(x.team, body)).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })

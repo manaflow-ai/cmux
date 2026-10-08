@@ -148,7 +148,7 @@ export class AuthGroup extends HttpApiGroup.make("auth")
       // `agent`: a chief of this user; the token then acts as that chief (principal.agent), checked on every request.
       payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
       success: TokenResponse,
-      error: [BadRequest, Forbidden, PolicyRefused]
+      error: [BadRequest, Forbidden, PolicyRefused, OwnerUnreachable]
     })
   ) {}
 

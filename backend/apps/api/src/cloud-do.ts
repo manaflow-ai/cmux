@@ -1,5 +1,6 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
+import { personalTeamIdFor } from "./domains/user.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
@@ -44,6 +45,12 @@ export class CloudDO extends CloudIdle {
    * token is hashed here, so the committed op, its event and the ledger never see it. Any token
    * problem is one auth.forbidden; an object nobody created answers the same without being created.
    */
+  /** TeamDO's member-only read for `user` (tests replace it). */
+  creatorIsMember = async (team: string, user: string): Promise<boolean> => {
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
+    return (await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 1 })).ok
+  }
+
   async bindMachine(entity: string, body: unknown): Promise<BindReply> {
     const forbidden = { ok: false as const, code: "auth.forbidden", message: "bind refused" }
     if (!this.isBound(entity)) return forbidden
@@ -61,7 +68,10 @@ export class CloudDO extends CloudIdle {
     // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
     if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
     const keyset = await publicKeyset(keys)
-    const reg = { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team } : {}) }
+    // A creator who left this team gets no VM install bound to it (cx-44j.51); their personal team they never leave.
+    if (entity !== personalTeamIdFor(m.creator) && !(await this.creatorIsMember(entity, m.creator))) return forbidden
+    // The machine's creator_sso_team was seen fresh at its create (sso_seen_at), so UserDO stamps it unless the creator left that team later.
+    const reg = { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team, ssoSeenAt: m.created_at } : {}) }
     this.vmRevokes.beginRegister(reg, now)
     const vm = await registerVmInstall(this.env, reg)
     if (!vm.ok) return (vm.code !== "owner.unreachable" && this.vmRevokes.endRegister(reg), { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" })
