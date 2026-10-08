@@ -25,37 +25,37 @@ async fn spawn_echo_target() -> u16 {
             tokio::spawn(async move {
                 let io = hyper_util::rt::TokioIo::new(stream);
                 let service = hyper::service::service_fn(|request| async move {
-                if request.uri().path() == "/echo" {
-                    // What the dev server sees of the request: the
-                    // query, every Cookie value and the capability
-                    // header, one per line.
-                    let mut seen =
-                        format!("query={}\n", request.uri().query().unwrap_or_default());
-                    for value in request.headers().get_all(hyper::header::COOKIE) {
-                        seen.push_str(&format!(
-                            "cookie={}\n",
-                            String::from_utf8_lossy(value.as_bytes())
-                        ));
+                    if request.uri().path() == "/echo" {
+                        // What the dev server sees of the request: the
+                        // query, every Cookie value and the capability
+                        // header, one per line.
+                        let mut seen =
+                            format!("query={}\n", request.uri().query().unwrap_or_default());
+                        for value in request.headers().get_all(hyper::header::COOKIE) {
+                            seen.push_str(&format!(
+                                "cookie={}\n",
+                                String::from_utf8_lossy(value.as_bytes())
+                            ));
+                        }
+                        for value in request.headers().get_all(hyper::header::REFERER) {
+                            seen.push_str(&format!(
+                                "referer={}\n",
+                                value.to_str().unwrap_or_default()
+                            ));
+                        }
+                        for value in request.headers().get_all("x-chatmux-capability") {
+                            seen.push_str(&format!(
+                                "header={}\n",
+                                value.to_str().unwrap_or_default()
+                            ));
+                        }
+                        let mut response = hyper::Response::new(full_body(seen.into_bytes()));
+                        response.headers_mut().insert(
+                            hyper::header::CONTENT_TYPE,
+                            hyper::header::HeaderValue::from_static("text/plain"),
+                        );
+                        return Ok::<_, std::convert::Infallible>(response);
                     }
-                    for value in request.headers().get_all(hyper::header::REFERER) {
-                        seen.push_str(&format!(
-                            "referer={}\n",
-                            value.to_str().unwrap_or_default()
-                        ));
-                    }
-                    for value in request.headers().get_all("x-chatmux-capability") {
-                        seen.push_str(&format!(
-                            "header={}\n",
-                            value.to_str().unwrap_or_default()
-                        ));
-                    }
-                    let mut response = hyper::Response::new(full_body(seen.into_bytes()));
-                    response.headers_mut().insert(
-                        hyper::header::CONTENT_TYPE,
-                        hyper::header::HeaderValue::from_static("text/plain"),
-                    );
-                    return Ok::<_, std::convert::Infallible>(response);
-                }
                     let mut response = hyper::Response::new(full_body(
                         b"<html><head><title>t</title></head><body></body></html>".to_vec(),
                     ));
@@ -65,7 +65,8 @@ async fn spawn_echo_target() -> u16 {
                     );
                     Ok::<_, std::convert::Infallible>(response)
                 });
-                let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, service).await;
+                let _ =
+                    hyper::server::conn::http1::Builder::new().serve_connection(io, service).await;
             });
         }
     });
@@ -75,9 +76,8 @@ async fn spawn_echo_target() -> u16 {
 /// The full raw HTTP/1.1 response (head and body) of one request that
 /// asks the proxy to close the connection.
 async fn raw_exchange(port: u16, request: &str) -> String {
-    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
-        .await
-        .expect("connect preview proxy");
+    let mut stream =
+        tokio::net::TcpStream::connect(("127.0.0.1", port)).await.expect("connect preview proxy");
     stream.write_all(request.as_bytes()).await.expect("write raw request");
     let mut response = Vec::new();
     tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response))
@@ -116,11 +116,9 @@ async fn proxied_requests_and_upgrades_require_the_preview_capability() {
         assert!(response.starts_with("HTTP/1.1 401"), "{extra:?}: {response}");
         assert!(!response.contains("<title>t</title>"), "{extra:?} leaked the page");
     }
-    let response = raw_exchange(
-        proxy,
-        &get_request(&format!("/?__chatmux_capability={wrong}"), &host, ""),
-    )
-    .await;
+    let response =
+        raw_exchange(proxy, &get_request(&format!("/?__chatmux_capability={wrong}"), &host, ""))
+            .await;
     assert!(response.starts_with("HTTP/1.1 401"), "wrong bootstrap: {response}");
 
     // A valid header passes.
@@ -183,8 +181,7 @@ async fn proxied_requests_and_upgrades_require_the_preview_capability() {
     let upgrade_cookie = format!("__chatmux_preview_{upgrade_proxy}");
     for extra in [String::new(), format!("Cookie: {upgrade_cookie}={wrong}\r\n")] {
         let head =
-            raw_response_head(upgrade_proxy, &upgrade_request("/hmr", &upgrade_host, &extra))
-                .await;
+            raw_response_head(upgrade_proxy, &upgrade_request("/hmr", &upgrade_host, &extra)).await;
         assert!(head.starts_with("http/1.1 401"), "upgrade {extra:?}: {head}");
     }
     let head = raw_response_head(
@@ -220,11 +217,9 @@ async fn a_rebinding_host_is_refused_on_every_path() {
         let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
         assert!(response.starts_with("HTTP/1.1 403"), "{host}: {response}");
     }
-    let response = raw_exchange(
-        proxy,
-        &format!("GET / HTTP/1.1\r\n{credential}Connection: close\r\n\r\n"),
-    )
-    .await;
+    let response =
+        raw_exchange(proxy, &format!("GET / HTTP/1.1\r\n{credential}Connection: close\r\n\r\n"))
+            .await;
     assert!(!response.starts_with("HTTP/1.1 200"), "a request without Host: {response}");
     let response = raw_exchange(
         proxy,
@@ -251,8 +246,7 @@ async fn a_rebinding_host_is_refused_on_every_path() {
     .await;
     assert!(head.starts_with("http/1.1 403"), "hmr upgrade: {head}");
     for path in ["/__chatmux__/page", "/__chatmux__/devtools"] {
-        let outcome =
-            ws_handshake(proxy, path, Some(&capability), &[("host", &rebinding)]).await;
+        let outcome = ws_handshake(proxy, path, Some(&capability), &[("host", &rebinding)]).await;
         assert!(refused_with_forbidden(outcome), "{path} accepted a rebinding Host");
     }
 
@@ -298,8 +292,7 @@ async fn public_preview_hosts_pass_only_under_the_configured_suffixes() {
     .to_ascii_lowercase();
     assert!(response.starts_with("http/1.1 302"), "{response}");
     assert!(response.contains("\r\nlocation: /\r\n"), "{response}");
-    let set_cookie =
-        response.lines().find(|line| line.starts_with("set-cookie:")).expect("cookie");
+    let set_cookie = response.lines().find(|line| line.starts_with("set-cookie:")).expect("cookie");
     assert!(set_cookie.contains("; secure"), "{set_cookie}");
     assert!(set_cookie.contains("samesite=lax"), "{set_cookie}");
     registry.shutdown().await;
@@ -308,11 +301,7 @@ async fn public_preview_hosts_pass_only_under_the_configured_suffixes() {
     let (proxy, capability) = open_proxy_credentials(&registry, target).await;
     let response = raw_exchange(
         proxy,
-        &get_request(
-            "/",
-            "rebind.test",
-            &format!("{CAPABILITY_HEADER}: {capability}\r\n"),
-        ),
+        &get_request("/", "rebind.test", &format!("{CAPABILITY_HEADER}: {capability}\r\n")),
     )
     .await;
     assert!(response.starts_with("HTTP/1.1 403"), "{response}");
@@ -363,11 +352,9 @@ async fn the_capability_never_lingers_in_the_url_or_reaches_the_dev_server() {
 
     // A percent-encoded name is the same parameter.
     let wrong = "0".repeat(capability.len());
-    let response = raw_exchange(
-        proxy,
-        &get_request(&format!("/?%5F_chatmux_capability={wrong}"), &host, ""),
-    )
-    .await;
+    let response =
+        raw_exchange(proxy, &get_request(&format!("/?%5F_chatmux_capability={wrong}"), &host, ""))
+            .await;
     assert!(response.starts_with("HTTP/1.1 401"), "{response}");
     let response = raw_exchange(
         proxy,
@@ -459,4 +446,3 @@ async fn a_sibling_origin_cannot_write_or_open_a_socket_with_the_cookie() {
     assert!(head.starts_with("http/1.1 101"), "same-origin upgrade: {head}");
     registry.shutdown().await;
 }
-

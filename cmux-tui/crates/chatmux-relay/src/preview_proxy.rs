@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde_json::Value;
 
 use crate::preview_access::{
-    CAPABILITY_COOKIE_PREFIX, CAPABILITY_HEADER, ProxiedAccess, bootstrap_response, control_origin_allowed,
-    copy_credential_free, cross_origin_write, default_public_host_suffixes,
+    CAPABILITY_COOKIE_PREFIX, CAPABILITY_HEADER, ProxiedAccess, bootstrap_response,
+    control_origin_allowed, copy_credential_free, cross_origin_write, default_public_host_suffixes,
     mint_preview_capability, normalize_public_host_suffixes, path_without_capability,
     proxied_access, request_capability_allowed, request_host_allowed, wants_websocket,
 };
@@ -1227,7 +1227,10 @@ mod tests {
         open_proxy_credentials(registry, target_port).await.0
     }
 
-    pub(super) async fn open_proxy_credentials(registry: &PreviewRegistry, target_port: u16) -> (u16, String) {
+    pub(super) async fn open_proxy_credentials(
+        registry: &PreviewRegistry,
+        target_port: u16,
+    ) -> (u16, String) {
         match registry.open(i64::from(target_port)).await.expect("preview_open") {
             wire::WorkspaceResultBody::PreviewOpen(result) => {
                 (u16::try_from(result.proxy_port).expect("port range"), result.capability)

@@ -63,9 +63,7 @@ pub(crate) fn copy_credential_free(from: &hyper::HeaderMap, to: &mut hyper::Head
         .iter()
         .flat_map(|value| value.as_bytes().split(|byte| *byte == b';'))
         .map(<[u8]>::trim_ascii)
-        .filter(|item| {
-            !item.is_empty() && !item.starts_with(CAPABILITY_COOKIE_PREFIX.as_bytes())
-        })
+        .filter(|item| !item.is_empty() && !item.starts_with(CAPABILITY_COOKIE_PREFIX.as_bytes()))
         .collect::<Vec<_>>();
     if !kept.is_empty()
         && let Ok(cookie) = hyper::header::HeaderValue::from_bytes(&kept.join(&b"; "[..]))
@@ -94,7 +92,6 @@ pub(crate) fn wants_websocket(request: &hyper::Request<hyper::body::Incoming>) -
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.eq_ignore_ascii_case("websocket"))
 }
-
 
 pub(crate) const CAPABILITY_QUERY: &str = "__chatmux_capability";
 pub(crate) const CAPABILITY_HEADER: &str = "x-chatmux-capability";
@@ -195,9 +192,9 @@ pub(crate) fn proxied_access(
         .get_all(CAPABILITY_HEADER)
         .iter()
         .any(|value| capability_matches(value.as_bytes().trim_ascii(), expected));
-    let cookie_ok = cookie_pairs(request.headers()).into_iter().any(|(name, value)| {
-        name == cookie_name.as_bytes() && capability_matches(value, expected)
-    });
+    let cookie_ok = cookie_pairs(request.headers())
+        .into_iter()
+        .any(|(name, value)| name == cookie_name.as_bytes() && capability_matches(value, expected));
     if header_ok || cookie_ok { ProxiedAccess::Granted } else { ProxiedAccess::Denied }
 }
 
@@ -269,7 +266,8 @@ pub(crate) fn bootstrap_response(
         });
     let cookie = format!(
         "{}={}; Path=/; HttpOnly; SameSite=Lax{}",
-        cookie_name, capability,
+        cookie_name,
+        capability,
         if secure { "; Secure" } else { "" },
     );
     let mut response = hyper::Response::new(full_body(Vec::new()));
@@ -290,7 +288,6 @@ pub(crate) fn bootstrap_response(
     );
     response
 }
-
 
 /// Browsers attach an `Origin` to every WebSocket handshake but apply no
 /// same-origin policy to it, so any page the user visits can dial the
@@ -352,7 +349,6 @@ fn is_loopback_host(host: &url::Host<&str>) -> bool {
     }
 }
 
-
 /// A control request proves it belongs to this preview by presenting the
 /// capability `preview_open` returned (the injected connector receives it
 /// in its script URL, the devtools frontend over the relay wire). Values
@@ -369,7 +365,6 @@ pub(crate) fn request_capability_allowed(
         })
     })
 }
-
 
 /// The Referer without the capability parameter. An unparsable Referer
 /// that still names the parameter is dropped.
@@ -394,4 +389,3 @@ fn referer_without_capability(
     url.set_query((!kept.is_empty()).then(|| kept.join("&")).as_deref());
     hyper::header::HeaderValue::from_str(url.as_str()).ok()
 }
-
