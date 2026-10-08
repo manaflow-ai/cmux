@@ -143,10 +143,12 @@ public struct AccountTeamCard: View {
             .controlSize(.small)
             .disabled(model.isInviting)
             .accessibilityIdentifier("SettingsTeamCopyLinkButton")
-            saveIndicator(model.isInviting)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        .overlay(alignment: .trailing) {
+            saveIndicator(model.isInviting).padding(.trailing, 1)
+        }
     }
 
     // MARK: Rows
@@ -215,11 +217,14 @@ public struct AccountTeamCard: View {
                     member.label
                 ))
             }
-            saveIndicator(pending)
-                .accessibilityIdentifier("SettingsTeamSaving_\(member.userID)")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        .overlay(alignment: .trailing) {
+            saveIndicator(pending)
+                .padding(.trailing, 1)
+                .accessibilityIdentifier("SettingsTeamSaving_\(member.userID)")
+        }
         .accessibilityIdentifier("SettingsTeamMember_\(member.userID)")
     }
 
@@ -259,21 +264,23 @@ public struct AccountTeamCard: View {
     }
 
     private func revokeControl(id: String, action: @escaping () -> Void) -> some View {
-        HStack(spacing: 12) {
-            Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
-                .controlSize(.small)
-                .disabled(model.pendingID != nil)
-            saveIndicator(model.pendingID == id)
-        }
+        Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
+            .controlSize(.small)
+            .disabled(model.pendingID != nil)
+            .overlay(alignment: .trailing) {
+                saveIndicator(model.pendingID == id).offset(x: 13)
+            }
     }
 
-    /// Reserve the trailing slot so saving never moves or replaces controls.
+    /// Draw in the row's existing trailing inset without changing its layout.
+    @ViewBuilder
     private func saveIndicator(_ isSaving: Bool) -> some View {
-        ZStack {
-            if isSaving { ProgressView().controlSize(.mini) }
+        if isSaving {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 12, height: 12)
+                .allowsHitTesting(false)
         }
-        .frame(width: 12, height: 12)
-        .accessibilityHidden(!isSaving)
     }
 
     private func sectionLabel(_ title: String) -> some View {
