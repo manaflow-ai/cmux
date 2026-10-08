@@ -25,8 +25,7 @@ public struct URLSessionCloudAPIClient: CloudAPIClient {
     }
 
     public func mutate(_ op: String, params: [String: JSONValue], key: String, as principal: CloudPrincipal) async throws -> CloudOpReply {
-        let request: [String: JSONValue] = ["op": .string(op), "params": .object(params),
-                                            "idempotency_key": .string(key), "origin": .string("user")]
+        let request = Self.mutationBody(op: op, params: params, key: key)
         let (status, body) = try await post("v1/ops", request, as: principal)
         guard (200..<300).contains(status) else {
             return .rejected(code: Self.code(in: body) ?? "http.\(status)", retryable: status == 503)
@@ -69,5 +68,13 @@ public struct URLSessionCloudAPIClient: CloudAPIClient {
     static func code(in body: JSONValue) -> String? {
         body["error"]?["code"]?.stringValue ?? body["code"]?.stringValue
     }
-}
 
+    /// Builds an ops body while preserving the protocol's non-idempotent
+    /// `cloud.machine.link_token` shape (no `idempotency_key` member).
+    public static func mutationBody(op: String, params: [String: JSONValue], key: String) -> [String: JSONValue] {
+        var body: [String: JSONValue] = ["op": .string(op), "params": .object(params),
+                                         "origin": .string("user")]
+        if !key.isEmpty { body["idempotency_key"] = .string(key) }
+        return body
+    }
+}

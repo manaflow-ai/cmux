@@ -35,6 +35,15 @@ enum CloudJSON {
         ])
     }
 
+    static func linkToken(host: String = "host_h0000000000000000001", epoch: Int = 7,
+                          services: [String] = ["daemon"], token: String = "secret",
+                          expiresAt: Int64 = 2_000_000_000_000) -> JSONValue {
+        .object([
+            "token": .string(token), "expires_at": .int(expiresAt), "host": .string(host),
+            "epoch": .int(Int64(epoch)), "services": .array(services.map(JSONValue.string)),
+        ])
+    }
+
     static func text(_ value: JSONValue) -> String { String(decoding: try! value.canonicalData(), as: UTF8.self) }
 }
 

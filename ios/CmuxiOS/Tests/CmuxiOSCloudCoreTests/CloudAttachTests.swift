@@ -95,4 +95,78 @@ struct CloudAttachTests {
             try await preflight.resolve(machineID: "vm_m0000000000000000001", hostID: host, service: .daemon)
         }
     }
+
+    @Test func attachSessionMintsAOneShotDaemonGrantAndUsesInstallPrincipal() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [.committed(value: CloudJSON.linkToken(), revision: 0)])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        guard case .ready = try await session.prepare(hostID: host, service: .daemon) else {
+            Issue.record("running machine should be attachable")
+            return
+        }
+
+        let grant = try await session.mintHelloToken()
+        #expect(grant.token == "secret")
+        #expect(grant.hostID == host)
+        #expect(grant.epoch == 7)
+        #expect(grant.services == [.daemon])
+        let call = try #require(await api.calls.last)
+        #expect(call.op == "cloud.machine.link_token")
+        #expect(call.key == "")
+        #expect(call.principal == .install)
+        #expect(call.params == ["host": .string(host.rawValue), "services": .array([.string("daemon")])])
+
+        await #expect(throws: CloudAttachSessionError.credentialAlreadyIssued) {
+            _ = try await session.mintHelloToken()
+        }
+    }
+
+    @Test func reconnectRequiresFreshConnectInfoAndToken() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [
+            .committed(value: CloudJSON.linkToken(token: "first"), revision: 0),
+            .committed(value: CloudJSON.linkToken(token: "second"), revision: 0),
+        ])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        #expect(try await session.mintHelloToken().token == "first")
+        await session.resetForReconnect()
+        await #expect(throws: CloudAttachSessionError.notPrepared) {
+            _ = try await session.mintHelloToken()
+        }
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        #expect(try await session.mintHelloToken().token == "second")
+        #expect(await api.count("cloud.machine.connect_info") == 2)
+        #expect(await api.count("cloud.machine.link_token") == 2)
+    }
+
+    @Test func attachSessionRejectsGrantForAnotherEpochOrHost() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [.committed(value: CloudJSON.linkToken(host: "host_other", epoch: 8), revision: 0)])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        await #expect(throws: CloudAttachSessionError.invalidGrant) {
+            _ = try await session.mintHelloToken()
+        }
+    }
+
+    @Test func linkTokenDecoderAcceptsDecimalExpiryAndRejectsMissingSecret() throws {
+        let decoder = CloudWireDecoder()
+        let value = CloudJSON.linkToken(expiresAt: 2_000_000_000_000)
+        let grant = try decoder.linkToken(value)
+        #expect(grant.expiresAt == Date(timeIntervalSince1970: 2_000_000_000))
+        #expect(throws: CloudWireDecodeError.invalidLinkToken) {
+            try decoder.linkToken(CloudJSON.linkToken(token: ""))
+        }
+    }
+
+    @Test func linkTokenMutationBodyOmitsIdempotencyKeyButRegularMutationsKeepIt() {
+        let tokenBody = URLSessionCloudAPIClient.mutationBody(op: "cloud.machine.link_token", params: [:], key: "")
+        #expect(tokenBody["idempotency_key"] == nil)
+        let regularBody = URLSessionCloudAPIClient.mutationBody(op: "cloud.machine.pause", params: [:], key: "intent-1")
+        #expect(regularBody["idempotency_key"] == .string("intent-1"))
+    }
 }

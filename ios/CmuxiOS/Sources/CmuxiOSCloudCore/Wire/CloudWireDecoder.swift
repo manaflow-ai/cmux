@@ -90,6 +90,34 @@ public struct CloudWireDecoder: Sendable {
         )
     }
 
+    /// Decodes a one-shot `cloud.machine.link_token` result. This is kept out
+    /// of the connect-info model so a caller cannot accidentally persist a
+    /// dial credential with a cached peer record.
+    public func linkToken(_ value: JSONValue) throws -> CloudLinkTokenGrant {
+        let wire = try value.decode(as: WireCloudLinkToken.self)
+        guard !wire.token.isEmpty,
+              let expiresMillis = wire.expires_at.doubleValue,
+              expiresMillis.isFinite,
+              expiresMillis > 0,
+              wire.epoch > 0,
+              wire.host.hasPrefix("host_") else {
+            throw CloudWireDecodeError.invalidLinkToken
+        }
+        let services = try wire.services.map { raw -> CloudConnectInfo.Service in
+            guard let service = CloudConnectInfo.Service(rawValue: raw) else {
+                throw CloudWireDecodeError.unknownService(raw)
+            }
+            return service
+        }
+        guard !services.isEmpty, services.count <= CloudConnectInfo.Service.allCases.count,
+              Set(services).count == services.count else {
+            throw CloudWireDecodeError.invalidServices
+        }
+        return CloudLinkTokenGrant(token: wire.token,
+                                   expiresAt: Date(timeIntervalSince1970: expiresMillis / 1000),
+                                   hostID: HostID(wire.host), epoch: wire.epoch, services: services)
+    }
+
     /// `cmux.wire/1` revisions are decimal strings; anything else is 0.
     public static func revision(_ raw: String?) -> UInt64 { raw.flatMap(UInt64.init) ?? 0 }
 

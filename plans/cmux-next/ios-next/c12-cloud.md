@@ -167,3 +167,20 @@ Unverified: everything visual and runtime (no simulator or device run; the fleet
 evidence only), live
 calls against a dev backend (Stack session principal on `/v1/ops` from the phone), VoiceOver and
 Dynamic Type at large sizes. `vm_hours_used` is 0 until UsageMeterDO metering lands (backend).
+
+## 9. Phase-2 credential seam (2026-10-08)
+
+`CmuxiOSCloudCore` now has a bounded `CloudAttachSession` for the phone side of
+the VM session-host boundary. It re-reads `cloud.machine.connect_info`, refuses
+paused or mismatched machines before any dial, mints `cloud.machine.link_token`
+as the install principal with the operation's required empty idempotency key,
+and validates the returned host, epoch, service set, and expiry against the
+preflight plan. The grant is returned to the caller but never retained by the
+actor; a second mint is refused until `resetForReconnect()` and a fresh
+preflight. Terminal, workspace, and file adapters can use the daemon service
+through the existing `CmuxMobileLink` channels once the Rust VM host is live.
+
+This is protocol and unit-test evidence only. The VM Rust session host,
+WireGuard/WebRTC underlays, HostDO VM admission, and live token verification
+remain unimplemented; `cloudWorkspaces` stays disabled and no live VM attach is
+claimed.
