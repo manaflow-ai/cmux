@@ -181,24 +181,24 @@ wait_for 15 not manager_active && pass "C user manager gone" || fail "C user man
 wait_for 5 gone 1 && pass "C no lingering process left" || fail "C processes: $(ps -o pid=,args= -u "$uid" | tr '\n' ';')"
 
 # --- D: no logind session, no login --------------------------------------
-# An sshd started inside an existing login session (this shell, when it is
-# one) gets no logind session from pam_systemd, so nothing would scope the
-# user's processes and a revocation could not end them: session-open must
-# refuse such a session.
+# pam_systemd is `optional`: when it opens no logind session, nothing scopes
+# the user's processes and a revocation could not end them, so session-open
+# must refuse the session. Simulated with a PAM stack without pam_systemd.
 echo "--- D"
-if grep -q '/session-[^/]*\.scope' /proc/self/cgroup; then
-  sed -e "s/^Port .*/Port $((PORT + 1))/" -e "s|^PidFile .*|PidFile $d/sshd-d.pid|" "$d/sshd_config" > "$d/sshd_config_d"
-  "$SSHD" -f "$d/sshd_config_d"
-  for i in $(seq 50); do [[ -s "$d/sshd-d.pid" ]] && break; sleep 0.1; done
-  ssh-keygen -q -s "$d/ca" -I cmuxt-5 -n "$USER_NAME" -z 5 -V +20m "$d/u2.pub"
-  out="$("${SSH[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo in; nohup setsid sleep 9501 >/dev/null 2>&1 &' 2>&1 < /dev/null || true)"
-  kill "$(cat "$d/sshd-d.pid")" 2>/dev/null || true
-  [[ "$out" != *in* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $out"
-  sleep 0.5
-  gone 5 && pass "D nothing started" || fail "D unscoped process running: $(ps -o pid=,args= -u "$uid" | tr '\n' ';')"
-else
-  echo "SKIP D: this shell is not in a login session"
-fi
+SSHD_D=/usr/local/sbin/sshd-cmuxt9d
+install -m 0755 "$(command -v sshd)" "$SSHD_D"
+grep -v pam_systemd /etc/pam.d/common-session > "$d/common-session-d"
+awk -v inc="$d/common-session-d" '$0 == "@include common-session" { while ((getline l < inc) > 0) print l; next } { print }' "$PAM_FILE" > /etc/pam.d/sshd-cmuxt9d
+if grep -q pam_systemd /etc/pam.d/sshd-cmuxt9d; then fail "D setup: pam_systemd still in the stack"; fi
+sed -e "s/^Port .*/Port $((PORT + 1))/" -e "s|^PidFile .*|PidFile $d/sshd-d.pid|" "$d/sshd_config" > "$d/sshd_config_d"
+systemctl reset-failed cmuxt9cnf-sshd-d.service 2>/dev/null || true
+systemd-run --quiet --unit=cmuxt9cnf-sshd-d.service "$SSHD_D" -D -f "$d/sshd_config_d"
+for i in $(seq 50); do [[ -s "$d/sshd-d.pid" ]] && break; sleep 0.1; done
+ssh-keygen -q -s "$d/ca" -I cmuxt-5 -n "$USER_NAME" -z 5 -V +20m "$d/u2.pub"
+out="$("${SSH[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo in; echo sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true)"
+systemctl stop cmuxt9cnf-sshd-d.service
+rm -f "$SSHD_D" /etc/pam.d/sshd-cmuxt9d
+[[ "$out" != *in* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $(tr '\n' ' ' <<< "$out")"
 
 echo "--- $fails failure(s)"
 [[ "$fails" == 0 ]]
