@@ -472,7 +472,7 @@ VM subcommands:
 | `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
 | `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
-| `vm exec [--timeout <seconds>] <id> -- <command...>` | Run a shell command inside a VM. `--timeout` bounds execution from 1 to 900 seconds (default 30). |
+| `vm exec [--timeout <seconds>] <id> -- <command...>` | Run one non-interactive command inside a VM with intentional argv semantics: each argument after `--` is one argv element. Shell syntax requires an explicit command such as `cmux vm exec <id> -- sh -c '<script>'`. `--timeout` bounds execution from 1 to 900 seconds (default 30). |
 | `vm tui <id>` | Open the FULL cmux-tui client (its own workspaces/panes/tabs) in a pane — every other open gives a plain terminal instead; dials the machine's trusted-carrier listener over the private network, so no device enrollment or approval happens (hidden helper, used only by this command: `vm-tui-connect --config <file>` execs the local cmux-tui client in the pane). |
 | `vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <s>] [--timeout <seconds>] [--wait] [--output] -- <command...>` | Run a command without naming a machine: reuses an idle machine the router provisioned earlier (persisted in `~/.cmuxterm/vm-run-pool.json`, labeled `agent-pool`), wakes a sleeper, or provisions a fresh one; `--sync` pushes the cwd first, `--pull <remote-path>` fetches results, and the remote exit code passes through. `--wait` and `--output` are accepted for symmetry with `vm agent`; `vm run` always waits and prints output. |
 | `vm push <id> <local> [remote] [--exclude <pattern>]... [--no-default-excludes]`, `vm upload` | Copy a local file or directory onto a VM with SCP over the userspace WireGuard connection. The client pins the guest host key, verifies SHA-256, and packs directories as tarballs. Directory pushes skip the default VCS and OS litter patterns unless `--no-default-excludes` is passed; additional patterns can be repeated with `--exclude`. |
@@ -952,6 +952,9 @@ the expected text without connecting to a cmux socket.
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] [--wait] [--output] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] [--wait] [--output] -- <command...>`
 - `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] [--wait] [--output] -- <command...>`
+- `cmux vm exec --help` -> `Usage: cmux vm exec [--timeout <seconds>] <machine> -- <command...>`
+- `cmux vm exec --help` -> `intentional argv semantics`
+- `cmux vm exec --help` -> `cmux vm exec <machine> -- sh -c '<script>'`
 - `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <8g>] [--json]`
 - `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>`
 - `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`

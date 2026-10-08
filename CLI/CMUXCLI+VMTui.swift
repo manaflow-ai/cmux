@@ -979,7 +979,10 @@ extension CMUXCLI {
                                                               `cmux surface new-terminal --machine <m> --no-open -- <cmd>`,
                                                               then `cmux vm terminal wait-exit` / `output`, or `cmux vm agent`.
 
-        Each argv element is shell-quoted faithfully; wrap shell constructs as `-- sh -c '<script>'`.
+        Arguments after `--` use intentional argv semantics: each token is one
+        argv element, shell-quoted faithfully, not a shell fragment. Shell syntax
+        requires an explicit command, for example:
+          cmux vm exec <machine> -- sh -c '<script>'
         Add --json for {stdout, stderr, exit_code}.
         """
 

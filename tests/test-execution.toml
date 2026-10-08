@@ -986,6 +986,10 @@ path = "tests/test_cli_contract_help.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_vm_exec_contract.py"
+lane = "legacy"
+
+[[test]]
 path = "tests/test_cli_creation_initial_command.py"
 lane = "legacy"
 

@@ -812,7 +812,7 @@ def case_ao_vm_exec_contract_wording():
     row = rows[0]
     for required in (
         "argv semantics",
-        "shell syntax",
+        "Shell syntax",
         "`cmux vm exec <id> -- sh -c '<script>'`",
     ):
         assert required in row, "vm exec row missing {!r}: {}".format(required, row)
