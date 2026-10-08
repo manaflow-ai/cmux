@@ -114,7 +114,7 @@ public struct SSHTmuxPaneOutputRouter: Sendable {
     public mutating func resetForReconnect(identity: Identity) throws {
         try validate(identity)
         totalQueuedBytes = 0
-        for paneID in streams.keys {
+        for paneID in Array(streams.keys) {
             guard var stream = streams[paneID] else { continue }
             stream.phase = .awaitingSnapshot
             stream.nextSequence = 0
@@ -131,7 +131,7 @@ public struct SSHTmuxPaneOutputRouter: Sendable {
     public mutating func reconcile(to next: SSHTmuxPaneProjection) -> [SSHTmuxPaneComposition.Change] {
         let changes = composition.reconcile(to: next)
         let nextIDs = Set(next.panes.map(\.id))
-        for paneID in streams.keys where !nextIDs.contains(paneID) {
+        for paneID in Array(streams.keys) where !nextIDs.contains(paneID) {
             if let stream = streams.removeValue(forKey: paneID) { totalQueuedBytes -= stream.queuedBytes }
         }
         for pane in next.panes {
