@@ -24,6 +24,26 @@ ordered revisions, gap-triggered snapshots, reconnect resume, and one UI commit 
 display frame. Offline state is a read-only mirror plus a local draft; mutations do not
 silently queue.
 
+## Current head: `bc6de93d11a`
+
+The 2026-10-08 implementation wave adds four focused contract hardening slices:
+
+- C6 feed actions now use one canonical text representation for idempotency keys and
+  wire payloads, refuse conflicting in-flight reuse of a key, retry failed `feed.seen`
+  reports, and close a socket when its ordered sender cannot deliver a frame.
+- C9 tmux lifecycle reconciliation atomically replaces a pending owner record only when
+  its readback still matches, so a concurrent resolver fails closed instead of replaying
+  or overwriting another owner's result.
+- C10 local-network onboarding browses the same `_cmux._tcp` Bonjour service that the
+  direct carrier advertises; the retired `_cmux-iroh._udp` declaration is removed.
+- The API race fixtures use resolved, instance-scoped Durable Object hooks, eliminating
+  rejected RPC receiver errors while preserving the revoke and placement failure cases.
+
+The focused backend revoke tests pass (4 tests) and API TypeScript typecheck passes.
+Touched Swift sources and tests pass frontend parsing and diff checks. The hosted exact-head
+workflow is the validation gate for Swift package tests; no simulator, real-phone, live SSH,
+or tagged Mac/iOS runtime evidence is claimed by this wave.
+
 ## Current evidence and selected work
 
 The current implementation head is `4bee42d738dbcd63aecb9e9a5fc49b4ef7fbf458`. The latest
