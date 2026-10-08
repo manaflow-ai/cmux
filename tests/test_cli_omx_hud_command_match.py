@@ -136,6 +136,10 @@ class OMXHudCommandMatchTests(unittest.TestCase):
             (["exec env OMX_SESSION_ID=s1 node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch focused"], False),
             (["OMX_TMUX_SPLIT_OPERATION_MARKER='m1' exec env OMX_SESSION_ID=s1 "
               "'/usr/local/bin/node' '/opt/oh-my-codex/dist/cli/omx.js' hud --watch"], True),
+            # OMX up to v0.20.4 sets and exports its split marker ahead of the HUD.
+            (["OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; "
+              "exec env OMX_TMUX_HUD_OWNER=1 OMX_TMUX_HUD_LEADER_PANE='%1' "
+              "node /repo/dist/cli/omx.js hud --watch"], False),
             # A development checkout runs an entry script that is not named after OMX;
             # the shim is what says the split came from OMX.
             (["node /src/oh-my-dev/dist/cli/index.js hud --watch"], True),
@@ -158,6 +162,8 @@ class OMXHudCommandMatchTests(unittest.TestCase):
             # The pane's shell would run the second command too.
             (["omx hud --watch && echo done"], False),
             (["X=\"$(echo marker)\" omx hud --watch"], False),
+            (["OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; codex"], False),
+            (["touch marker; export A; omx hud --watch"], False),
         ]
         for command, through_shim in cases:
             with self.subTest(command=command, through_shim=through_shim):

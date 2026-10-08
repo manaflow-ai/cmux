@@ -369,6 +369,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         "exec env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch focused",
         "OMX_TMUX_SPLIT_OPERATION_MARKER='m1' exec env OMX_SESSION_ID=s '/usr/local/bin/node' '/opt/oh my codex/omx.js' hud --watch",
         "/usr/local/bin/omx hud --watch",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; exec env OMX_TMUX_HUD_OWNER=1 OMX_TMUX_HUD_LEADER_PANE='%1' node /repo/dist/cli/omx.js hud --watch",
     ])
     func restorableTmuxStartCommandKeepsOmxHudInvocations(command: String) {
         #expect(makeService().restorableTmuxStartCommand(command) == command)
@@ -383,6 +384,8 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         "omx hud",
         "oh-my-codex hud",
         "omx hud --watch; rm -rf build",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; codex",
+        "touch marker; export A; omx hud --watch",
         "omx hud --watch\nrm -rf build",
         "X=\"$(touch /tmp/marker)\" omx hud --watch",
         "cd /tmp && omx hud --watch",
