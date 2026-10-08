@@ -113,6 +113,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
+        Object result = execute(Commands.CHIEF_INSPECT, request.toWire());
+        return ChiefInspectResult.fromWire(result);
+    }
+
     public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);
