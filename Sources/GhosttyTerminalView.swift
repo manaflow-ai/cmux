@@ -3775,6 +3775,17 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+#if DEBUG
+    private static let ptyInputTraceEnabled =
+        ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1"
+
+    @inline(__always)
+    private func logPTYInputTrace(_ message: @autoclosure () -> String) {
+        guard Self.ptyInputTraceEnabled else { return }
+        cmuxDebugLog(message())
+    }
+#endif
+
     /// Returns whether a screen transition left the terminal runtime at a
     /// different backing scale than the window now uses. AppKit can update a
     /// view's layer during a display move without delivering
@@ -7728,9 +7739,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isLineErase = predictsInput
             && !isBoundForPrediction
             && Self.isLineErase(keyEvent)
+#if DEBUG
+        let actionLabel: String = {
+            if keyEvent.action == GHOSTTY_ACTION_RELEASE { return "release" }
+            if keyEvent.action == GHOSTTY_ACTION_REPEAT { return "repeat" }
+            return "press"
+        }()
+        let pointer = String(describing: surface)
+        let generation = terminalSurface?.runtimeSurfaceGeneration ?? 0
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        logPTYInputTrace(
+            "surface.input.dispatch surface=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil") " +
+            "channel=keyboard action=\(actionLabel) pointer=\(pointer) generation=\(generation) " +
+            "keycode=\(keyEvent.keycode) mods=\(keyEvent.mods.rawValue)"
+        )
+#endif
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
+#if DEBUG
+        logPTYInputTrace(
+            "surface.input.native_return surface=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil") " +
+            "channel=keyboard action=\(actionLabel) pointer=\(pointer) generation=\(generation) " +
+            "handled=\(handled ? 1 : 0) " +
+            "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000_000))"
+        )
+#endif
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
             recordPredictedEchoInput(
