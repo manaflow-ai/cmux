@@ -8,14 +8,14 @@ import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } 
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
-import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
-import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
+import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
+import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
-import { revokeInstallCerts, sshExternal } from "./team-ssh-ca.ts"
+import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
@@ -175,37 +175,10 @@ export class TeamDO extends OwnerDO<TeamState> {
     }
   }
 
-  /**
-   * Weekly DNS re-check of verified domains (spec 3.4). Every attempt records
-   * its time, so a failing resolver cannot spin the alarm. On the third failure
-   * DomainDO frees the domain first (so a new owner can verify), then the
-   * domain becomes lapsed.
-   */
+  /** Weekly DNS re-check of verified domains (spec 3.4; team-domain-external.ts recheckDomains). */
   private async recheckDomains(now: number) {
     const state = this.boundEngine?.currentState
-    if (!state?.team) return
-    const team = state.team.id
-    const due = Object.values(state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + RECHECK_MS <= now)
-    for (const d of due.slice(0, 5)) {
-      try {
-        const domainDO = this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d.domain))
-        const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(this.http, r(d.record_name))))
-        // A resolver failure is "unknown": record the attempt time without counting a failure.
-        const unknown = results.some((answers) => answers === null)
-        const ok = unknown || results.every((answers) => answers !== null && txtContains(answers, d.record_value))
-        this.requireCommitted(this.submitSystem("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`))
-        const after = this.boundEngine!.currentState.domains?.[d.domain]
-        // Commit first, then free: a lost release is retried by the next verify or re-check (release is idempotent);
-        // a passing re-check re-asserts ownership, so TeamDO and DomainDO cannot drift apart for long.
-        if (after?.state === "lapsed") await domainDO.release(team)
-        else if (ok && !unknown) {
-          const held = await domainDO.claim(d.domain, team, now)
-          if (!held.ok) this.requireCommitted(this.submitSystem("domain.mark_lost", { domain: d.domain }, `domain-lost:${d.domain}:${d.record_value}:${now}`))
-        }
-      } catch (e) {
-        console.error(JSON.stringify({ msg: "domain re-check failed", domain: d.domain, error: String(e) }))
-      }
-    }
+    if (state?.team) await recheckDue({ state, team: state.team.id, http: this.http, domainStub: (d) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d)), current: () => this.boundEngine!.currentState, commit: (op, params, key) => this.requireCommitted(this.submitSystem(op, params, key)) }, now)
   }
 
   /** A rejected system op must back off, not re-fire the alarm at once (review P2-1). */
@@ -281,23 +254,23 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** RPC from the Worker: team_vm.ssh_cert.challenge, team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate (the team SSH CA, team-ssh-ca.ts). */
   async sshOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity) }, principal, frame)
+  }
+
+  /** The team SSH CA's view of this object (team-ssh-ca.ts). */
+  private sshDeps(entity: string): SshCaDeps {
     const engine = this.bind(entity)
-    return sshExternal(
-      {
-        state: () => this.boundEngine?.currentState ?? engine.currentState,
-        rows: engine.rows,
-        team: entity,
-        stream: engine.stream,
-        kek: this.env.INTEGRATIONS_KEK,
-        sql: this.ctx.storage.sql,
-        now: () => Date.now(),
-        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
-        presence: this.presenceOwner(entity),
-        running: this.sshRunning
-      },
-      principal,
-      frame
-    )
+    return {
+      state: () => this.boundEngine?.currentState ?? engine.currentState,
+      rows: engine.rows,
+      team: entity,
+      stream: engine.stream,
+      kek: this.env.INTEGRATIONS_KEK,
+      sql: this.ctx.storage.sql,
+      now: () => Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+      running: this.sshRunning
+    }
   }
 
   /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
@@ -314,22 +287,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * that install (and only that user's) goes into the KRL, and the install gets no new one.
    */
   async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
-    const engine = this.bind(entity)
-    return revokeInstallCerts(
-      {
-        state: () => this.boundEngine?.currentState ?? engine.currentState,
-        rows: engine.rows,
-        team: entity,
-        stream: engine.stream,
-        kek: this.env.INTEGRATIONS_KEK,
-        sql: this.ctx.storage.sql,
-        now: () => Date.now(),
-        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
-        running: this.sshRunning
-      },
-      user,
-      install
-    )
+    return revokeInstallCerts(this.sshDeps(entity), user, install)
   }
 
   /**
