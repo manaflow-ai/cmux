@@ -23,9 +23,9 @@ struct MachineRowActions {
     var resizeDiskOptionsGiB: [Int] = [64, 128, 256]
     var resizeDiskMaximumGiB: Int = 128
     var resizeCPUOptions: [Int] = [2, 4, 8, 12, 16, 32]
-    var resizeCPUMaximum: Int = 16
+    var resizeCPUMaximum: Int = 8
     var resizeMemoryOptionsGiB: [Int] = [8, 16, 24, 32, 64]
-    var resizeMemoryMaximumGiB: Int = 32
+    var resizeMemoryMaximumGiB: Int = 16
     /// The current shared subscription pool. The menu uses the machine's
     /// server reservation (or live shape) to determine whether a target would
     /// fit after growth.

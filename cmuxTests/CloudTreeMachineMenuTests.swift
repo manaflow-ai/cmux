@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import AppKit
 import SwiftUI
 import CmuxCloudMachines
@@ -171,9 +172,9 @@ struct CloudTreeMachineMenuTests {
         actions.resizeDiskOptionsGiB = [64, 128, 256]
         actions.resizeDiskMaximumGiB = 128
         actions.resizeCPUOptions = [2, 4, 8, 12, 16, 32]
-        actions.resizeCPUMaximum = 16
+        actions.resizeCPUMaximum = 8
         actions.resizeMemoryOptionsGiB = [8, 16, 24, 32, 64]
-        actions.resizeMemoryMaximumGiB = 32
+        actions.resizeMemoryMaximumGiB = 16
 
         let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
         let resizeMenu = try #require(root.submenu)
@@ -185,13 +186,15 @@ struct CloudTreeMachineMenuTests {
         let disk256 = try #require(diskMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 256) })
         #expect(disk128.isEnabled)
         #expect(!disk256.isEnabled)
+        let cpu8 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8) })
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
         let cpu16 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 16) })
-        let cpu32 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 32) })
-        #expect(cpu16.isEnabled)
-        #expect(!cpu32.isEnabled)
-        let memory32 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 32) })
+        #expect(cpu8.isEnabled)
+        #expect(!cpu12.isEnabled)
+        #expect(!cpu16.isEnabled)
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
         let memory64 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64) })
-        #expect(memory32.isEnabled)
+        #expect(!memory24.isEnabled)
         #expect(!memory64.isEnabled)
     }
 

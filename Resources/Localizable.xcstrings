@@ -526994,43 +526994,43 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM-a"
+            "value": "16 GB RAM-a"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB di RAM"
+            "value": "16 GB di RAM"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 32 GB"
+            "value": "RAM 16 GB"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB de RAM"
+            "value": "16 GB de RAM"
           }
         },
         "ru": {
@@ -527042,13 +527042,13 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 32 GB"
+            "value": "RAM 16 GB"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM"
           }
         },
         "uk": {
@@ -527060,13 +527060,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB Arbeitsspeicher"
+            "value": "16 GB Arbeitsspeicher"
           }
         },
         "fr": {
@@ -527084,31 +527084,31 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB de RAM"
+            "value": "16 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 記憶體"
+            "value": "16 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 内存"
+            "value": "16 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 메모리"
+            "value": "16 GB 메모리"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB メモリ"
+            "value": "16 GB メモリ"
           }
         }
       }
@@ -643001,19 +643001,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 32g; 64g requires Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
+            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 16g; 24g, 32g, and 64g require Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 32g; 64g erfordert Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
+            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 16g; 24g, 32g und 64g erfordern Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 32g ; 64g nécessite Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
+            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 16g ; 24g, 32g et 64g nécessitent Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
           }
         },
         "ar": {
@@ -643025,7 +643025,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 32g; 64g requiere Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
+            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 16g; 24g, 32g y 64g requieren Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
           }
         },
         "zh-Hant": {
@@ -643049,7 +643049,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 32g まで対応し、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
+            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 16g まで対応し、24g、32g、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
           }
         }
       }

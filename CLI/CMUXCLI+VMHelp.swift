@@ -156,8 +156,8 @@ extension CMUXCLI {
         if planID.lowercased() == "max" {
             upgrade = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
         } else if planID.lowercased() == "go" &&
-                    ((resource == .memory && requested <= 32 * 1_024) ||
-                     (resource == .vcpus && requested <= 16) ||
+                    ((resource == .memory && requested <= 16 * 1_024) ||
+                     (resource == .vcpus && requested <= 8) ||
                      (resource == .disk && requested <= 128 * 1_024)) {
             upgrade = String(localized: "cli.vm.resize.upgradePro", defaultValue: "Upgrade to cmux Pro to use this size.")
         } else {
@@ -329,7 +329,7 @@ extension CMUXCLI {
                       [--workspace <workspace-id>] [--network <full|allowlist|none>]
                       [--focus|--no-focus] [--detach|-d]
 
-        Create a Cloud VM. Pro supports sizes through 32g; 64g requires Max.
+        Create a Cloud VM. Pro supports sizes through 16g; 24g, 32g, and 64g require Max.
         The server enforces plan limits and shared CPU and memory pools.
         `--detach` creates the machine without opening its workspace.
         """)

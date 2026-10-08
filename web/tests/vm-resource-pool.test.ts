@@ -103,14 +103,14 @@ function createInput(team: string, reservation: { vcpus: number; memoryMb: numbe
 }
 
 describe("Cloud VM plan ceilings", () => {
-  test("Pro, Team, and Founder's machines go up to the 32 GB / 16 vCPU xl row", () => {
+  test("Pro, Team, and Founder's machines go up to the 16 GB / 8 vCPU lg row", () => {
     for (const plan of ["pro", "team", "founders"]) {
-      expect(maxMemoryMbForPlan(plan, {})).toBe(32 * GB);
-      expect(maxVcpusForPlan(plan, {})).toBe(16);
-      expect(memoryOptionsMbForPlan(plan, {})).toContain(32 * GB);
+      expect(maxMemoryMbForPlan(plan, {})).toBe(16 * GB);
+      expect(maxVcpusForPlan(plan, {})).toBe(8);
+      expect(memoryOptionsMbForPlan(plan, {})).toContain(16 * GB);
       expect(memoryOptionsMbForPlan(plan, {})).not.toContain(64 * GB);
     }
-    expect(lockedMemoryOptionsMbForPlan("pro", {})).toEqual({ memoryOptionsMb: [64 * GB], upgradePlanId: "max" });
+    expect(lockedMemoryOptionsMbForPlan("pro", {})).toEqual({ memoryOptionsMb: [24 * GB, 32 * GB, 64 * GB], upgradePlanId: "max" });
   });
 
   test("Max machines go up to the validated 64 GB / 32 vCPU 2xl row", () => {

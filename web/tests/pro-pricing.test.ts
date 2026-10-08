@@ -101,19 +101,19 @@ describe("VM defaults and pricing copy", () => {
 
   test("a size-less plan reservation follows requested memory", () => {
     expect(vmResourceReservationForCreate({
-      memoryMb: 32768,
+      memoryMb: 16384,
       env: {},
     })).toEqual({
-      vcpus: 16,
-      memoryMb: 32768,
+      vcpus: 8,
+      memoryMb: 16384,
       diskMb: VM_DISK_MB_DEFAULT,
     });
   });
 
   test("a sized image reserves its complete provider shape", () => {
     expect(vmResourceReservationForCreate({
-      imageSize: { cpu: 8, memoryMb: 32768, storageMb: 65536 },
-    })).toEqual({ vcpus: 8, memoryMb: 32768, diskMb: 65536 });
+      imageSize: { cpu: 8, memoryMb: 16384, storageMb: 65536 },
+    })).toEqual({ vcpus: 8, memoryMb: 16384, diskMb: 65536 });
   });
 
   test("a 4 GB image still reserves the documented 32 GB starting disk", () => {

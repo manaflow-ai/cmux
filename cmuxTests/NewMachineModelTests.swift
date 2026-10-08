@@ -159,19 +159,19 @@ struct NewMachineModelTests {
     }
 
     /// The client mirror of the server ladder: Pro, Team, and Founder's
-    /// Edition stop at 32 GB, and only the 64 GB row is locked and sold by Max.
+    /// Edition stop at 16 GB, and the larger rows are locked and sold by Max.
     @Test func proPlanLocksTheMaxSizesWhenTheServerOmitsThem() {
         let (model, _) = makeModel(plan: Self.proPlan)
-        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768])
-        #expect(model.lockedMemoryOptions == [65536])
+        #expect(model.memoryOptions == [4096, 8192, 16384])
+        #expect(model.lockedMemoryOptions == [24576, 32768, 65536])
         #expect(model.memoryUpgradePlanId == "max")
         #expect(model.memoryUpgradePlanName == "Max")
-        #expect(model.lockedSizesNoteText == "64 GB machines need cmux Max.")
+        #expect(model.lockedSizesNoteText == "24 GB, 32 GB, and 64 GB machines need cmux Max.")
         #expect(model.memoryUpgradeButtonTitle == "Upgrade to Max")
         #expect(model.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 65536)!) == "32 vCPU · 64 GB RAM · 128 GB disk · Requires Max")
-        #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 32768)
-        #expect(NewMachineModel.maxMemoryMb(planId: "team") == 32768)
-        #expect(NewMachineModel.maxMemoryMb(planId: "founders") == 32768)
+        #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 16384)
+        #expect(NewMachineModel.maxMemoryMb(planId: "team") == 16384)
+        #expect(NewMachineModel.maxMemoryMb(planId: "founders") == 16384)
         #expect(NewMachineModel.maxMemoryMb(planId: "go") == 4096)
         #expect(NewMachineModel.maxMemoryMb(planId: "free") == 8192)
         #expect(NewMachineModel.maxMemoryMb(planId: nil) == 8192)
@@ -211,7 +211,7 @@ struct NewMachineModelTests {
         // that sells the ladder, unless the plan already is Max.
         let (unnamed, _) = makeModel(plan: Self.proPlan, lockedMemoryOptionsMb: [65536], memoryUpgradePlanId: nil)
         #expect(unnamed.memoryUpgradePlanId == "max")
-        #expect(unnamed.memoryOptions == [4096, 8192, 16384, 24576, 32768])
+        #expect(unnamed.memoryOptions == [4096, 8192, 16384])
     }
 
     /// The Picker binding can only land on an allowed size: a locked pick
@@ -220,14 +220,14 @@ struct NewMachineModelTests {
     @Test func selectionNeverLandsOnALockedSize() {
         let (model, recorder) = makeModel(plan: Self.proPlan)
         model.memoryMb = 65536
-        #expect(model.memoryMb == 32768)
+        #expect(model.memoryMb == 16384)
         model.memoryMb = 16384
         #expect(model.memoryMb == 16384)
         model.memoryMb = 4096
         #expect(model.memoryMb == 4096)
         model.memoryMb = 65536
         model.create()
-        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "32768", "--agent-updates", "latest", "--focus", "false"])
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "16384", "--agent-updates", "latest", "--focus", "false"])
 
         let (smallest, _) = makeModel(plan: Self.proPlan, memoryOptionsMb: [8192, 16384], lockedMemoryOptionsMb: [4096, 32768])
         smallest.memoryMb = 4096

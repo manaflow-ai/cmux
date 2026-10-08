@@ -721,9 +721,9 @@ private struct NativePricingComparisonSection: View {
             id: "largestVm",
             label: String(localized: "pricing.native.compare.largestVm", defaultValue: "Largest Cloud VM"),
             free: .unavailable,
-            pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "32 GB RAM")),
+            pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "16 GB RAM")),
             max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM")),
-            team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "32 GB RAM")),
+            team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "16 GB RAM")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(

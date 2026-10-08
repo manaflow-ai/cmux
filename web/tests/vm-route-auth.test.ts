@@ -585,7 +585,7 @@ describe("VM REST auth", () => {
       limits: {
         planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
         poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 20, usedMemoryMb: 40960,
-        maxDiskMb: 131072, maxMemoryMb: 32768, maxVcpus: 16,
+        maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },
       vms: [
         { freeAccessExpiresAt: null, resources: { vcpus: 4, memoryMb: 8192 } },
@@ -1065,7 +1065,7 @@ describe("VM REST auth", () => {
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 65536,
-      maxMemoryMb: 32768,
+      maxMemoryMb: 16384,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });

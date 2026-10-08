@@ -1113,14 +1113,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "limits": [
                     "planId": "pro",
                     "maxDiskMb": 128 * 1024,
-                    "maxMemoryMb": 32 * 1024,
-                    "maxVcpus": 16,
+                    "maxMemoryMb": 16 * 1024,
+                    "maxVcpus": 8,
                 ],
             ]
         }
         XCTAssertNotEqual(result.status, 0, result.stdout)
         XCTAssertTrue(result.stderr.contains("cmux Pro"), result.stderr)
-        XCTAssertTrue(result.stderr.contains("maximum is 128 GiB"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("maximum is 8 vCPUs"), result.stderr)
         XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
     }
 
@@ -1134,10 +1134,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return [
                     "vms": [],
                     "limits": [
-                        "planId": "pro",
-                        "maxDiskMb": 128 * 1024,
-                        "maxMemoryMb": 32 * 1024,
-                        "maxVcpus": 16,
+                        "planId": "max",
+                        "maxDiskMb": 256 * 1024,
+                        "maxMemoryMb": 64 * 1024,
+                        "maxVcpus": 32,
                     ],
                 ]
             case "vm.resize":
@@ -1169,14 +1169,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "vms": [],
                 "limits": [
                     "planId": "pro",
-                    "maxMemoryMb": 32 * 1024,
+                    "maxMemoryMb": 16 * 1024,
                     "maxVcpus": NSNull(),
                     "vcpusByMemoryMb": ["32768": 16, "65536": 32],
                 ],
             ]
         }
         XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stderr.contains("maximum is 16 vCPUs"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("maximum is 8 vCPUs"), result.stderr)
         XCTAssertEqual(log.methods, ["vm.list"], log.methods.description)
     }
 

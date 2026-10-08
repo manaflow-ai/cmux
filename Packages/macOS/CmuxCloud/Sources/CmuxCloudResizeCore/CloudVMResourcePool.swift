@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// The plan's shared Cloud VM resource pool and how much of it active machines
@@ -136,8 +137,10 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     /// Parses a nonnegative integer from an untyped response value.
     private static func nonNegativeInt(_ raw: Any?) -> Int? {
         let value: Int?
-        if let int = raw as? Int { value = int }
-        else if let number = raw as? NSNumber, number.doubleValue.isFinite { value = Int(exactly: number.doubleValue) }
+        if let number = raw as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite { value = Int(exactly: number.doubleValue) }
+        else if let int = raw as? Int { value = int }
         else if let double = raw as? Double, double.isFinite { value = Int(exactly: double) }
         else { value = nil }
         guard let value, value >= 0 else { return nil }

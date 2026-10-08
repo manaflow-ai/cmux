@@ -80,16 +80,16 @@ describe("free plan VM allowance", () => {
 });
 
 describe("Cloud VM memory allowance", () => {
-  test("plans default to 8 GB; Pro-tier plans stop at 16 vCPU / 32 GB and Max at 32 vCPU / 64 GB", () => {
+  test("plans default to 8 GB; Pro-tier plans stop at 8 vCPU / 16 GB and Max at 32 vCPU / 64 GB", () => {
     expect(PLAN_MACHINE_MEMORY_MB).toBe(8192);
     expect(VM_MEMORY_OPTIONS_MB).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
     for (const planId of ["pro", "team", "founders"]) {
       expect(defaultMemoryMbForPlan(planId, {})).toBe(8192);
-      expect(maxMemoryMbForPlan(planId, {})).toBe(32768);
-      expect(maxVcpusForPlan(planId, {})).toBe(16);
+      expect(maxMemoryMbForPlan(planId, {})).toBe(16384);
+      expect(maxVcpusForPlan(planId, {})).toBe(8);
       expect(maxDiskMbForPlan(planId, {})).toBe(128 * GB);
       expect(lockedMemoryOptionsMbForPlan(planId, {})).toEqual({
-        memoryOptionsMb: [65536],
+        memoryOptionsMb: [24576, 32768, 65536],
         upgradePlanId: "max",
       });
     }
@@ -147,11 +147,11 @@ describe("Cloud VM memory allowance", () => {
   });
 
   test("accepted sizes follow the plan ceiling and always include the configured default", () => {
-    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384, 24576, 32768]);
+    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384]);
     // A default above the ceiling is clamped, so an omitted size never 400s.
     expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192]);
     // A raised paid ceiling cannot sell Max sizes to Pro.
-    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192, 16384, 24576, 32768]);
+    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192, 16384]);
     // A lower ceiling trims the catalog and keeps the (clamped) default.
     expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "4096" })).toEqual([4096]);
   });

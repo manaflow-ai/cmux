@@ -33,8 +33,8 @@ struct CloudVMResourcePoolTests {
         #expect(go.limits.maxMemoryMb == 4 * 1024)
         #expect(go.limits.maxVcpus == 2)
         #expect(pro.limits.maxDiskMb == 128 * 1024)
-        #expect(pro.limits.maxMemoryMb == 32 * 1024)
-        #expect(pro.limits.maxVcpus == 16)
+        #expect(pro.limits.maxMemoryMb == 16 * 1024)
+        #expect(pro.limits.maxVcpus == 8)
         #expect(max.limits.maxDiskMb == 256 * 1024)
         #expect(max.limits.maxMemoryMb == 64 * 1024)
         #expect(max.limits.maxVcpus == 32)
@@ -148,6 +148,8 @@ struct CloudVMResourcePoolTests {
     func booleanCapacityValuesAreRejected() {
         #expect(CloudVMResizePlanValidator().positiveLimit(true) == nil)
         #expect(CloudVMResizePlanValidator().positiveLimit(false) == nil)
+        #expect(CloudVMResourcePool(limits: ["poolVcpus": true, "poolMemoryMb": 40960]) == nil)
+        #expect(CloudVMResourcePool(limits: ["poolVcpus": 20, "poolMemoryMb": false]) == nil)
     }
 
     @Test

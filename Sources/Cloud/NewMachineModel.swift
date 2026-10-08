@@ -132,7 +132,8 @@ final class NewMachineModel {
 
     /// The base-image sizes the backend exposes, in ascending memory order.
     /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
-    /// 24/96, 32/128, or 64/128 GB of memory/disk; the 64 GB row is Max only.
+    /// 24/96, 32/128, or 64/128 GB of memory/disk; the rows above 16 GB are
+    /// Max only.
     /// The server's list trims this set for plan limits. Every machine draws
     /// its vCPUs and memory from the plan's shared pool. The 128 MiB BusyBox
     /// image is intentionally not a coding-machine option because it has no
@@ -147,13 +148,13 @@ final class NewMachineModel {
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
     /// The largest machine Pro, Team, and Founder's Edition may start
-    /// (32 GB / 16 vCPU, the `xl` row).
-    nonisolated static let standardPlanMaxMemoryMb = 32768
+    /// (16 GB / 8 vCPU, the `lg` row).
+    nonisolated static let standardPlanMaxMemoryMb = 16384
     /// The largest machine a free or unknown plan may start, where an operator
     /// opens free provisioning (`PLAN_MAX_MEMORY_MB` on the server).
     nonisolated static let freePlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 32 GB,
+    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 16 GB,
     /// Go at 4 GB, and a free or unknown plan at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
@@ -527,7 +528,7 @@ final class NewMachineModel {
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
 
-    /// "16 GB, 24 GB, and 32 GB machines need cmux Max."; nil when nothing is locked
+    /// "24 GB, 32 GB, and 64 GB machines need cmux Max."; nil when nothing is locked
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
         guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }

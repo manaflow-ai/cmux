@@ -187,11 +187,12 @@ function resolveBillingContext(
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
 /**
- * The largest machine Pro, Team, and Founder's Edition may start: the xl row,
- * 16 vCPU / 32 GB. The 64 GB 2xl row above it is what Max sells; the plan that
- * unlocks it is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
+ * The largest machine Pro, Team, and Founder's Edition may start: the lg row,
+ * 8 vCPU / 16 GB. The 24 GB, 32 GB, and 64 GB rows above it are what Max sells;
+ * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
+ * the same upgrade.
  */
-export const PLAN_MAX_MEMORY_MB = 32768;
+export const PLAN_MAX_MEMORY_MB = 16384;
 /** Free machines exist only where an operator opens free provisioning; they stay at 8 GB. */
 export const FREE_PLAN_MAX_MEMORY_MB = 8192;
 export const GO_PLAN_MAX_MEMORY_MB = 4096;

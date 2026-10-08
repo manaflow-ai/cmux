@@ -30,7 +30,7 @@ import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
-// Max is Pro plus the 16, 24, and 32 GB machine sizes. It is a personal
+// Max is Pro plus the 24, 32, and 64 GB machine sizes. It is a personal
 // subscription like Pro: same Stripe customer scope, same metadata mirror
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
 export const MAX_PLAN_ID = "max";

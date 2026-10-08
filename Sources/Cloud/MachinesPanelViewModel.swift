@@ -163,7 +163,7 @@ final class MachinesPanelViewModel: ObservableObject {
         case "max": return 64 * 1_024
         case "go": return 4 * 1_024
         case "free": return 8 * 1_024
-        default: return 32 * 1_024
+        default: return 16 * 1_024
         }
     }
     var resizeFallbackMaxDiskGiB: Int {

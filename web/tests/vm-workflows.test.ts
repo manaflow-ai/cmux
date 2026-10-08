@@ -1462,8 +1462,8 @@ describe("VM Effect workflows", () => {
   });
 
   test.each([
-    ["cpu", { cpu: 32 }, 16],
-    ["memory", { memoryMb: 64 * 1024 }, 32 * 1024],
+    ["cpu", { cpu: 32 }, 8],
+    ["memory", { memoryMb: 64 * 1024 }, 16 * 1024],
     ["storage", { storageMb: 256 * 1024 }, 128 * 1024],
   ] as const)("rejects a Pro %s resize above its subscription ceiling before provider I/O", async (_resource, request, maximum) => {
     const vm = testCloudVmRow({

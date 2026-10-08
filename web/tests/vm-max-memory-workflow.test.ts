@@ -115,6 +115,6 @@ test("access verbs refuse a machine larger than the caller's current plan", asyn
   // CPU above Max's 2xl row is above every plan.
   expect(await run("max", { memoryMb: 65536, vcpus: 40, diskMb: 131072 })).toBe("VmMemoryPlanError");
   // Machines inside the plan pass.
-  expect(await run("pro", { memoryMb: 32768, vcpus: 16, diskMb: 131072 })).toBeNull();
+  expect(await run("pro", { memoryMb: 16384, vcpus: 8, diskMb: 65536 })).toBeNull();
   expect(await run("max", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBeNull();
 });
