@@ -599,6 +599,14 @@ fn parse_next_string(
 }
 
 #[cfg(test)]
+impl RelayConfig {
+    /// An open relay (no ticket secret), which tests start explicitly.
+    pub(crate) fn open_for_tests() -> Self {
+        Self { allow_open: true, ..Self::default() }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::Relay;
