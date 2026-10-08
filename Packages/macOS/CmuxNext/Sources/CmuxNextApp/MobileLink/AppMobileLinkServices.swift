@@ -1,5 +1,6 @@
 import CmuxMobileHost
 import CmuxNextAgentPane
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMobileConnect
 import CmuxNextMobileHostUI
