@@ -69,9 +69,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var now = Date(timeIntervalSince1970: 0)
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
     public var hidesWorkspaces = false
-    /// Groups draw above their only machine's header as categories, and the
-    /// header, over the loose rows, reads "All" (Leo 2026-10-06).
-    public var groupsAsCategories = false
     /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
     /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
     public var groupsByFolder = false

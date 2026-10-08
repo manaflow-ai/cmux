@@ -325,7 +325,6 @@ public final class SidebarModel {
         o.workspaceRow = workspaceRow
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
-        o.groupsAsCategories = true
         o.groupsByFolder = groupsByFolder
         return o
     }

@@ -48,8 +48,6 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabKind: SidebarTabKind? = nil
     /// A machine header standing for the only machine: titled "Projects".
     public var titlesProjects = false
-    /// That header while your groups sit above it as categories: titled "All".
-    public var titlesAll = false
     /// A workspace row's tab disclosure; nil when `sidebar.showWorkspaceTabs` is off.
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.

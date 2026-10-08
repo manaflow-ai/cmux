@@ -169,19 +169,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     y += m.groupBottomPadding
                 }
             }
-            // Your groups as categories: above the only machine's header, which then reads "All".
-            let categories = o.groupsAsCategories && section.machine != nil && machineCount == 1 && !filtering
-                && nodes.contains { if case .group = $0.node { true } else { false } }
             func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
                 if case .group = entry.node { true } else { false }
             }
 
             if !firstSection { y += m.sectionSpacing }
             firstSection = false
-            if categories {
-                for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
-                y += m.sectionSpacing
-            }
             let showsHeader = section.machine == nil || machineCount > 1 || o.showsSoleMachineHeader
             // Without a header there is nothing to expand it from.
             let collapsed = showsHeader && section.isCollapsed && !filtering
@@ -189,8 +182,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: collapsed, childCount: categories ? nodes.filter { !isGroup($0) }.count : nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1, titlesAll: categories
+                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
+                    titlesProjects: section.machine != nil && machineCount == 1
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
@@ -212,13 +205,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
-                for (index, entry) in nodes.enumerated() where !(categories && isGroup(entry)) { emit(index, entry) }
+                for (index, entry) in nodes.enumerated() { emit(index, entry) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
             // Group by Folder: groups as they were, then a header per folder
             // over its loose rows, folders in first-seen order, "no folder" last.
-            for (index, entry) in nodes.enumerated() where !categories && isGroup(entry) { emit(index, entry) }
+            for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
             var folders: [String] = []
             var members: [String: [Int]] = [:]
             for (index, entry) in nodes.enumerated() {
