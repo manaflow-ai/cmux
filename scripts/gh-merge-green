@@ -135,7 +135,15 @@ fi
 # every reported exact-head check and status context must be completed successfully.
 workflow_on_base() {
   local file="$1" response
-  if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+  # A missing optional workflow is a normal negative result.  Disable the
+  # global ERR trap just for this expected nonzero API response; otherwise
+  # Bash fires the trap before the 404 branch below can classify it.
+  local status
+  trap - ERR
+  response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
+  status=$?
+  trap on_error ERR
+  if [ "$status" -eq 0 ]; then
     return 0
   fi
   if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
