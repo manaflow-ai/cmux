@@ -463,9 +463,11 @@ struct CloudWelcomeMediaCarousel: View {
     /// A slide without a movie (GIF, placeholder) waits out its duration, then
     /// moves on. Pausing, a new slide or a newly loaded duration cancels this.
     private func advanceWhenDone() async {
+        // The first slide's clock starts here for movies too, or a first clip
+        // never reaches the minimum dwell and autoplay stays on slide 1.
+        playback.startInitialSlideIfNeeded()
         let isMovie = Self.isMovie(mediaURL(currentSlide))
         guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, (!isMovie || movieFailed) else { return }
-        playback.startInitialSlideIfNeeded()
         let remaining = duration - playback.elapsed(at: Date())
         if remaining > 0 {
             do { try await ContinuousClock().sleep(for: .seconds(remaining)) } catch { return }
