@@ -456,6 +456,16 @@ final class FeedCoordinator: @unchecked Sendable {
         for (reply, itemID) in waiterRegistry.invalidateOptInWaiters(forPpid: ppid) {
             cancelNotification(requestId: reply.requestID)
             concludeBlockingDecisionAttention(reply.target)
+            notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
+                agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
+                requestID: reply.requestID, resolvesRequest: true))
+            _ = clearSemanticFeedNotification(
+                requestId: reply.requestID,
+                source: reply.event.source,
+                sessionId: reply.event.sessionId,
+                workspaceId: reply.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                surfaceId: reply.event.surfaceId.flatMap(UUID.init(uuidString:))
+            )
             expireTimedOutItem(itemID)
             waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
         }
