@@ -106,30 +106,57 @@ app=$(git -C "$src" rev-parse HEAD)
 request --sha "$app" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$app" || fail "an app-only commit on a published tree must be promoted:" "$out"
 
-# From the artifacts workflow the Release compile is looked up: in progress
-# or red means no request (cmux-next.yml asks once it is green) ...
-printf '[{"workflow_runs": [{"id": 11, "head_sha": "%s", "head_branch": "feat-cmux-next", "event": "push"}]}]\n' "$app" > "$TMP/api/runs.json"
-printf '[{"jobs": [{"name": "%s", "status": "in_progress", "conclusion": null}]}]\n' "$job_name" > "$TMP/api/jobs-11.json"
-request --sha "$app"
-[[ "$status" == 0 ]] || fail "a pending Release compile is not an error (exit $status):" "$out"
-! dispatched "$app" || fail "a commit without a green Release compile must not be promoted:" "$(cat "$TMP/gh.log")"
-grep -q "Release compile" <<<"$out" || fail "the skip must name the Release compile:" "$out"
-printf '[{"jobs": [{"name": "%s", "status": "completed", "conclusion": "failure"}]}]\n' "$job_name" > "$TMP/api/jobs-11.json"
-request --sha "$app"
-! dispatched "$app" || fail "a red Release compile must not be promoted"
-# ... and a green one is promoted.
-printf '[{"jobs": [{"name": "other", "status": "completed", "conclusion": "failure"}, {"name": "%s", "status": "completed", "conclusion": "success"}]}]\n' "$job_name" > "$TMP/api/jobs-11.json"
-request --sha "$app"
-[[ "$status" == 0 ]] && dispatched "$app" || fail "a published tree with a green Release compile must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A newer cmux-tui change (another tree) whose Release compile is green.
+git_q -C "$src" checkout -q -b side "$app"
+echo three > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui three"
+other=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q --detach "$head"
 
-# A run for another commit or branch never counts.
-printf '[{"workflow_runs": [{"id": 11, "head_sha": "%s", "head_branch": "other", "event": "push"}]}]\n' "$app" > "$TMP/api/runs.json"
-request --sha "$app"
-! dispatched "$app" || fail "a Release compile on another branch must not count"
+# From the artifacts workflow, once the tree of $head is published: it asks for
+# the newest feat-cmux-next push with the same tree and a green Release compile.
+# The app-only commit's own artifacts run was replaced by a newer push, so this
+# is its only request.
+runs() { # <id sha branch>... newest first
+  local sep="" body=""
+  while [[ $# -gt 0 ]]; do
+    body+="$sep{\"id\": $1, \"head_sha\": \"$2\", \"head_branch\": \"$3\", \"event\": \"push\"}"; sep=", "; shift 3
+  done
+  printf '[{"workflow_runs": [%s]}]\n' "$body" > "$TMP/api/runs.json"
+}
+jobs() { # <run id> <status> <conclusion>
+  printf '[{"jobs": [{"name": "other", "status": "completed", "conclusion": "failure"}, {"name": "%s", "status": "%s", "conclusion": "%s"}]}]\n' "$job_name" "$2" "$3" > "$TMP/api/jobs-$1.json"
+}
+runs 13 "$other" feat-cmux-next 12 "$app" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 13 completed success; jobs 12 completed success; jobs 11 completed success
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$app" || fail "the newest green commit with the published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+! dispatched "$other" || fail "a commit with another, unpublished tree must not be promoted"
+! dispatched "$head" || fail "only the newest matching commit is requested"
+
+# A pending or red Release compile is passed over for an older green one ...
+jobs 12 in_progress null
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$app" \
+  || fail "with the newer Release compile pending, the green publishing commit is promoted:" "$out" "$(cat "$TMP/gh.log")"
+# ... and with none green nothing is requested (cmux-next.yml asks once one passes).
+jobs 11 completed failure
+request --tree-ready "$head"
+[[ "$status" == 0 ]] || fail "no green Release compile is not an error (exit $status):" "$out"
+! dispatched "$app" && ! dispatched "$head" || fail "a commit without a green Release compile must not be promoted:" "$(cat "$TMP/gh.log")"
+grep -q "Release compile" <<<"$out" || fail "the skip must name the Release compile:" "$out"
+
+# A run on another branch never counts.
+runs 12 "$app" other 11 "$head" other
+jobs 12 completed success; jobs 11 completed success
+request --tree-ready "$head"
+! dispatched "$app" && ! dispatched "$head" || fail "a Release compile on another branch must not count"
 
 # The checkout must be the commit it asks for; bad input is a usage error.
-request --sha "$head" --release-compile-green
+request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"
 request --sha nothex --release-compile-green
 [[ "$status" == 2 ]] || fail "a malformed --sha must exit 2, got $status:" "$out"
+request --sha "$head"
+[[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
+: "$other"
 echo "PASS: nightly-next promotion waits for both the published tree and the green Release compile"

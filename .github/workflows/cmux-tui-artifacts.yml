@@ -1392,8 +1392,9 @@ jobs:
   # with the tip's own nightly.yml and daemon. cmux-next.yml asks when the
   # Release compile passes; this job asks when the tree is ready (just
   # published, or already published by an earlier commit with the same key),
-  # so whichever finishes last requests it. The script checks the Release
-  # compile itself and requests nothing until it is green.
+  # so whichever finishes last requests it. It requests the newest
+  # feat-cmux-next push with this tree and a green Release compile, so a
+  # commit whose own run here was replaced by a newer push is not lost.
   request-nightly-next:
     name: request nightly-next promotion
     needs: [tree-preflight, publish-tree]
@@ -1416,7 +1417,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
-        run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY"
+        run: scripts/cmux-next/request-nightly-next.sh --tree-ready "$SHA" --repo "$GITHUB_REPOSITORY"
 
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
