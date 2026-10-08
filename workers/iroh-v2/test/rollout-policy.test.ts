@@ -7,9 +7,10 @@ const revision = "a".repeat(40);
 const bindings = [
   {name: "TEAM_CONTROL", type: "durable_object_namespace", class_name: "TeamControl", namespace_id: "existing-team"},
   {name: "USER_USAGE", type: "durable_object_namespace", class_name: "UserUsage", namespace_id: "existing-user"},
+  {name: "ACCOUNT_CONTROL", type: "durable_object_namespace", class_name: "AccountControl", namespace_id: "existing-account"},
   {name: "CMUX_SOURCE_REVISION", type: "plain_text", text: revision},
 ];
-const version = (id = "current"): Parameters<typeof assertPublished>[0] => ({id, resources: {bindings: structuredClone(bindings), script_runtime: {migration_tag: "iroh-v2-fresh-storage-1"}}});
+const version = (id = "current"): Parameters<typeof assertPublished>[0] => ({id, resources: {bindings: structuredClone(bindings), script_runtime: {migration_tag: config.migrations.at(-1).tag}}});
 const health = () => ({schemaId: "health.v1", environment: "production", sourceRevision: revision,
   rules: ["cmux.mac-peer-inbound.v1"], storage: {...candidateStorage}});
 
@@ -66,4 +67,25 @@ test("post-deploy verification requires the same namespaces, candidate revision,
     expect(() => assertPublished(version(), version("new"), h, 200, "production", revision)).toThrow();
   }
   expect(() => assertPublished(version(), version("new"), health(), 404, "production", revision)).toThrow();
+});
+
+test("account storage is additive: absent before its migration, then required and pinned", () => {
+  const preAccount = version("pre-account");
+  preAccount.resources.bindings = preAccount.resources.bindings.filter(binding => binding.name !== "ACCOUNT_CONTROL");
+  preAccount.resources.script_runtime = {migration_tag: "iroh-v2-fresh-storage-1"};
+  // The first account rollout is a dedicated migration deploy; the guarded script refuses it.
+  expect(() => assertRollout(config, preAccount, health(), 200, "production")).toThrow("Pending Durable Object migration");
+  expect(() => assertRollout(config, preAccount, health(), 200, "production", candidateStorage, "other-tag")).toThrow("Pending Durable Object migration");
+  assertRollout(config, preAccount, health(), 200, "production", candidateStorage, "iroh-v2-account-control-1");
+  const twoBehind = version("two-behind");
+  twoBehind.resources.script_runtime = {migration_tag: "older-tag"};
+  expect(() => assertRollout(config, twoBehind, health(), 200, "production", candidateStorage, "iroh-v2-account-control-1")).toThrow("exactly one");
+  const destructive = structuredClone(config);
+  destructive.migrations.at(-1).deleted_classes = ["TeamControl"];
+  expect(() => assertRollout(destructive, preAccount, health(), 200, "production", candidateStorage, "iroh-v2-account-control-1")).toThrow("not an additive");
+  assertPublished(preAccount, version("new"), health(), 200, "production", revision);
+  expect(() => assertPublished(version(), preAccount, health(), 200, "production", revision)).toThrow();
+  const moved = version("new");
+  moved.resources.bindings[2]!.namespace_id = "replacement-account";
+  expect(() => assertPublished(version(), moved, health(), 200, "production", revision)).toThrow("namespace changed");
 });

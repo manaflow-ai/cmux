@@ -23,8 +23,12 @@ INITIAL_TAB_ID = "55555555-5555-4555-8555-555555555555"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
 NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
 EMPTY_DOCK_PANE_ID = "88888888-8888-4888-8888-888888888888"
+GLOBAL_DOCK_PANE_ID = "99999999-9999-4999-8999-999999999999"
+GLOBAL_DOCK_SURFACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+WORKSPACE_DOCK_PANE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+WORKSPACE_DOCK_SURFACE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 # Returned only if new-session -A wrongly creates instead of attaching.
-UNEXPECTED_WORKSPACE_ID = "99999999-9999-4999-8999-999999999999"
+UNEXPECTED_WORKSPACE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -73,6 +77,22 @@ class FakeCmuxState:
                 "index": 99,
                 "surface_ids": [],
             },
+            {
+                # Populated Dock panes also carry surfaces, but are outside the
+                # workspace split tree and must stay out of tmux list-panes.
+                "id": GLOBAL_DOCK_PANE_ID,
+                "ref": "pane:100",
+                "index": 100,
+                "surface_ids": [GLOBAL_DOCK_SURFACE_ID],
+                "dock_scope": "global",
+            },
+            {
+                "id": WORKSPACE_DOCK_PANE_ID,
+                "ref": "pane:101",
+                "index": 101,
+                "surface_ids": [WORKSPACE_DOCK_SURFACE_ID],
+                "dock_scope": "workspace",
+            },
         ]
         self.surfaces = [
             {
@@ -80,7 +100,19 @@ class FakeCmuxState:
                 "ref": "surface:1",
                 "pane_id": INITIAL_PANE_ID,
                 "title": "leader",
-            }
+            },
+            {
+                "id": GLOBAL_DOCK_SURFACE_ID,
+                "ref": "surface:99",
+                "pane_id": GLOBAL_DOCK_PANE_ID,
+                "title": "global dock",
+            },
+            {
+                "id": WORKSPACE_DOCK_SURFACE_ID,
+                "ref": "surface:100",
+                "pane_id": WORKSPACE_DOCK_PANE_ID,
+                "title": "workspace dock",
+            },
         ]
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
@@ -143,6 +175,7 @@ class FakeCmuxState:
                             "selected_surface_id": (
                                 pane["surface_ids"][0] if pane["surface_ids"] else None
                             ),
+                            **({"dock_scope": pane["dock_scope"]} if "dock_scope" in pane else {}),
                         }
                         for pane in self.panes
                     ]

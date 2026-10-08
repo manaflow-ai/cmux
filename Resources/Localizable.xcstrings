@@ -630958,55 +630958,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف حسابات Codex وClaude وOpencode التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
+            "value": "أضف حسابات Codex وClaude وOpenCode التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge deine vorhandenen Codex-, Claude- und Opencode-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
+            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add the Codex, Claude and Opencode accounts you already have, and agents on your Cloud machines use them right away."
+            "value": "Add the Codex, Claude and OpenCode accounts you already have, and agents on your Cloud machines use them right away."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las cuentas de Codex, Claude y Opencode que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
+            "value": "Añade las cuentas de Codex, Claude y OpenCode que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez vos comptes Codex, Claude et Opencode existants : les agents de vos machines Cloud les utilisent aussitôt."
+            "value": "Ajoutez vos comptes Codex, Claude et OpenCode existants : les agents de vos machines Cloud les utilisent aussitôt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "お持ちの Codex、Claude、Opencode アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
+            "value": "お持ちの Codex、Claude、OpenCode アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 가진 Codex, Claude, Opencode 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
+            "value": "이미 가진 Codex, Claude, OpenCode 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加你已有的 Codex、Claude 和 Opencode 账户，云机器上的代理即可立即使用。"
+            "value": "添加你已有的 Codex、Claude 和 OpenCode 账户，云机器上的代理即可立即使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增你已有的 Codex、Claude 和 Opencode 帳號，雲端機器上的代理程式即可立即使用。"
+            "value": "新增你已有的 Codex、Claude 和 OpenCode 帳號，雲端機器上的代理程式即可立即使用。"
           }
         }
       }
@@ -631135,55 +631135,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقر على حساب Codex أو Claude أو Opencode جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
+            "value": "انقر على حساب Codex أو Claude أو OpenCode جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klicke auf „Neues Codex-, Claude- oder Opencode-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
+            "value": "Klicke auf „Neues Codex-, Claude- oder OpenCode-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click New Codex, Claude or Opencode Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+            "value": "Click New Codex, Claude or OpenCode Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haz clic en Nueva cuenta de Codex, Claude u Opencode e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
+            "value": "Haz clic en Nueva cuenta de Codex, Claude u OpenCode e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cliquez sur Nouveau compte Codex, Claude ou Opencode et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
+            "value": "Cliquez sur Nouveau compte Codex, Claude ou OpenCode et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい Codex、Claude、Opencode アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
+            "value": "新しい Codex、Claude、OpenCode アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 Codex, Claude 또는 Opencode 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
+            "value": "새 Codex, Claude 또는 OpenCode 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按“新建 Codex、Claude 或 Opencode 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
+            "value": "点按“新建 Codex、Claude 或 OpenCode 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點按「新增 Codex、Claude 或 Opencode 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
+            "value": "點按「新增 Codex、Claude 或 OpenCode 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
           }
         }
       }

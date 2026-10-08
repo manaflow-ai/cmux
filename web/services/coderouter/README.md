@@ -90,7 +90,7 @@ Why the threshold checks stay in code rather than moving to PostHog insight aler
 
 Required env (audited by `bun scripts/cloud-vm/audit-env.mjs production`): `CLICKHOUSE_URL/USER/PASSWORD/DATABASE`, `CODEROUTER_KMS_KEY_ID` + `AWS_REGION`, and `CRON_SECRET`. Configure `CMUX_ALERTS_SLACK_WEBHOOK_URL` unless `CMUX_ALERTS_SINK_UNCONFIGURED_ACK` records the approved unconfigured sink. `POSTHOG_PROJECT_KEY` has an in-code default. The retired `POSTHOG_CODEROUTER_*` and `CODEROUTER_ANALYTICS_SCOPE_SECRET` keys are flagged as legacy by the audit and can be deleted from Vercel.
 
-Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge.
+Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge. No deploy or CI job runs it, and inserts silently drop columns the database lacks, so a new ClickHouse migration must also add its columns to `CLICKHOUSE_EXPECTED_COLUMNS` in `clickhouseSchema.ts` (a test enforces this). The `coderouter-alerts` cron compares that list with `system.columns` and sends one critical `coderouter-clickhouse-schema-drift` Slack alert plus a Sentry event per day while a migration is unapplied.
 
 ## VM team and account access
 

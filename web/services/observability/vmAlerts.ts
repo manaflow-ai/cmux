@@ -363,7 +363,12 @@ function formatAge(start: Date, now: Date): string {
   return `${minutes}m old`;
 }
 
-function durableVmAlertStateStore(db: ReturnType<typeof cloudDb>): VmAlertStateStore {
+/**
+ * Postgres-backed alert dedupe keyed by alert key: a claim succeeds when the
+ * alert is new, escalated, or its last delivery is older than the 24-hour
+ * reminder window. Shared by every cron alert that must not repeat each run.
+ */
+export function durableVmAlertStateStore(db: ReturnType<typeof cloudDb>): VmAlertStateStore {
   return {
     claim: async (input, now) => {
       const reminderBefore = new Date(now.getTime() - VM_ALERT_REMINDER_WINDOW_MS);

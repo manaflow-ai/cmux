@@ -1,0 +1,802 @@
+name: Continue nightly notarization
+
+on:
+  workflow_run:
+    workflows:
+      - Nightly macOS build
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed Nightly macOS build run to continue
+        required: true
+        type: string
+      source_run_attempt:
+        description: Exact source run attempt that created the recovery artifact
+        required: true
+        type: string
+      source_head_sha:
+        description: Exact source commit that created the recovery artifact
+        required: true
+        type: string
+      source_branch:
+        description: Published source branch (main, nightly-next, or rc/*)
+        required: true
+        type: string
+
+permissions:
+  {}
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
+
+jobs:
+  preflight:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      channel: ${{ steps.check.outputs.channel }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+      dmg_prefix: ${{ steps.check.outputs.dmg_prefix }}
+      source_head_sha: ${{ steps.check.outputs.source_head_sha }}
+      source_branch: ${{ steps.check.outputs.source_branch }}
+      short_sha: ${{ steps.check.outputs.short_sha }}
+      source_run_id: ${{ steps.check.outputs.source_run_id }}
+      source_run_attempt: ${{ steps.check.outputs.source_run_attempt }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || github.event.workflow_run.id }}
+      SOURCE_RUN_ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_attempt || github.event.workflow_run.run_attempt }}
+      SOURCE_HEAD_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.source_head_sha || github.event.workflow_run.head_sha }}
+      SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.event.workflow_run.head_branch }}
+      SOURCE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && github.repository || github.event.workflow_run.head_repository.full_name }}
+    steps:
+      - name: Verify source run and recovery artifacts
+        id: check
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "invalid source run id" >&2; exit 1; }
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || { echo "invalid source run attempt" >&2; exit 1; }
+          [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "invalid source head SHA" >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          python3 - "$RUNNER_TEMP/source-run.json" "$SOURCE_REPOSITORY" "$SOURCE_HEAD_SHA" "$SOURCE_BRANCH" "$SOURCE_RUN_ATTEMPT" <<'PY' > "$RUNNER_TEMP/source-check"
+          import json
+          import pathlib
+          import sys
+
+          run = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          repository, head_sha, branch, run_attempt = sys.argv[2:]
+          if run.get("path") != ".github/workflows/nightly.yml":
+              raise SystemExit("source run is not the trusted nightly workflow")
+          if run.get("repository", {}).get("full_name") != repository:
+              raise SystemExit("source run repository mismatch")
+          if run.get("head_sha", "").lower() != head_sha.lower() or run.get("head_branch") != branch:
+              raise SystemExit("source run ref mismatch")
+          if str(run.get("run_attempt")) != run_attempt:
+              raise SystemExit("source run attempt mismatch")
+          if run.get("event") not in {"push", "schedule", "workflow_dispatch"}:
+              raise SystemExit("source run event cannot publish")
+          if run.get("conclusion") not in {"failure", "success"}:
+              raise SystemExit("source run did not complete")
+          if branch not in {"main", "nightly-next"} and not branch.startswith("rc/"):
+              print("eligible=false")
+          else:
+              print("eligible=true")
+          PY
+          if grep -Fxq 'eligible=false' "$RUNNER_TEMP/source-check"; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=source-branch-is-not-published" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SOURCE_BRANCH" = main ] || [ "$SOURCE_BRANCH" = nightly-next ]; then
+            channel=nightly
+            release_tag=nightly
+          else
+            channel=rc
+            release_tag=rc
+          fi
+          short_sha="${SOURCE_HEAD_SHA:0:7}"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
+          python3 - "$RUNNER_TEMP/artifacts.json" "$channel" "$short_sha" <<'PY' > "$RUNNER_TEMP/artifact-check"
+          import json
+          import pathlib
+          import sys
+
+          artifacts = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")).get("artifacts", [])
+          channel, short_sha = sys.argv[2:]
+          names = {artifact["name"] for artifact in artifacts if not artifact.get("expired")}
+          expected = [f"cmux-{channel}-notarization-recovery-{variant}-{short_sha}" for variant in ("arm64", "x86_64", "universal")]
+          missing = [name for name in expected if name not in names]
+          if missing:
+              print("ready=false")
+              print("reason=no-published-recovery-artifacts")
+              raise SystemExit(0)
+          print("ready=true")
+          PY
+          cat "$RUNNER_TEMP/artifact-check" > "$GITHUB_OUTPUT"
+          {
+            echo "channel=$channel"
+            echo "release_tag=$release_tag"
+            echo "source_head_sha=$SOURCE_HEAD_SHA"
+            echo "source_branch=$SOURCE_BRANCH"
+            echo "source_run_id=$SOURCE_RUN_ID"
+            echo "source_run_attempt=$SOURCE_RUN_ATTEMPT"
+            echo "short_sha=$short_sha"
+            echo "dmg_prefix=cmux-${channel}-macos"
+          } >> "$GITHUB_OUTPUT"
+
+  # Query Apple from an Ubuntu worker while the submission is in progress.
+  # The macOS staple jobs are admitted only after every saved submission is
+  # accepted, so Apple queue latency never reserves signing workers.
+  poll:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    outputs:
+      all_accepted: ${{ steps.poll.outputs.all_accepted }}
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 90
+    concurrency:
+      group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
+      SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+      SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Download exact recovery artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p recovery
+          for variant in arm64 x86_64 universal; do
+            artifact="cmux-${CHANNEL}-notarization-recovery-${variant}-${SHORT_SHA}"
+            gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "$artifact" --dir "recovery/$variant"
+            test -f "recovery/$variant/cmux-nightly-notarization-recovery.json"
+            test -f "recovery/$variant/cmux-nightly-notarization-recovery-app.tar.gz"
+          done
+
+      - name: Poll saved Apple submissions without reserving a Mac
+        id: poll
+        run: |
+          set -uo pipefail
+          mkdir -p poll-reports
+          deadline=$(( $(date +%s) + 80 * 60 ))
+          while :; do
+            pending=false
+            terminal_failure=false
+            for variant in arm64 x86_64 universal; do
+              manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
+              python3 scripts/ci/resolve-notarization-recovery.py \
+                "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
+                --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app \
+                > "$RUNNER_TEMP/recovery-$variant.env"
+              state_file="$(awk -F= '$1 == "STATE_FILE" { print substr($0, index($0, "=") + 1) }' "$RUNNER_TEMP/recovery-$variant.env")"
+              report="poll-reports/$variant.log"
+              set +e
+              python3 scripts/ci/poll-notary-submission.py "$state_file" --output "$report" \
+                > "$RUNNER_TEMP/poll-$variant.out" 2>&1
+              status=$?
+              set -e
+              cat "$RUNNER_TEMP/poll-$variant.out"
+              case "$status" in
+                0) ;;
+                2) pending=true ;;
+                *) terminal_failure=true ;;
+              esac
+            done
+
+            if [ "$terminal_failure" = true ]; then
+              echo "At least one saved Apple submission failed or could not be queried." >&2
+              exit 1
+            fi
+            if [ "$pending" = false ]; then
+              echo "all_accepted=true" >> "$GITHUB_OUTPUT"
+              echo "pending=false" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Apple submissions remain In Progress after the polling budget; leaving the exact recovery artifacts for manual continuation." >&2
+              echo "all_accepted=false" >> "$GITHUB_OUTPUT"
+              echo "pending=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "At least one submission is still In Progress; polling again in five minutes."
+            sleep 300
+          done
+
+      - name: Upload polling evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-notarization-poll-${{ needs.preflight.outputs.short_sha }}
+          path: poll-reports/*
+          if-no-files-found: ignore
+          retention-days: 14
+
+  wait-and-staple:
+    needs: [preflight, poll]
+    if: needs.preflight.outputs.ready == 'true' && needs.poll.outputs.all_accepted == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [arm64, x86_64, universal]
+    environment: release
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
+      SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+      VARIANT: ${{ matrix.variant }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download exact recovery artifact
+        run: |
+          set -euo pipefail
+          artifact="cmux-${CHANNEL}-notarization-recovery-${VARIANT}-${SHORT_SHA}"
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir recovery
+          test -f recovery/cmux-nightly-notarization-recovery-app.tar.gz
+
+      - name: Resolve manifest and verify exact DMG
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-notarization-recovery.py \
+            recovery/cmux-nightly-notarization-recovery.json \
+            "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$VARIANT" \
+            --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app > "$RUNNER_TEMP/recovery.env"
+          while IFS='=' read -r key value; do
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
+          done < "$RUNNER_TEMP/recovery.env"
+
+      - name: Wait, staple, and validate exact submitted DMG
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          CMUX_CHANNEL="$CHANNEL" \
+          CMUX_NOTARY_WAIT_TIMEOUT=2m \
+          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+          ./scripts/ci/resume-nightly-notarization.sh \
+            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+
+      - name: Generate verified Sparkle feed
+        env:
+          NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          feed="appcast-${VARIANT}.xml"
+          [ "$VARIANT" = universal ] && feed=appcast.xml
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+          export SPARKLE_PRIVATE_KEY
+          SPARKLE_DELTA_NAME_PREFIX="${DMG_PREFIX}-${VARIANT}-" \
+            ./scripts/sparkle_generate_appcast.sh "verified/$IMMUTABLE_NAME" "$RELEASE_TAG" "$feed"
+          if grep -q 'sparkle:deltas' "$feed"; then
+            echo "recovery feeds must contain full archives only" >&2
+            exit 1
+          fi
+          final_sha256="$(shasum -a 256 "verified/$IMMUTABLE_NAME" | awk '{print $1}')"
+          python3 - "recovery/cmux-nightly-notarization-recovery.json" "$final_sha256" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          manifest["final_dmg_sha256"] = sys.argv[2]
+          path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
+          cp "$feed" verified/
+          cp recovery/cmux-nightly-notarization-recovery.json verified/
+          if [ -e "verified/$ALIAS_NAME" ]; then
+            echo "verified recovery artifact must not contain a duplicate DMG alias" >&2
+            exit 1
+          fi
+
+      - name: Upload accepted variant
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          path: verified/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [preflight, wait-and-staple]
+    if: needs.preflight.outputs.ready == 'true' && needs.wait-and-staple.result == 'success'
+    outputs:
+      published: ${{ steps.publication-result.outputs.published }}
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    concurrency:
+      group: release-publish-${{ needs.preflight.outputs.release_tag }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+      SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+      SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+      DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+    steps:
+      - name: Checkout trusted publication tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Download all accepted variants
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        with:
+          pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-*-${{ needs.preflight.outputs.short_sha }}
+          path: verified
+          merge-multiple: false
+
+      - name: Download immutable remote daemon assets
+        run: |
+          set -euo pipefail
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cmux-nightly-remote-daemon --dir remote-daemon
+          mkdir -p nightly-out
+          find remote-daemon -type f -name 'cmuxd-remote-*' -exec cp {} nightly-out/ \;
+
+      - name: Assemble and verify all accepted publication inputs
+        run: |
+          set -euo pipefail
+          mkdir -p nightly-out
+          nightly_build=""
+          for variant in arm64 x86_64 universal; do
+            manifest="$(find verified -type f -name cmux-nightly-notarization-recovery.json -path "*-${variant}-${SHORT_SHA}/*" -print -quit)"
+            [ -n "$manifest" ] || { echo "missing accepted $variant artifact" >&2; exit 1; }
+            dir="$(dirname "$manifest")"
+            manifest_build="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"])' "$manifest")"
+            if [ -z "$nightly_build" ]; then
+              nightly_build="$manifest_build"
+            elif [ "$nightly_build" != "$manifest_build" ]; then
+              echo "accepted recovery manifests disagree on build number" >&2
+              exit 1
+            fi
+            immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
+            expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
+            actual="$(shasum -a 256 "$dir/$immutable" | awk '{print $1}')"
+            [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
+            cp "$dir/$immutable" "nightly-out/$immutable"
+            cp "$dir/$immutable" "nightly-out/${DMG_PREFIX}-${variant}.dmg"
+            feed="appcast-${variant}.xml"
+            [ "$variant" = universal ] && feed=appcast.xml
+            cp "$dir/$feed" "nightly-out/$feed"
+          done
+          test -n "$nightly_build"
+          echo "NIGHTLY_BUILD=$nightly_build" >> "$GITHUB_ENV"
+          cp nightly-out/appcast.xml nightly-out/appcast-universal.xml
+          cp "nightly-out/${DMG_PREFIX}-universal.dmg" "nightly-out/${DMG_PREFIX}.dmg"
+          for feed in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+            test -s "nightly-out/$feed"
+          done
+
+      - name: Verify immutable remote daemon assets
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir nightly-out
+
+      - name: Reject stale continuation before publication
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$SOURCE_HEAD_SHA" "$NIGHTLY_BUILD" <<'PY' > "$RUNNER_TEMP/publication-guard"
+          import json
+          import os
+          import re
+          import sys
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          repository, tag, source_sha, build = sys.argv[1:]
+          url = f"https://api.github.com/repos/{repository}/releases/tags/{tag}"
+          request = Request(url, headers={
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          })
+          try:
+              with urlopen(request, timeout=30) as response:
+                  release = json.load(response)
+          except HTTPError as error:
+              if error.code == 404:
+                  print("release_missing=true")
+                  raise SystemExit(0)
+              raise
+          body = release.get("body") or ""
+          sha = re.search(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", body, re.I)
+          published_build = re.search(r"<!--\s*cmux-published-build:\s*([0-9]+)\s*-->", body, re.I)
+          if sha and sha.group(1).lower() == source_sha.lower():
+              print("already_published=true")
+              print("published_same_source=true")
+          elif published_build and int(published_build.group(1)) >= int(build):
+              print("already_published=true")
+              print("published_same_source=false")
+          elif sha:
+              print(f"published_sha={sha.group(1)}")
+          PY
+          if grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
+            echo 'ALREADY_PUBLISHED=true' >> "$GITHUB_ENV"
+            if grep -Fxq 'published_same_source=true' "$RUNNER_TEMP/publication-guard"; then
+              echo 'ALREADY_PUBLISHED_SAME_SOURCE=true' >> "$GITHUB_ENV"
+            else
+              echo 'ALREADY_PUBLISHED_SAME_SOURCE=false' >> "$GITHUB_ENV"
+            fi
+          else
+            published_sha="$(sed -n 's/^published_sha=//p' "$RUNNER_TEMP/publication-guard")"
+            if [ -n "$published_sha" ]; then
+              git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
+              git merge-base --is-ancestor "$published_sha" "$SOURCE_HEAD_SHA" || {
+                echo "source continuation is older than the published release; refusing stale replacement" >&2
+                exit 1
+              }
+            fi
+          fi
+
+      - name: Publish accepted assets and feeds
+        if: env.ALREADY_PUBLISHED != 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/prune_nightly_release_assets.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --name-prefix "${DMG_PREFIX}-" \
+            --keep-builds 100 \
+            --max-assets 950 \
+            --best-effort \
+            --execute
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+            --immutable nightly-out/${DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg \
+            --immutable nightly-out/${DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg \
+            --immutable nightly-out/${DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg \
+            --immutable nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD} \
+            --immutable nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD} \
+            --immutable nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD} \
+            --immutable nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD} \
+            --immutable nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt \
+            --immutable nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json \
+            --alias nightly-out/${DMG_PREFIX}-arm64.dmg \
+            --alias nightly-out/${DMG_PREFIX}-x86_64.dmg \
+            --alias nightly-out/${DMG_PREFIX}-universal.dmg \
+            --alias nightly-out/${DMG_PREFIX}.dmg
+
+      - name: Prepare publication notes
+        if: env.ALREADY_PUBLISHED != 'true'
+        run: |
+          set -euo pipefail
+          cat > nightly-downloads.md <<EOF
+          - [Apple silicon: ${DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
+          - [Intel: ${DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
+          - [Universal: ${DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${DMG_PREFIX}.dmg), feed \`appcast.xml\`
+          EOF
+          python3 scripts/ci/nightly_release_notes.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+            --head "$SOURCE_HEAD_SHA" --branch "$SOURCE_BRANCH" \
+            --details nightly-downloads.md --out nightly-notes.md \
+            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+          python3 - "$NIGHTLY_BUILD" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path("nightly-notes.published.md")
+          marker = f"<!-- cmux-published-build: {sys.argv[1]} -->\n"
+          text = path.read_text(encoding="utf-8")
+          if marker not in text:
+              path.write_text(marker + text, encoding="utf-8")
+          PY
+
+      - name: Publish notes-enriched feeds
+        if: env.ALREADY_PUBLISHED != 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+            --immutable nightly-out/${DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg \
+            --replace-feeds \
+            --feed nightly-out/appcast-arm64.xml \
+            --feed nightly-out/appcast-x86_64.xml \
+            --feed nightly-out/appcast-universal.xml \
+            --feed nightly-out/appcast.xml
+
+      - name: Upload accepted appcasts to R2
+        if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          set -euo pipefail
+          for feed in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+            python3 scripts/ci/upload-r2-object.py --file "nightly-out/$feed" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "${RELEASE_TAG}/$feed" --content-type application/xml --cache-control 'no-cache, no-store, must-revalidate'
+          done
+
+      - name: Mint release tag token
+        id: release-tag-token
+        if: env.ALREADY_PUBLISHED != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Move channel tag after complete publication
+        if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
+          GITHUB_TOKEN: ''
+        run: |
+          set -euo pipefail
+          args=(--repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$SOURCE_HEAD_SHA")
+          [ "$RELEASE_TAG" = nightly ] || args+=(--allow-non-descendant)
+          python3 scripts/ci/update-release-tag.py "${args[@]}"
+
+      - name: Record release metadata
+        if: env.ALREADY_PUBLISHED != 'true'
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" \
+            --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" \
+            --notes-file nightly-notes.published.md \
+            --draft=false \
+            --prerelease
+
+      - name: Record publication result
+        id: publication-result
+        if: always()
+        env:
+          PUBLISH_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_JOB_STATUS" = success ] && [ "${ALREADY_PUBLISHED:-false}" != true ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Close deferred nightly failure incident
+        if: env.ALREADY_PUBLISHED != 'true' || env.ALREADY_PUBLISHED_SAME_SOURCE == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+          SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const label = `${process.env.CHANNEL}-failure`;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
+            for (const issue of open.data) {
+              if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}: ${runUrl}`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+            }
+
+  generate-deltas:
+    # Delta generation remains downstream of the first accepted publication.
+    # It can be slow without holding the signed build or the first full feed.
+    needs: [preflight, wait-and-staple, publish]
+    if: >-
+      always() && needs.preflight.outputs.ready == 'true' &&
+      needs.wait-and-staple.result == 'success' && needs.publish.outputs.published == 'true'
+    permissions:
+      actions: read
+      contents: read
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [arm64, x86_64, universal]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+      DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+      VARIANT: ${{ matrix.variant }}
+    steps:
+      - name: Checkout trusted delta tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download accepted variant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        with:
+          pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          path: nightly-delta/input
+          merge-multiple: true
+
+      - name: Generate one from-version delta and revised appcast
+        run: |
+          set -euo pipefail
+          manifest="$(find nightly-delta/input -type f -name cmux-nightly-notarization-recovery.json -print -quit)"
+          [ -n "$manifest" ] || { echo "missing accepted $VARIANT manifest" >&2; exit 1; }
+          build="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"])' "$manifest")"
+          immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
+          dmg="nightly-delta/input/$immutable"
+          feed="appcast.xml"
+          [ "$VARIANT" = universal ] || feed="appcast-${VARIANT}.xml"
+          test -s "$dmg"
+          mkdir -p nightly-delta/previous nightly-delta/output
+          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --name-prefix "${DMG_PREFIX}-" \
+            --variant "$VARIANT" \
+            --exclude-build "$build" \
+            --count 1 \
+            --out nightly-delta/previous
+          if ! compgen -G 'nightly-delta/previous/*.dmg' >/dev/null; then
+            echo "No previous $VARIANT archive; retaining the full-only appcast"
+            cp "nightly-delta/input/$feed" "nightly-delta/output/$feed"
+          else
+            SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+            export SPARKLE_PRIVATE_KEY
+            SPARKLE_PUBLIC_KEY="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+            export SPARKLE_PUBLIC_KEY
+            ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
+              nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
+            SPARKLE_PREVIOUS_ARCHIVES_DIR=nightly-delta/previous \
+            SPARKLE_MAXIMUM_DELTAS=1 \
+            SPARKLE_DELTA_NAME_PREFIX="${DMG_PREFIX}-${VARIANT}-" \
+              ./scripts/sparkle_generate_appcast.sh \
+                "$dmg" "$RELEASE_TAG" "nightly-delta/output/$feed"
+          fi
+          ls -l nightly-delta/output
+
+      - name: Upload delta result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-notarization-deltas-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          path: nightly-delta/output/*
+          if-no-files-found: error
+          retention-days: 3
+
+  republish-deltas:
+    needs: [preflight, publish, generate-deltas]
+    if: >-
+      always() && needs.preflight.outputs.ready == 'true' &&
+      needs.publish.outputs.published == 'true' && needs.generate-deltas.result == 'success'
+    concurrency:
+      group: release-publish-${{ needs.preflight.outputs.release_tag }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+      DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+      SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+    steps:
+      - name: Checkout trusted publication tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Download delta results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        with:
+          pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-deltas-*-${{ needs.preflight.outputs.short_sha }}
+          path: nightly-deltas
+          merge-multiple: true
+
+      - name: Republish deltas only for the current channel head
+        id: republish
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          if [ "$current_sha" != "$SOURCE_HEAD_SHA" ]; then
+            echo "Skipping stale delta result: $RELEASE_TAG is at $current_sha"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          deltas=()
+          for delta in nightly-deltas/*.delta; do
+            [ -f "$delta" ] || continue
+            deltas+=(--immutable "$delta")
+          done
+          feeds=()
+          for feed in nightly-deltas/appcast*.xml; do
+            [ -f "$feed" ] || continue
+            feeds+=(--feed "$feed")
+          done
+          if [ "${#deltas[@]}" -eq 0 ] || [ "${#feeds[@]}" -eq 0 ]; then
+            echo "No Sparkle deltas were generated; full appcasts remain current"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+            "${deltas[@]}" --replace-feeds "${feeds[@]}"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload revised appcasts to R2
+        if: steps.republish.outputs.publish == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          set -euo pipefail
+          for feed in nightly-deltas/appcast*.xml; do
+            [ -f "$feed" ] || continue
+            name="$(basename "$feed")"
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$feed" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "${RELEASE_TAG}/$name" \
+              --content-type application/xml \
+              --cache-control 'no-cache, no-store, must-revalidate'
+          done

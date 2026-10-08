@@ -1191,9 +1191,8 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
     for runner in runners:
         if runner.get("status") != "online" or runner.get("busy"):
             continue
-        names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
         for label in labels:
-            if label in names:
+            if carries_office_pool_label(runner, label):
                 free[label] += 1
     return free
 
@@ -1243,6 +1242,14 @@ def runner_labels(runner: Mapping[str, Any]) -> set[str]:
     return {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
 
 
+def carries_office_pool_label(runner: Mapping[str, Any], label: str) -> bool:
+    """Count generic pool labels only on non-AWS runners."""
+    names = runner_labels(runner)
+    return label in names and not (
+        persistent(label) and any(name.startswith("glaeda-aws-") for name in names)
+    )
+
+
 def pinned_admission(root: str, name: str) -> str:
     """Admission's runs-on labels as JSON: `root` and the static label only runner `name` carries."""
     return json.dumps([root, runner_label(name)], separators=(",", ":"))
@@ -1258,7 +1265,7 @@ def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, tiers: Seq
                 continue
             name = str(runner.get("name") or "")
             names = runner_labels(runner)
-            if name and name in tier and root in names and runner_label(name) in names:
+            if name and name in tier and carries_office_pool_label(runner, root) and runner_label(name) in names:
                 return name
     return ""
 
@@ -1318,7 +1325,7 @@ def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str,
         name = str(runner.get("name") or "")
         member = runner_member(name)
         names = runner_labels(runner)
-        if not member or root not in names:
+        if not member or not carries_office_pool_label(runner, root):
             continue
         listed.setdefault(member, set()).add(name)
         if runner.get("status") != "online":
@@ -1349,9 +1356,8 @@ def live_online(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> 
     for runner in runners:
         if runner.get("status") != "online":
             continue
-        names = runner_labels(runner)
         for label in labels:
-            if label in names:
+            if carries_office_pool_label(runner, label):
                 online[label] += 1
     return online
 
