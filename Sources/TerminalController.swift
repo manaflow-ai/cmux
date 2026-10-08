@@ -9927,17 +9927,25 @@ class TerminalController {
             // noting which document the frame is checked in.
             _ = v2EnsureBrowserDocumentLoaded(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId)
             let document = v2MainSync { v2BrowserDocumentState.documentGeneration(surfaceID: surfaceId) }
-            switch v2BrowserProbeFrame(ctx, selector: selector) {
+            let probe = v2BrowserProbeFrame(ctx, selector: selector)
+            // If the page committed a new document while the frame was being checked,
+            // the answer describes a page that is gone, whatever the answer was.
+            let stale = V2CallResult.err(
+                code: "stale_state",
+                message: "Browser page changed before the frame was selected",
+                data: ["selector": selector]
+            )
+            guard v2MainSync({ v2BrowserDocumentState.documentGeneration(surfaceID: surfaceId) }) == document else {
+                return stale
+            }
+            switch probe {
             case .scriptFailed(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .sameOriginFrame:
                 let selected = v2MainSync {
                     v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId, checkedInDocument: document)
                 }
-                guard selected else {
-                    // The page committed a new document while the frame was being checked.
-                    return .err(code: "stale_state", message: "Browser page changed before the frame was selected", data: ["selector": selector])
-                }
+                guard selected else { return stale }
                 return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
             case .crossOrigin:
                 return .err(code: "not_supported", message: "Cross-origin iframe control is not supported", data: ["selector": selector])
