@@ -195,6 +195,21 @@ class CmuxNextWiring(unittest.TestCase):
                                                                  triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
+    def test_a_bot_attempt_4_leaves_the_placement_label_for_blacksmith(self):
+        # A re-run keeps attempt 1's placement output, so bot attempt 3 stays on
+        # the minis; the rescue re-runs a refusal there as attempt 4, which must
+        # leave the minis (#18147, 2026-10-07 02:23Z).
+        jobs = self.workflow()["jobs"]
+        bot = "github-actions[bot]"
+        for name in JOBS:
+            runs_on = jobs[name]["runs-on"]
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), STD)
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
+                # A person's re-run stays minis-first at any attempt.
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), STD)
+
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
         jobs = self.workflow()["jobs"]
