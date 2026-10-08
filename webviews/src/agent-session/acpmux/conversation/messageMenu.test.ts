@@ -3,7 +3,13 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { installMessageMenuReporter, messageMenuTarget, plainText, setMessageMenuSource } from "./messageMenu";
 
-const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({ id, version: 1, at: 0, kind, ...extra });
+const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 0,
+  kind,
+  ...extra,
+});
 
 const snapshot = (extra: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot => ({
   type: "snapshot",
@@ -51,19 +57,27 @@ describe("the agent pane's context menu target", () => {
   });
 
   test("plain text drops Markdown syntax but keeps code, links' text and list order", () => {
-    expect(plainText("# Title\n\nSee [the docs](https://x.dev) and *this*.\n\n```ts\nconst a = 1;\n```\n\n1. first\n2. second")).toBe(
-      "Title\n\nSee the docs and this.\n\nconst a = 1;\n\n1. first\n2. second",
-    );
+    expect(
+      plainText(
+        "# Title\n\nSee [the docs](https://x.dev) and *this*.\n\n```ts\nconst a = 1;\n```\n\n1. first\n2. second",
+      ),
+    ).toBe("Title\n\nSee the docs and this.\n\nconst a = 1;\n\n1. first\n2. second");
   });
 });
 
 describe("the page's report on contextmenu", () => {
   const page = () => {
-    const dom = new JSDOM('<article data-row-id="a1"><p><b id="inside">Fixed</b></p></article><div id="outside"></div>');
+    const dom = new JSDOM(
+      '<article data-row-id="a1"><p><b id="inside">Fixed</b></p></article><div id="outside"></div>',
+    );
     const posted: unknown[] = [];
-    const remove = installMessageMenuReporter(dom.window.document, () => ({ postMessage: (body) => posted.push(body) }));
+    const remove = installMessageMenuReporter(dom.window.document, () => ({
+      postMessage: (body) => posted.push(body),
+    }));
     const rightClick = (id: string) =>
-      dom.window.document.getElementById(id)!.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true }));
+      dom.window.document
+        .getElementById(id)!
+        .dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true }));
     return { posted, remove, rightClick };
   };
 
@@ -74,7 +88,10 @@ describe("the page's report on contextmenu", () => {
     rightClick("outside");
     remove();
     rightClick("inside");
-    expect(posted).toEqual([{ text: "Fixed in main.rs:\n\n- one\n- two", markdown: "Fixed in `main.rs`:\n\n- one\n- two", forkSeq: 41 }, null]);
+    expect(posted).toEqual([
+      { text: "Fixed in main.rs:\n\n- one\n- two", markdown: "Fixed in `main.rs`:\n\n- one\n- two", forkSeq: 41 },
+      null,
+    ]);
     setMessageMenuSource(undefined);
   });
 

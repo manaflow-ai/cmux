@@ -1776,7 +1776,9 @@ function AcpmuxPane() {
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
-        setMessageMenuSource((rowId) => (snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined));
+        setMessageMenuSource((rowId) =>
+          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined,
+        );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
           turnRunning: () => client.turnRunning(),
@@ -1996,6 +1998,13 @@ function AcpmuxPane() {
         icon: "workspace.new",
         shortcutAction: HEADER_ACTIONS.newWorkspace,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
+      },
+      {
+        key: "newWindow",
+        label: t("chatMenu.newWindow"),
+        icon: "app.open.external",
+        shortcutAction: HEADER_ACTIONS.newWindow,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
       },
       "separator",
       {
