@@ -19,9 +19,14 @@ public actor UserDefaultsAgentPaneDraftStore: AgentPaneDraftStoring {
     /// - Parameters:
     ///   - defaults: The defaults suite that owns the drafts.
     ///   - keyPrefix: A namespace for the stored session keys.
-    public init(defaults: UserDefaults = .standard, keyPrefix: String = "cmux.next.agent.composer-draft.") {
+    public init(defaults: UserDefaults, keyPrefix: String = "cmux.next.agent.composer-draft.") {
         self.defaults = defaults
         self.keyPrefix = keyPrefix
+    }
+
+    /// Creates a draft store backed by the app's standard defaults suite.
+    public init() {
+        self.init(defaults: UserDefaults.standard)
     }
 
     /// Returns the stored draft for `sessionId`.
