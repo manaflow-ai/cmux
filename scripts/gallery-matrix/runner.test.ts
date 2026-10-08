@@ -2,7 +2,19 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, shardCases, undeletedLedgerIds, writeLedger } from "./runner";
+import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, writeLedger } from "./runner";
+
+test("summarizes settled interaction latency and ignores missing samples", () => {
+  expect(settleSummary([30, 10, 20, null, "slow", Number.NaN])).toEqual({ count: 3, p50: 20, p95: 30, max: 30 });
+  expect(settleSummary([])).toEqual({ count: 0, p50: 0, p95: 0, max: 0 });
+});
+
+test("ordinary matrix cards include settled interaction latency", () => {
+  const html = renderIndex([{ id: "case", engine: "chromium", screenshot: "case.png", play: { steps: [{ settleMs: 10 }, { settleMs: 20 }, { settleMs: 30 }] } }]);
+  expect(html).toContain('"latency":{"count":3,"p50":20,"p95":30,"max":30}');
+  expect(html).toContain("latencyCell");
+  expect(html).toContain("playCells(r)");
+});
 
 test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);

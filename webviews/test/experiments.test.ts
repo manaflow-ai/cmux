@@ -6,6 +6,7 @@ import {
   compareSummary,
   DEFAULT_COMPARE,
   frameStats,
+  interactionStats,
   readCompare,
   visibleArms,
   writeCompare,
@@ -123,5 +124,10 @@ describe("compare URL state", () => {
     expect(frameStats([])).toEqual({ frames: 0, p50: 0, p95: 0, max: 0, over16: 0 });
     const stats = frameStats([16.6, 16.7, 16.8, 33.4, 8.3]);
     expect(stats).toEqual({ frames: 5, p50: 16.7, p95: 33.4, max: 33.4, over16: 2 });
+  });
+
+  test("action-to-settled stats use honest sample percentiles", () => {
+    expect(interactionStats([])).toEqual({ count: 0, p50: 0, p95: 0, max: 0 });
+    expect(interactionStats([12.34, 4.2, 19.86, 8.75])).toEqual({ count: 4, p50: 12.3, p95: 19.9, max: 19.9 });
   });
 });

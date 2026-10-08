@@ -148,8 +148,9 @@ checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compi
 ```
 
 The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
-matrix index shows a layout shift cell and a long frames cell (pass, warn or fail, with the
-numbers) for each case; click a cell for each step's details. A failing play fails the run. The
+matrix index shows layout shift and long frames cells (pass, warn or fail, with the numbers), plus
+action-to-settled p50 / p95 / max latency and sample count when a case has play steps; click a cell
+for each step's details. A failing play fails the run. The
 checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
 live line for the person who opens it.
 
@@ -253,7 +254,8 @@ the link reads the same keys with `readCompare` (`src/gallery/compare.ts`).
 
 Each cell shows two measurement lines: `VM ...`, the numbers a matrix run measured on a Freestyle
 VM (the entry's `measurements`), and `here, last step ...`, the frames the viewer's own browser
-measured. An arm reports its main-thread planning with `performance.measure("cmux-motion:...")`;
+measured. Both lines also report action-to-settled p50, p95 and max for clicks, keys and press-drag
+pointer steps. An arm reports its main-thread planning with `performance.measure("cmux-motion:...")`;
 the harness shows the largest as `plan`.
 
 Measuring on Freestyle (never a browser on a laptop):
@@ -265,8 +267,8 @@ cd ../scripts/gallery-matrix && bun runner.ts --manifest /tmp/exp.json --gallery
 bun experiments.ts --output-dir /tmp/exp-run --run <name> --publish   # strips/, experiments.json, experiments.html
 ```
 
-`--experiments` writes, per arm, one `measure=1` case (the script at 1x; frame intervals and the
-planning time per step) and a frame strip (`freeze=<step>:<ms>` pauses every animation that many ms
+`--experiments` writes, per arm, one `measure=1` case (the script at 1x; frame intervals,
+action-to-settled latency and planning time per step) and a frame strip (`freeze=<step>:<ms>` pauses every animation that many ms
 after the step's input). Copy the arm numbers from `experiments.json` into the entry's
 `measurements`. To ship the winner, set `defaultArm`, then delete the other arms' code and the
 experiment (registry line, definition, gallery `experiment`) once the choice is final.

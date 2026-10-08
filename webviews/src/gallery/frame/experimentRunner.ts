@@ -102,8 +102,16 @@ async function measuredStep(
   measures.takeRecords();
   measures.disconnect();
   const problems = report.error ? [report.error] : report.steps.flatMap((step) => step.problems);
+  const interactionMs = report.steps
+    .filter((step) => step.action === "click" || step.action === "key" || step.action === "press-drag")
+    .map((step) => step.settleMs);
   return {
-    stats: { durationMs: Math.round(durationMs), ...frameStats(intervals), planMs: Math.round(planMs * 100) / 100 },
+    stats: {
+      durationMs: Math.round(durationMs),
+      ...frameStats(intervals),
+      planMs: Math.round(planMs * 100) / 100,
+      interactionMs,
+    },
     problems,
   };
 }
@@ -142,6 +150,7 @@ export async function prepareExperiment(
     for (let index = 0; index < steps; index += 1)
       results.push({ name: experiment.script[index]!.name, ...(await measuredStep(experiment, index, 1)) });
     const all = results.map((result) => result.stats);
+    const interactionMs = all.flatMap((stats) => stats.interactionMs);
     window.cmuxGalleryExperimentReport = {
       experiment: experiment.definition.id,
       arm,
@@ -154,6 +163,7 @@ export async function prepareExperiment(
         max: Math.max(...all.map((stats) => stats.max)),
         over16: all.reduce((sum, stats) => sum + stats.over16, 0),
         planMs: Math.max(...all.map((stats) => stats.planMs)),
+        interactionMs,
       },
     };
     return;
