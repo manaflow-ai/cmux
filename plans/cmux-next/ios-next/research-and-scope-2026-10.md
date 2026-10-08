@@ -38,6 +38,26 @@ These public references were used to check the proposed information architecture
 * Public mobile SSH client surfaces — a useful reference for host inventory, quick connect, key/known-host trust, and file-oriented SSH workflows. cmux should preserve the fast host path while showing ownership and realtime state clearly.
 * Public agent-work surfaces motivate the same interaction hypothesis: a stream of work with an obvious pending action, a compact composer, and a visible running/completed state. These are hypotheses to validate in C6/C8 dogfood, not dependencies or visual copying; the cmux-specific differentiator is that the output is a live Mac workspace and terminal.
 
+### Feed interaction hypothesis (2026-10-08)
+
+The Feed should borrow the strongest behavior patterns from the requested comparison set while
+keeping cmux's ownership and realtime rules explicit:
+
+| Reference pattern | cmux adaptation | Acceptance signal |
+| --- | --- | --- |
+| X-style dense timeline and unread position | A compact chronological stream with a persistent Needs Input filter; cards keep the agent, Mac, workspace, and age visible without opening a detail screen. | Returning from a notification lands on the pending card and preserves the user's scroll position after a reconnect. |
+| iMessage inline reply and quoted context | Answers open in the card, quote the triggering question or plan step, and show a sent/answered-elsewhere/not-sent state beside the response. | A repeated tap or a second device produces one owner decision and an understandable resolution line. |
+| Codex and Claude task progress | A running card changes in place from pending to working to done, with a single primary action and a terminal/workspace deep link when output exists. | The card never shows a spinner without a connection or owner state, and a live task can be resumed from Workspaces. |
+| T3Code compact tool/status affordances | Use small, labeled status chips for permission scope, model, host path, and failure reason; keep destructive actions behind a confirmation or explicit decline affordance. | VoiceOver exposes the same action order as sighted users, and Dynamic Type wraps chips without hiding the answer controls. |
+| Termius host-first quick actions | Host and workspace context is a tappable header, so an SSH-only user can answer or open a terminal without creating a cloud account. | A guest can reach a saved SSH host from Feed with the same trust and offline copy as Hosts. |
+
+This yields five design rules for C6/C7/C8: one primary action per card, context before controls,
+owner-confirmed state after every mutation, quoted context for multi-step questions, and a visible
+recovery action for every offline or refused state. The feed stays an event-driven mirror: no polling,
+no local mutation that pretends to be committed, and no action that queues silently while the owner is
+unreachable. These rules are hypotheses until the tagged-pair accessibility and reconnect journeys
+in D3 pass; they do not change the wire schemas.
+
 ## User journeys and product outcomes
 
 The journeys below are the minimum coherent product. Each one has a first success and an explicit failure/recovery state; a spinner without a reason is not a success criterion.
