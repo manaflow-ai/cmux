@@ -53,6 +53,20 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
+        let pro = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "pro",
+            "maxDiskMb": 256 * 1_024,
+        ])
+        let go = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "go",
+            "maxDiskMb": 128 * 1_024,
+        ])
+        #expect(pro.limits.maxDiskMb == 128 * 1_024)
+        #expect(go.limits.maxDiskMb == 16 * 1_024)
+    }
+
+    @Test
     func validatorRejectsPartiallyPopulatedPool() {
         #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
             try CloudVMResizePlanValidator().plan(from: [
@@ -62,6 +76,32 @@ struct CloudVMResourcePoolTests {
                 "usedVcpus": 16,
             ])
         }
+    }
+
+    @Test
+    func validatorRejectsMalformedOrOrphanedPoolUsage() {
+        let validator = CloudVMResizePlanValidator()
+        for limits in [
+            ["planId": "pro", "poolVcpus": 20, "poolMemoryMb": 40 * 1_024, "usedVcpus": "unknown", "usedMemoryMb": 0] as [String: Any],
+            ["planId": "pro", "usedVcpus": 0, "usedMemoryMb": 0] as [String: Any],
+        ] {
+            #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
+                try validator.plan(from: limits)
+            }
+        }
+    }
+
+    @Test
+    func validatorAcceptsZeroPoolUsage() throws {
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "pro",
+            "poolVcpus": 20,
+            "poolMemoryMb": 40 * 1_024,
+            "usedVcpus": 0,
+            "usedMemoryMb": 0,
+        ])
+        #expect(plan.limits.resourcePool?.usedVcpus == 0)
+        #expect(plan.limits.resourcePool?.usedMemoryMb == 0)
     }
 
     @Test
@@ -165,6 +205,22 @@ struct CloudVMResourcePoolTests {
         #expect(CloudVMResizePlanValidator().positiveLimit(NSNumber(value: false)) == nil)
         #expect(CloudVMResourcePool(limits: ["poolVcpus": true, "poolMemoryMb": 40960]) == nil)
         #expect(CloudVMResourcePool(limits: ["poolVcpus": 20, "poolMemoryMb": false]) == nil)
+        #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
+            try CloudVMResizePlanValidator().plan(from: [
+                "poolVcpus": 20,
+                "poolMemoryMb": 40 * 1_024,
+                "usedVcpus": true,
+                "usedMemoryMb": 0,
+            ])
+        }
+    }
+
+    @Test
+    func oversizedFiniteNumbersAreRejectedWithoutTrapping() {
+        let validator = CloudVMResizePlanValidator()
+        #expect(validator.positiveLimit(1e100) == nil)
+        #expect(validator.positiveLimit(Double.greatestFiniteMagnitude) == nil)
+        #expect(validator.positiveLimit(16.0) == 16)
     }
 
     @Test

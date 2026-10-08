@@ -198,6 +198,26 @@ struct CloudTreeMachineMenuTests {
         #expect(!memory64.isEnabled)
     }
 
+    @Test("Resize menu remains safe for a running machine without a shared pool")
+    func machineMenuWithoutPoolDoesNotOverflow() throws {
+        let node = Self.machineNode()
+        guard case .machine(let machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = nil
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let diskMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") }?.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        #expect(try #require(diskMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64) }).isEnabled)
+        #expect(try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8) }).isEnabled)
+        #expect(try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 16) }).isEnabled)
+    }
+
     @Test("Resize menu accounts for remaining shared subscription pool")
     func machineMenuUsesRemainingResourcePool() throws {
         let node = Self.machineNode()

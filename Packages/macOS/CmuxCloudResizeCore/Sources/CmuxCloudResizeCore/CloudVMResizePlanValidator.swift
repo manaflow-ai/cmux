@@ -110,13 +110,13 @@ public struct CloudVMResizePlanValidator: Sendable {
         let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
             ?? max(1, maxMemoryMb / 2_048)
         let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
-        let maxDiskMb = positiveLimit(rawLimits["maxDiskMb"]) ?? {
-            switch planID {
-            case "max": return 256 * 1_024
-            case "go": return 16 * 1_024
-            default: return 128 * 1_024
-            }
-        }()
+        let productDiskCeiling = planID == "max"
+            ? 256 * 1_024
+            : planID == "go" ? 16 * 1_024 : 128 * 1_024
+        let maxDiskMb = min(
+            positiveLimit(rawLimits["maxDiskMb"]) ?? productDiskCeiling,
+            productDiskCeiling
+        )
         let resourcePool = try resourcePool(from: rawLimits)
         return CloudVMResizePlan(
             id: planID,
@@ -227,7 +227,12 @@ public struct CloudVMResizePlanValidator: Sendable {
     private func resourcePool(from limits: [String: Any]) throws -> CloudVMResourcePool? {
         let rawPoolVcpus = limits["poolVcpus"]
         let rawPoolMemoryMb = limits["poolMemoryMb"]
-        let hasPoolFields = [rawPoolVcpus, rawPoolMemoryMb].contains { raw in
+        let hasPoolFields = [
+            rawPoolVcpus,
+            rawPoolMemoryMb,
+            limits["usedVcpus"],
+            limits["usedMemoryMb"],
+        ].contains { raw in
             guard let raw else { return false }
             return !(raw is NSNull)
         }
