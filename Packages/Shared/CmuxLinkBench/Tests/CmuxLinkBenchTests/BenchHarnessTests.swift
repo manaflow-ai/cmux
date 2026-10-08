@@ -198,7 +198,7 @@ struct BenchHarnessTests {
             webrtcIdentity: SoftwareWebRTCIdentity(),
             wireGuardIdentity: WireGuardPrivateKey(),
             allowedWebRTCDevices: [deviceWebRTC.publicKey],
-            allowedWireGuardDevices: [deviceWireGuard.publicKey],
+            allowedWireGuardDevices: [deviceWireGuard.publicKey: "in_device"],
             webrtcConfiguration: .init(network: .loopbackOnly)
         )
         #expect(!host.webrtcHostKey.isEmpty)
@@ -223,7 +223,7 @@ struct BenchHarnessTests {
                 webrtcIdentity: SoftwareWebRTCIdentity(),
                 wireGuardIdentity: WireGuardPrivateKey(),
                 allowedWebRTCDevices: [],
-                allowedWireGuardDevices: []
+                allowedWireGuardDevices: [:]
             )
         }
         let host = try BenchAcceptingHost(
@@ -233,7 +233,7 @@ struct BenchHarnessTests {
             webrtcIdentity: SoftwareWebRTCIdentity(),
             wireGuardIdentity: WireGuardPrivateKey(),
             allowedWebRTCDevices: [SoftwareWebRTCIdentity().publicKey],
-            allowedWireGuardDevices: []
+            allowedWireGuardDevices: [:]
         )
         #expect(throws: BenchSplitError.self) { try host.makeAcceptor(for: .v3) }
     }
