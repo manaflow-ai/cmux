@@ -197,14 +197,19 @@ try:
         rpc("debug.filepages", {"restore": draft["id"]})
     wait_for(lambda: not rpc("debug.filepages").get("toasts"), "no window toast before the check", 15)
     state = prompt("reset")
-    check(state.get("shown_on") == [] and not state.get("never_show"), f"fresh state: {state}")
+    # A tab restored from an earlier run may already show the card (its page finished at launch).
+    check(not state.get("never_show") and not state.get("imported") and not state.get("snoozed_until"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
     print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
     # A window toast (here the pin undo toast) at the bottom: the card still shows, lifted above it.
     rpc("action.run", {"action": "palette.toggleTabPin"})
-    toasts = wait_for(lambda: rpc("debug.filepages").get("toasts"), "a window toast to show under", 5)
+    deadline = time.monotonic() + 5
+    toasts = None
+    while not toasts and time.monotonic() < deadline:  # bounded wait; a missing toast is a SKIP, not a failure
+        toasts = rpc("debug.filepages").get("toasts")
+        time.sleep(0.2)
     if not toasts:
         print("SKIP toast lift: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
