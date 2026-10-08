@@ -1524,6 +1524,8 @@
 		C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000C2 /* CmuxSimulatorWorker */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		7837E0017837E0017837E001 /* CmuxSocketEventMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */; };
+		5CB7B1060000000000000005 /* CmuxSSHClipboardTrust in Frameworks */ = {isa = PBXBuildFile; productRef = 5CB7B1060000000000000002 /* CmuxSSHClipboardTrust */; };
+		5CB7B1060000000000000006 /* CmuxSSHClipboardTrust in Frameworks */ = {isa = PBXBuildFile; productRef = 5CB7B1060000000000000002 /* CmuxSSHClipboardTrust */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
 		D96970000000000000000001 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
@@ -3506,8 +3508,6 @@
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
 		A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */; };
 		0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */; };
-		6EE0A979EB842D0DE359840F /* SSHClipboardWriteSurfaceOwnershipIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED55668F4F4B7ECEFC2AE923 /* SSHClipboardWriteSurfaceOwnershipIndex.swift */; };
-		70947E9A814D510034B314C5 /* SSHClipboardWriteTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */; };
 		B2AC454B21E6D28A10AE1CCA /* SSHClipboardWriteTrustStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18853FDEADE94462B183BD86 /* SSHClipboardWriteTrustStoreTests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
@@ -7941,8 +7941,6 @@
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
 		A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionTests.swift; sourceTree = "<group>"; };
 		751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplitSpaceTests.swift"; sourceTree = "<group>"; };
-		ED55668F4F4B7ECEFC2AE923 /* SSHClipboardWriteSurfaceOwnershipIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTui/SSHClipboardWriteSurfaceOwnershipIndex.swift; sourceTree = "<group>"; };
-		BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTui/SSHClipboardWriteTrustStore.swift; sourceTree = "<group>"; };
 		18853FDEADE94462B183BD86 /* SSHClipboardWriteTrustStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHClipboardWriteTrustStoreTests.swift"; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
@@ -9007,6 +9005,7 @@
 				799F1BEF876006EEB8CD5757 /* CmuxSimulatorStreamKit in Frameworks */,
 				C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */,
 				C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */,
+				5CB7B1060000000000000005 /* CmuxSSHClipboardTrust in Frameworks */,
 				D96970000000000000000001 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000004 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000005 /* CmuxSurfaceCatalogModel in Frameworks */,
@@ -9055,6 +9054,7 @@
 				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				C51A700000000000000000A5 /* CmuxSimulator in Frameworks */,
+				5CB7B1060000000000000006 /* CmuxSSHClipboardTrust in Frameworks */,
 				D96970000000000000000002 /* CmuxSudoBroker in Frameworks */,
 				5CA7A1060000000000000006 /* CmuxSurfaceCatalogModel in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
@@ -9104,7 +9104,7 @@
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
-				D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
+						D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000004 /* CmuxSurfaceCatalogModel in Frameworks */,
 				C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */,
@@ -12008,8 +12008,6 @@
 				6C858D764447A3E9A2C7EE35 /* CmuxSettingsFileStore+FontSections.swift */,
 				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
 				6EFEF79A3659BA68F264C1CF /* GhosttyNSView+SSHClipboardTrust.swift */,
-				BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */,
-				ED55668F4F4B7ECEFC2AE923 /* SSHClipboardWriteSurfaceOwnershipIndex.swift */,
 				11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */,
 				4252144220782379B2B347BE /* SettingsHostingView.swift */,
 			);
@@ -13675,6 +13673,7 @@
 				C10DC1000000000000000002 /* CmuxCloud */,
 				C1D7A0000000000000000002 /* CmuxCloudTui */,
 				5CA7A1060000000000000002 /* CmuxSurfaceCatalogModel */,
+				5CB7B1060000000000000002 /* CmuxSSHClipboardTrust */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				A13296000000000000000101 /* CmuxWorkspacePresence */,
 				A1329A000000000000000101 /* CmuxTerminalSizing */,
@@ -13835,6 +13834,7 @@
 			name = cmuxTests;
 			packageProductDependencies = (
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
+				5CB7B1060000000000000003 /* CmuxSSHClipboardTrust */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				A13296000000000000000101 /* CmuxWorkspacePresence */,
 				A1329A000000000000000101 /* CmuxTerminalSizing */,
@@ -13944,6 +13944,7 @@
 				C10DC1000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloud" */,
 				C1D7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTui" */,
 				5CA7A1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSurfaceCatalogModel" */,
+				5CB7B1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSSHClipboardTrust" */,
 				3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */,
 				A13296000000000000000100 /* XCLocalSwiftPackageReference "CmuxWorkspacePresence" */,
 				A1329A000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSizing" */,
@@ -16271,8 +16272,6 @@
 					A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */,
 					A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */,
 				A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */,
-				6EE0A979EB842D0DE359840F /* SSHClipboardWriteSurfaceOwnershipIndex.swift in Sources */,
-				70947E9A814D510034B314C5 /* SSHClipboardWriteTrustStore.swift in Sources */,
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */,
 				C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */,
@@ -19215,6 +19214,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSurfaceCatalogModel;
 		};
+		5CB7B1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSSHClipboardTrust" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxSSHClipboardTrust;
+		};
 		D96972000000000000000001 /* XCLocalSwiftPackageReference "CmuxSudoBroker" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSudoBroker;
@@ -19536,10 +19539,20 @@
 			package = 5CA7A1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSurfaceCatalogModel" */;
 			productName = CmuxSurfaceCatalogModel;
 		};
+		5CB7B1060000000000000002 /* CmuxSSHClipboardTrust */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5CB7B1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSSHClipboardTrust" */;
+			productName = CmuxSSHClipboardTrust;
+		};
 		5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5CA7A1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSurfaceCatalogModel" */;
 			productName = CmuxSurfaceCatalogModel;
+		};
+		5CB7B1060000000000000003 /* CmuxSSHClipboardTrust */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5CB7B1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSSHClipboardTrust" */;
+			productName = CmuxSSHClipboardTrust;
 		};
 		D96973000000000000000001 /* CmuxSudoBroker */ = {
 			isa = XCSwiftPackageProductDependency;

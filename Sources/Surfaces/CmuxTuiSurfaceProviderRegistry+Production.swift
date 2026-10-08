@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudTui
 import Foundation
@@ -27,7 +28,7 @@ extension CmuxTuiSurfaceProviderRegistry {
                 breadcrumb: { event, fields in StartupBreadcrumbLog.append(event, fields: fields) }
             ),
             sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
-                ?? SSHClipboardWriteTrustStore(),
+                ?? SSHClipboardWriteTrustStore(defaults: .standard),
             wireGuardHub: hub,
             isCloudEnabled: { CloudMachinesFeature.isEnabled },
             allowsBackgroundWork: {

@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import CmuxSurfaceCatalogModel
 
@@ -44,7 +45,10 @@ extension GhosttyNSView {
         let allowed = sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine)
         guard let app = AppDelegate.shared else { return }
         let catalog = SurfaceCatalog.shared
-        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(catalog: catalog)
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(
+            projections: Array(catalog.projections),
+            pendingRestores: catalog.pendingRestoredProjections.projections
+        )
 
         // The menu is opened by this view, so update its surface even when the
         // panel has not entered the catalog yet (the restore/pending case).
@@ -69,7 +73,10 @@ extension GhosttyNSView {
     private var currentSSHClipboardMachine: SurfaceMachineID? {
         guard let surfaceID = terminalSurface?.id else { return nil }
         let catalog = SurfaceCatalog.shared
-        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(catalog: catalog)
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(
+            projections: Array(catalog.projections),
+            pendingRestores: catalog.pendingRestoredProjections.projections
+        )
         let machine = terminalSurface?.owningWorkspace()?.sshClipboardMachine(
             for: surfaceID,
             ownership: ownership

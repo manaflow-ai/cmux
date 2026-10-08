@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import Foundation
 import CmuxFoundation

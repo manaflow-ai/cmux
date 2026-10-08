@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudTui
 import CmuxCore
@@ -21,10 +22,10 @@ final class SSHTuiWorkspaceCoordinator {
         catalog: SurfaceCatalog,
         clientURL: @escaping () -> URL?,
         paths: CloudTuiClientPaths,
-        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
         self.catalog = catalog
-        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.clientURL = clientURL
         self.paths = paths
         agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)

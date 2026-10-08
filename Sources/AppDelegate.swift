@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudBannerCore
 import CmuxCloudTui
@@ -1497,7 +1498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     override init() {
         cloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)
-        sshClipboardWriteTrustStore = SSHClipboardWriteTrustStore()
+        sshClipboardWriteTrustStore = SSHClipboardWriteTrustStore(defaults: .standard)
         let fileManager = FileManager.default
         if let bundleIdentifier = Bundle.main.bundleIdentifier,
            !bundleIdentifier.isEmpty,

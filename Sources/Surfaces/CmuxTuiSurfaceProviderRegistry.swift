@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
@@ -96,7 +97,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var isFeatureSuspended = false
     init(
         links: CloudMachineLinkManager,
-        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore = SSHClipboardWriteTrustStore(),
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         wireGuardHub: CloudWireGuardHub? = nil,
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
@@ -113,7 +114,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         notificationCenter: NotificationCenter = .default
     ) {
         self.links = links
-        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.wireGuardHub = wireGuardHub
         self.isCloudEnabled = isCloudEnabled
         self.allowsBackgroundWork = allowsBackgroundWork

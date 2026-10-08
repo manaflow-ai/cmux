@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloudBannerCore
 import CmuxCloud
 import Foundation
@@ -319,7 +320,7 @@ class GhosttyApp {
             return TerminalSurfaceViewFactory(
                 imageTransferPreparation: preparationService,
                 sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
-                    ?? SSHClipboardWriteTrustStore()
+                    ?? SSHClipboardWriteTrustStore(defaults: .standard)
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
@@ -4334,7 +4335,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override init(frame frameRect: NSRect) {
         sshClipboardWriteTrustStore = AppDelegate.shared?.sshClipboardWriteTrustStore
-            ?? SSHClipboardWriteTrustStore()
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         imageTransferPreparation = nil
         super.init(frame: frameRect)
         setup()
@@ -4347,7 +4348,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
             ?? AppDelegate.shared?.sshClipboardWriteTrustStore
-            ?? SSHClipboardWriteTrustStore()
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.imageTransferPreparation = imageTransferPreparation
         super.init(frame: frameRect)
         setup()
@@ -4355,7 +4356,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     required init?(coder: NSCoder) {
         sshClipboardWriteTrustStore = AppDelegate.shared?.sshClipboardWriteTrustStore
-            ?? SSHClipboardWriteTrustStore()
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         imageTransferPreparation = nil
         super.init(coder: coder)
         setup()

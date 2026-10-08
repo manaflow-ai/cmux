@@ -274,6 +274,9 @@
          location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
+         location = "group:CmuxSSHClipboardTrust">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSudoBroker">
       </FileRef>
       <FileRef

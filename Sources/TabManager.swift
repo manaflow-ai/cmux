@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import CmuxAgentChat
 import CmuxCloudMachines
@@ -595,11 +596,11 @@ class TabManager: ObservableObject {
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil,
-        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore = SSHClipboardWriteTrustStore()
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
-        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider

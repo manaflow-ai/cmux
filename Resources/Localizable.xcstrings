@@ -643034,6 +643034,72 @@
             "state": "translated",
             "value": "允許 SSH 機器寫入剪貼簿"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli SSH računaru da piše u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad SSH-maskinen at skrive til udklipsholderen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti al computer SSH di scrivere negli appunti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យម៉ាស៊ីន SSH សរសេរទៅក្ដារតម្បៀតខ្ទាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat SSH-maskinen å skrive til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól maszynie SSH na zapisywanie w schowku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que a máquina SSH escreva na área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить машине SSH запись в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เครื่อง SSH เขียนลงในคลิปบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH makinesinin panoya yazmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити машині SSH записувати в буфер обміну"
+          }
         }
       }
     },
@@ -643092,6 +643158,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "允許此 SSH 機器透過 OSC 52 寫入剪貼簿。剪貼簿讀取仍會被封鎖。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoljava upis u međuspremnik putem OSC 52 s ovog SSH računara. Čitanje međuspremnika ostaje blokirano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillader skrivning til udklipsholderen via OSC 52 fra denne SSH-maskine. Læsning af udklipsholderen forbliver blokeret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente la scrittura negli appunti tramite OSC 52 da questo computer SSH. La lettura degli appunti rimane bloccata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យម៉ាស៊ីន SSH នេះសរសេរទៅក្ដារតម្បៀតខ្ទាស់តាមរយៈ OSC 52។ ការអានក្ដារតម្បៀតខ្ទាស់នៅតែត្រូវបានរារាំង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillater skriving til utklippstavlen via OSC 52 fra denne SSH-maskinen. Lesing fra utklippstavlen forblir blokkert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwala tej maszynie SSH na zapisywanie w schowku za pomocą OSC 52. Odczyt schowka pozostaje zablokowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite gravações na área de transferência via OSC 52 a partir desta máquina SSH. A leitura da área de transferência permanece bloqueada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешает этой машине SSH записывать данные в буфер обмена через OSC 52. Чтение буфера обмена остаётся заблокированным."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เครื่อง SSH นี้เขียนลงในคลิปบอร์ดผ่าน OSC 52 การอ่านคลิปบอร์ดยังคงถูกบล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu SSH makinesinin OSC 52 aracılığıyla panoya yazmasına izin verir. Panonun okunması engellenmeye devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє цій машині SSH записувати дані в буфер обміну через OSC 52. Читання буфера обміну залишається заблокованим."
           }
         }
       }

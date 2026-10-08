@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxAuthRuntime
 import CmuxCloud
 import CmuxCloudTui
@@ -171,7 +172,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         ownerTeamID: String? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
-        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore = SSHClipboardWriteTrustStore(),
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
@@ -187,7 +188,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.summary = summary
         self.links = links
         self.catalog = catalog
-        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in

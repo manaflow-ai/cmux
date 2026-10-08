@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import AppKit
 import Bonsplit
@@ -100,7 +101,7 @@ extension Workspace {
             guard let containerID = remoteTmuxWindowMirrors.first(where: { _, mirror in
                 mirror.panelsByPaneId.values.contains { $0.id == panelID }
             })?.key else { return nil }
-            return ownership.machine(for: containerID) ?? remoteTmuxSSHClipboardMachine
+            return sshClipboardMachine(for: containerID, ownership: ownership)
         }
         if let terminal = panel as? TerminalPanel,
            terminal.surface.ioMode == .manualMirror {
@@ -130,10 +131,8 @@ extension Workspace {
             panel.surface.setAllowsRemoteClipboardWrites(allowed)
         }
 
-        for mirror in remoteTmuxWindowMirrors.values
-        where mirror.panelsByPaneId.values.contains(where: {
-            sshClipboardMachine(for: $0.id, ownership: ownership) == machine
-        }) {
+        for (containerID, mirror) in remoteTmuxWindowMirrors
+        where sshClipboardMachine(for: containerID, ownership: ownership) == machine {
             for panel in mirror.panelsByPaneId.values {
                 panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }
