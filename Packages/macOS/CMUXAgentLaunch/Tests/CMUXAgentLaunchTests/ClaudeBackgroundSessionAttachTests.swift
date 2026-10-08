@@ -224,6 +224,16 @@ import Testing
             environment: [:]
         ))
         #expect(viewer.reference == "884a7be7")
+        let trailingOptions = try #require(ClaudeBackgroundSessionAttach.viewer(
+            arguments: [executable, "attach", "884a7be7", "--flag", "value"],
+            environment: [:]
+        ))
+        #expect(trailingOptions.reference == "884a7be7")
+        let inlineOption = try #require(ClaudeBackgroundSessionAttach.viewer(
+            arguments: [executable, "attach", "--flag=value", "884a7be7"],
+            environment: [:]
+        ))
+        #expect(inlineOption.reference == "884a7be7")
         #expect(ClaudeBackgroundSessionAttach.viewer(arguments: [executable, "attach", "one", "two"], environment: [:]) == nil)
     }
 

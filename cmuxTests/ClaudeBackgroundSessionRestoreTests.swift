@@ -291,6 +291,69 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(spawningInput == nil, Comment(rawValue: spawningInput ?? ""))
     }
 
+    /// A viewer pane's snapshot, as Close Tab saves it into closed-item history
+    /// or a Dock transfer saves it for relaunch.
+    private func viewerPanelSnapshot(_ fixture: Fixture, in workspace: Workspace) throws -> SessionPanelSnapshot {
+        let panelID = try #require(workspace.focusedPanelId)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        var panel = try #require(snapshot.panels.first { $0.id == panelID })
+        var terminal = try #require(panel.terminal)
+        terminal.workingDirectory = fixture.workingDirectory.path
+        terminal.agent = agent(fixture)
+        terminal.resumeBinding = hookBinding(fixture, autoResume: false)
+        terminal.wasAgentRunning = false
+        terminal.claudeBackgroundViewer = viewer(fixture)
+        panel.terminal = terminal
+        return panel
+    }
+
+    @Test("Reopening a closed claude attach pane reattaches the background session")
+    func reopenedClosedPaneReattaches() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let workspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { workspace.teardownAllPanels() }
+        let panel = try viewerPanelSnapshot(fixture, in: workspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let entry = ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: pane.id,
+            tabIndex: 0,
+            snapshot: panel
+        )
+
+        let reopenedID = try #require(workspace.restoreClosedPanel(entry))
+        let input = try #require(workspace.terminalPanel(for: reopenedID)?.surface.debugInitialInputForTesting())
+        #expect(input.contains("'\(executable)' 'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(input.contains("'CLAUDE_CONFIG_DIR=\(fixture.configDirectory.path)'"), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A Dock panel restored through its workspace reattaches the background session")
+    func dockRestoredPaneReattaches() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let workspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { workspace.teardownAllPanels() }
+        let panel = try viewerPanelSnapshot(fixture, in: workspace)
+
+        let detached = try #require(workspace.detachedSurfaceForDockSessionRestore(
+            panel,
+            snapshotWorkspaceId: workspace.id,
+            excludingStableIdentities: [],
+            restorableAgentIndex: nil
+        ))
+        let terminal = try #require(detached.panel as? TerminalPanel)
+        defer { terminal.close() }
+        let input = try #require(terminal.surface.debugInitialInputForTesting())
+        #expect(input.contains("'\(executable)' 'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
     @Test("A running background session never resumes as a second writer")
     func runningBackgroundSessionNeverResumes() throws {
         let fixture = try makeFixture()
