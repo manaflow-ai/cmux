@@ -641775,6 +641775,124 @@
           }
         }
       }
+    },
+    "cloud.portAccess.loopbackProtectionUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not safely open this SSH loopback preview. Reload to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux فتح معاينة SSH المحلية هذه بأمان. أعد تحميل الصفحة للمحاولة مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diese SSH-Loopback-Vorschau nicht sicher öffnen. Lade die Seite neu, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo abrir esta vista previa de bucle local SSH de forma segura. Recarga la página para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu ouvrir cet aperçu de boucle locale SSH en toute sécurité. Rechargez la page pour réessayer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの SSH ループバックプレビューを安全に開けませんでした。再読み込みしてもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 이 SSH 루프백 미리보기를 안전하게 열 수 없습니다. 다시 시도하려면 새로고침하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安全地打开此 SSH 环回预览。请重新加载再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安全地開啟此 SSH 迴圈預覽。請重新載入再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.portAccess.sshLoopbackHTTPSUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS previews for SSH loopback services are not supported yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينات HTTPS لخدمات SSH المحلية غير مدعومة حتى الآن."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-Vorschauen für SSH-Loopback-Dienste werden noch nicht unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no se admiten vistas previas HTTPS de servicios de bucle local SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les aperçus HTTPS des services de boucle locale SSH ne sont pas encore pris en charge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ループバックサービスの HTTPS プレビューはまだサポートされていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 루프백 서비스의 HTTPS 미리보기는 아직 지원되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前尚不支持 SSH 环回服务的 HTTPS 预览。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前尚未支援 SSH 迴圈服務的 HTTPS 預覽。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
