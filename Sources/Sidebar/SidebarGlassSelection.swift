@@ -60,14 +60,16 @@ enum SidebarGlassSelection {
         )
     }
 
-    /// The light look's white pill sits on a very soft 1 pt drop shadow.
-    /// Set through the view: AppKit owns a layer-backed view's layer shadow.
+    /// The light look's pill sits on a barely-there 1 pt drop shadow
+    /// (`sidebarSelectionShadowOpacityLight`, default 7%). Set through the
+    /// view: AppKit owns a layer-backed view's layer shadow.
     @MainActor
-    static func applySelectionShadow(to view: NSView, _ on: Bool) {
-        guard (view.shadow != nil) != on else { return }
-        guard on else { view.shadow = nil; return }
+    static func applySelectionShadow(to view: NSView, _ on: Bool, defaults: UserDefaults = .standard) {
+        let opacity = on ? (defaults.object(forKey: "sidebarSelectionShadowOpacityLight") as? Double ?? 0.07) : 0
+        guard abs((view.shadow?.shadowColor?.alphaComponent ?? 0) - opacity) > 0.001 else { return }
+        guard opacity > 0 else { view.shadow = nil; return }
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.14)
+        shadow.shadowColor = NSColor.black.withAlphaComponent(opacity)
         shadow.shadowOffset = NSSize(width: 0, height: -1)
         shadow.shadowBlurRadius = 1.5
         view.shadow = shadow
