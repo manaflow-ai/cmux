@@ -99,6 +99,7 @@ pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_u
 #[cfg(unix)]
 pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
 pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{

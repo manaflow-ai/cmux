@@ -6213,29 +6213,26 @@ impl PtySurface {
                         pending,
                     ) {
                         Ok(retry) => retry,
-                        Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
-                            eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                            );
-                            return;
-                        }
+                        Err(error) => return self.stop_journal_capture(&error),
                     };
                     let Some((retry, space_epoch)) = retry else { break };
                     pending = retry;
                     space_epoch
                 };
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
-                    eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                    );
-                    return;
+                    return self.stop_journal_capture(&error);
                 }
             }
         }
+    }
+
+    /// A failed journal writer stops this terminal's capture; the terminal
+    /// and the daemon keep running. The failure is involuntary, so it must
+    /// not take the user shutdown path (`request_daemon_shutdown` marks a
+    /// session shutdown, which records signal deaths as session_shutdown).
+    fn stop_journal_capture(&self, error: &str) {
+        self.journal_capture_open.store(false, Ordering::Release);
+        eprintln!("cmux-tui: terminal journal capture stopped: {error}");
     }
 
     fn journal_geometry(&self, geometry: PtyGeometry) {
