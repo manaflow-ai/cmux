@@ -888,6 +888,8 @@ describe("acpmux composer queue", () => {
       const box = doc.querySelector(".acpmux-composer-box")!;
       expect(box.lastElementChild!.classList.contains("acpmux-composer-context")).toBe(true);
       expect(box.previousElementSibling!.classList.contains("acpmux-composer-queue")).toBe(true);
+      const tray = doc.querySelector(".acpmux-composer-context")!;
+      expect(tray.parentElement?.classList.contains("acpmux-composer-box")).toBe(true);
     } finally {
       await act(async () => root.unmount());
     }
