@@ -1069,12 +1069,12 @@ jobs:
           framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
           test -n "$framework_source"
           framework_root="$(dirname "$framework_source")"
-          rsync -aL "$framework_root/" "$stable/"
+          rsync -aL --no-times "$framework_root/" "$stable/"
           if [ -L "$products/PackageFrameworks" ]; then
             rm "$products/PackageFrameworks"
           fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
+          rsync -aL --no-times "$framework_root/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
       # These no-socket probes take seconds and need only the compiled CLI.

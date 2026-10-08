@@ -5816,7 +5816,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "node_product_cache.py seed" in admission
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
-    assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+    assert "rsync -aL --no-times \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
 
     app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "      - macos-compile-admission" in app_host
