@@ -5222,6 +5222,26 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
         assert take_gui_output(gave_way) == "tested=false", gave_way
     assert take_gui_output(0, owned_gui="0") == "tested=false"
     assert take_gui_output(0, helper=False) == "tested=true"
+
+    # A Blacksmith retry image may carry a stale helper path even though it
+    # has no owned-fleet GUI token. It must run the tests directly instead of
+    # failing before the first test when that helper returns an error.
+    shard_take = shard_steps["Take this Mac's gui token"]
+    assert "take-gui" in shard_take["run"]
+    assert shard_take["env"]["GLAEDA_CANONICAL_ROOT"] == "/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root"
+
+    def shard_take_gui(requested_runner: str, helper_status: int) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "glaeda-canonical-root"
+            fake.write_text(f"#!/bin/bash\nexit {helper_status}\n")
+            fake.chmod(0o755)
+            env = {**os.environ, "GLAEDA_CANONICAL_ROOT": str(fake),
+                   "REQUESTED_RUNNER": requested_runner}
+            return subprocess.run(["bash", "-e", "-c", shard_take["run"]], env=env,
+                                  capture_output=True, text=True, check=False)
+
+    assert shard_take_gui("blacksmith-12vcpu-macos-26", 1).returncode == 0
+    assert shard_take_gui("glaeda-gui-std-xcode-26.6", 1).returncode != 0
     first_test = names.index("Prepare isolated DerivedData")
     assert take_gui == first_test - 1
     # The product is packaged, uploaded and seeded before any test can fail.
