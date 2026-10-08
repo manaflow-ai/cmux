@@ -428,6 +428,13 @@ from pathlib import Path
 
 workflow = open(sys.argv[1], encoding="utf-8").read()
 
+sign_job = re.search(
+    r"^  build-sign-notarize-nightly:\n(.*?)(?=^  [A-Za-z0-9_-]+:)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+).group(1)
+assert "setup-bun@" not in sign_job
+
 def step(name):
     match = re.search(
         rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|^  [A-Za-z0-9_-]+:)",
