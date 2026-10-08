@@ -1159,6 +1159,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(params?["storage_mb"] as? Int, 128 * 1024)
     }
 
+    func testVMResizeResolvesSlugToCanonicalMachineID() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-slug",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "16"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [[
+                        "id": "provider-vm-42",
+                        "slug": "brave-otter",
+                        "status": "running",
+                        "cpus": 8,
+                    ]],
+                    "limits": [
+                        "planId": "max",
+                        "maxDiskMb": 256 * 1024,
+                        "maxMemoryMb": 64 * 1024,
+                        "maxVcpus": 32,
+                    ],
+                ]
+            case "vm.resize":
+                return ["cpus": 16, "memory_total_mb": 8 * 1024, "disk_total_mb": 32 * 1024]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.resize")?["id"] as? String, "provider-vm-42")
+    }
+
     func testVMResizeDoesNotInferProCPUsFromLockedMaxRows() throws {
         let (result, log) = try runVMCommandAgainstMock(
             "vm-resize-plan-locked-cpu",

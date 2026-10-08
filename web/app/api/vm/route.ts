@@ -207,8 +207,13 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
-        // This machine's share of the shared vCPU/memory pool.
-        resources: poolShare(entry),
+        // A persisted reservation is the machine's current compute shape.
+        // Legacy rows only have the conservative pool claim above; do not
+        // publish that claim as the machine's live size until reconciliation
+        // records an actual reservation marker.
+        ...(entry.resourceReservation
+          ? { resources: entry.resourceReservation }
+          : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements

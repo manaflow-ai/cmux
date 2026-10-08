@@ -579,21 +579,24 @@ describe("VM REST auth", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       // Four paid seats share 4 x (20 vCPUs, 40 GB). The legacy row without a
       // marker conservatively reserves the provider maximum until reconciliation;
-      // the paused machine does not count.
+      // the paused machine does not count. That fallback is pool accounting,
+      // not a current-size marker for clients.
       limits: {
         planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
         poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 48, usedMemoryMb: 98304,
         maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },
       vms: [
-        { freeAccessExpiresAt: null, resources: { vcpus: 32, memoryMb: 65536 } },
+        { freeAccessExpiresAt: null },
         { resources: { vcpus: 16, memoryMb: 32768 } },
         { resources: { vcpus: 32, memoryMb: 65536 } },
       ],
     });
+    expect(body.vms[0]).not.toHaveProperty("resources");
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
     expect(listTeams).toHaveBeenCalledTimes(1);
   });

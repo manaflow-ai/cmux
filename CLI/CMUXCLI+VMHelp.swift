@@ -271,7 +271,13 @@ extension CMUXCLI {
         let machines = (listResponse["vms"] as? [[String: Any]])
             ?? (listResponse["machines"] as? [[String: Any]])
             ?? []
-        let machine = machines.first { ($0["id"] as? String) == vmId }
+        // `vm resize` accepts either the provider id or the user-facing slug.
+        // Always forward the canonical id to the mutation when the list found
+        // a slug match; the server's resize endpoint is keyed by id.
+        let machine = machines.first {
+            ($0["id"] as? String) == vmId || ($0["slug"] as? String) == vmId
+        }
+        let machineID = (machine?["id"] as? String) ?? vmId
         let (resizeLimits, planID) = try Self.cloudVMResizeLimits(from: limits)
         let status = (machine?["status"] as? String)?.lowercased()
         let resources = machine?["resources"] as? [String: Any]
@@ -293,7 +299,7 @@ extension CMUXCLI {
         ) {
             throw Self.cloudVMResizeFailureError(failure, planID: planID)
         }
-        var params: [String: Any] = ["id": vmId]
+        var params: [String: Any] = ["id": machineID]
         if let diskMb { params["storage_mb"] = diskMb }
         if let cpu { params["cpu"] = cpu }
         if let memoryMb { params["memory_mb"] = memoryMb }
