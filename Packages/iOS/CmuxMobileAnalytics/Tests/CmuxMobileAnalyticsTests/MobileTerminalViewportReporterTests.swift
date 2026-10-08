@@ -19,7 +19,7 @@ private struct ViewportTestConsent: AnalyticsConsentProviding {
 
         for index in 0..<4 {
             reporter.ingest(DiagnosticEvent(
-                .appFeatureAction,
+                code: .appFeatureAction,
                 tNanos: UInt64(1_000_000_000 + index * 1_000_000_000),
                 surface: 7,
                 a: DiagnosticAppEventKind.terminalViewportReportPublished.rawValue,
@@ -51,7 +51,7 @@ private struct ViewportTestConsent: AnalyticsConsentProviding {
         let reporter = MobileTerminalViewportReporter(emitter: emitter)
 
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 1_000_000_000,
             surface: 7,
             a: DiagnosticAppEventKind.terminalViewportReportPublished.rawValue,
@@ -60,7 +60,7 @@ private struct ViewportTestConsent: AnalyticsConsentProviding {
             sequence: 1
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 2_000_000_000,
             surface: 7,
             a: DiagnosticAppEventKind.terminalViewportReportPublished.rawValue,
@@ -85,7 +85,7 @@ private struct ViewportTestConsent: AnalyticsConsentProviding {
         let reporter = MobileTerminalViewportReporter(emitter: emitter)
 
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 1,
             surface: 7,
             a: DiagnosticAppEventKind.terminalViewportReportPublished.rawValue,
