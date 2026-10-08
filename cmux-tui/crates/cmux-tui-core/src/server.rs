@@ -13460,7 +13460,9 @@ fn handle_command_with_cancellation(
         Command::NewFrontendBrowserTab(params) => {
             frontend_browser_history::create(mux, client, params)
         }
-        Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
+        Command::UpdateFrontendBrowserTab(params) => {
+            frontend_browser_history::update(mux, &actor, params)
+        }
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {

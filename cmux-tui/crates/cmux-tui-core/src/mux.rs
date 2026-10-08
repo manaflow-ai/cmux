@@ -10590,7 +10590,10 @@ impl Mux {
     /// Atomically resolve, incarnation-check, and remove a hosted terminal by
     /// process-stable identity. The host is terminated only after the state
     /// lock has made the removal authoritative for this daemon generation.
-    pub fn close_terminal(
+    /// Tests only: production closes name their mutation (and actor) with
+    /// [`Self::close_terminal_with_mutation`] (P8 landing 3b).
+    #[cfg(test)]
+    pub(crate) fn close_terminal(
         &self,
         terminal_id: &str,
         terminal_incarnation: &str,
@@ -16445,7 +16448,7 @@ impl Mux {
         ) {
             Ok(root) => root,
             Err(err) => {
-                self.discard_spawned(spawned);
+                self.discard_spawned(actor, spawned);
                 if created_workspace {
                     drop(workspace_lifecycle_guard);
                     let _ = self
@@ -16455,7 +16458,7 @@ impl Mux {
             }
         };
         if created.is_empty() {
-            self.discard_spawned(spawned);
+            self.discard_spawned(actor, spawned);
             if created_workspace {
                 drop(workspace_lifecycle_guard);
                 let _ =
@@ -16470,7 +16473,7 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(target_workspace) else {
                 drop(state);
-                self.discard_spawned(spawned);
+                self.discard_spawned(actor, spawned);
                 anyhow::bail!("layout workspace disappeared");
             };
             for (_, pane) in panes {
@@ -16654,7 +16657,7 @@ impl Mux {
         }
     }
 
-    fn discard_spawned(&self, spawned: Vec<Arc<Surface>>) {
+    fn discard_spawned(&self, actor: &Actor, spawned: Vec<Arc<Surface>>) {
         if spawned.is_empty() {
             return;
         }
@@ -16668,7 +16671,7 @@ impl Mux {
             |closed_public_ids| {
                 registry
                     .close_terminals_atomically(
-                        &WorkspaceMutation::daemon_local("cmux-tui-layout-discard"),
+                        &WorkspaceMutation::local("cmux-tui-layout-discard", actor.clone()),
                         &hosted,
                     )
                     .map(|batch| (batch, closed_public_ids))
@@ -16802,6 +16805,7 @@ impl Mux {
                     self.commit_full_resource_projection_locked(
                         &mut registry,
                         &mut state,
+                        &mutation.actor,
                         "terminal.move",
                     )?;
                 }
@@ -16854,6 +16858,7 @@ impl Mux {
                     self.commit_full_resource_projection_locked(
                         &mut registry,
                         &mut state,
+                        &mutation.actor,
                         "terminal.move",
                     )?;
                 }
@@ -28879,7 +28884,7 @@ mod tests {
         let events = mux.subscribe();
         mux.workspace_registry.lock().unwrap().set_terminal_close_failure(true).unwrap();
 
-        mux.discard_spawned(vec![surface.clone()]);
+        mux.discard_spawned(&Actor::Daemon, vec![surface.clone()]);
 
         let restored = mux
             .with_state(|state| state.pane_of(surface.id))

@@ -186,3 +186,32 @@ fn older_ledgers_gain_a_nullable_actor_and_their_old_rows_read_legacy() {
     drop(registry);
     let _ = fs::remove_dir_all(root);
 }
+
+/// A fresh journal record takes the actor of the row its own commit wrote,
+/// matched by origin and key: a terminal commit writes no resource row, and
+/// another origin's row under the same key never lends it its actor.
+#[test]
+fn a_record_takes_the_actor_of_its_own_origins_row() {
+    let root = temp_root("record-origin");
+    let registry = WorkspaceRegistry::open(&root, "record-origin").unwrap();
+    let tx = registry.connection.unchecked_transaction().unwrap();
+    let theirs = WorkspaceMutation::new(
+        "shared-key",
+        "other-origin",
+        Actor::Peer { id: "websocket".into() },
+    )
+    .unwrap();
+    mutation_ledger::insert_resource_mutation(&tx, &theirs, "workspace.create", "{}", "{}", 1)
+        .unwrap();
+    let mine = WorkspaceMutation::new("shared-key", "cmux-tui", Actor::local_user()).unwrap();
+    let ledger = mutation_ledger::KeyedLedger::Terminal;
+    mutation_ledger::insert_keyed_mutation(&tx, ledger, &mine, "{}", "{}", 1).unwrap();
+    let actor =
+        |origin| session_journal::resource_record_actor(&tx, origin, "shared-key", true).unwrap();
+    assert_eq!(actor("cmux-tui").as_deref(), Some("user:user_local"));
+    assert_eq!(actor("other-origin").as_deref(), Some("peer:websocket"));
+    assert_eq!(actor("nobody").as_deref(), Some("daemon"), "no row: the daemon's own");
+    drop(tx);
+    drop(registry);
+    let _ = fs::remove_dir_all(root);
+}

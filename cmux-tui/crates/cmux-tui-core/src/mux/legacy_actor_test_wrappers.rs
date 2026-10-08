@@ -5,9 +5,29 @@
 
 use super::*;
 use crate::model::ColumnDock;
+use crate::workspace_registry::FrontendBrowserRecord;
 
 #[allow(dead_code, clippy::too_many_arguments, reason = "test conveniences; each test uses some")]
 impl Mux {
+    pub(crate) fn update_frontend_browser_tab_with_owner(
+        &self,
+        surface: SurfaceId,
+        url: Option<String>,
+        title: Option<String>,
+        favicon_url: Option<Option<String>>,
+        owner: Option<String>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        let actor = &Actor::Daemon;
+        self.update_frontend_browser_tab_with_owner_as(
+            actor,
+            surface,
+            url,
+            title,
+            favicon_url,
+            owner,
+        )
+    }
+
     pub(crate) fn close_workspace(&self, target: WorkspaceId) -> bool {
         self.close_workspace_as(&Actor::Daemon, target)
     }
