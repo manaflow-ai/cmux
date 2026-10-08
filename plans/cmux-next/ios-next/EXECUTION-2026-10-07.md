@@ -26,24 +26,26 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `5e1af976a5` reports 85 of 98 parity rows done, with one
-implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
+The refreshed D3 matrix at implementation baseline `1cfec92701` reports 86 of 98 parity rows done, with one
+implementation gap (the remaining tmux workspace parity), three seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
 repair traffic. C9 has bounded tmux scrollback hydration for safe single-pane attachment, C16 has
 an authenticated cached/fail-closed remote-config source, and E1 bounds SSH session output; carrier,
 device, multi-pane/history, lifecycle, and other explicitly mocked or seam-only evidence remain open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
-WebRTC-over-WireGuard, and V3 direct-address implementations remain separate behind `CmuxLink`.
+WireGuard-over-WebRTC, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
-The active wave is intentionally independent:
+The remaining work separates independent implementation from shared runtime dependencies:
 
 | Workstream | Depends on | First deliverable | Verification gate |
 | --- | --- | --- | --- |
-| Product/design research and scope reconciliation | current PLAN + D3 evidence | research note with user journeys, invariants, and ranked gaps | every selected gap has an acceptance row and owner |
-| C14 browser parity | A0, A3, B5 seams | landed browser session, simulator stream, direct-host route, local port-forward, and credentialed generic SOCKS route | tagged WKWebView/SSH/direct-host and simulator verification |
-| C9 SSH workspace parity | A1, A2, existing SSH host seam | landed deterministic tmux/screen/cmux-tui discovery, epoch-checked tmux control attach, and safe hydration for a single-pane window | tagged SSH verification; multi-pane/history/parser-state parity and target lifecycle remain |
-| Integration and verification | completed slices | merged docs/code plus updated D3 rows | focused tests, static guards, tagged pair/device evidence |
+| Hosted verification and D3 | current committed iOS/Mac tree; shared dev backend capacity | exact-head archives, native package/UI tests, same-tag pair | terminal, feed, onboarding, media and composer runtime evidence |
+| D2 carrier measurement | B2/B3/B4; implemented F7 scheduling and F8 render credit | F2 split Mac/iOS benchmark harness; finish F3 blocked-send cancellation | real latency/throughput/roam results with manifests; power results require an authorized device run |
+| C8 task attachments | landed C4 picker/uploader and C8 shell integration | native tests and PhotosUI/camera/document upload, cancellation and dispatch verification | tagged pair; no further picker seam is missing |
+| C12 VM host | A0/A3 vectors, C12 connect-info and one-shot token contract | Rust link session and services, VM underlay, HostDO admission and token verifier | end-to-end VM terminal/files attach before enabling `cloudWorkspaces` |
+| C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata and lifecycle wire contract | multi-pane renderer composition/parser-state parity; owner-backed lifecycle adapter | hosted tests and live SSH verification |
+| C14 browser and other landed feature paths | existing feature seams and Mac adapters | WKWebView/SSH/direct-host, simulator and media verification | tagged pair, permissions and reconnect evidence |
 
 ## Completed in this wave
 
@@ -138,7 +140,7 @@ the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
 `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00` (the prior `f23162542f` archive
 was superseded by the final timing-safety commits). Current static checks pass; the post-build
 C8/C12/C16 slices add static and focused contract evidence; the backend slice has 37 focused Vitest
-tests and a clean TypeScript typecheck. The next gate is tagged Mac/iPhone pairing and D3 runtime
+tests and a clean TypeScript typecheck. The next gate is tagged Mac/iOS pairing and D3 runtime
 evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
 ### D2 carrier audit
@@ -148,7 +150,8 @@ split `serve` mode, iOS has no Link bench screen, and no device JSON has been ca
 roam measurement is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path
 that the direct carrier cannot actually provide; it must be omitted or replaced with an alternate
 direct endpoint before it is compared with V1/V2 roaming. F8 is implemented in the session layer;
-F3 (continuous V1 RTT and cancellable full channel sends) remains open. F7's application-side
+F3 steady-state V1 RTT sampling is implemented, while cancellation of individual sends waiting on a
+full channel remains open. F7's application-side
 head-of-line mitigation is implemented, but WAN/device evidence is still required before its tail-latency
 benefit is claimed.
 
@@ -158,30 +161,48 @@ commit `2aebd498ca`; `summarize.py` accepts the manifest or its directory and re
 escaping paths. The table is reproducible, but the single full-session V1 run and the absence of
 device/WAN results remain release limitations.
 
-## Dependency graph for this wave
+## Dependency graph for the remaining work
+
+The A0-A3 foundations, B1-B6 carriers/host/pairing, and feature seams already exist. This graph
+starts from those implementations; [PLAN.md](PLAN.md) retains the full construction order.
+Independent implementation tracks do not wait for the shared backend or GUI verification slots.
 
 ```mermaid
 graph TD
-  R[Research and scope note] --> C14[C14 browser acceptance]
-  R --> C9[C9 SSH workspace acceptance]
-  A0[A0 mobile wire] --> C14
-  A3[A3 CmuxLink] --> C14
-  B5[B5 Mac host adapters] --> C14
-  A1[A1 shell and seams] --> C9
-  A2[A2 Ghostty renderer] --> C9
-  C14 --> V[Focused tests and static guards]
-  C9 --> V
-  V --> P[Tagged iOS/Mac pair verification]
-  B2[B2 WebRTC] --> P
-  B3[B3 WebRTC + WireGuard] --> P
-  B4[B4 direct address] --> P
-  P --> D3[D3 parity and bakeoff update]
+  Base[Existing contracts and implementations] --> F2[D2 split Mac and iOS bench harness]
+  Base --> F3[B2 blocked-send cancellation]
+  Base --> SSH[C9 multi-pane and lifecycle adapters]
+  Base --> VM[C12 Rust session and service host]
+  Base --> VMNet[C12 VM underlay and HostDO admission]
+  Base --> Token[C12 token verifier gates]
+  Base --> Build[Exact-head Mac and iOS builds]
+  Backend[Shared dev backend capacity] --> Build
+  Build --> Pair[Same-tag paired runtime]
+  Pair --> Core[Terminal, feed, onboarding and notifications]
+  Pair --> Attach[C8 attachment upload and task dispatch]
+  Pair --> Media[C2-C4 and C14 browser, desktop and files]
+  F2 --> Measure[D2 real carrier measurements]
+  F3 --> D3
+  Pair --> Measure
+  SSH --> SSHVerify[Live SSH acceptance]
+  Build --> SSHVerify
+  VM --> VMVerify[Cloud attach acceptance]
+  VMNet --> VMVerify
+  Token --> VMVerify
+  Build --> VMVerify
+  Core --> D3[D3 evidence and parity reconciliation]
+  Attach --> D3
+  Media --> D3
+  Measure --> D3
+  SSHVerify --> D3
+  VMVerify --> D3
 ```
 
-The critical path for a usable terminal is still `A0/A3 -> B5 -> C1 -> D1`; the
-selected work closes parity around that path without coupling the browser or SSH UI to
-which carrier wins the D2 bakeoff. A carrier decision is made only after the same
-workload is measured over V1, V2, and V3.
+The immediate runtime critical path is shared backend capacity -> exact-head tagged pair ->
+pairing/terminal attach -> D3 evidence. The carrier decision also needs the F2 split harness and
+measurements of the same workload on V1, V2 and V3. Cloud attach has a separate implementation
+critical path through the Rust session host, VM underlay/admission and token verifier; phone token
+minting alone cannot close it. SSH parity and the benchmark harness can progress independently.
 
 ## Scope guardrails
 

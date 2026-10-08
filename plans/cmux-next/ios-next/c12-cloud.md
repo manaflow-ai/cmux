@@ -159,7 +159,8 @@ The phone-side phase-2 boundary is now typed in `CmuxiOSCloudCore`: `cloud.machi
 decodes to credential-free `CloudConnectInfo`, `CloudAttachPreflight` enforces exactly one machine or
 host selector, and `CloudAttachPlanner` validates the machine/host binding, positive epoch, service,
 32-byte WireGuard peer key, and `fd7c:6d78::/32` overlay before a carrier opens. Paused, pausing and
-starting machines return `resumeRequired`; no dial token is cached or minted by this seam. Attach and
+starting machines return `resumeRequired`; this preflight alone neither caches nor mints a dial token
+(section 9 supplies the separate one-shot credential seam). Attach and
 decode regressions are added; they are syntax-checked but await the unavailable hosted Swift test
 lane. Live VM hello, WireGuard and WebRTC paths remain blocked on the Rust host and credentials.
 
@@ -180,7 +181,12 @@ actor; a second mint is refused until `resetForReconnect()` and a fresh
 preflight. Terminal, workspace, and file adapters can use the daemon service
 through the existing `CmuxMobileLink` channels once the Rust VM host is live.
 
-This is protocol and unit-test evidence only. The VM Rust session host,
+`49b298df07` reserves prepare and mint operations across actor suspension, invalidates stale
+completions after reconnect, and rejects a grant with extra services as well as missing services.
+The added interleaving and grant-binding tests are syntax-checked; native execution remains blocked
+by the hosted package/toolchain issue.
+
+This is a phone-side implementation with static and contract-test evidence only. The VM Rust session host,
 WireGuard/WebRTC underlays, HostDO VM admission, and live token verification
 remain unimplemented; `cloudWorkspaces` stays disabled and no live VM attach is
 claimed.

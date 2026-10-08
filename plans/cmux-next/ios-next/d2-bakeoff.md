@@ -211,7 +211,7 @@ Any new device or WAN comparison must add a manifest beside its result files wit
 source commit, and run labels before it is used as release evidence. A manifest rejects missing files,
 schema mismatches, and paths that escape its directory.
 
-F8 implementation (2026-10-08): `LinkSession` now sizes reliable render credit from the latest path
+F8 implementation (`5e1af976a5`, `1cd8a1e0e6`): `LinkSession` now sizes reliable render credit from the latest path
 RTT (`LinkConfiguration.renderCreditBudget`). The baseline remains 256 KiB until an RTT sample
 arrives; the default target is 2.5 MB/s and the adaptive window is capped at 2 MiB. Terminal channels
 are declared with a 64 KiB input budget, then the Mac bridge explicitly promotes its send direction
@@ -229,7 +229,10 @@ drop-when-busy and partial frames still expire at their declared lifetime. `Dire
 covers priority/FIFO behavior and bulk-byte accounting. This is a scheduling and admission fix, not
 device or WAN evidence; the D2 measurement gate remains open.
 
-F3 (continuous V1 RTT sampling and cancellation of a send waiting on a full channel) remains open.
+F3 is partially implemented: `a22b7f7327` adds configurable steady-state V1 RTT sampling through
+the bounded transport inbox and cancels the monitor when the connection closes. Cancellation of
+an individual send waiting on a full channel remains open, as does device verification of the RTT
+badge and telemetry.
 F8 still needs WAN/device evidence before the default path policy is promoted beyond DEV dogfood.
 
 ## 6. Re-measure on device
@@ -291,8 +294,9 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
 - F2 (D2/D3): bench split mode: `cmux-link-bench serve` hosting the acceptors and an echo/source
   service over B5's signaling, plus an iOS DEV "Link bench" screen running the same workloads, so the
   same JSON comes from device runs.
-- F3 (B2): continuous RTT sampling from `getStats` (today only at connect and ICE `connected`), so the
-  badge and C1 telemetry see path RTT on V1; cancellation for a `send` suspended on a full channel.
+- F3 (B2, partly implemented): steady-state `getStats` RTT sampling is wired into the bounded path
+  event inbox (`a22b7f7327`). Cancellation for a `send` suspended on a full channel and live RTT
+  verification remain open.
 - F4 (B3, only if V2 stays): congestion control (cwnd with pacing; NewReno or BBR-style) instead of the
   fixed 1 MiB window; SACK ranges instead of a 64-bit bitmap; acks and retransmissions for `input`
   ahead of bulk retransmissions in the pump.
@@ -306,5 +310,6 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
   bulk connection remains a future option if kernel buffering still dominates.
 - F9 (E1, done 2026-10-08): bounded ingress on every carrier (`TransportInbox`, credit on
   consumption, conformance case `rawBackPressure`); see note (b) in section 3.
-- F8 (A3/C1): the 256 KiB render credit caps flood at 256 KiB per RTT (9 Mbit/s at 200 ms); size the
-  credit from the path's RTT if device runs show users waiting on flood catch-up.
+- F8 (A3/C1, implemented): the default render credit now adapts to path RTT, including the Mac's
+  real terminal send direction; see section 5.1. Device/WAN flood catch-up and input-latency
+  measurements remain open.

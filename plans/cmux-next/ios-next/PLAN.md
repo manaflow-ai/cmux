@@ -60,8 +60,9 @@ Each lane is one agent, one branch `feat-cmux-next-ios-<id>` off `feat-cmux-next
   token. Extends `HostDO`, `UserDO`, `FeedDO`, `PairingDO`; no new owner where one exists. Needs A0.
 - **B2 `webrtc`** (V1): Cloudflare Realtime TURN credentials minted by the backend, WebRTC data
   channels and tracks on iOS and Mac implementing `CmuxLink`, ICE restart on roam. Needs A3, B1.
-- **B3 `webrtc-wg`** (V2): WebRTC over the userspace WireGuard overlay (`cmux-wg`), iOS without a
-  Network Extension, keys in the Secure Enclave-backed identity. Needs A3, B1.
+- **B3 `webrtc-wg`** (V2): userspace WireGuard over an unreliable WebRTC data channel, iOS without a
+  Network Extension; Keychain-held WireGuard keys are certified by the install identity. Needs A3,
+  B1 and B2's datagram-underlay seam (mockable while B2 is in development).
 - **B4 `direct`** (V3): direct-address carrier: add a Tailscale/WireGuard/LAN address, reachability
   detection (VPN up, interface present), Noise/TLS pinned to the host key, Bonjour on LAN. Needs A0, A3.
 - **B5 `mac-host`**: the Mac side: cmux-next exposes the mobile RPC services over `CmuxLink`,
@@ -154,6 +155,7 @@ graph TD
   A3 --> B5
   B1 --> B2
   B1 --> B3
+  B2 -. datagram underlay seam .-> B3
   B1 --> B6[B6 pairing]
   A0 --> B6
   A0 --> C1[C1 terminal-rpc]
@@ -175,6 +177,10 @@ graph TD
   B6 --> C10
   B6 --> C11[C11 settings]
   C1 --> D1[D1 terminal-ux]
+  B2 --> Carrier[One working stream carrier]
+  B3 --> Carrier
+  B4 --> Carrier
+  Carrier --> D1
   D1 --> D1b[D1b mac-integration]
   D1b --> D3
   C5 --> D1
@@ -202,9 +208,29 @@ graph TD
   C14 --> D3
   C15 --> D3
   C16 --> D3
+  A3 --> E1[E1 bounded ingress]
+  E1 --> D3
+  A1 --> E2[E2 mobile CI]
+  E2 --> D3
+  C5 --> E3[E3 workspace management]
+  C9 --> E3
+  E3 --> D3
+  C1 --> E4[E4 terminal composer]
+  C4 --> E4
+  E4 --> D3
+  C9 --> E5[E5 SFTP and device extras]
+  C11 --> E5
+  E5 --> D3
 ```
 
-Critical path: A0/A3 -> B1 -> B2 -> D2 -> D3, and A0/A3 -> B5 -> C1 -> D1 -> D3.
+The carrier node is an OR dependency: D1 can integrate as soon as any one carrier works; D2
+compares all three. Feature agents can work against mocks before their real integration dependencies
+are ready. E1 and E2 run alongside the feature tracks, rather than waiting for feature completion.
+
+Critical paths: A0/A3 -> B5 -> C1 -> D1 -> D1b -> D3 for the first usable terminal, and
+completion of B2/B3/B4 -> D2 -> D3 for the carrier decision. The current implementation and
+remaining-work graph are in [EXECUTION-2026-10-07.md](EXECUTION-2026-10-07.md); this graph is the
+overall dependency model, not a claim that every node still needs implementation.
 
 ## 4. Rules for every lane
 

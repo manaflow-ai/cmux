@@ -1,11 +1,14 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-08 on `feat-cmux-next-ios` implementation baseline `dd344fa661ac766511d5da0f02f70dfa7e10a42a` (B1 session/epoch hardening,
-B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
-Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive is available, but no simulator or device run is
-recorded: job `22d44de4793805270a52cbff` produced tag `nxd3-dd344-ios-v4` for this exact head and
+Status: parity refresh on `feat-cmux-next-ios` implementation baseline
+`1cfec927019d0735b1838bb5acbf1e2f91104b8b`, including native C8 attachments, the C12 one-shot
+credential seam and concurrency hardening, D2 F7 scheduling, and steady-state V1 RTT sampling.
+Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive exists for the older head
+`dd344fa661ac766511d5da0f02f70dfa7e10a42a`: job `22d44de4793805270a52cbff` produced tag
+`nxd3-dd344-ios-v4` and
 artifact digest `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00`. The matrix below
-separates implementation and compile evidence from the still-pending live-pair gate.
+separates implementation and compile evidence from the still-pending live-pair gate. No simulator
+or device run is recorded, and the older archive does not verify the later C8/C12/D2 changes.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
 [research-and-scope-2026-10.md](research-and-scope-2026-10.md) as historical context. This refresh
@@ -15,7 +18,7 @@ turn package or static checks into device evidence.
 ## 1. Parity matrix
 
 Every capability from [a1-shell.md](a1-shell.md) section 1, status on `feat-cmux-next-ios`:
-**done** (built, tested in its package, device-unverified unless said), **mocked** (UI over a mock
+**done** (implementation present with the cited package/static evidence, device-unverified unless said), **mocked** (UI over a mock
 seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner), **missing**,
 **dropped** (removed by design).
 
@@ -81,7 +84,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.10 | Gestures: tap to focus, pinch zoom HUD, pixel scroll | A2, D1 | done |
 | 1.10 | Selection and copy, links | A2, D1 | done |
 | 1.10 | Keyboard docking and safe areas | D1 | done (unverified; audit found Home composer failures) |
-| 1.10 | Terminal composer with attachments, image paste | C8, C4, E4 | done (E4 composer bar; task composer attach still unwired) |
+| 1.10 | Terminal composer with attachments, image paste | C8, C4, E4 | done (E4 composer bar; C8 task composer also uses the shared C4 picker/uploader) |
 | 1.10 | Theme sync from the Mac, font, scrollback | C11, A2 | done (Match Mac uses the host theme) |
 | 1.10 | Drafts per terminal | D1, E4 | done (E4) |
 | 1.10 | Files chip and transfer list | C4 | done (artifact gallery missing) |
@@ -89,7 +92,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.12 | Changes chip, file tree, diff pager, copy line/hunk | C13 | done (Refresh only, no git change stream) |
 | 1.13 | Composer: agent, model, effort, machine, directory, name, prompt | C8 | done (Mac runner over acpmux is D1b: seam only on the Mac) |
 | 1.13 | Drafts, templates, failure recovery, model catalog, dictation | C8 | done |
-| 1.13 | Composer attachments | C8, C4 | seam only (uploader not wired) |
+| 1.13 | Composer attachments | C8, C4 | done (`ab67558826`: shared PhotosUI/camera/document staging, verified upload references, bounded progress and cancellation cleanup; native/runtime verification pending) |
 | 1.14 | Feed, Needs Input filter, inline decisions, multi-question, quoted reply | C6 | done |
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
@@ -98,12 +101,12 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
-| 1.16 | Cloud VM terminal and files attach | C12 | seam only (needs the phase-2 Rust host on the VM) |
+| 1.16 | Cloud VM terminal and files attach | C12 | seam only (phone preflight and one-shot token mint are implemented with concurrency/reconnect guards; Rust VM host, HostDO VM admission, underlay and live token gates remain) |
 | 1.16 | StoreKit plans, purchase, restore | C16 | mocked (`MockBillingStore`, `PlansView` stub) |
 | 1.17 | Account, sign out, delete account, team | C11 | done |
 | 1.17 | What's New archive and post-update sheet | C16 | done |
 | 1.17 | Connection and computers | B6, C11 | done |
-| 1.17 | Networking diagnostics (path badge, RTT) | C11, D1 | done (V1 RTT sampled at connect only, B2 F3) |
+| 1.17 | Networking diagnostics (path badge, RTT) | C11, D1 | done (V1 steady-state RTT sampling landed in `a22b7f7327`; live badge/telemetry verification remains) |
 | 1.17 | Terminal and display options, scrollback | C11 | done |
 | 1.17 | Haptics toggle | C11, E5 | done |
 | 1.17 | Privacy (telemetry consent) | C11, C16 | done |
@@ -120,7 +123,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.19 | Localization (en, ja translated) | all | done (section 4) |
 | 1.19 | Background modes, protected data | kept, C7, A2 | done |
 
-Counts (98 rows): done 85, mocked 4, seam only 4, missing 1, dropped 4. (Rows with partial notes
+Counts (98 rows): done 86, mocked 4, seam only 3, missing 1, dropped 4. (Rows with partial notes
 count under their main status. “Done” means implementation and package/static evidence; it remains
 device-unverified unless the row says otherwise.)
 
@@ -136,8 +139,11 @@ Open implementation gaps, grouped by owner:
   Package and route-focused tests pass; live device/reconnect evidence is still required.
 - Mocked rows: Mac capabilities/version gate, Keep Mac Awake (onboarding and per-Mac power assertion),
   and StoreKit plans remain behind their DEV/mock owners.
-- Seam-only rows: Cloud machines in the workspace list, Cloud VM terminal/files attach, task composer
-  attachments, and analytics upload.
+- C8: task attachments are wired through C4. Native package execution, picker permissions,
+  upload cancellation/retry, and live task dispatch still need hosted/runtime evidence.
+- Seam-only rows: Cloud machines in the workspace list, Cloud VM terminal/files attach, and analytics
+  upload. C12's phone credential seam is implemented; it does not supply the Rust VM session host,
+  HostDO VM admission, underlay, or link-token verifier gates.
 
 ## 2. Device verification checklist
 
