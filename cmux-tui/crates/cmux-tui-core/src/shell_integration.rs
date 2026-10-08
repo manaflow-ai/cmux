@@ -414,6 +414,9 @@ fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
 }
 
 #[cfg(test)]
+mod cli_path_tests;
+
+#[cfg(test)]
 mod user_config_tests;
 
 #[cfg(test)]
