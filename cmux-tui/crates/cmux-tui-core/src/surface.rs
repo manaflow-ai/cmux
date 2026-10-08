@@ -7744,6 +7744,9 @@ mod tests {
 
         assert!(pty.journal_capture_open.load(Ordering::Acquire));
         assert!(pty.journal_capture_disabled.load(Ordering::Acquire));
+        let reader_gate = pty.begin_terminal_journal_update();
+        assert!(reader_gate.is_some(), "journal failure must not close the terminal reader gate");
+        drop(reader_gate);
         assert!(
             !mux.daemon_shutdown_requested(),
             "journal storage failure must leave live terminal hosts available"
