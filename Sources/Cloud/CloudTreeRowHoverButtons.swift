@@ -256,5 +256,6 @@ private struct CloudTreeDevicesMenuButton: View {
         .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
         .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
         .accessibilityIdentifier("DevicesOptionsMenu")
+        .accessibilityElement(children: .ignore)
     }
 }
