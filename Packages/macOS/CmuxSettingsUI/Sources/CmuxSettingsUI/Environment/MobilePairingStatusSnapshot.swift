@@ -34,6 +34,9 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// The addresses the iOS app can use to reach this Mac.
     public let routes: [MobilePairingRoute]
 
+    /// A Tailscale listener bind failure, independent of Iroh readiness.
+    public let tailscaleFailureDescription: String?
+
     /// Creates a pairing-status snapshot.
     ///
     /// - Parameters:
@@ -43,6 +46,8 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     ///   - usesEphemeralFallback: Compatibility field; always false for the TCP listener.
     ///   - activeConnectionCount: Number of connected iOS devices.
     ///   - routes: Addresses the iOS app can use to reach this Mac.
+    ///   - pendingPortChange: Whether a saved port waits for the next pairing start.
+    ///   - tailscaleFailureDescription: A localized listener bind failure, if any.
     public init(
         isRunning: Bool,
         configuredPort: Int,
@@ -50,7 +55,8 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         usesEphemeralFallback: Bool,
         activeConnectionCount: Int,
         routes: [MobilePairingRoute],
-        pendingPortChange: Bool = false
+        pendingPortChange: Bool = false,
+        tailscaleFailureDescription: String? = nil
     ) {
         self.isRunning = isRunning
         self.configuredPort = configuredPort
@@ -59,5 +65,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         self.activeConnectionCount = activeConnectionCount
         self.routes = routes
         self.pendingPortChange = pendingPortChange
+        self.tailscaleFailureDescription = tailscaleFailureDescription
     }
 }

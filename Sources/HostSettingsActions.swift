@@ -991,13 +991,16 @@ final class HostSettingsActions: SettingsHostActions {
                 kindLabel: routeKindLabel(.tailscale), host: socket.host, port: socket.port)
         }
         return MobilePairingStatusSnapshot(
-            isRunning: status.isRunning,
+            // Settings reports the configured TCP listener. Iroh readiness is
+            // independent and remains available to the pairing state machine.
+            isRunning: status.tailscaleIsRunning,
             configuredPort: status.configuredPort,
-            boundPort: status.port,
+            boundPort: status.tailscalePort,
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
             routes: routes,
-            pendingPortChange: status.pendingPortChange
+            pendingPortChange: status.pendingPortChange,
+            tailscaleFailureDescription: status.tailscaleFailureDescription
         )
     }
 

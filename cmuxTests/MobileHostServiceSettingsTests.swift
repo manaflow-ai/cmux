@@ -80,7 +80,7 @@ struct MobileHostServiceSettingsTests {
                 id: "retired-tcp", kind: .tailscale,
                 endpoint: .hostPort(host: "100.64.0.1", port: 1234))],
             activeConnectionCount: 2, lastErrorDescription: nil,
-            pendingPortChange: true,
+            pendingPortChange: true, tailscaleIsRunning: true, tailscalePort: 58465,
             localSocketAddresses: ["192.168.1.2:58465", "[fd00::2]:58465", "192.168.1.2:58465"])
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
         #expect(snapshot.routes.map(\.endpoint) == ["192.168.1.2:58465", "[fd00::2]:58465"])
@@ -94,11 +94,12 @@ struct MobileHostServiceSettingsTests {
         let status = MobileHostServiceStatus(
             isRunning: true, port: 58465, configuredPort: 58465,
             usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
-            lastErrorDescription: nil)
+            lastErrorDescription: nil, tailscaleFailureDescription: "Could not bind the configured port")
 
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
         #expect(!snapshot.isRunning)
         #expect(snapshot.boundPort == nil)
+        #expect(snapshot.tailscaleFailureDescription == "Could not bind the configured port")
     }
 
     @Test func splitSocketAddressParsesSocketLiteralsOnly() throws {
