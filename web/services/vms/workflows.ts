@@ -7,6 +7,7 @@ import {
   shouldReadVmResourceStatsDirectly,
 } from "./resourceUsage";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
 import * as Exit from "effect/Exit";
@@ -3798,10 +3799,12 @@ export function execVm(input: {
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
-    const deadlineAtMs = Date.now() + (input.answerWithinMs ?? execAnswerBudgetMs(input.timeoutMs, 0));
+    const deadlineAtMs = (yield* Clock.currentTimeMillis) + (input.answerWithinMs ?? execAnswerBudgetMs(input.timeoutMs, 0));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // Lookup and resume are never cut short: interrupting a resume midway
+    // would strand its bookkeeping. The deadline governs only the command.
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -3810,7 +3813,11 @@ export function execVm(input: {
       "exec",
       { maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
-    const execStartedAtMs = Date.now();
+    const execStartedAtMs = yield* Clock.currentTimeMillis;
+    // A dispatched command always gets its own timeout window, so a slow
+    // resume can never turn into a 124 for a command that had no time to run;
+    // in the normal case the request deadline is the later of the two.
+    const answerWithinMs = Math.max(input.timeoutMs, deadlineAtMs - execStartedAtMs);
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
       providerMetadata: vm.providerMetadata,
@@ -3818,11 +3825,11 @@ export function execVm(input: {
       // A provider failure after the command's own timeout has elapsed says
       // nothing about the machine: the command ran out of time, and that is
       // the answer. Earlier failures stay provider errors.
-      Effect.catchAll((err) => Date.now() - execStartedAtMs >= input.timeoutMs
+      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= input.timeoutMs
         ? Effect.succeed(execTimedOutResult(input.timeoutMs))
-        : Effect.fail(err)),
+        : Effect.fail(err))),
       Effect.timeoutTo({
-        duration: Math.max(0, deadlineAtMs - Date.now()),
+        duration: answerWithinMs,
         onSuccess: (answer: ExecResult) => answer,
         onTimeout: () => execTimedOutResult(input.timeoutMs),
       }),

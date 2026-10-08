@@ -2413,8 +2413,8 @@ describe("VM REST auth", () => {
       context,
     );
     const execInput = (execVm.mock.calls.at(-1) as unknown[] | undefined)?.[0] as { answerWithinMs?: number } | undefined;
-    // The answer budget is the timeout plus the route margin, less the route's own time so far.
-    expect(execInput?.answerWithinMs).toBeGreaterThan(30_000);
+    // The answer budget is the timeout plus the route margin, less the route's own time so far
+    // (execAnswerBudgetMs, covered in vm-workflows.test.ts); never more than that.
     expect(execInput?.answerWithinMs).toBeLessThanOrEqual(33_000);
     expect(execVm).toHaveBeenCalledWith({
       userId: "user-1",
