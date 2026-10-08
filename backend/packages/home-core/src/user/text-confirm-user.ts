@@ -92,6 +92,8 @@ export interface UserConfirmEnv {
   readonly chiefs: ReadonlyArray<string>
   /** Locale for the notices (from the user profile), default en. */
   readonly locale?: string
+  /** The user's verified email for the security notice email; null or absent sends none. */
+  readonly email?: string | null
 }
 
 export const USER_CONFIRM_OPS = new Set([

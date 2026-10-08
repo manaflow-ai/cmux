@@ -30,7 +30,13 @@ final class HomeChiefSidebar: NSView {
     /// Show Memory: runs "Chief: Open Memory Inspector".
     var onShowMemory: () -> Void = {}
 
-    static let harnesses = ["claude-sr", "codex"]
+    /// The harness items the picker offers: the user's own Claude login and
+    /// Codex; the CodeRouter route (`claude-cr`) only when this Chief's
+    /// acpmux has one configured. The subrouter pool (`claude-sr`) is never a
+    /// default item; a current choice of it still shows (`fill`).
+    static func harnesses(routeConfigured: Bool) -> [String] {
+        routeConfigured ? ["claude", "claude-cr", "codex"] : ["claude", "codex"]
+    }
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
     static let efforts = ["low", "medium", "high", "xhigh"]
 
@@ -154,7 +160,7 @@ final class HomeChiefSidebar: NSView {
     }
 
     private func show(_ snapshot: HomeChiefSnapshot) {
-        fill(harness, Self.harnesses, current: snapshot.harness)
+        fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured), current: snapshot.harness)
         fill(model, Self.models, current: snapshot.model)
         fill(effort, Self.efforts, current: snapshot.effort)
         if avatarField.currentEditor() == nil { avatarField.stringValue = snapshot.avatar ?? "" }
