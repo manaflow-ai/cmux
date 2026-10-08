@@ -6,6 +6,8 @@
 //! protocol/2 errors through `request_raw`.
 //! Each test runs the SDK against a one-connection mock daemon and checks the
 //! exact request and the typed result.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     ClientConfig, FrontendBrowserEngine, FrontendBrowserTabCreate, FrontendBrowserTabUpdate,
