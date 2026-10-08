@@ -272,7 +272,7 @@ fn collect_unused(root: &Path, current: &str) {
             meta.file_type().is_dir().then(|| (meta.mtime(), entry.path()))
         })
         .collect::<Vec<_>>();
-    unused.sort_by(|a, b| b.0.cmp(&a.0));
+    unused.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     for (_, dir) in unused.into_iter().skip(KEEP_UNUSED) {
         let Ok(lock) = OpenOptions::new()
             .read(true)
