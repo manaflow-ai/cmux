@@ -63,6 +63,7 @@ const github = {
         throw new Error(`job lookup was not exact: ${JSON.stringify(params)}`);
       }
       calls.jobs += 1;
+      if (calls.jobs <= scenario.emptyJobs) return [];
       return [{
         name: scenario.jobName,
         status: scenario.jobStatus,
@@ -116,12 +117,13 @@ def promotion_script() -> str:
 
 
 def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str,
-                  job_status: str = "completed") -> dict:
+                  job_status: str = "completed", empty_jobs: int = 0) -> dict:
     """Run the promotion script against a deterministic mocked Actions API."""
     scenario = {
         "script": promotion_script(),
         "sha": SHA,
         "emptyRuns": empty_runs,
+        "emptyJobs": empty_jobs,
         "jobName": job_name,
         "jobConclusion": job_conclusion,
         "jobStatus": job_status,
@@ -177,11 +179,25 @@ def test_admission_rejects_a_success_conclusion_from_an_in_progress_job() -> Non
     assert result["failed"]
 
 
+def test_admission_retries_a_source_run_until_its_release_compile_is_visible() -> None:
+    """A run may be indexed before its completed Release job is queryable."""
+    result = run_admission(
+        empty_runs=0,
+        empty_jobs=1,
+        job_name="cmux-next Release compile (Xcode 26)",
+        job_conclusion="success",
+    )
+    assert result["failed"] == []
+    assert result["calls"]["jobs"] >= 2
+    assert result["calls"]["updates"] == 1
+
+
 def main() -> None:
     """Run the focused regression suite without requiring a test runner."""
     test_admission_retries_a_temporarily_missing_source_run()
     test_admission_still_rejects_a_missing_successful_release_compile()
     test_admission_rejects_a_success_conclusion_from_an_in_progress_job()
+    test_admission_retries_a_source_run_until_its_release_compile_is_visible()
     print("PASS: nightly promotion admission")
 
 
