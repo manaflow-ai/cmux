@@ -25,10 +25,14 @@
 //!   but `not_signed_in` as unavailable.
 //!
 //! No line in either direction carries a credential, and the daemon never
-//! sees one. The `origin` a server sends is its claim (first-party code
-//! only); the provider stamps the `app:<id>` actor and enforces its own
-//! owner rules. A server that stops or exits cancels its pending relay
-//! calls (`apps-provider-cancel`, reason `host_exited`).
+//! sees one. The `origin` a server sends echoes the one the supervisor
+//! stamped on its op line: `user` is accepted only while a call of that
+//! server admitted with origin user is in flight (`apps.origin_forbidden`
+//! otherwise); the provider stamps the `app:<id>` actor and enforces its own
+//! owner rules. One server has at most four relay calls outstanding. A
+//! server that is stopping starts none, and one that stops or exits cancels
+//! its pending relay calls (`apps-provider-cancel`, reason `host_exited`).
+//! App hosts never reach the `credential` family (`provider.rs`).
 
 use serde_json::{Value, json};
 
@@ -45,6 +49,11 @@ const MAX_OP: usize = 128;
 const MAX_KEY: usize = 256;
 /// Origins a relayed mutation may carry (`OpRequest.origin`).
 const ORIGINS: &[&str] = &["user", "cli", "mcp", "script", "remote"];
+/// Relay calls one server may have outstanding (the Cloud server is serial;
+/// a server must not fill the provider's queue for the app hosts).
+const MAX_PER_SERVER: usize = 4;
+/// Longest relay line id accepted (the Cloud server sends `r<n>`).
+const MAX_ID: usize = 64;
 
 /// Whether `line` is a relay line the supervisor answers.
 pub(super) fn is_relay_line(line: &Value) -> bool {
@@ -55,10 +64,22 @@ fn relay_error(id: &Value, code: &str, message: &str) -> Value {
     json!({ "type": "relay.error", "id": id, "code": code, "message": message })
 }
 
+/// The answer to a relay line from a server that is stopping.
+pub(super) fn stopping_reply(line: &Value) -> Value {
+    relay_error(&line["id"], "unavailable", "the app server is stopping")
+}
+
 /// The provider op and params of a relay line, or the `relay.error` to
 /// answer at once.
 fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
     let id = &line["id"];
+    if !id.as_str().is_some_and(|id| !id.is_empty() && id.len() <= MAX_ID) {
+        return Err(relay_error(
+            id,
+            "validation.invalid",
+            "a relay line id is a string of 1 to 64 bytes",
+        ));
+    }
     if line["type"] == "relay.session" {
         return Ok(("credential.session", json!({})));
     }
@@ -158,6 +179,22 @@ impl Supervisor {
             ));
         }
         let (op, params) = provider_call(line)?;
+        // A server echoes the origin the supervisor stamped on its op line;
+        // it may claim user only while a call admitted with origin user is
+        // in flight (never a silent downgrade).
+        if params["origin"] == "user" {
+            let user_run = inner
+                .servers
+                .get(app)
+                .is_some_and(|s| s.pending.keys().any(|wire| s.user_ops.contains(wire)));
+            if !user_run {
+                return Err(relay_error(
+                    &id,
+                    "apps.origin_forbidden",
+                    "origin user needs a user run of this app in flight",
+                ));
+            }
+        }
         let gone = || relay_error(&id, "unavailable", "needs the cmux Mac app connected");
         let Some(&client) = inner.providers.get(provider::family_of(op)) else {
             return Err(gone());
@@ -169,6 +206,14 @@ impl Supervisor {
                 "relay params are larger than 64 KiB",
             ));
         }
+        let own = |c: &&ProviderCall| matches!(&c.target, Target::Relay { app: owner, .. } if owner == app);
+        if inner.provider_calls.values().filter(own).count() >= MAX_PER_SERVER {
+            return Err(relay_error(
+                &id,
+                "unavailable",
+                "this app server has too many relay calls outstanding",
+            ));
+        }
         if inner.provider_calls.values().filter(|c| c.client == client).count() >= MAX_OUTSTANDING {
             return Err(relay_error(
                 &id,
@@ -178,7 +223,7 @@ impl Supervisor {
         }
         let version =
             inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
-        let origin = params.get("origin").cloned().unwrap_or(json!("cli"));
+
         let deadline = self.config.provider_deadline;
         inner.next_provider_request += 1;
         let request_id = inner.next_provider_request;
@@ -198,7 +243,7 @@ impl Supervisor {
                 timer,
             },
         );
-        let event = json!({
+        let mut event = json!({
             "event": "apps-provider-request",
             "request_id": request_id,
             "app": app,
@@ -209,11 +254,15 @@ impl Supervisor {
                 "version": version,
                 "on_behalf_of": { "kind": "user", "id": crate::conversation_store::LOCAL_USER },
             },
-            "origin": origin,
             "op": op,
             "params": params,
             "deadline_ms": deadline_ms(deadline),
         });
+        // Only a relay.op that carries an origin has one (relay.session and
+        // reads have none).
+        if let Some(origin) = event["params"].get("origin").cloned() {
+            event["origin"] = origin;
+        }
         Ok(vec![Out::Provider(client, request_id, event)])
     }
 

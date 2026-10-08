@@ -265,23 +265,36 @@ fn with_origin(id: &str, origin: &str) -> Value {
 
 /// Starts a run of `cmux/<dir>.ping` with `origin` and does not wait for it.
 fn start_run(f: &Fixture, dir: &str, origin: Origin) {
-    f.supervisor.run(run_request(&format!("cmux/{dir}"), &format!("{dir}.ping"), None, origin, None), Box::new(|_| {}));
+    f.supervisor.run(
+        run_request(&format!("cmux/{dir}"), &format!("{dir}.ping"), None, origin, None),
+        Box::new(|_| {}),
+    );
 }
 
 #[test]
 fn a_relay_claims_origin_user_only_while_a_user_run_is_in_flight() {
-    let user_run = Probe { on_op: vec![with_origin("r2", "user")], ..Probe::new("userrun", true, vec![with_origin("r1", "user")]) };
-    let cli_run = Probe { on_op: vec![with_origin("r1", "user")], ..Probe::new("clirun", true, vec![]) };
+    let user_run = Probe {
+        on_op: vec![with_origin("r2", "user")],
+        ..Probe::new("userrun", true, vec![with_origin("r1", "user")])
+    };
+    let cli_run =
+        Probe { on_op: vec![with_origin("r1", "user")], ..Probe::new("clirun", true, vec![]) };
     let (f, outs) = setup(&[user_run, cli_run]);
     let rx = credential_provider(&f);
     f.install("cmux/userrun");
     // No run in flight: the claim is refused, never downgraded.
     let refused = &frames(&outs[0], 1)[0];
-    assert_eq!((refused["id"].clone(), refused["code"].clone()), (json!("r1"), json!("apps.origin_forbidden")));
+    assert_eq!(
+        (refused["id"].clone(), refused["code"].clone()),
+        (json!("r1"), json!("apps.origin_forbidden"))
+    );
     // During a user run the claim goes to the provider.
     start_run(&f, "userrun", Origin::User);
     let call = next_event(&rx, "apps-provider-request");
-    assert_eq!((call["origin"].clone(), call["params"]["origin"].clone()), (json!("user"), json!("user")));
+    assert_eq!(
+        (call["origin"].clone(), call["params"]["origin"].clone()),
+        (json!("user"), json!("user"))
+    );
     // During a cli run it is refused.
     f.install("cmux/clirun");
     start_run(&f, "clirun", Origin::Cli);
@@ -292,7 +305,8 @@ fn a_relay_claims_origin_user_only_while_a_user_run_is_in_flight() {
 
 #[test]
 fn one_server_has_at_most_four_relay_calls_and_ids_are_short_strings() {
-    let mut lines: Vec<Value> = (1..=6).map(|n| relay_op(&format!("r{n}"), "cloud.machine.get")).collect();
+    let mut lines: Vec<Value> =
+        (1..=6).map(|n| relay_op(&format!("r{n}"), "cloud.machine.get")).collect();
     lines.push(json!({ "type": "relay.session", "id": 5 }));
     let (f, outs) = setup(&[Probe::new("relay", true, lines)]);
     let rx = credential_provider(&f);

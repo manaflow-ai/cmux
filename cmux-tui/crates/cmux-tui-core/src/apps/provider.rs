@@ -223,7 +223,9 @@ impl Supervisor {
         origin: Origin,
         idempotency_key: Option<String>,
     ) -> Result<Vec<Out>, Value> {
-        if !FAMILIES.contains(&family_of(op)) {
+        // The credential relay serves app servers' relay lines only
+        // (`relay.rs`), never an app host's call, whatever its scopes say.
+        if !FAMILIES.contains(&family_of(op)) || family_of(op) == "credential" {
             return Err(
                 json!({ "code": "operation.unsupported", "message": format!("{op} has no owner reachable from apps yet"), "details": { "op": op }, "retryable": false }),
             );

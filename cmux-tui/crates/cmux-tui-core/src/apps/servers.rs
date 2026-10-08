@@ -37,7 +37,7 @@
 //! Anything else, link details included, goes over ops. The server's stderr
 //! goes to the app's log.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};
@@ -138,6 +138,9 @@ pub(super) struct Server {
     pub spec: ServerSpec,
     /// Calls by wire id; every one waits for its `result` line.
     pub pending: HashMap<String, Responder>,
+    /// Wire ids of pending calls admitted with origin user: while one is in
+    /// flight, a relay line may claim origin user (`relay.rs`).
+    pub user_ops: HashSet<String>,
     /// Lines for calls that arrived while the process was stopping; they go
     /// to the next process.
     pub queued: Vec<(String, Vec<u8>)>,
@@ -412,6 +415,9 @@ impl Supervisor {
         }
         let message = line(&message);
         server.pending.insert(id.clone(), respond);
+        if origin == Origin::User {
+            server.user_ops.insert(id.clone());
+        }
         if server.stopping {
             server.queued.push((id.clone(), message));
         } else {
@@ -480,6 +486,7 @@ impl Supervisor {
                 process: Arc::new(process),
                 spec,
                 pending: HashMap::new(),
+                user_ops: HashSet::new(),
                 queued: Vec::new(),
                 next_id: 0,
                 idle: None,
@@ -584,6 +591,12 @@ impl Supervisor {
             }
             if super::relay::is_relay_line(&value) {
                 let generation = inner.servers[app].generation;
+                if inner.servers[app].stopping {
+                    // An app being disabled or removed starts no Cloud call.
+                    let reply = super::relay::stopping_reply(&value);
+                    inner.servers[app].process.send(line(&reply));
+                    return;
+                }
                 match self.relay_line_locked(&mut inner, app, generation, &value) {
                     Ok(outs) => {
                         drop(inner);
@@ -602,6 +615,7 @@ impl Supervisor {
             match value["type"].as_str() {
                 Some("result") => {
                     let id = value["id"].as_str().unwrap_or_default();
+                    server.user_ops.remove(id);
                     let Some(respond) = server.pending.remove(id) else { return };
                     let result = if value["ok"] == true {
                         Ok(json!({ "value": value.get("result").cloned().unwrap_or(Value::Null) }))
