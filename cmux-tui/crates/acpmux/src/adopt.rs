@@ -282,3 +282,5 @@ mod tests {
         let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
     }
 }
+
+// cx-t3e5 measurement: one-line Rust change
