@@ -1,9 +1,11 @@
 # Browser Wayland SIGTRAP during EGL teardown (#18578)
 
 The Linux cmux Browser nightly exits with `SIGTRAP` about 15 seconds after
-launch on Arch Linux under Hyprland/Wayland. The fix belongs in the Chromium
-runtime carried by `cmux-browser`, not in the macOS cmux host. This repository
-does not contain the Linux Chromium or VA-API implementation.
+launch on Arch Linux under Hyprland/Wayland. The failing owner is the
+Linux-specific OpenGL adapter in the `cmux-browser` overlay, not the macOS
+cmux host and not Chromium's generic ANGLE loader. The affected nightly was
+built before the browser-fork fix; a newer nightly must be used to deliver it
+to users.
 
 ## Incident evidence
 
@@ -21,13 +23,15 @@ does not contain the Linux Chromium or VA-API implementation.
   `657efc619c3606e17b415b49ded1d46f8c0f0fb8b1e4dbb3b459483e839e013a`.
   The unpacked `chrome` ELF has Build ID
   `fb6c9c717a8041795a8bf391f63fa3847c947de9`.
-- The browser-fork registry was at `7c0a0cf9a8ef150cea9ae1d8da8a37e6d4411ae8`
-  and pins Chromium `151.0.7922.34`. The registry checkout is intentionally a
-  source-less overlay; it cannot directly patch Chromium's `ui/gl` sources.
+- The browser-fork source is an overlay checkout at
+  `7c0a0cf9a8ef150cea9ae1d8da8a37e6d4411ae8` and pins Chromium
+  `151.0.7922.34`. The affected release was built from browser-fork commit
+  `dd7984e7ea68ee42768feebe3691b7b7ffdca6e6`, which predates the fix below.
 
 The reported stack is stripped, but the exact release binary was disassembled
-at each reported offset. Around `chrome+0xe779720`, the destructor-like
-function:
+at each reported offset. Around `chrome+0xe779720`, the
+`LinuxOpenGLHost` destructor in
+`overlay/chrome/browser/cmux_term/cmux_ghostty_opengl_host.cc`:
 
 1. calls `eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE,
    EGL_NO_CONTEXT)`;
@@ -38,41 +42,44 @@ function:
 The reported `chrome+0xe77978e` frame is the `dlclose` call and
 `chrome+0xe7797f8` is the following field clear. `chrome+0xe779840` calls this
 destructor and deletes a `0x48`-byte object. This ordering explains the
-`[DanglingPtr]`: the dynamic-library handle is released after `dlclose()` has
-already freed the loader-owned memory. The VA-API error is a plausible trigger
-for GPU fallback cleanup, but it is not the failing stack; the failing stack is
-EGL/GL teardown in the browser process.
+`[DanglingPtr]`: `lib_gl_` is a Chromium `raw_ptr<void>` that still contains the
+loader handle when `dlclose()` releases the loader-owned allocation. The VA-API
+error is a plausible trigger for GPU fallback cleanup, but it is not the
+failing stack; the failing stack is EGL/GL teardown in the browser process.
 
-Chromium's branch-7922 `ui/gl/gl_implementation.cc` is the relevant ownership
-boundary: `AddGLNativeLibrary()` records native GL libraries and
-`UnloadGLNativeLibraries()` unloads them during fallback. The Linux path is
-deliberately conditional because unloading a live GL library is unsafe. The
-fix therefore needs to be made at the Chromium/ANGLE native-EGL loader and
-fallback lifetime boundary, with the pointer cleared before unloading (or the
-library kept loaded on this failure path). A workaround in cmux's macOS host
-would not reach this code. The source reference is
-[`gl_implementation.cc`](https://chromium.googlesource.com/chromium/src/+/refs/branch-heads/7922/ui/gl/gl_implementation.cc#184).
+## Fix and release status
 
-## Concrete browser-fork next step
+The browser fork already contains the direct fix in
+`9825e8206266f0979dd4a33519362a90a210afa7` (`fix Linux OpenGL host teardown`):
 
-On the `cmux-browser` Chromium patch branch:
+```cpp
+void* lib_gl = lib_gl_;
+lib_gl_ = nullptr;
+if (lib_gl) {
+  dlclose(lib_gl);
+}
+```
 
-1. Rebuild the exact `151.0.7922.34` fork revision with symbols, map
-   `chrome+0xe779720` to the owning EGL loader destructor, and confirm whether
-   the `this + 0x30` field is the native-library handle/raw pointer.
-2. Fix that owner so the raw pointer is cleared before `dlclose()` (or avoid
-   `dlclose()` during the Linux GPU fallback teardown). Do not add a
-   GPU-vendor workaround without the reporter's PCI identity.
-3. Add a Linux regression smoke that keeps Wayland variables, exercises the
-   VA-API initialization-failure/fallback path, and asserts that the browser
-   remains alive after startup. The current
-   `scripts/smoke-release-linux-browser.py` and
-   `scripts/release-build-prove-linux-runtime.sh` explicitly force X11, while
-   `.github/workflows/release-linux-smoke.yml` uses `--disable-gpu`; none of
-   these paths covers this incident.
-4. Run the same smoke before and after the patch, recording the exact browser
-   SHA/Build ID and exit status. A fix is proven only when the repro no longer
-   emits `[DanglingPtr]`/`SIGTRAP` on the same workload.
+That commit also keeps the process-global EGL display alive instead of calling
+`eglTerminate()` from one host's destructor. It is an ancestor of the current
+browser-fork `main`, so no duplicate runtime patch is needed in cmux. The
+affected `151.0.7922.64` artifact is stale; it cannot contain this fix.
+
+A later nightly whose release metadata proves it was built from a fixed
+source is `151.0.7922.91`, source commit
+`31e90278ed8557bb1a131e5fb5236681ab4af4ae`, from the
+[Linux nightly run](https://github.com/manaflow-ai/cmux-browser/actions/runs/31374570260).
+Its release metadata records the source SHA and the corresponding source
+archive. The source commit contains `9825e820` (`git merge-base --is-ancestor`
+passes). This establishes that the packaged source includes the fix; a runtime
+closeout still requires the reporter to repeat the Wayland/VA-API workload on
+that newer nightly and confirm no `[DanglingPtr]`/`SIGTRAP`.
+
+The practical next step is therefore to have the reporter upgrade to
+`151.0.7922.91` (or a later nightly), repeat the original workload, and attach
+the exit status and browser SHA/Build ID. If the crash persists on a fixed
+source build, collect the requested GPU details before considering a
+vendor-specific workaround.
 
 The reporter should provide these inputs before a hardware-specific workaround
 is considered:
