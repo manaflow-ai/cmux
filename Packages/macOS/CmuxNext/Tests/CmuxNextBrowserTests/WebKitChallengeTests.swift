@@ -19,9 +19,9 @@ struct WebKitChallengeTests {
         #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false) == D.askCredentials)
         #expect(WebKitTab.decide(method: digest, failures: 2, trusted: false, excepted: false) == D.askCredentials)
         #expect(WebKitTab.decide(method: basic, failures: 5, trusted: false, excepted: false) == D.cancel, "stop asking after 5 failures")
-        // A remembered password is used without asking, but only on the first try:
-        // after a failure the user is asked again.
-        #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false, proposed: true) == D.useProposedCredential)
+        // WebKit's proposed credential (system stores the user did not pick for
+        // this tab) never answers on its own; only cmux's remembered login does.
+        #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false, proposed: true) == D.askCredentials)
         #expect(WebKitTab.decide(method: basic, failures: 1, trusted: false, excepted: false, proposed: true) == D.askCredentials)
         #expect(WebKitTab.decide(method: trust, failures: 0, trusted: false, excepted: false, proposed: true) == D.defaultHandling)
         #expect(WebKitTab.decide(method: trust, failures: 0, trusted: true, excepted: false) == D.defaultHandling)
@@ -119,9 +119,9 @@ struct BrowserChallengeUITests {
         let store = InMemoryHTTPCredentialStore()
         let memory = BrowserHTTPSignInMemory(store: store, offTheRecord: false)
         #expect(memory.remembered(Self.key, failures: 0) == nil, "nothing is remembered by default")
-        memory.record(.credentials(user: "ada", password: "pw", remember: false), for: Self.key)
+        memory.record(.credentials(user: "ada", password: "pw", remember: false), for: Self.key, failures: 0)
         #expect(memory.remembered(Self.key, failures: 0) == nil)
-        memory.record(.credentials(user: "ada", password: "pw", remember: true), for: Self.key)
+        memory.record(.credentials(user: "ada", password: "pw", remember: true), for: Self.key, failures: 0)
         #expect(memory.remembered(Self.key, failures: 0) == BrowserHTTPRememberedLogin(user: "ada", password: "pw"))
         #expect(memory.remembered(Self.key, failures: 1) == nil, "after a failure the user is asked again")
         // Another profile, realm or port shares nothing.
@@ -132,9 +132,14 @@ struct BrowserChallengeUITests {
         other.port = 8081
         #expect(memory.remembered(other, failures: 0) == nil)
         // Signing in again without Remember forgets the saved login.
-        memory.record(.credentials(user: "ada", password: "new", remember: false), for: Self.key)
+        memory.record(.credentials(user: "ada", password: "new", remember: false), for: Self.key, failures: 0)
         #expect(memory.remembered(Self.key, failures: 0) == nil)
-        memory.record(.cancel, for: Self.key)
+        // Cancel keeps a saved login on a first ask, and forgets it after it failed.
+        memory.record(.credentials(user: "ada", password: "pw", remember: true), for: Self.key, failures: 0)
+        memory.record(.cancel, for: Self.key, failures: 0)
+        #expect(memory.remembered(Self.key, failures: 0) != nil)
+        memory.record(.cancel, for: Self.key, failures: 1)
+        #expect(memory.remembered(Self.key, failures: 0) == nil, "a wrong saved password is not sent again")
     }
 
     @Test func anIncognitoProfileNeverRemembers() {
@@ -144,7 +149,7 @@ struct BrowserChallengeUITests {
         #expect(incognito.remembered(Self.key, failures: 0) == nil, "an incognito tab does not read saved logins")
         var other = Self.key
         other.realm = "Other"
-        incognito.record(.credentials(user: "bob", password: "x", remember: true), for: other)
+        incognito.record(.credentials(user: "bob", password: "x", remember: true), for: other, failures: 0)
         #expect(store.login(for: other) == nil, "an incognito tab does not save")
     }
 
@@ -168,6 +173,11 @@ struct BrowserChallengeUITests {
                                                       windowNumber: 0, context: nil, characters: "\r",
                                                       charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
         #expect(view.acceptsFirstResponder)
+        let commandReturn = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+                                                          windowNumber: 0, context: nil, characters: "\r",
+                                                          charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        view.keyDown(with: commandReturn)
+        #expect(wentBack == 0, "Cmd-Return is not Back to Safety")
         view.keyDown(with: returnKey)
         #expect(wentBack == 1 && !proceeded)
         view.detailsButton.performClick(nil)

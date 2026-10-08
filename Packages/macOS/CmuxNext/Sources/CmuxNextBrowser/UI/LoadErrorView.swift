@@ -115,7 +115,8 @@ final class LoadErrorView: NSView {
     override var acceptsFirstResponder: Bool { isCertificateInterstitial }
 
     override func keyDown(with event: NSEvent) {
-        if isCertificateInterstitial, event.keyCode == 36 || event.keyCode == 76 {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        if isCertificateInterstitial, modifiers.isEmpty, event.keyCode == 36 || event.keyCode == 76 {
             goBack()
         } else {
             super.keyDown(with: event)

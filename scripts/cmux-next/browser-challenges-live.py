@@ -182,7 +182,7 @@ def run(theme, basic_port, remembered_port=None):
         notes.append({"theme": theme, "open": open_webkit(f"http://localhost:{basic_port}/")})
         dialog = wait(auth_dialog, 30)
         if not dialog:
-            failures.append(f"{theme}: no sign-in sheet: {json.dumps(rpc('debug.dialog'))[:400]}")
+            failures.append(f"{theme}: no sign-in sheet")
             return
         values = dialog.get("values") or {}
         if values.get("remember") is not False:
@@ -232,6 +232,12 @@ try:
 finally:
     for server in servers:
         server.shutdown()
+    # Remove the test logins this run remembered (one item per server).
+    with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
+        service = plistlib.load(f)["CFBundleIdentifier"] + ".browser-http-auth"
+    for _ in range(8):
+        if subprocess.run(["security", "delete-generic-password", "-s", service], capture_output=True).returncode != 0:
+            break
 with open(os.path.join(opts.out, "browser-challenges-live.json"), "w") as f:
     json.dump({"pass": not failures, "failures": failures, "notes": notes}, f, indent=1)
 for failure in failures:

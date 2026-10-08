@@ -19,13 +19,13 @@ extension WebKitTab: BrowserCertificateBypassing {
     func answer(_ challenge: URLAuthenticationChallenge,
                 completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let space = challenge.protectionSpace
-        let proposed = challenge.proposedCredential.flatMap { $0.hasPassword ? $0 : nil }
+        // WebKit's proposed credential is never sent: it may come from the
+        // system's stores, which the user did not choose for this tab (and an
+        // incognito tab must not use). Only cmux's own remembered login is.
         switch Self.decide(method: space.authenticationMethod, failures: challenge.previousFailureCount, trusted: false,
-                           excepted: false, proposed: proposed != nil) {
+                           excepted: false, proposed: challenge.proposedCredential?.hasPassword == true) {
         case .defaultHandling, .useServerTrust:
             completionHandler(.performDefaultHandling, nil)
-        case .useProposedCredential:
-            completionHandler(.useCredential, proposed)
         case .cancel:
             completionHandler(.cancelAuthenticationChallenge, nil)
         case .askCredentials:
@@ -40,23 +40,23 @@ extension WebKitTab: BrowserCertificateBypassing {
                                              URLCredential(user: remembered.user, password: remembered.password, persistence: .forSession))
                 }
                 guard let self else { return completionHandler(.cancelAuthenticationChallenge, nil) }
-                self.askCredentials(space, key: key, memory: memory, completionHandler: completionHandler)
+                self.askCredentials(space, key: key, failures: failures, memory: memory, completionHandler: completionHandler)
             }
         }
     }
 
     /// Shows the sign-in sheet; a checked Remember saves the login, an
     /// unchecked one forgets the saved one (off the main actor).
-    private func askCredentials(_ space: URLProtectionSpace, key: BrowserHTTPCredentialKey, memory: BrowserHTTPSignInMemory?,
+    private func askCredentials(_ space: URLProtectionSpace, key: BrowserHTTPCredentialKey, failures: Int, memory: BrowserHTTPSignInMemory?,
                                 completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let kind = BrowserPromptKind.credentials(host: space.host, realm: space.realm.flatMap { $0.isEmpty ? nil : $0 })
         enqueuePrompt(kind, origin: space.host) { response in
-            guard let credential = BrowserHTTPAuth.urlCredential(for: response) else {
-                return completionHandler(.cancelAuthenticationChallenge, nil)
-            }
             if let memory {
                 // task-owner: one Keychain write off the main actor; nothing waits on it
-                Task.detached { memory.record(response, for: key) }
+                Task.detached { memory.record(response, for: key, failures: failures) }
+            }
+            guard let credential = BrowserHTTPAuth.urlCredential(for: response) else {
+                return completionHandler(.cancelAuthenticationChallenge, nil)
             }
             completionHandler(.useCredential, credential)
         }
@@ -80,18 +80,18 @@ extension WebKitTab: BrowserCertificateWarningRevoking {
 enum WebKitChallengeDecision: Equatable {
     case defaultHandling
     case askCredentials
-    /// A remembered credential WebKit proposes (the user checked "Remember password").
-    case useProposedCredential
     case useServerTrust
     case cancel
 
-    /// Pure: HTTP authentication uses a remembered password on the first
-    /// try, else asks (until 5 failures); an untrusted server certificate is
-    /// used only for a host the user proceeded to.
+    /// Pure: HTTP authentication asks (until 5 failures; the tab first tries
+    /// a login the user chose to remember); WebKit's proposed credential
+    /// (`proposed`) never answers on its own. An untrusted server certificate
+    /// is used only for a host the user proceeded to.
     init(method: String, failures: Int, trusted: Bool, excepted: Bool, proposed: Bool = false) {
         switch method {
         case NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodNTLM:
-            self = failures >= 5 ? .cancel : (proposed && failures == 0 ? .useProposedCredential : .askCredentials)
+            _ = proposed
+            self = failures >= 5 ? .cancel : .askCredentials
         case NSURLAuthenticationMethodServerTrust:
             self = !trusted && excepted ? .useServerTrust : .defaultHandling
         default:
