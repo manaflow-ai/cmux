@@ -635,6 +635,18 @@ impl Brain {
         engine
     }
 
+    /// The engine a spawn's subagents take: the running (or last) turn's,
+    /// with its family when that is not the default harness's.
+    pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
+        let engine = self.turn_engine.as_ref()?;
+        let family = self.family_of(&engine.harness);
+        Some(crate::subagents::SpawnEngine {
+            harness: engine.harness.clone(),
+            model: engine.model.clone(),
+            other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
+        })
+    }
+
     /// A harness's family (the default harness is Claude in a brain made
     /// without acpmux's metadata when it has a turn preset).
     fn family_of(&self, harness: &str) -> crate::acpmux::Family {
