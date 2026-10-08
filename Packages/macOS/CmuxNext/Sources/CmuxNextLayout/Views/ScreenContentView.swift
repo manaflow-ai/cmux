@@ -15,7 +15,7 @@ final class ScreenContentView: NSView {
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
-    private var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
@@ -35,7 +35,7 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
 
-    var activeDrag: ActiveDrag?
+    var activeDrag: DividerDragState?
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -238,29 +238,8 @@ final class ScreenContentView: NSView {
         context.overlayNeedsSync()
     }
 
-    /// The one owner of divider hover (cx-ww20): hover is a function of where
-    /// the pointer is now and where the handles are now, recomputed whenever
-    /// either changes (a tracking event, a forwarded catcher event, any frame
-    /// change including a strip or row scroll, key-window changes). The
-    /// topmost visible handle under the pointer is hovered; every other one
-    /// is not.
-    func refreshDividerHover() {
-        let hovered = hoveredHandle()
-        for view in dividerViews.values { view.setHovered(view === hovered) }
-    }
-
-    private func hoveredHandle() -> DividerHandleView? {
-        // During a drag only the dragged handle shows (its line is the drag's).
-        if let drag = activeDrag { return dividerViews[drag.kind] }
-        guard let window, !isHiddenOrHasHiddenAncestor,
-              let point = context.hoverPointer(window).map({ convert($0, from: nil) }),
-              visibleRect.contains(point) else { return nil }
-        let hit = subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
-            !$0.isHidden && $0.alphaValue > 0.01 && $0.frame.contains(point)
-        }
-        guard let hit, context.hoverReachesWindow(window) else { return nil }
-        return hit
-    }
+    /// Divider hover from the pointer and the current frames (`ScreenDividers`).
+    func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }
 
     /// Hosts this screen displays now.
     var displayedHosts: [PaneHostView] {
@@ -269,36 +248,8 @@ final class ScreenContentView: NSView {
         }
     }
 
-    /// Divider hit areas that are on screen, in this view's coordinates.
-    /// They take the mouse but draw only their thin line, so content drawn
-    /// above the window (a Chromium page) keeps drawing under them.
-    var dividerMouseAreas: [LayoutMouseArea] {
-        dividerViews.compactMap { kind, view in
-            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = view.frame.intersection(bounds)
-            guard !rect.isNull, !rect.isEmpty else { return nil }
-            return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
-        }.sorted { $0.id < $1.id }
-    }
-
-    /// The dividers' drawn lines, in this view's coordinates: native UI that
-    /// Chromium pages leave uncovered (they sit in the gap between panes).
-    /// A divider that never draws (`layout.paneSeparation` none) leaves no
-    /// hole, so neighboring pages meet with no seam.
-    var dividerLineRects: [CGRect] {
-        dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
-            let rect = view.lineFrameInSuperview.intersection(bounds)
-            return rect.isNull || rect.isEmpty ? nil : rect
-        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
-    }
-
-    /// A click-catching panel over a page saw the pointer cross a divider's
-    /// hit area: recompute (the panel's own event says nothing about frames
-    /// that moved since).
-    func setDividerHovered(_ id: String, _ hovered: Bool) {
-        refreshDividerHover()
-    }
+    var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
+    var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
 
     // MARK: Chrome
 
