@@ -32,6 +32,9 @@ public protocol AccountFlow: AccountTeamManagement {
     /// this is `true`.
     var isWorkingOnAuth: Bool { get }
 
+    /// Whether the host has completed authentication for the current account.
+    var isAuthenticated: Bool { get }
+
     /// Whether an in-flight sign-in has been waiting on the system sign-in
     /// window long enough to offer a fallback. On macOS that window is always
     /// Safari-backed and can hang without ever redirecting back, so the UI
@@ -82,6 +85,14 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Whether the current account has an active Pro entitlement.
     var isProActive: Bool { get }
 
+    /// Whether ``isProActive`` has been resolved for the current account.
+    ///
+    /// A host may briefly know the signed-in identity from its local session
+    /// cache while its auth tokens are still being restored. Settings should
+    /// keep the plan action in a loading state during that gap instead of
+    /// presenting a false upgrade prompt.
+    var isProStatusKnown: Bool { get }
+
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
@@ -89,4 +100,14 @@ public protocol AccountFlow: AccountTeamManagement {
 
 extension AccountFlow {
     public func prefetchProUpgrade() {}
+
+    /// Package-only hosts can use the identity and auth activity as their
+    /// authentication answer because they do not own a separate coordinator.
+    public var isAuthenticated: Bool {
+        currentIdentity != nil && !isWorkingOnAuth
+    }
+
+    /// Package-only hosts do not have a remote billing source, so their
+    /// existing behavior remains the immediately available upgrade action.
+    public var isProStatusKnown: Bool { true }
 }

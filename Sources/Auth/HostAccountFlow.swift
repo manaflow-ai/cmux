@@ -22,6 +22,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
+    var isProStatusKnown: Bool {
+        currentIdentity == nil || hasLoadedBillingPlan
+    }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
     /// The most recent plan request. Only it may write, so an older request

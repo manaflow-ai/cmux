@@ -46,16 +46,27 @@ struct ProUpgradeCard: View {
             // so clicking "Upgrade…" opens an already-loaded page. Managed
             // subscribers get the Stripe portal instead, which the host does
             // not prewarm.
-            if hovering, flow?.canManageBilling != true {
+            if hovering, flow?.isProStatusKnown != false, flow?.canManageBilling != true {
                 flow?.prefetchProUpgrade()
             }
         }
-        .task(id: flow?.currentIdentity?.id ?? "") {
+        .task(id: AccountPlanRefreshKey(
+            accountID: flow?.currentIdentity?.id,
+            isAuthenticated: flow?.isAuthenticated == true,
+            isWorkingOnAuth: flow?.isWorkingOnAuth == true,
+            selectedTeamID: flow?.selectedTeamID
+        )) {
             await flow?.refreshBillingPlan()
         }
     }
 
     private var subtitleText: String {
+        if flow?.isProStatusKnown == false {
+            return String(
+                localized: "settings.account.pro.checkingSubtitle",
+                defaultValue: "Checking your cmux plan…"
+            )
+        }
         if flow?.isProActive == true {
             if flow?.canManageBilling == true {
                 return String(
@@ -82,6 +93,17 @@ struct ProUpgradeCard: View {
     }
 
     private var shouldShowAction: Bool {
-        flow?.isProActive != true || flow?.canManageBilling == true
+        guard flow?.isProStatusKnown != false else { return false }
+        return flow?.isProActive != true || flow?.canManageBilling == true
     }
+}
+
+/// The account card must retry the plan lookup after a cached identity has
+/// finished session restoration. Keying only on the account ID misses that
+/// transition because the identity is available before its tokens are ready.
+struct AccountPlanRefreshKey: Equatable {
+    let accountID: String?
+    let isAuthenticated: Bool
+    let isWorkingOnAuth: Bool
+    let selectedTeamID: String?
 }
