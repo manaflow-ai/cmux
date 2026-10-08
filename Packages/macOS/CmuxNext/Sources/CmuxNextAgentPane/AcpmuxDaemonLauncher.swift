@@ -138,7 +138,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// that bound is left to exit on its own (it is in its own session).
     private static func reap(_ pid: pid_t) async {
         if collect(pid) { return }
-        _ = await AcpmuxVersionHandoff.exitEvent(pid: pid, within: .seconds(5))
+        _ = await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(5))
         if !collect(pid) { logger.notice("acpmux launch shell still running after its exit wait") }
     }
 
