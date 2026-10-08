@@ -28,6 +28,7 @@ public nonisolated struct AgentPageOps {
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate",
+            "chat.readDraft", "chat.writeDraft",
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",

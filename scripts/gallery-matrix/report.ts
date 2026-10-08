@@ -8,6 +8,8 @@ export type ReportLinks = {
   diff?: string;
   gallery?: string;
   matrix?: string;
+  /** The review feed card for this PR, already filtered and expanded. */
+  feed?: string;
   /** The CI run whose artifact holds the diff page and the renders, until a host serves them. */
   artifact?: string;
   /** The thumbnails' URL prefix: a state's thumbnail is this followed by its key (pr-media raw URLs). */
@@ -84,7 +86,7 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
     base: meta.base,
     summary: summaryLine(outcomes),
     counts: { ...counts(outcomes), playFailed: playFailures(outcomes).length },
-    links: { diff: meta.links.diff, gallery: meta.links.gallery, matrix: meta.links.matrix },
+    links: { diff: meta.links.diff, gallery: meta.links.gallery, matrix: meta.links.matrix, feed: meta.links.feed },
     changed: outcomes
       .filter((o) => o.status === "changed")
       .map((o) => ({
@@ -163,6 +165,7 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
   const n = counts(outcomes);
   const lines = [COMMENT_MARKER, "### Gallery", "", `**${escapeMd(summaryLine(outcomes))}**`, ""];
   const links = [
+    meta.links.feed && `[Review in feed](${meta.links.feed})`,
     meta.links.diff && `[Diff page](${meta.links.diff})`,
     meta.links.gallery && `[Gallery at this head](${meta.links.gallery})`,
     meta.links.matrix && `[Matrix](${meta.links.matrix})`,

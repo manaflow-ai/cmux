@@ -2163,6 +2163,7 @@ function AcpmuxPane() {
       )}
       <Composer
         snapshot={composerSnapshot}
+        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={ComposerChips}
         draft={draft}
         onSend={(text, chips) => {
