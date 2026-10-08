@@ -152,6 +152,17 @@ export type AnswerOutcome = { readonly kind: "ignore"; readonly reason: string }
 /** Requests whose provider call is awaiting in this object instance (lost on eviction, which is the point). */
 const running = new WeakMap<SqlStorage, Set<string>>()
 const inFlight = (sql: SqlStorage) => running.get(sql) ?? running.set(sql, new Set()).get(sql)!
+/** True while this instance awaits the run of `request` (CloudDO settles only runs that are not). */
+export const isInFlight = (sql: SqlStorage, request: string) => inFlight(sql).has(request)
+/** Runs `fn` with `request` marked in flight in this instance (cleared on return or throw). */
+export const withInFlight = async <T>(sql: SqlStorage, request: string, fn: () => Promise<T>): Promise<T> => {
+  inFlight(sql).add(request)
+  try {
+    return await fn()
+  } finally {
+    inFlight(sql).delete(request)
+  }
+}
 
 /** The derived ledger key of an approved run. */
 export const approvalLedger = (row: ApprovalRow) => ({ identity: `${row.identity}#approval`, key: `approval:${row.request}` })

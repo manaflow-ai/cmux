@@ -5,9 +5,9 @@ import type { SubmitResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { decodeParams } from "./domains/common.ts"
 import { CLOUD_APPROVAL_OPS, isAgent } from "./domains/cloud.ts"
-import { approvalLedger, deliverAnswers, expireApprovals, gateRiskyOp, postIntegrationApproval, runApproved, withApprovalClass, type GateHost } from "./integrations/approval-gate.ts"
+import { approvalLedger, gateRiskyOp, isInFlight, postIntegrationApproval, runApproved, takeAnswer, withApprovalClass, withInFlight, type GateHost } from "./integrations/approval-gate.ts"
 import { answerAdmitted } from "./integrations/approval-route.ts"
-import { APPROVAL_RETENTION_MS, approvalView, createApprovalTable, nextApprovalAt, pruneApprovals, type ApprovalRow } from "./integrations/approvals.ts"
+import { APPROVAL_RETENTION_MS, approvalByRequest, approvalView, backToPending, createApprovalTable, endApproval, expireDue, pruneApprovals, startRun, type ApprovalRow } from "./integrations/approvals.ts"
 import type { ExternalReply } from "./integrations/external.ts"
 import type { ReadResult } from "./owner-do.ts"
 
@@ -39,8 +39,19 @@ export interface CloudApprovalHost {
   readonly armAlarm: () => void
 }
 
-/** The principal of an approved run: the risk class the approval stands in for, and the request it runs. */
-export const approvedPrincipal = (p: Principal, risk: string, request: string): Principal => ({ ...withApprovalClass(p, risk), approval: request })
+/**
+ * Principals this module made for an approved run. CloudCore.submitAs keeps `approval` only on these
+ * objects: a principal that arrives by RPC is a new object, so it can never be one of them.
+ */
+const approvedRuns = new WeakSet<Principal>()
+export const isApprovedRun = (p: Principal) => approvedRuns.has(p)
+
+/** The principal of an approved run (or of a check): the risk class the approval stands in for, and the request it runs. */
+export const approvedPrincipal = (p: Principal, risk: string, request: string): Principal => {
+  const out: Principal = { ...withApprovalClass(p, risk), approval: request }
+  approvedRuns.add(out)
+  return out
+}
 
 /** What an approved run stores: its final frame, so a same-key retry gets what a direct call would have. */
 interface CloudReply extends ExternalReply {
@@ -94,26 +105,60 @@ export const gateCloudRequest = async (h: CloudApprovalHost, principal: Principa
   return refusal(key, h.stream, g.code, g.message, g.retryable ?? false, g.details)
 }
 
+/** How long a cut-off run waits between settle attempts (alarm), once past its expiry. */
+const SETTLE_RETRY_MS = 60_000
+/** The provider call of a committed intent is still running: the row stays running, never pending again. */
+const committedButOpen = (r: ExternalReply) => !r.ok && r.error?.code === "mutation.indeterminate"
+
+type Submit = (p: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "user" }) => Promise<SubmitResult>
+
 /**
- * The person's answers from their FeedDO (`integration.approval.answered`): an approved request
- * runs once through `submit` under the derived key; the access audit names the install and the request.
+ * One run of an approved request under `approval:<request>` (the install re-resolved and re-checked),
+ * and its end: done with the op's answer, denied when the install may no longer run it, still running
+ * while a committed intent's provider call is open (a retry with the same key replays and resumes it),
+ * or back to pending for a retryable refusal before any commit. Throws when the outbox must redeliver.
  */
-export const deliverCloudAnswers = async (
-  h: CloudApprovalHost,
-  source: string,
-  items: ReadonlyArray<TargetItem>,
-  submit: (p: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "user" }) => Promise<SubmitResult>,
-  audit: (entry: Record<string, unknown>) => void
-): Promise<DeliverResult> => {
-  createApprovalTable(h.sql)
-  const allowed = (p: Principal, op: string, params: unknown) => !h.authorize({ ...p, approval: "check" }, op, params)
-  const run = async (p: Principal, row: ApprovalRow): Promise<ExternalReply> => {
-    const principal = approvedPrincipal(p, cloudOpByName.get(row.op)!.risk, row.request)
-    const { key } = approvalLedger(row)
-    audit({ op: "approval.run", request: row.request, approved_op: row.op, by: principal.identity, user: principal.user ?? null, install: principal.install ?? null, at: Date.now() })
-    return toReply(row.op, key, h.stream, (await submit(principal, { t: "op", op: row.op, params: row.params, idempotency_key: key, origin: "user" })).frames)
+const execute = async (h: CloudApprovalHost, row: ApprovalRow, submit: Submit, audit: (e: Record<string, unknown>) => void): Promise<void> => {
+  const allowed = (p: Principal, op: string, params: unknown) => !h.authorize(approvedPrincipal(p, "read", "check"), op, params)
+  const run = async (p: Principal, r: ApprovalRow): Promise<ExternalReply> => {
+    const principal = approvedPrincipal(p, cloudOpByName.get(r.op)!.risk, r.request)
+    const { key } = approvalLedger(r)
+    const reply = toReply(r.op, key, h.stream, (await submit(principal, { t: "op", op: r.op, params: r.params, idempotency_key: key, origin: "user" })).frames)
+    audit({ op: "approval.run", request: r.request, approved_op: r.op, ok: reply.ok, code: reply.error?.code ?? null, by: principal.identity, user: principal.user ?? null, install: principal.install ?? null, approved_by: `session:${r.user}`, at: Date.now() })
+    return reply
   }
-  const done = await deliverAnswers(h.sql, source, items, runApproved(h.env, allowed, run), (row, params) => answerAdmitted(h.env, h.team, row.user, params), h.team)
+  const reply = await withInFlight(h.sql, row.request, () => runApproved(h.env, allowed, run)(row))
+  const now = Date.now()
+  if (reply === "refused") return void endApproval(h.sql, row.request, "denied", now, null, ["running"])
+  if (committedButOpen(reply)) throw new Error(`approved ${row.op} is still running`)
+  if (!reply.ok && reply.error?.retryable) {
+    backToPending(h.sql, row.request)
+    throw new Error(`approved ${row.op} failed retryably`)
+  }
+  endApproval(h.sql, row.request, "done", now, reply, ["running"])
+}
+
+/**
+ * The person's answers from their FeedDO (`integration.approval.answered`). An approval runs the
+ * request once (execute); a redelivered answer for a run this instance is not awaiting (a restart cut
+ * it off) runs the same key again, which replays the committed intent or runs it the first time.
+ */
+export const deliverCloudAnswers = async (h: CloudApprovalHost, source: string, items: ReadonlyArray<TargetItem>, submit: Submit, audit: (e: Record<string, unknown>) => void): Promise<DeliverResult> => {
+  createApprovalTable(h.sql)
+  const done: Array<number> = []
+  for (const item of items) {
+    const outcome = takeAnswer(h.sql, source, (item.params ?? {}) as Record<string, unknown>, Date.now())
+    if (outcome.kind === "ignore") {
+      if (outcome.reason !== "denied") console.warn(JSON.stringify({ msg: "cloud approval answer ignored", reason: outcome.reason }))
+    } else if (outcome.kind === "settle") {
+      await execute(h, outcome.row, submit, audit)
+    } else if (!(await answerAdmitted(h.env, h.team, outcome.row.user, item.params))) {
+      endApproval(h.sql, outcome.row.request, "denied", Date.now())
+    } else if (startRun(h.sql, outcome.row.request)) {
+      await execute(h, outcome.row, submit, audit)
+    }
+    done.push(item.id)
+  }
   return { done }
 }
 
@@ -121,14 +166,34 @@ export const deliverCloudAnswers = async (
 export const readCloudApproval = (sql: SqlStorage, principal: Principal, params: unknown): ReadResult =>
   hasTable(sql) ? approvalView(sql, principal, params, Date.now()) : { ok: false, code: "selector.not_found", message: "no such approval request" }
 
-/** The alarm time the approvals need (expiry of a pending request, pruning of an ended one), or null. */
-export const cloudApprovalsDueAt = (sql: SqlStorage): number | null => (hasTable(sql) ? nextApprovalAt(sql) : null)
+/** Running rows past their expiry that this instance is not awaiting: cut off, to settle. */
+const stuck = (sql: SqlStorage, now: number) =>
+  sql.exec<{ request: string }>(`SELECT request FROM integration_approvals WHERE state = 'running' AND expires_at <= ?`, now).toArray().map((r) => r.request).filter((r) => !isInFlight(sql, r))
 
-/** Alarm: expire pending requests past their time, settle cut-off runs, prune ended rows after 30 days. */
-export const wakeCloudApprovals = (sql: SqlStorage, now: number) => {
-  if (!hasTable(sql)) return
-  expireApprovals(sql, now)
-  pruneApprovals(sql, now - APPROVAL_RETENTION_MS)
+/** The alarm time the approvals need: a pending expiry, a cut-off run to settle (once a minute), an ended row to prune. */
+export const cloudApprovalsDueAt = (sql: SqlStorage, now: number): number | null => {
+  if (!hasTable(sql)) return null
+  const r = sql.exec<{ p: number | null; r: number | null; e: number | null }>(
+    `SELECT (SELECT MIN(expires_at) FROM integration_approvals WHERE state = 'pending') AS p, (SELECT MIN(expires_at) FROM integration_approvals WHERE state = 'running') AS r, (SELECT MIN(ended_at) FROM integration_approvals WHERE ended_at IS NOT NULL) AS e`
+  ).toArray()[0]
+  const times = [r?.p ?? null, r?.r === null || r?.r === undefined ? null : Math.max(Number(r.r), now + SETTLE_RETRY_MS), r?.e === null || r?.e === undefined ? null : Number(r.e) + APPROVAL_RETENTION_MS].filter((t): t is number => t !== null)
+  return times.length ? Math.min(...times) : null
+}
+
+/** Alarm: expire pending requests past their time, settle cut-off runs past it (never call twice: same key), prune ended rows. */
+export const wakeCloudApprovals = async (h: CloudApprovalHost, now: number, submit: Submit, audit: (e: Record<string, unknown>) => void): Promise<void> => {
+  if (!hasTable(h.sql)) return
+  expireDue(h.sql, now)
+  for (const request of stuck(h.sql, now)) {
+    const row = approvalByRequest(h.sql, request)
+    if (!row) continue
+    try {
+      await execute(h, row, submit, audit)
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: "cloud approval settle pending", op: row.op, error: e instanceof Error ? e.message : "unknown" }))
+    }
+  }
+  pruneApprovals(h.sql, now - APPROVAL_RETENTION_MS)
 }
 
 /** Starts per install and hour (chief decision, cx-wb5.65): a stolen install token cannot run up compute cost. */
@@ -147,16 +212,22 @@ export class InstallStarts {
     this.made = true
   }
 
-  /** The time the oldest start in the window leaves it, when this install is at the limit; else null. */
-  limitedUntil(install: string, now: number): number | null {
+  /**
+   * Reserves a start for `install` (check and insert in one synchronous step, so parallel requests
+   * cannot pass the limit together): the reservation id, or the time the oldest start in the window
+   * leaves it when the install is at the limit.
+   */
+  reserve(install: string, now: number): { id: number } | { until: number } {
     this.table()
     this.sql.exec(`DELETE FROM cloud_install_starts WHERE at <= ?`, now - INSTALL_START_WINDOW_MS)
     const rows = this.sql.exec<{ at: number }>(`SELECT at FROM cloud_install_starts WHERE install = ? ORDER BY at`, install)
-    return rows.length >= INSTALL_START_LIMIT ? rows[0]!.at + INSTALL_START_WINDOW_MS : null
+    if (rows.length >= INSTALL_START_LIMIT) return { until: rows[0]!.at + INSTALL_START_WINDOW_MS }
+    this.sql.exec(`INSERT INTO cloud_install_starts (install, at) VALUES (?, ?)`, install, now)
+    return { id: this.sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`)[0]!.id }
   }
 
-  record(install: string, now: number): void {
-    this.table()
-    this.sql.exec(`INSERT INTO cloud_install_starts (install, at) VALUES (?, ?)`, install, now)
+  /** Gives a reservation back: the start was refused, replayed or never committed. */
+  release(id: number): void {
+    this.sql.exec(`DELETE FROM cloud_install_starts WHERE rowid = ?`, id)
   }
 }
