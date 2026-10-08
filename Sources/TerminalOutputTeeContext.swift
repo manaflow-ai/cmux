@@ -78,21 +78,22 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
-        detectorsLock.withLock {
-            let now = clock.now
-            for index in detectors.indices {
-                if let confirmation = detectors[index].detector.pendingConfirmation,
-                   let deadline = detectors[index].confirmationDeadline,
-                   now >= deadline {
-                    if detectors[index].detector.confirm(confirmation) > 0 {
-                        detectors[index].unforwardedLocalConfirmations.append(confirmation)
-                    }
-                    detectors[index].confirmationDeadline = nil
-                }
+        detectorsLock.lock()
+        defer { detectorsLock.unlock() }
 
-                detectors[index].detector.consume(bytes)
-                forwardDetectorChangeIfNeeded(at: index, now: now)
+        let now = clock.now
+        for index in detectors.indices {
+            if let confirmation = detectors[index].detector.pendingConfirmation,
+               let deadline = detectors[index].confirmationDeadline,
+               now >= deadline {
+                if detectors[index].detector.confirm(confirmation) > 0 {
+                    detectors[index].unforwardedLocalConfirmations.append(confirmation)
+                }
+                detectors[index].confirmationDeadline = nil
             }
+
+            detectors[index].detector.consume(bytes)
+            forwardDetectorChangeIfNeeded(at: index, now: now)
         }
     }
 
