@@ -111,7 +111,9 @@ function syntheticKey(key: string): void {
     ...modifiers,
   });
   target.dispatchEvent(keydown);
-  target.dispatchEvent(new KeyboardEvent("keyup", { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }));
+  target.dispatchEvent(
+    new KeyboardEvent("keyup", { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
+  );
   // KeyboardEvent dispatch does not run the browser's default button activation.
   // Reproduce it for the shell runner so a native button behaves like the trusted
   // Playwright path used by the matrix runner.
