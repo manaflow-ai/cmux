@@ -88,8 +88,8 @@ final class CloudTreeNode: NSObject {
         case devicesSection(CloudTreeDevicesSection)
         /// The team's CodeRouter section: its account count and refresh icon.
         case coderouterSection(count: Int, refresh: CloudTreeSectionRefresh)
-        /// One account type (Codex, Claude, OpenCode); its children are that
-        /// type's New Account row and accounts.
+        /// One account type (Codex, Claude, OpenCode); its children are the
+        /// accounts for that type. Account creation is in the section header.
         case coderouterProviderGroup(CoderouterProvider, count: Int)
         case coderouterAccount(CoderouterAccount)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its

@@ -12,7 +12,8 @@ struct CoderouterProvider: Hashable {
     static let openrouterAPIKey = CoderouterProvider(id: "openrouter-apikey")
 
     /// The types `cr add <type>` adds, in sidebar order. Each keeps its group
-    /// and New Account row even before the team has an account of that type.
+    /// even before the team has an account of that type; the section header's
+    /// Add menu owns account creation.
     /// API-key types have no `cr add` flow yet; their accounts still list.
     static let addable: [CoderouterProvider] = [.codex, .claude, .opencodeGo]
 
@@ -30,10 +31,10 @@ struct CoderouterProvider: Hashable {
     }
 
     var newAccountTitle: String {
-        String(format: String(localized: "coderouter.newAccount", defaultValue: "New %@ Account"), title)
+        String(format: String(localized: "coderouter.newAccount", defaultValue: "Add %@ account"), title)
     }
 
-    /// The command a New Account row submits in a terminal. An explicit
+    /// The command an Add Account menu submits in a terminal. An explicit
     /// organization keeps the account attached to the team whose row was
     /// clicked even if another terminal changes CodeRouter's active scope.
     var addCommand: String {

@@ -146,9 +146,9 @@ extension CloudTreeNodeBuilder {
     }
 
     /// One group per account type: every type CodeRouter can add, then any
-    /// other type the team already has. Each addable group gets its New Account
-    /// row from `CloudTreeCreateActionBuilder`. Account rows are snapshots;
-    /// credentials never enter the tree.
+    /// other type the team already has. Addable groups are kept even when
+    /// empty so the section header's Add menu can target them. Account rows
+    /// are snapshots; credentials never enter the tree.
     static func coderouterNode(_ section: CloudTreeCoderouterSection) -> CloudTreeNode {
         let byProvider = Dictionary(grouping: section.accounts, by: \.provider)
         let others = byProvider.keys.filter { !$0.canAdd }.sorted { $0.id < $1.id }

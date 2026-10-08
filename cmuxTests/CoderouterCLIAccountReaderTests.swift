@@ -649,8 +649,8 @@ struct CoderouterSidebarSectionTests {
         CloudTreeNode.CoderouterAccount(id: id, provider: provider, label: "\(id)@example.com", state: state, remainingPercent: remaining)
     }
 
-    @Test("Accounts group by type, each addable type led by its New Account row")
-    func groupsByProviderWithCreateRows() throws {
+    @Test("Accounts group by type without action rows in the roster")
+    func groupsByProviderWithoutCreateRows() throws {
         let section = CloudTreeCoderouterSection(accounts: [
             account("a", .codex, remaining: 93),
             account("b", .codex),
@@ -663,16 +663,17 @@ struct CoderouterSidebarSectionTests {
         #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode Go", "Gemini"])
         let codex = root.children[0]
         #expect(codex.kind == .coderouterProviderGroup(.codex, count: 2))
-        #expect(codex.children.map(\.searchableTitle) == ["New Codex Account", "a@example.com", "b@example.com"])
-        // An empty addable type still offers its New Account row.
-        #expect(root.children[1].children.map(\.searchableTitle) == ["New Claude Account"])
-        #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Go Account"])
-        // A type CodeRouter can't add lists its accounts without a create row.
+        #expect(codex.children.map(\.searchableTitle) == ["a@example.com", "b@example.com"])
+        // Empty addable types remain visible as destinations in the group
+        // list; the section header's Add menu owns their creation action.
+        #expect(root.children[1].children.isEmpty)
+        #expect(root.children[2].children.isEmpty)
+        // A type CodeRouter can't add lists its accounts without an action row.
         #expect(root.children[3].children.map(\.searchableTitle) == ["c@example.com"])
     }
 
-    @Test("New Account rows run the CLI add flow for their type")
-    func createRowAddsItsType() {
+    @Test("Add Account actions run the CLI add flow for their type")
+    func addAccountActionAddsItsType() {
         final class Added { var providers: [CoderouterProvider] = [] }
         let added = Added()
         var actions = CloudTreeNodeActions(
