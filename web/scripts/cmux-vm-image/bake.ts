@@ -62,7 +62,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "./metadata-guard";
+} from "../../services/vms/images/metadataGuard";
 import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
