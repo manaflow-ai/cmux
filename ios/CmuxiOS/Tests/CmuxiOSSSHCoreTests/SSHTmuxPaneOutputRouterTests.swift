@@ -17,12 +17,14 @@ import Testing
         try router.hydrate(identity: identity, paneID: "%3", snapshot: Data("right".utf8))
         try router.ingest(identity: identity, paneID: "%2", bytes: Data("tail".utf8))
 
-        let left = router.drain(paneID: "%2", maximumBytes: 16_385)
-        #expect(left.count == 2)
+        let left = router.drain(paneID: "%2", maximumBytes: 16_389)
+        #expect(left.count == 3)
         #expect(left[0].kind == .snapshot)
         #expect(left[0].sequence == 0)
-        #expect(left[1].kind == .live)
-        #expect(left[1].sequence == 2)
+        #expect(left[1].kind == .snapshot)
+        #expect(left[1].sequence == 1)
+        #expect(left[2].kind == .live)
+        #expect(left[2].sequence == 2)
         let leftBytes = left.reduce(into: Data()) { result, delivery in
             result.append(delivery.bytes)
         }
