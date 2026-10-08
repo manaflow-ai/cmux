@@ -39,6 +39,33 @@ extension LiveWebRTCTests {
             await pair.stop()
         }
 
+        @Test("cancelling a blocked send removes its waiter and admits no frame")
+        func blockedSendCancellationDoesNotAdmit() async throws {
+            let pair = await WebRTCPair()
+            let (dialer, _) = try await within { try await pair.connect() }
+            let peer = dialer.connection.peer
+            let key = LaneLabel(lane: Self.lane).label
+            Self.fillQueue(peer, key: key)
+            let queuedBefore = peer.state.withLockUnchecked { $0.laneQueues[key]?.queuedBytes ?? 0 }
+
+            let blocked = Task {
+                try await peer.send(TransportFrame(lane: Self.lane, bytes: Data(repeating: 0xCC, count: 1024)))
+            }
+            try await Self.waitForWaiter(peer, key: key, count: 1)
+            blocked.cancel()
+            await #expect(throws: CancellationError.self) {
+                try await within(.seconds(1)) { try await blocked.value }
+            }
+            try await within(.seconds(1)) {
+                while Self.waiterCount(peer, key: key) != 0 { await Task.yield() }
+            }
+            let queuedAfter = peer.state.withLockUnchecked { $0.laneQueues[key]?.queuedBytes ?? 0 }
+            #expect(queuedAfter == queuedBefore)
+            #expect(!peer.isClosed)
+            await dialer.close()
+            await pair.stop()
+        }
+
         @Test("a send that is already cancelled never registers a room waiter")
         func preCancelledWaiterDoesNotStrand() async throws {
             let pair = await WebRTCPair()
