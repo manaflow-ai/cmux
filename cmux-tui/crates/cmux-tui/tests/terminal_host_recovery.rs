@@ -5331,3 +5331,6 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
+
+#[path = "terminal_host_recovery/reconnect_checkpoints.rs"]
+mod reconnect_checkpoints;
