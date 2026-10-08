@@ -20,7 +20,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { API_ORIGINS, signMessage } from "../../../images/cmux-vm/guest/vm-agent";
+import { API_ORIGINS, HOST_JOURNAL, HOST_UNIT, signMessage } from "./host-agent";
 import { argValue, freestyleApiKey, run, type Vm } from "./guest";
 import { Freestyle } from "freestyle";
 
@@ -140,7 +140,7 @@ async function vmFor(fs: Freestyle, machine: string): Promise<Vm> {
   return fs.vms.ref(data.id) as unknown as Vm;
 }
 
-const AGENT_LOG = "journalctl -m -u cmux-vm-agent.service --no-pager -o cat";
+const AGENT_LOG = HOST_JOURNAL;
 
 export async function main(argv = process.argv): Promise<number> {
   assertDevOrigin(ORIGIN);
@@ -187,11 +187,11 @@ export async function main(argv = process.argv): Promise<number> {
       return { value: null, detail: `${data.snapshotId} (${data.sourceSnapshotSlugAtCreate ?? channel.snapshot}) = channels/dev.json` };
     });
     await R.step("VM agent evidence (bind, keys, machine-id)", async () => {
-      const r = await run(vm, `${AGENT_LOG} | grep -E 'bind:|machine-id|heartbeat' | head -5; jq -r 'keys|join(",")' /var/lib/cmux/bound.json; stat -c %a /var/lib/cmux/bound.json /var/lib/cmux/install/key.json; test "$(cat /var/lib/cmux/machine-id.instance)" = "$(curl -sf -m 2 -H "X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-id)" && echo machine-id-per-clone`);
+      const r = await run(vm, `${AGENT_LOG} | grep -E 'bind:|machine-id|heartbeat' | head -5; jq -r 'keys|join(",")' /var/lib/cmux/bound.json; stat -c %a /var/lib/cmux/bound.json /var/lib/cmux/install/key.json; ${AGENT_LOG} | grep -q 'new machine-id=' && echo machine-id-per-clone`);
       if (r.code !== 0 || !/bind: bound/.test(r.stdout)) throw new Error(r.stdout.trim().slice(-300) || r.stderr.slice(-300));
       return { value: null, detail: r.stdout.trim().split("\n").join(" | ") };
     });
-    const hasReportLog = (await run(vm, "grep -q 'report \\${r.reason}' /opt/cmux/guest/vm-agent.ts && echo yes")).stdout.includes("yes");
+    const hasReportLog = true /* the Rust cloud role logs every report result */;
     /** Test-side wait for an agent log line, optionally only lines logged at or after `sinceUnix`. */
     const journalWait = async (pattern: string, budgetMs: number, sinceUnix?: number): Promise<string> => {
       const t0 = Date.now();
@@ -216,11 +216,14 @@ export async function main(argv = process.argv): Promise<number> {
           return { value: null, detail: await journalWait("report [a-z+]*(change|resume)[a-z+]* (applied|held)", 30_000, sentAt) };
         } catch (error) {
           const tail = await run(vm, `${AGENT_LOG} | tail -6`);
+          // The whole agent journal (no secret is logged) for the diagnosis; the VM is deleted after.
+          const full = await run(vm, `journalctl -m -u ${HOST_UNIT} --no-pager -o short-precise | grep -v -E 'sudo|pam_unix'`);
+          writeFileSync(path.join(outDir, "agent-journal.txt"), full.stdout);
           throw new Error(`${(error as Error).message}; agent log: ${tail.stdout.trim().split("\n").join(" | ")}`);
         }
       });
       await R.step("heartbeat on a 15 s test interval (dev override)", async () => {
-        await run(vm, "mkdir -p /etc/systemd/system/cmux-vm-agent.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-vm-agent.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-vm-agent.service");
+        await run(vm, "mkdir -p /etc/systemd/system/cmux-host.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-host.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-host.service");
         const restartedAt = Math.floor(Date.now() / 1000);
         // Every provider exec steps the guest clock, which fires the resume timer and re-arms the
         // heartbeat (cloud-automation.md 26). So: no exec for 40 s (the restart exec itself causes one resume report about 10 s later), then one read.
@@ -289,7 +292,7 @@ export async function main(argv = process.argv): Promise<number> {
       });
     }
     await R.step("VM after start (agent alive)", async () => {
-      const r = await run(vm, `systemctl is-active cmux-vm-agent.service; ${AGENT_LOG} | tail -3`);
+      const r = await run(vm, `systemctl is-active ${HOST_UNIT}; ${AGENT_LOG} | tail -3`);
       if (!/^active/.test(r.stdout)) throw new Error(r.stdout.trim().slice(-300));
       return { value: null, detail: r.stdout.trim().split("\n").join(" | ") };
     });
