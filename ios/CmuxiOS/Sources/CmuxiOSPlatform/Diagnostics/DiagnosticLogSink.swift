@@ -90,8 +90,12 @@ public final class DiagnosticLogSink: DiagnosticRecording, Sendable {
     }
 
     private static func bounded(_ text: String, maxBytes: Int) -> String {
+        guard maxBytes > 0 else { return "" }
         guard text.utf8.count > maxBytes else { return text }
         let marker = "[diagnostics export truncated]\n"
+        if maxBytes <= marker.utf8.count {
+            return String(decoding: marker.utf8.prefix(maxBytes), as: UTF8.self)
+        }
         let budget = max(0, maxBytes - marker.utf8.count)
         var bytes = Array(text.utf8.suffix(budget))
         while !bytes.isEmpty {

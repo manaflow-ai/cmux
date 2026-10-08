@@ -72,6 +72,17 @@ struct DiagnosticLogSinkTests {
         #expect(text.contains("line 79"))
     }
 
+    @Test func tinyExportCapsNeverWritePastTheConfiguredLimit() async throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sink = DiagnosticLogSink(directory: directory, maxExportBytes: 1)
+        sink.info("router", "line")
+        let header = DiagnosticSupportInfo(appVersion: "1", build: "2", osVersion: "iOS", deviceModel: "iPhone",
+                                           locale: "en_US")
+        let url = try await sink.export(header: header, to: directory)
+        #expect(try Data(contentsOf: url).count <= 1)
+    }
+
     @Test func tapSeesScrubbedLines() async {
         let sink = DiagnosticLogSink(directory: nil)
         let seen = TapBox()
