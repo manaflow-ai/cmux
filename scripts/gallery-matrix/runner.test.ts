@@ -13,6 +13,7 @@ test("ordinary matrix cards include settled interaction latency", () => {
   const html = renderIndex([{ id: "case", engine: "chromium", screenshot: "case.png", play: { steps: [{ settleMs: 10 }, { settleMs: 20 }, { settleMs: 30 }] } }]);
   expect(html).toContain('"latency":{"count":3,"p50":20,"p95":30,"max":30}');
   expect(html).toContain("latencyCell");
+  expect(html).toContain("playCells(r)");
 });
 
 test("parses and validates a manifest", () => {
