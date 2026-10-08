@@ -8706,20 +8706,25 @@ mod tests {
         );
     }
 
+    /// The launcher keys (cx-kyn5) select nothing any more: an old file with
+    /// any value in them still loads, and the live browser keys beside them
+    /// stay in effect instead of the whole section being discarded.
     #[test]
-    fn browser_mode_defaults_headful_parses_headless_and_rejects_invalid_values() {
-        let raw: RawConfig = serde_json::from_str(r##"{}"##).unwrap();
-        assert!(raw.browser.mode.is_none());
-        assert_eq!(Browser::default().mode, BrowserMode::Headful);
-
-        let raw: RawConfig =
-            serde_json::from_str(r##"{"browser": {"mode": "headless"}}"##).unwrap();
-        assert_eq!(raw.browser.mode.map(BrowserMode::from), Some(BrowserMode::Headless));
-
-        let err = serde_json::from_str::<RawConfig>(r##"{"browser": {"mode": "stealth"}}"##)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("unknown variant `stealth`"), "{err}");
+    fn compatibility_browser_keys_are_ignored_whatever_their_value() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = TestDirectory::new("browser-compat-keys");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r##"{"browser":{"mode":"stealth","chrome_binary":7,"discover":"yes","discover_ports":[1],"user_data_dir":"/x","ephemeral":true,"max_capture_megapixels":1.0,"capture_scale":0.5}}"##,
+        )
+        .unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        assert_eq!(config.browser.max_capture_megapixels, 1.0);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
     }
 
     #[test]
@@ -8727,14 +8732,17 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = TestDirectory::new("section-recovery");
         let path = dir.path.join("cmux-tui.json");
-        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
-            .unwrap();
+        std::fs::write(
+            &path,
+            r##"{"theme":{"sidebar_rail":42},"browser":{"max_capture_megapixels":"big"}}"##,
+        )
+        .unwrap();
         let old = std::env::var_os("CMUX_TUI_CONFIG");
         unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
         let config = load();
         restore_env_var("CMUX_TUI_CONFIG", old);
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
-        assert_eq!(config.browser.mode, BrowserMode::Headful);
+        assert_eq!(config.browser.max_capture_megapixels, Browser::default().max_capture_megapixels);
     }
 
     #[test]
