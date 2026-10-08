@@ -471,4 +471,54 @@ export const EMPTY_PAGE: LatencyPageSpec = {
   actions: emptyActions,
 };
 
-export const PAGES: LatencyPageSpec[] = [DIFF_PAGE, MARKDOWN_PAGE, PICKER_PAGE, EMPTY_PAGE];
+// The real acpmux pane against its in-page mock daemon (test/latency/agent-pane.html). These
+// measure the response that matters for desktop feel: opening a frequent picker, and opening the
+// slash command menu from the composer. The mock still exercises the production reducer and
+// renderers, while keeping network and daemon timing out of the input-to-paint measurement.
+const agentPaneActions: LatencyAction[] = [
+  {
+    name: "model menu open",
+    async prepare(page) {
+      await page.waitForSelector(".acpmux-model .acpmux-picker-button");
+      await page.keyboard.press("Escape");
+      return `document.querySelector(".acpmux-model .acpmux-menu") === null`;
+    },
+    async input(page) {
+      await page.click(".acpmux-model .acpmux-picker-button");
+    },
+    async settle(page) {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(100);
+    },
+  },
+  {
+    name: "slash menu open",
+    async prepare(page) {
+      const editor = ".acpmux-composer [contenteditable='true']";
+      await page.waitForSelector(editor);
+      await page.focus(editor);
+      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.press("Backspace");
+      await page.keyboard.press("Escape");
+      return `document.querySelector(".acpmux-slash-menu") === null`;
+    },
+    async input(page) {
+      await page.keyboard.press("/");
+    },
+    async settle(page) {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(100);
+    },
+  },
+];
+
+export const AGENT_PANE_PAGE: LatencyPageSpec = {
+  name: "agent pane",
+  path: "/latency-agent-pane.html",
+  ready:
+    `document.querySelector(".acpmux-model .acpmux-picker-button") !== null && ` +
+    `document.querySelector(".acpmux-composer [contenteditable='true']") !== null`,
+  actions: agentPaneActions,
+};
+
+export const PAGES: LatencyPageSpec[] = [DIFF_PAGE, MARKDOWN_PAGE, PICKER_PAGE, EMPTY_PAGE, AGENT_PANE_PAGE];
