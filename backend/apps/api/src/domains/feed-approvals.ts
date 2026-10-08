@@ -11,7 +11,8 @@ import type { FeedItem } from "@cmux/protocol"
 export const integrationPoster = (p: Principal): string | null =>
   p.kind === "system" && p.user && p.identity.startsWith("system:connections:") ? p.identity.slice("system:connections:".length) : null
 
-const approvalOf = (item: FeedItem): { team: string; request: string; digest: string } | null => {
+/** The approval an integration approve item carries, when its poster scope is the named team's ConnectionDO. */
+export const approvalOf = (item: FeedItem): { team: string; request: string; digest: string } | null => {
   if (item.poster.kind !== "integration" || item.kind !== "approve") return null
   const a = ((item.prompt as { action?: { input?: { approval?: unknown } } } | undefined)?.action?.input?.approval ?? null) as Record<string, unknown> | null
   if (!a || typeof a.team !== "string" || typeof a.request !== "string" || typeof a.digest !== "string" || !a.team) return null
@@ -21,8 +22,10 @@ const approvalOf = (item: FeedItem): { team: string; request: string; digest: st
 }
 
 /** The outbox item that tells the posting ConnectionDO the person's decision, or none. */
-export const approvalDecision = (item: FeedItem, decision: "allow" | "deny"): ReadonlyArray<OutboxItem> => {
+export const approvalDecision = (item: FeedItem, decision: "allow" | "deny", ssoTeam?: string): ReadonlyArray<OutboxItem> => {
   const a = approvalOf(item)
   if (!a) return []
-  return [{ kind: "integration.approval.answered", entity: `approval:${a.request}`, payload: { request: a.request, decision, digest: a.digest }, target: { class: "ConnectionDO", name: a.team } }]
+  // The answering session's SSO team: the posting team checks it at answer time when it enforces SSO.
+  const sso = decision === "allow" && ssoTeam ? { sso_team: ssoTeam } : {}
+  return [{ kind: "integration.approval.answered", entity: `approval:${a.request}`, payload: { request: a.request, decision, digest: a.digest, ...sso }, target: { class: "ConnectionDO", name: a.team } }]
 }
