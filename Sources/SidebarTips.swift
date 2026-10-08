@@ -111,34 +111,3 @@ enum SidebarTipsCatalog {
         all.filter { !$0.requiresModifierHoldHints || showsModifierHoldHints }
     }
 }
-
-/// `UserDefaults` keys for `SidebarTipsProgress`. Seen ids are stored
-/// comma-joined so `@AppStorage` can observe them across windows.
-enum SidebarTipsStorage {
-    static let currentTipIDKey = "sidebarTips.currentTipID"
-    static let seenTipIDsKey = "sidebarTips.seenTipIDs"
-    static let lastOpenedDayKey = "sidebarTips.lastOpenedDay"
-    // Keep the original key so earlier opt-outs still suppress reminders.
-    static let automaticTipsDisabledKey = "sidebarTips.hidden"
-    static let lastOpenedAtKey = "sidebarTips.lastOpenedAt"
-
-    static func progress(
-        currentTipID: String,
-        seenTipIDs: String,
-        lastOpenedDay: String,
-        automaticTipsDisabled: Bool = false,
-        lastOpenedAt: Double = 0
-    ) -> SidebarTipsProgress {
-        SidebarTipsProgress(
-            currentTipID: currentTipID.isEmpty ? nil : currentTipID,
-            seenTipIDs: Set(seenTipIDs.split(separator: ",").map(String.init)),
-            lastOpenedDay: lastOpenedDay.isEmpty ? nil : lastOpenedDay,
-            automaticTipsDisabled: automaticTipsDisabled,
-            lastOpenedAt: lastOpenedAt > 0 ? Date(timeIntervalSince1970: lastOpenedAt) : nil
-        )
-    }
-
-    static func encodedSeenTipIDs(_ ids: Set<String>) -> String {
-        ids.sorted().joined(separator: ",")
-    }
-}
