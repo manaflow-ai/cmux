@@ -190,6 +190,33 @@ describe("T3 model picker", () => {
     expect(modelButton().getAttribute("aria-expanded")).toBe("true");
   });
 
+  test.each([
+    ["harness row", ".acpmux-mp-harness"],
+    ["favorites filter", ".acpmux-mp-harness-favorites"],
+    ["model row", ".acpmux-mp-row"],
+    ["favorite button", ".acpmux-mp-favorite"],
+  ])("Escape from the %s closes the picker and restores the trigger", async (_name, selector) => {
+    await render();
+    await act(async () => modelButton().click());
+    const control = menu()!.querySelector<HTMLElement>(selector)!;
+    control.focus();
+    await key(control, "Escape");
+    expect(menu() === null).toBe(true);
+    expect(doc.activeElement === modelButton()).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  test("an Escape consumed by a picker control keeps the picker open", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const favorite = menu()!.querySelector<HTMLElement>(".acpmux-mp-favorite")!;
+    favorite.focus();
+    favorite.addEventListener("keydown", (event) => event.preventDefault(), { once: true });
+    await key(favorite, "Escape");
+    expect(menu() !== null).toBe(true);
+    expect(doc.activeElement === favorite).toBe(true);
+  });
+
   test("shows the harness fast-mode toggle when ACP exposes it", async () => {
     await render({
       ...snapshot(),
