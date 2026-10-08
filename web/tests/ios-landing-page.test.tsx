@@ -46,7 +46,7 @@ mock.module("../app/[locale]/components/github-button", () => ({
 }));
 
 mock.module("../app/[locale]/components/reveal-image", () => ({
-  RevealImage: ({ alt }: { alt: string }) => <img alt={alt} />,
+  RevealImage: () => null,
 }));
 
 const { default: IosLanding } = await import(
