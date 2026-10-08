@@ -3287,6 +3287,7 @@
 		B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */; };
 		0F11723899EA5A1AEDF2F6CB /* SidebarHeaderGlyphButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9935562ACC010FC73782536 /* SidebarHeaderGlyphButton.swift */; };
 		B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */; };
+		D179E15015F14DA2E35D6F33 /* SidebarHiddenPresentationTests+Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03AE4BF29977BB12B3645EFC /* SidebarHiddenPresentationTests+Support.swift */; };
 		B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D010000000000000001 /* SidebarHiddenPresentationTests.swift */; };
 		51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */; };
 		AABBCC00000000000000020C /* SidebarInlineRenameAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000020B /* SidebarInlineRenameAction.swift */; };
@@ -7757,6 +7758,7 @@
 		B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift; sourceTree = "<group>"; };
 		C9935562ACC010FC73782536 /* SidebarHeaderGlyphButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarHeaderGlyphButton.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
+		03AE4BF29977BB12B3645EFC /* SidebarHiddenPresentationTests+Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarHiddenPresentationTests+Support.swift"; sourceTree = "<group>"; };
 		B8624D010000000000000001 /* SidebarHiddenPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHiddenPresentationTests.swift; sourceTree = "<group>"; };
 		51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarIdentifierFormattingTests.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000020B /* SidebarInlineRenameAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameAction.swift; sourceTree = "<group>"; };
@@ -13644,6 +13646,7 @@
 				67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */,
 				07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */,
 				519C34B311CB68481382511A /* SidebarRetainedProviderScopeTests.swift */,
+				03AE4BF29977BB12B3645EFC /* SidebarHiddenPresentationTests+Support.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18492,6 +18495,7 @@
 				B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */,
 				8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */,
 				550C0F088E89B0C35370402C /* SidebarGlassSelectionTests.swift in Sources */,
+				D179E15015F14DA2E35D6F33 /* SidebarHiddenPresentationTests+Support.swift in Sources */,
 				B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */,

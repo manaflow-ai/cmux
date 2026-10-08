@@ -270,6 +270,7 @@ struct SidebarHiddenPresentationTests {
         let notificationStore = TerminalNotificationStore.shared
         var revealRowInputProjections = 0
         var isMeasuringRevealInvalidations = false
+        var revealPassOrigins: [String] = []
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             windowId: UUID(),
@@ -285,7 +286,14 @@ struct SidebarHiddenPresentationTests {
                 \.sidebarLazyContractProbe,
                 SidebarLazyContractProbe(
                     shouldTraceBodyChanges: { isMeasuringRevealInvalidations },
-                    workspaceRowInputProjection: { revealRowInputProjections += 1 }
+                    workspaceRowInputProjection: {
+                        revealRowInputProjections += 1
+                        // First projection of each pass: which path ran it.
+                        if isMeasuringRevealInvalidations,
+                           revealRowInputProjections % max(1, tabManager.tabs.count) == 1 {
+                            revealPassOrigins.append(Self.passOrigin())
+                        }
+                    }
                 )
             )
             .defaultAppStorage(defaults)
@@ -431,6 +439,7 @@ struct SidebarHiddenPresentationTests {
             """
             Reopening may project each current workspace row at most once. \
             firstTurn=\(projectionsAfterFirstRevealTurn) \
+            passes=\(revealPassOrigins) \
             signals=[\(revealSignals.summary)]
             """
         )
@@ -516,25 +525,6 @@ struct SidebarHiddenPresentationTests {
             matches.append(contentsOf: descendants(of: type, in: subview))
         }
         return matches
-    }
-
-    /// Waits for a toggle to land. The slide commits `isVisible` when its
-    /// Core Animation spring reports it stopped; the instant path already
-    /// has. Then drains, so the landing's follow-up updates apply.
-    private func awaitToggleLanding(of state: SidebarState, in window: NSWindow, drains: Int = 20) async {
-        let target = state.requestedVisibility
-        if state.isVisible != target {
-            for await visible in state.$isVisible.values where visible == target { break }
-        }
-        await drainMainRunLoop(for: window, iterations: drains)
-    }
-
-    private func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
-        for _ in 0..<iterations {
-            window.contentView?.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
-            await Task.yield()
-        }
     }
 
     private func makeRetainingRow(
