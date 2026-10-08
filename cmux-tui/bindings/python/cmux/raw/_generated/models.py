@@ -2026,6 +2026,21 @@ class BrowserWheelGuardedRequest:
 
 
 @dataclass(frozen=True)
+class ChiefInspectRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/request'
+    path: str
+    query: Union[Dict[str, str], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ChiefInspectResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/result'
+    status: int
+    body: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    error: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ClearHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/clear-history/request'
     surface: Id
@@ -5072,6 +5087,8 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'ChiefInspectRequest',
+    'ChiefInspectResult',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClientFocusRequest',

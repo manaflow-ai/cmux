@@ -5,7 +5,10 @@
 // section, and this layer measures which names are clipped (one read pass, then one write pass,
 // after each change of rows) and runs the marquee on the hovered or focused one.
 import { MOTION_SPRINGS, springCurve } from "../../../files-panel-motion";
-import { marqueeKeyframes, marqueeTiming, titleFade } from "../../../ui/titleFade";
+import { marqueeKeyframes, marqueeTiming, titleFade, titleFadeMask } from "../../../ui/titleFade";
+import { tunableValue } from "../../../experiments/tunable";
+import { cssBezier } from "../../../ui/cubicBezier";
+import { treeMarqueeEasing, treeNameFadeCurve } from "./treeMotion.experiment";
 
 const ROWS = '[data-type="item"]';
 const CONTENT = '[data-item-section="content"]';
@@ -13,11 +16,6 @@ const CONTENT = '[data-item-section="content"]';
 export const TITLE_LEAD_PX = 4;
 /** Gap between a name and its +N -M counts that the fade reaches into (diffTheme.ts `--cmux-title-tail`). */
 export const TITLE_TAIL_PX = 6;
-/**
- * The tree's marquee scroll: fast at the start, slow at the end. The start of the name is already
- * on screen, so the scroll hurries past it and settles on the end, which the user hovered to read.
- */
-export const TREE_MARQUEE_EASING = "cubic-bezier(0.2, 0.6, 0.1, 1)";
 /** The marquee is ambient: it never holds a gallery step (gallery/frame/experimentRunner.ts). */
 const MARQUEE_ID = "cmux-ambient:marquee";
 
@@ -31,6 +29,12 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   host.style.setProperty("--cmux-title-fade", `${options.fadeWidth}px`);
   host.style.setProperty("--cmux-title-lead", `${TITLE_LEAD_PX}px`);
   host.style.setProperty("--cmux-title-tail", `${TITLE_TAIL_PX}px`);
+  // The fade's curve and the scroll's easing are tunables (treeMotion.experiment.ts).
+  host.style.setProperty(
+    "--cmux-title-mask",
+    titleFadeMask(tunableValue(treeNameFadeCurve), "var(--cmux-title-lead, 0px)", "var(--cmux-title-fade, 20px)"),
+  );
+  const marqueeEasing = cssBezier(tunableValue(treeMarqueeEasing));
   let frame = 0;
   let active: { row: HTMLElement; path: string; text: HTMLElement; animation: Animation } | null = null;
   let hovered: HTMLElement | null = null;
@@ -102,7 +106,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     const travel = Number(content.dataset.cmuxTravel);
     const timing = marqueeTiming(travel, reducedMotion());
     if (!timing) return;
-    const { keyframes, duration } = marqueeKeyframes(travel, timing, TREE_MARQUEE_EASING);
+    const { keyframes, duration } = marqueeKeyframes(travel, timing, marqueeEasing);
     active = {
       row,
       path,

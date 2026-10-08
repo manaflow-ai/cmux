@@ -758,10 +758,10 @@ fn start(
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
+            inspector: start_inspector(paths, &chat, &claude_text),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
-    start_inspector(paths, &chat, &claude_text);
     let status = chat.status();
     // Section 10: on start, print the view, so the log shows what the agent sees.
     log(format!(
@@ -979,10 +979,15 @@ fn spawn_probe(
 /// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its
 /// address and token in `optchat/inspector.json` for the app. Off with
 /// `OPTCHAT_INSPECTOR=0`; a failure only logs (the Chief runs without it).
-fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
+/// Returns the inspector for the tools socket's `inspect` tool too.
+fn start_inspector(
+    paths: &Paths,
+    chat: &Arc<OptChat>,
+    system_text: &str,
+) -> Option<Arc<crate::inspect::Inspector>> {
     let _ = std::fs::remove_file(&paths.inspector);
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
-        return;
+        return None;
     }
     let inspector = Arc::new(crate::inspect::Inspector::new(
         chat.clone(),
@@ -992,7 +997,7 @@ fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
     ));
     let started = crate::inspect::http::new_secret().and_then(|token| {
         let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
-        crate::inspect::http::start(inspector, bind, token)
+        crate::inspect::http::start(inspector.clone(), bind, token)
     });
     match started.and_then(|running| {
         crate::inspect::http::publish(&paths.inspector, &running).map(|()| running)
@@ -1004,6 +1009,7 @@ fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
         Ok(running) => log(format!("memory inspector on {}", running.url())),
         Err(e) => log(format!("memory inspector not started: {e}")),
     }
+    Some(inspector)
 }
 
 fn now_ms() -> u64 {
