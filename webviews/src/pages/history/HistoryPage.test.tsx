@@ -18,11 +18,26 @@ beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://localhost/history/",
   });
-  for (const name of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const name of [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved[name] = (globalThis as any)[name];
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
+  (globalThis as any).Element = dom.window.Element;
+  (globalThis as any).Node = dom.window.Node;
+  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
   // react-dom picks its input-event path when the module first loads; in a shared bun test
@@ -132,6 +147,33 @@ describe("HistoryPage", () => {
     });
     expect($(".page-menu")).toBeNull();
     expect($$(".history-row-title").map((t) => t.textContent)).not.toContain("manaflow-ai/cmux: pull requests");
+  });
+
+  test("context menus use the shared keyboard contract and restore the row focus", async () => {
+    await render(new MockHistoryProvider(sampleEntries(now), () => now));
+    const row = $$(".history-row.unavailable")[0]!;
+    row.focus();
+    await act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, clientX: 10_000, clientY: 10_000 }));
+    });
+
+    const menu = $("[role=menu]")!;
+    expect(menu).not.toBeNull();
+    expect(menu.querySelectorAll<HTMLElement>("[role=menuitem]")).toHaveLength(3);
+    expect(menu.querySelector<HTMLElement>("[role=menuitem][aria-disabled=true]")?.textContent).toBe("Resume Agent Session");
+
+    const positioner = $(".page-menu-positioner")!;
+    expect(positioner.style.position).toBe("fixed");
+    // Base UI owns the viewport collision calculation; the positioner stays a fixed
+    // layer even when the pointer is outside the normal page bounds.
+    expect(positioner.getAttribute("data-side")).toBeTruthy();
+
+    await act(async () => key(menu, "c"));
+    expect(dom.window.document.activeElement?.textContent).toBe("Copy Session ID");
+    await act(async () => key(menu, "End"));
+    expect(dom.window.document.activeElement?.textContent).toBe("Remove from History");
+    await act(async () => key(menu, "Escape"));
+    expect(dom.window.document.activeElement).toBe(row);
   });
 
   test("the dispatcher's commands: find focuses the search and sets its text, reset clears", async () => {
