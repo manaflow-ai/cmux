@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-import Foundation
+public import Foundation
 
 /// Aggregates visible Feed work and scroll callback pacing without content or row IDs.
 ///
@@ -30,6 +30,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
     private let consentGate: AnalyticsConsentGenerationGate
     private let consentObserver: AnalyticsConsentRevocationObserver
     private let cadence: Duration
+    private let clock: any Clock<Duration>
     private var consentTask: Task<Void, Never>?
     private var cadenceTask: Task<Void, Never>?
     private var window = Window()
@@ -49,8 +50,11 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
     /// - Parameters:
     ///   - emitter: The authenticated operational emitter, not product analytics.
     ///   - consent: Shared live telemetry permission.
+    ///   - buildSHA: Signed bundle source revision; malformed values are omitted.
+    ///   - isSimulator: Separates simulator pacing from device observations.
     ///   - notificationCenter: Delivers consent changes; injectable for tests.
     ///   - cadence: Aggregate interval, ten seconds in production.
+    ///   - clock: Cancellable aggregate cadence clock, injectable for tests.
     ///   - now: Monotonic seconds, injectable for deterministic tests.
     ///   - onAnomaly: Optional Sentry bridge returning its event ID; called at most once per minute.
     public init(
@@ -60,6 +64,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
         isSimulator: Bool = false,
         notificationCenter: NotificationCenter = .default,
         cadence: Duration = .seconds(10),
+        clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor @Sendable () -> Double = { ProcessInfo.processInfo.systemUptime },
         onAnomaly: @escaping @MainActor @Sendable (MobileFeedScrollAnomaly) -> String? = { _ in nil }
     ) {
@@ -71,6 +76,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
         self.consent = consent
         self.now = now
         self.cadence = max(.milliseconds(1), cadence)
+        self.clock = clock
         self.onAnomaly = onAnomaly
         let gate = AnalyticsConsentGenerationGate(isEnabled: consent.isTelemetryEnabled)
         consentGate = gate
@@ -196,9 +202,10 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
         startedAt = now()
         eligibleSince = startedAt
         let cadence = cadence
+        let clock = clock
         cadenceTask = Task { [weak self] in
             while !Task.isCancelled {
-                do { try await Task.sleep(for: cadence) } catch { return }
+                do { try await clock.sleep(for: cadence) } catch { return }
                 self?.emitWindow()
             }
         }
