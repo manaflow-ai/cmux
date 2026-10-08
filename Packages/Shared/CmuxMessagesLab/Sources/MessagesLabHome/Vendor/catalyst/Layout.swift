@@ -239,6 +239,7 @@ struct ThreadPreview: Hashable {
             return (String(one.prefix(28)), one.count > 28 ? String(one.dropFirst(28).prefix(30)) : "")
         case let .attachment(a): return (a.fileName, Format.bytes(a.byteSize))
         case let .location(_, _, title, _): return (title ?? Strings.location, "")
+        case let .custom(c): return (CustomRows.plainText(c), "")
         case nil: return ("…", "")
         }
     }
@@ -261,11 +262,14 @@ struct PartRow: Hashable {
     var text: TextLayout?
     /// Key of the root row when this row draws a thread connector.
     var connectorRoot: String?
+    /// Markdown text (MarkdownLayout.swift): drawn and hit-tested from this; `text` is then a
+    /// one-line proxy of the display string.
+    var markdown: MarkdownLayout? = nil
     /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
     /// body is shorter than its 16 pt-per-line slot and sits at the slot top
     /// (measured on the sent 3-line bubble: top matches, bottom 1 pt higher).
     var bodySize: CGSize {
-        guard let text else { return size }
+        guard let text, markdown == nil else { return size }
         guard outgoing else { return size }
         return CGSize(width: size.width, height: min(size.height, text.textHeight(hard: TextLayout.hardBreakAdvance) + 2 * Fixture.bubblePadY))
     }
@@ -313,6 +317,9 @@ enum Sizing {
                 return (CGSize(width: w, height: (w * img.size.height / img.size.width).rounded() - Images.mapOverhang), nil)
             }
             return (CGSize(width: mediaWidth, height: 150 + 44), nil)
+        case let .custom(c):
+            let (s, tl, _) = CustomRows.measure(c, message: nil, part: -1, width: width)
+            return (s, tl)
         }
     }
 
@@ -471,7 +478,7 @@ final class MeasureCache: @unchecked Sendable {
     static let shared = MeasureCache()
     struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat }
     struct PartKey: Hashable { var id: ID; var part: Int; var version: Int }
-    struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false }
+    struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
     private var store: [Key: Value] = [:]
     /// The latest exact measurement of each part at any width (estimates).
     private var latest: [PartKey: Value] = [:]
@@ -507,7 +514,12 @@ final class MeasureCache: @unchecked Sendable {
         if case let .text(t, _) = m.parts[pi], LongText.isLong(t) {
             return Value(size: LongTextStore.shared.size(t, width: width, message: m.id), text: nil, width: width)
         }
-        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi])
+        // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
+        if case let .custom(c) = m.parts[pi] {
+            let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width)
+            return Value(size: s, text: tl, width: width, estimated: est)
+        }
+        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi]) &+ Markdown.versionSalt(m.id)
         let k = Key(id: m.id, part: pi, version: version, width: width)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
@@ -518,8 +530,13 @@ final class MeasureCache: @unchecked Sendable {
         }
         misses += 1
         lock.unlock()
-        let (size, tl) = Sizing.size(of: m.parts[pi], width: width)
-        let v = Value(size: size, text: tl, width: width)
+        var v: Value
+        if case let .text(t, _) = m.parts[pi], let md = Markdown.layout(t, message: m.id, width: width) {
+            v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
+        } else {
+            let (size, tl) = Sizing.size(of: m.parts[pi], width: width)
+            v = Value(size: size, text: tl, width: width)
+        }
         lock.lock()
         store[k] = v
         latest[PartKey(id: m.id, part: pi, version: version)] = v
@@ -529,6 +546,11 @@ final class MeasureCache: @unchecked Sendable {
 
     /// Text keeps its total line length: lines = ceil(sum of line widths / new column).
     private static func scale(_ v: Value, to width: CGFloat, part: Part) -> Value {
+        if v.markdown != nil {
+            // Markdown keeps its height until measured at the new width.
+            let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
+            return Value(size: CGSize(width: min(v.size.width, col), height: v.size.height), text: nil, width: width, estimated: true)
+        }
         guard let tl = v.text else {
             // Media and cards: same aspect, clamped to the new column.
             let (fresh, _) = Sizing.size(of: part, width: width)
@@ -615,6 +637,11 @@ enum RowBuilder {
                 if !threadMode { connector = "part:\(r.messageId):\(r.partIndex)" }
             } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, p.replyTo == m.replyTo {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
+            } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
+                // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
+                // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
+                // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
+                gap = 7
             } else if let p = prev, p.senderId != m.senderId || p.replyTo != m.replyTo {
                 gap = 32     // a new sender, or a change of thread (measured on macOS 26)
             } else {
@@ -651,12 +678,16 @@ enum RowBuilder {
                         if case .link = before { g = 3.5 }
                     }
                     if pi > 0, case .text = m.parts[pi - 1], !isText(part) { g = 3 }
-                    if !reactions.isEmpty { g += 10 }
+                    // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
+                    // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
+                    // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
+                    // by 22.5 pt, send-typed; macOS 26 measured 10).
+                    if !reactions.isEmpty { g = (g >= 32 ? g - 5 : g) + 27.5 }
                     var failed = false
                     if case .failed = m.status { failed = true }
-                    let row = PartRow(ref: PartRef(messageId: m.id, partIndex: pi), part: part, outgoing: outgoing,
+                    let row = PartRow(ref: PartRef(messageId: m.id, partIndex: pi), part: part, outgoing: CustomRows.outgoing(part, sender: outgoing),
                                       tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions, failed: failed,
-                                      size: size, text: tl, connectorRoot: pi == 0 ? connector : nil)
+                                      size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))
                 }
@@ -739,7 +770,17 @@ enum Format {
         f.dateFormat = "h:mm\u{202F}a"
         return f
     }()
-    static func time(_ d: Date) -> String { timeFormatter.string(from: d) }
+    private static var timeMemo: [Date: String] = [:]
+    private static let timeLock = NSLock()
+    /// Memoized (receipt rows format the same times on every derive; ICU costs 0.1-0.3 ms per call).
+    static func time(_ d: Date) -> String {
+        timeLock.lock()
+        if let s = timeMemo[d] { timeLock.unlock(); return s }
+        timeLock.unlock()
+        let s = timeFormatter.string(from: d)
+        timeLock.lock(); if timeMemo.count > 4096 { timeMemo.removeAll() }; timeMemo[d] = s; timeLock.unlock()
+        return s
+    }
     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
     private static func formatter(_ f: String) -> DateFormatter {
         let d = DateFormatter()

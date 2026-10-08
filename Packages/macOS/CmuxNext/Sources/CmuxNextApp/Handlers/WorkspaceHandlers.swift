@@ -43,16 +43,17 @@ enum WorkspaceHandlers {
 
     /// Creates a workspace (named `name`) with one terminal in `cwd` and
     /// shows it in the active window, or a new window when none is open.
-    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil,
+    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil, key: WorkspaceKey? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        createAndShow(services: context.services, name: name, cwd: cwd, then: configure)
+        createAndShow(services: context.services, name: name, cwd: cwd, key: key, then: configure)
     }
 
     /// Same; `newWindow` opens it in a new window (Shift-Return in the
     /// address bar) instead of the active one, `window` in that open
     /// window; `room` pins it to that space first (Open Link in New Space).
-    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, newWindow: Bool = false,
-                              window: String? = nil, room: ProfileID? = nil,
+    /// `key` names the new workspace (a History reopen picks it first); a fresh one by default.
+    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, key workspaceKey: WorkspaceKey? = nil,
+                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
         let windows = services.windows!
@@ -60,10 +61,17 @@ enum WorkspaceHandlers {
         // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
         let home = services.machines.local
+        // One ticket for the whole creation, opened now: an action run
+        // answers after it (and the barrier covers its echo), so `created`
+        // names the workspace and the tabs `configure` made.
+        let ticket = daemon.openTicket()
         Task {
-            guard let connection = daemon.connection else { return }
+            guard let connection = daemon.connection else {
+                await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
+                return
+            }
             do {
-                let key = WorkspaceKey.generate()
+                let key = workspaceKey ?? WorkspaceKey.generate()
                 windows.claimNew(workspaceID: key.rawValue, window: target)
                 if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)
@@ -73,8 +81,10 @@ enum WorkspaceHandlers {
                     try await configure?(connection, terminal)
                     return created.rawValue
                 }
+                await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                await daemon.closeTicket(ticket, label: "create workspace", error: error)
             }
         }
     }

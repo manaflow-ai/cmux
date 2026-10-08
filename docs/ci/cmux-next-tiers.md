@@ -12,7 +12,26 @@ job's summary lists each tier and the reason for it.
 | native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
 | swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
-| daemon | `wait for the same-tree cmux-tui` and `cmux-next daemon tests` | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | Linux wait, then a mini |
+| daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
+
+A web nit runs no Mac tier. When every changed file is under `webviews/`, the
+webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
+or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
+type-checks, lints and tests the sources, and `build-agent-pane-web.sh --check`
+proves the committed bundle matches them; the bundle is a `.copy` resource, so
+the app takes it without a compile. gallery-pr diffs the touched entries. A
+`dev-build` PR still compiles its dogfood app.
+
+A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
+`scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
+guards run actionlint and the CI unit tests. When the router itself changes,
+`Routing replay (router changes)` replays the last 30 merged PRs' changed files
+through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)
+and fails on any tier the new router adds, or drops without naming a fast tier.
+`gh-merge-green --revert OWNER/REPO#N` undoes a bad one in a command. A file
+that a Mac tier reads keeps its tier whatever its name: the Xcode pins,
+`.github/actions/setup-cmux-tui-rust/`, daemon and tree inputs, generated-file
+inputs such as `plans/cmux-next/`, and every file a Swift test reads.
 
 Every tier runs on:
 
@@ -42,6 +61,25 @@ changed, when the test target itself changed, or when a file it reads changed.
 
 The live-daemon suites skip without the same-tree cmux-tui binary. The daemon
 tier runs them against it. A UI change does not wait for the tree.
+
+### The same-tree cmux-tui is an event
+
+No runner waits for the tree. `cmux-next path routing` probes it once
+(`pin-cmux-tui.sh probe`) when the daemon or scheme tier runs:
+
+- published: `cmux-next daemon tests` and `cmux app scheme compile (Debug)`
+  run in the same run;
+- an artifacts run that can publish it is active: the run uploads a
+  `cmux-next-tree-wait-<key>` marker and skips the two jobs. When that
+  `cmux-tui artifacts` run publishes the key, it dispatches cmux-next's
+  same-tree mode (`scripts/ci/cmux_next_tree_notify.py`) for each run that is
+  still current. That run checks out the probed commit (a pull request's merge
+  commit), runs only the two jobs, and posts `... (same-tree)` commit statuses
+  on the push or the pull request head;
+- superseded push: the two jobs skip;
+- nothing will publish it: `same-tree cmux-tui` fails at once with the reason.
+  The marker stays, so a later publication of the key (a re-run, a
+  `cmux-tui-pin-*` push) still starts the jobs.
 
 ### What a UI-only PR no longer checks
 

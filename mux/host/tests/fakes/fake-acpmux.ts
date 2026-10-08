@@ -21,7 +21,13 @@ interface Session {
 
 export class FakeAcpmux {
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
+  /** Methods whose replies are withheld (a stuck request). */
+  readonly hold = new Set<string>();
   respond: Respond = (_s, text) => `echo: ${text}`;
+  /** When false, `session/prompt` sends no `_acpmux/prompt_accepted` (a hub that never acknowledges). */
+  acknowledge = true;
+  /** The next this many `session/prompt` requests are refused with an error (no agent session). */
+  rejectPrompts = 0;
   private server!: Server;
   private readonly clients = new Set<Socket>();
   private readonly watchers = new Set<Socket>();
@@ -80,6 +86,11 @@ export class FakeAcpmux {
     return permissionId;
   }
 
+  /** Open client connections. */
+  get clientCount(): number {
+    return this.clients.size;
+  }
+
   private accept(socket: Socket): void {
     this.clients.add(socket);
     socket.setEncoding("utf8");
@@ -94,7 +105,7 @@ export class FakeAcpmux {
         const params = message.params ?? {};
         this.calls.push({ method: message.method, params });
         const reply = (result: unknown) => {
-          if (message.id !== undefined && !socket.destroyed)
+          if (message.id !== undefined && !socket.destroyed && !this.hold.has(message.method))
             socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n`);
           this.notify();
         };
@@ -203,16 +214,23 @@ export class FakeAcpmux {
         return;
       }
       case "session/prompt":
-        return this.prompt(params, reply);
+        if (this.rejectPrompts > 0) {
+          this.rejectPrompts -= 1;
+          throw new Error("no agent session");
+        }
+        return this.prompt(params, reply, socket);
       default:
         throw new Error(`unknown method ${method}`);
     }
   }
 
-  private prompt(params: Record<string, unknown>, reply: (r: unknown) => void): void {
+  private prompt(params: Record<string, unknown>, reply: (r: unknown) => void, socket: Socket): void {
     const session = this.resolve(params.sessionId);
     const text = ((params.prompt as { text?: string }[]) ?? []).map((p) => p.text ?? "").join("");
     const promptId = (params._meta as { acpmux?: { promptId?: string } } | undefined)?.acpmux?.promptId;
+    // The real hub acknowledges every recorded prompt (new or duplicate) to the prompting connection at once.
+    if (this.acknowledge && !socket.destroyed)
+      socket.write(`${JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/prompt_accepted", params: { sessionId: session.summary.sessionId, promptId, queued: session.running } })}\n`);
     if (promptId) {
       const known = session.prompts.get(promptId);
       if (known) {

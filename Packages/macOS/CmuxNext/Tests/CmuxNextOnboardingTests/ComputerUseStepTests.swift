@@ -67,6 +67,52 @@ import Testing
         #expect(source.opened == [.screenRecording] && model.computerUse.helping == nil)
     }
 
+    /// A dev build with no Developer ID signed helper: Allow opens no list,
+    /// floats no tile (nothing to grant that the TCC row would accept) and
+    /// the step says computer use is unavailable in this build.
+    @Test func withoutASignedHelperAllowReportsUnavailable() async {
+        let source = MockComputerUsePermissionSource(helperAppURL: nil)
+        let services = MockOnboardingServices()
+        services.computerUseSource = source
+        let model = OnboardingModel(services: services, start: .computerUse)
+        model.stepDidAppear()
+        let view = ComputerUseStepView(model: model.computerUse)
+        view.frame = NSRect(x: 0, y: 0, width: 520, height: 260)
+        #expect(!Self.shownText(view).contains(OnboardingStrings.computerUseHelperUnavailable))
+        model.computerUse.allow(.screenRecording)
+        #expect(source.opened.isEmpty)
+        #expect(model.computerUse.helping == nil)
+        #expect(model.computerUse.unavailable)
+        await settle { Self.shownText(view).contains(OnboardingStrings.computerUseHelperUnavailable) }
+        #expect(Self.shownText(view).contains(OnboardingStrings.computerUseHelperUnavailable))
+        model.finish(completed: true)
+    }
+
+    /// A helper that does not speak this build's protocol: the step says
+    /// the versions do not match instead of showing nothing.
+    @Test func aHelperVersionMismatchIsShown() async {
+        let source = MockComputerUsePermissionSource(current: .helperVersionMismatch)
+        let services = MockOnboardingServices()
+        services.computerUseSource = source
+        let model = OnboardingModel(services: services, start: .computerUse)
+        let view = ComputerUseStepView(model: model.computerUse)
+        view.frame = NSRect(x: 0, y: 0, width: 520, height: 260)
+        model.stepDidAppear()
+        await settle { Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch) }
+        #expect(Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch))
+        source.current = .none
+        await settle { !Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch) }
+        #expect(!Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch))
+        model.finish(completed: true)
+    }
+
+    static func shownText(_ view: NSView) -> [String] {
+        var found: [String] = []
+        if let field = view as? NSTextField, !field.isHiddenOrHasHiddenAncestor { found.append(field.stringValue) }
+        for child in view.subviews { found += shownText(child) }
+        return found
+    }
+
     @Test func closingTheTileOrTheFlowEndsTheHelp() {
         let source = MockComputerUsePermissionSource()
         let services = MockOnboardingServices()

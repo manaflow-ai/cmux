@@ -14,8 +14,8 @@
 //! the only claims are `{claim: "page"}` and `{claim: "user", confirmation}`,
 //! where the confirmation is a single-use token the verified app minted for
 //! exactly this operation, these params and this relay connection
-//! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`
-//! and `apps.enable` need origin `user`.
+//! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`,
+//! `apps.enable` and `workspace.agent_folder.set` need origin `user`.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,9 +35,11 @@ pub(crate) const ORIGIN_CLAIM_CAPABILITY: &str = "origin-claim-v1";
 pub(crate) const ISSUE_OPERATION: &str = "origin.confirmation.issue";
 /// How long an issued confirmation token is valid.
 pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
-/// Gate A2: operations that need origin `user`.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
-    ["apps.install", "apps.uninstall", "apps.enable"];
+/// Gate A2: operations that need origin `user`. The workspace's agent
+/// folder decides where agents run, so only the user sets it
+/// (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 4] =
+    ["apps.install", "apps.uninstall", "apps.enable", crate::state::agent_folder::OPERATION];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
 pub(crate) const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
@@ -110,6 +112,8 @@ pub(crate) struct ConnectionOrigin {
     /// Role main plus a proof (P8: install-key hello on DEV builds, the
     /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
+    /// The install id the install-key proof (prover B) proved, if any.
+    pub(crate) install_id: Option<String>,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
 }
@@ -129,6 +133,18 @@ impl ConnectionOrigin {
             HelloRole::Main if self.verified_app => RequestOrigin::User,
             HelloRole::Main | HelloRole::Legacy => RequestOrigin::Agent,
         }
+    }
+
+    /// The actor of every durable mutation this connection causes
+    /// (identity.md section 3): the verified app is `frontend`, any other
+    /// local connection the local `user`. A request can never change it.
+    pub(crate) fn actor(&self) -> crate::workspace_registry::Actor {
+        use crate::workspace_registry::Actor;
+        if self.derive() != RequestOrigin::User {
+            return Actor::local_user();
+        }
+        let install_id = self.install_id.clone().unwrap_or_else(|| "signed_app".to_string());
+        Actor::Frontend { install_id }
     }
 
     /// Stores a token minted for this relay connection. `deadline_ms` and

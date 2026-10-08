@@ -1,0 +1,541 @@
+/* The gallery shell's own chrome: neutral, so the stages carry the theme. */
+:root {
+  color-scheme: light dark;
+  --g-bg: light-dark(#f4f4f2, #161616);
+  --g-panel: light-dark(#ffffff, #1f1f1f);
+  --g-text: light-dark(#1d1d1b, #e8e8e6);
+  --g-muted: light-dark(#6a6a66, #9a9a96);
+  --g-line: light-dark(#dcdcd8, #333331);
+  --g-current: light-dark(#e6e6e2, #2c2c2a);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background: var(--g-bg);
+  color: var(--g-text);
+}
+body {
+  margin: 0;
+}
+.gallery {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: 100vh;
+  background: var(--g-bg);
+  color: var(--g-text);
+}
+.gallery-list {
+  overflow: auto;
+  border-right: 1px solid var(--g-line);
+  background: var(--g-panel);
+  padding: 0 0 24px;
+  font-size: 13px;
+}
+.gallery-filter {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px;
+  background: var(--g-panel);
+}
+.gallery-filter input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 7px;
+  background: var(--g-bg);
+  color: var(--g-text);
+  font: inherit;
+}
+.gallery-group h2 {
+  position: sticky;
+  top: 50px;
+  z-index: 1;
+  margin: 0;
+  padding: 8px 14px 6px;
+  background: var(--g-panel);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--g-muted);
+}
+.gallery-count {
+  font-weight: 400;
+  margin-left: 4px;
+}
+.gallery-none {
+  margin: 0 14px 6px;
+  color: var(--g-muted);
+  font-size: 12px;
+}
+.gallery-entry {
+  padding: 4px 10px 8px;
+}
+.gallery-entry-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 4px;
+  font-weight: 600;
+  line-height: 28px;
+}
+.gallery-entry-id {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--g-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gallery-variants {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+.gallery-variants a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
+  border: 1px solid var(--g-line);
+  color: var(--g-text);
+  text-decoration: none;
+  font-size: 12px;
+}
+.gallery-variants a:hover {
+  background: var(--g-hover);
+}
+.gallery-variants a[data-active] {
+  outline: 2px solid var(--g-muted);
+  outline-offset: -2px;
+}
+.gallery-variants a[aria-current="page"] {
+  background: var(--g-current);
+  border-color: var(--g-muted);
+  font-weight: 600;
+}
+.gallery-list mark {
+  background: var(--g-mark);
+  color: inherit;
+  border-radius: 2px;
+}
+.gallery-main {
+  overflow: auto;
+  padding: 0 16px 24px;
+}
+.gallery-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--g-bg);
+  padding: 12px 0 8px;
+  border-bottom: 1px solid var(--g-line);
+}
+.gallery-header h1 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.gallery-header h1 small {
+  font-weight: 400;
+  color: var(--g-muted);
+  font-size: 12px;
+}
+.gallery-experimental {
+  display: inline-block;
+  margin-inline-start: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--g-line);
+  border-radius: 4px;
+  color: var(--g-muted);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.gallery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: end;
+  margin-top: 8px;
+}
+.gallery-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-controls label.gallery-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  color: var(--g-text);
+}
+.gallery-controls select,
+.gallery-controls input:not([type="checkbox"]):not([type="radio"]) {
+  font: inherit;
+  color: var(--g-text);
+  max-width: 220px;
+}
+.gallery-controls input[type="number"] {
+  width: 70px;
+}
+.gallery-segmented {
+  display: inline-flex;
+  gap: 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  padding: 2px 8px 4px;
+  margin: 0;
+}
+.gallery-segmented legend {
+  font-size: 11px;
+  color: var(--g-muted);
+  padding: 0 4px;
+}
+.gallery-segmented label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  color: var(--g-text);
+}
+.gallery-covers {
+  margin: 8px 0 0;
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 16px;
+}
+.gallery-stages--locales,
+.gallery-stages--themes {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.gallery-stage {
+  margin: 0;
+}
+.gallery-stage figcaption {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.gallery-stage figcaption a {
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-note {
+  color: var(--g-muted);
+}
+/* A plain neutral frame around the surface: no shape of the native window. */
+.gallery-window {
+  overflow: hidden;
+  outline: 1px solid var(--g-line);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.12);
+}
+.gallery-window iframe {
+  transform-origin: 0 0;
+}
+.gallery-stage iframe {
+  display: block;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  background: transparent;
+}
+.gallery-empty {
+  padding: 24px;
+}
+.gallery-replay {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-play {
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-play--fail {
+  color: #e5534b;
+}
+.gallery-play--warn {
+  color: #c69026;
+}
+/* The served commit (Revision) above the filter. */
+.gallery-revision {
+  margin: 0 2px 8px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-revision a {
+  color: inherit;
+}
+.gallery-revision-live {
+  color: #3fb950;
+  font-weight: 600;
+}
+/* Compile errors outside the shell, and entry files that do not load (ErrorBanner). */
+.gallery-banner {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  background: #b62324;
+  color: #fff;
+  font-size: 12px;
+}
+/* One entry's failure (EntryBoundary): in the list (compact) and in the main area. */
+.gallery-entry-error {
+  margin: 4px 10px 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5534b;
+  border-radius: 6px;
+  background: color-mix(in srgb, #e5534b 10%, transparent);
+}
+main .gallery-entry-error {
+  margin: 16px 0;
+}
+.gallery-entry-error-title {
+  font-weight: 600;
+  color: #e5534b;
+}
+.gallery-entry-error-title code {
+  font-weight: 400;
+  color: var(--g-text);
+  word-break: break-all;
+}
+.gallery-entry-error-line {
+  margin-top: 2px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gallery-entry-error pre {
+  margin: 8px 0;
+  font: 12px/1.45 ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 60vh;
+}
+.gallery-entry-loading {
+  color: var(--g-muted);
+}
+/* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
+.gallery .variant-pick-option { flex: 0 0 auto; }
+/* The compare view (CompareView.tsx): one cell per experiment arm, same size and scale. */
+.gallery-compare-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--g-line);
+}
+.gallery-compare-description {
+  margin: 0;
+  color: var(--g-muted);
+  max-width: 120ch;
+}
+.gallery-compare-description strong {
+  color: var(--g-text);
+}
+.gallery-compare-bar button {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-compare-bar button:disabled {
+  color: var(--g-muted);
+}
+.gallery-compare-bar .gallery-compare-primary {
+  background: var(--g-current);
+  font-weight: 600;
+}
+.gallery-compare-link {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.gallery-compare-summary {
+  font-size: 11px;
+  color: var(--g-muted);
+  user-select: all;
+}
+.gallery-compare-grid {
+  display: grid;
+  gap: 20px 16px;
+  padding-top: 14px;
+  align-items: stretch;
+}
+.gallery-compare-grid--row {
+  grid-auto-flow: column;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+/* Captions of different lengths: the frames still line up at the bottom of each grid row. */
+.gallery-compare-cell {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gallery-compare-cell figcaption {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.gallery-compare-cell-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.gallery-compare-cell-head button {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-compare-cell-head a {
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-compare-arm {
+  font: 600 13px ui-monospace, monospace;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--g-hover);
+}
+.gallery-compare-cell[data-picked] .gallery-compare-arm,
+.gallery-compare-cell[data-picked] .gallery-compare-pick {
+  background: var(--g-current);
+  outline: 1px solid var(--g-text);
+}
+.gallery-compare-measure {
+  font: 11px ui-monospace, monospace;
+  color: var(--g-muted);
+}
+/* Tunables (Tunables.tsx): one curve editor per tunable, under the controls. */
+.gallery-tunables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+}
+.gallery-tunable {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  padding: 2px 10px 8px;
+  margin: 0;
+}
+.gallery-tunable legend {
+  font-size: 11px;
+  color: var(--g-muted);
+  cursor: help;
+}
+.gallery-tunable-plot {
+  touch-action: none;
+  user-select: none;
+}
+.gallery-tunable-box {
+  fill: var(--g-current);
+}
+.gallery-tunable-diagonal {
+  stroke: var(--g-line);
+  stroke-dasharray: 3 3;
+}
+.gallery-tunable-arm {
+  stroke: var(--g-muted);
+}
+.gallery-tunable-curve {
+  fill: none;
+  stroke: var(--g-text);
+  stroke-width: 2;
+}
+.gallery-tunable-handle {
+  fill: var(--g-panel);
+  stroke: var(--g-text);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.gallery-tunable-handle[data-held] {
+  fill: var(--g-text);
+  cursor: grabbing;
+}
+.gallery-tunable-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 170px;
+}
+.gallery-tunable-side label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-tunable-side select,
+.gallery-tunable-side input {
+  font: inherit;
+  color: var(--g-text);
+}
+.gallery-tunable-css {
+  font-size: 11px;
+  color: var(--g-muted);
+  white-space: nowrap;
+}
+.gallery-tunable-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--g-current);
+}
+.gallery-tunable-track span {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--g-text);
+  animation: gallery-tunable-run 1.4s infinite;
+}
+@keyframes gallery-tunable-run {
+  0% {
+    left: 1px;
+  }
+  65%,
+  100% {
+    left: calc(100% - 9px);
+  }
+}
+.gallery-tunable-side button {
+  align-self: start;
+}

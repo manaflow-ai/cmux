@@ -19,6 +19,8 @@ Object.assign(globals, {
   Node: dom.window.Node,
   getSelection: dom.window.getSelection.bind(dom.window),
   MutationObserver: dom.window.MutationObserver,
+  // ProseMirror's pasteText makes a paste event; jsdom has no ClipboardEvent.
+  ClipboardEvent: (dom.window as unknown as { ClipboardEvent?: unknown }).ClipboardEvent ?? dom.window.Event,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -28,6 +30,7 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
+const { webKitPress } = await import("./popoverTriggerTesting");
 const promptField = () => fieldIn(dom.window.document);
 
 /// Milkdown makes its editor a task after the composer mounts.
@@ -244,7 +247,20 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual([]);
   });
 
-  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+  test("pressing + while its menu is open closes it, as WebKit delivers the press", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: () => {}, onStop: () => {} }),
+      ),
+    );
+    await ready();
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("true");
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the + menu holds no permission modes (the access chip owns them); Plan stays a toggle there", async () => {
     const modes = {
       currentModeId: "ask",
       availableModes: [
@@ -266,18 +282,18 @@ describe("acpmux composer slash menu", () => {
       ),
     );
     await ready();
-    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
     expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
     await act(async () => plusButton().click());
     expect(
       [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
-    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    ).toEqual(["Mention a file or folder@", "Plan"]);
+    expect(dom.window.document.querySelector(".acpmux-composer-plus [role=group][aria-label=Mode]")).toBeNull();
     await act(async () =>
       dom.window.document
-        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="plan:plan"]')!
         .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
     );
-    expect(modeCalls).toEqual(["bypassPermissions"]);
+    expect(modeCalls).toEqual(["plan"]);
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
@@ -297,6 +313,77 @@ describe("acpmux composer slash menu", () => {
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
     await key("Enter");
     expect(textarea().value).toBe("/compact main");
+  });
+
+  test("the agent gets the characters the user typed, not the field's markdown escapes", async () => {
+    const submit = async () =>
+      act(async () => {
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      });
+    await render(snapshot(commands));
+    const typed = String.raw`See [notes](./notes.md) and http://127.0.0.1:47931/preview.html, a\b "q" *x* #1 <b>`;
+    await act(async () => textarea().handle.insertTyped(typed));
+    await settle();
+    // The field keeps escapes so its own markdown reads back as text; the agent must not see them.
+    expect(textarea().value).not.toBe(typed);
+    await submit();
+    expect(sent).toEqual([typed]);
+    // Formatting the field made from typed syntax goes out as that syntax.
+    await type("Make it **bold** and `code`");
+    await submit();
+    expect(sent[1]).toBe("Make it **bold** and `code`");
+  });
+
+  test("typed backslashes, code, markdown-like text, links, lines and emoji reach the agent as typed", async () => {
+    const submit = async () =>
+      act(async () => {
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      });
+    await render(snapshot(commands));
+    const typedCases = [
+      String.raw`C:\path\to\file and \n as text, one \\ two`,
+      "*not bold* and # not a heading mid-line",
+      "1. at a line start",
+      "- not a list either",
+      "héllo 日本語 👋🏽 café",
+    ];
+    for (const typed of typedCases) {
+      await act(async () => textarea().handle.insertTyped(typed));
+      await settle();
+      await submit();
+      expect(sent.at(-1)).toBe(typed);
+    }
+    // Code passes byte for byte: nothing inside a code span or a fence is escaped or unescaped.
+    const code = ["Run `a\\*b [x](y) \\\\` now", '```sh\necho "a\\*b" \\\n  [x](y) http://x/y.html\n```'];
+    for (const markdown of code) {
+      await type(markdown);
+      await submit();
+      expect(sent.at(-1)).toBe(markdown);
+    }
+    // A pasted link stays its URL; pasted lines and a blank line between them stay. The paste
+    // carries its text as a clipboard does, so the editor's own paste handling reads it.
+    const paste = (text: string) => {
+      const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+      const types = ["text/plain"];
+      Object.defineProperty(event, "clipboardData", {
+        value: { types, files: [], items: [], getData: (type: string) => (type === "text/plain" ? text : "") },
+      });
+      textarea().element.dispatchEvent(event);
+    };
+    const pasted = ["https://example.com/a_b/c?d=e&f=g#h", "line one\nline two\n\nline four"];
+    for (const text of pasted) {
+      await act(async () => {
+        textarea().handle.focus();
+        paste(text);
+      });
+      await settle();
+      await submit();
+      expect(sent.at(-1)).toBe(text);
+    }
   });
 
   test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {

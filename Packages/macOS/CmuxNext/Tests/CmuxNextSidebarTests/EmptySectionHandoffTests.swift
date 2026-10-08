@@ -43,28 +43,8 @@ import Testing
         model.activeWorkspaceID = nil
         list.reload(animated: true)
 
+        // The closed row painted the selection fill itself, so the fill left with it.
         #expect(!list.subviews.contains { $0 is WorkspaceRowView }, "no closed row under the placeholder")
         #expect(list.subviews.contains { $0 is EmptySectionRowView })
-    }
-
-    /// The selection pill under that row leaves with it: it faded for about
-    /// two frames under "No workspaces".
-    @Test func theSelectionPillLeavesWithTheLastWorkspace() {
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Local", kind: .local)), nodes: [.workspace(w("a"))])],
-                                 activeWorkspaceID: id("a"))
-        let sidebar = SidebarView(model: model)
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
-        sidebar.layoutSubtreeIfNeeded()
-        let list = sidebar.list
-        list.reload(animated: false)
-        let pill = sidebar.highlight.view.pillLayer
-        #expect(pill.opacity == 1)
-
-        model.sections[0].nodes = []
-        model.activeWorkspaceID = nil
-        list.reload(animated: true)
-
-        #expect(pill.opacity == 0)
-        #expect(pill.animation(forKey: "opacity") == nil, "no pill fading under the placeholder")
     }
 }

@@ -263,264 +263,385 @@
         }
       }
     },
-    "rooms.deleteMovesBody" : {
+    "rooms.deleteClosesBody" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Its workspaces and groups move to “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Its %lld workspace closes."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Its %lld workspaces close."
+                }
+              }
+            }
           }
         },
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تنتقل مساحات العمل والمجموعات إلى “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "ستُغلق مساحات العمل فيها (%lld)."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "ستُغلق مساحات العمل فيها (%lld)."
+                }
+              }
+            }
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Njeni radni prostori i grupe premještaju se u „%@“."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Njeni radni prostori (%lld) se zatvaraju."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Njeni radni prostori (%lld) se zatvaraju."
+                }
+              }
+            }
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dets arbejdsområder og grupper flyttes til “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dets %lld arbejdsområder lukkes."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dets %lld arbejdsområder lukkes."
+                }
+              }
+            }
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Die Arbeitsbereiche und Gruppen werden nach „%@“ verschoben."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Die %lld Arbeitsbereiche darin werden geschlossen."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Die %lld Arbeitsbereiche darin werden geschlossen."
+                }
+              }
+            }
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sus espacios de trabajo y grupos pasan a «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Se cerrarán sus %lld espacios de trabajo."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Se cerrarán sus %lld espacios de trabajo."
+                }
+              }
+            }
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ses espaces de travail et groupes passent dans « %@ »."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Ses %lld espaces de travail seront fermés."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Ses %lld espaces de travail seront fermés."
+                }
+              }
+            }
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le sue aree di lavoro e i gruppi passano in “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Le sue %lld aree di lavoro verranno chiuse."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Le sue %lld aree di lavoro verranno chiuse."
+                }
+              }
+            }
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ワークスペースとグループは“%@”へ移動します。"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 個のワークスペースが閉じます。"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 個のワークスペースが閉じます。"
+                }
+              }
+            }
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការ និងក្រុមរបស់វាផ្លាស់ទៅ “%@”។"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "កន្លែងធ្វើការ %lld របស់វានឹងបិទ។"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "កន្លែងធ្វើការ %lld របស់វានឹងបិទ។"
+                }
+              }
+            }
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "작업 공간과 그룹이 “%@”(으)로 이동합니다."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "작업 공간 %lld개가 닫힙니다."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "작업 공간 %lld개가 닫힙니다."
+                }
+              }
+            }
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Arbeidsområdene og gruppene flyttes til «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "De %lld arbeidsområdene lukkes."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "De %lld arbeidsområdene lukkes."
+                }
+              }
+            }
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Jego przestrzenie i grupy zostaną przeniesione do „%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Jego przestrzenie robocze (%lld) zostaną zamknięte."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Jego przestrzenie robocze (%lld) zostaną zamknięte."
+                }
+              }
+            }
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Suas áreas de trabalho e grupos vão para “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Suas %lld áreas de trabalho serão fechadas."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Suas %lld áreas de trabalho serão fechadas."
+                }
+              }
+            }
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Его пространства и группы переместятся в «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Его рабочие пространства (%lld) закроются."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Его рабочие пространства (%lld) закроются."
+                }
+              }
+            }
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เวิร์กสเปซและกลุ่มจะย้ายไปที่ “%@”"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "เวิร์กสเปซ %lld รายการของพื้นที่นี้จะปิด"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "เวิร์กสเปซ %lld รายการของพื้นที่นี้จะปิด"
+                }
+              }
+            }
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Çalışma alanları ve grupları “%@” odasına taşınır."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld çalışma alanı kapanır."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld çalışma alanı kapanır."
+                }
+              }
+            }
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Її робочі області й групи переміщуються до «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Її робочі області (%lld) закриються."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Її робочі області (%lld) закриються."
+                }
+              }
+            }
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Không gian làm việc và nhóm sẽ chuyển tới “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld không gian làm việc của nó sẽ đóng."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld không gian làm việc của nó sẽ đóng."
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作区和组将移到“%@”。"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 个工作区将关闭。"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 个工作区将关闭。"
+                }
+              }
+            }
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作區和群組將移至「%@」。"
-          }
-        }
-      }
-    },
-    "rooms.deleteReturnsBody" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Its workspaces stay open and return to the spaces that follow their machines."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تبقى مساحات العمل مفتوحة وتعود إلى المساحات التي تتابع أجهزتها."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Njeni radni prostori ostaju otvoreni i vraćaju se u prostore koji prate njihove mašine."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dets arbejdsområder forbliver åbne og vender tilbage til de områder, der følger deres maskiner."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Die Arbeitsbereiche bleiben geöffnet und kehren in die Spaces zurück, die ihren Rechnern folgen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sus espacios de trabajo siguen abiertos y vuelven a los espacios que siguen a sus máquinas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ses espaces de travail restent ouverts et reviennent dans les espaces qui suivent leurs machines."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le sue aree di lavoro restano aperte e tornano negli spazi che seguono le loro macchine."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ワークスペースは開いたまま、そのマシンをフォローしているスペースに戻ります。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការរបស់វានៅបើក ហើយត្រឡប់ទៅលំហដែលតាមដានម៉ាស៊ីនរបស់វា។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "작업 공간은 열린 채로 해당 머신을 팔로우하는 스페이스로 돌아갑니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Arbeidsområdene forblir åpne og går tilbake til områdene som følger maskinene deres."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Jego przestrzenie pozostają otwarte i wracają do obszarów, które śledzą ich maszyny."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Suas áreas de trabalho continuam abertas e voltam aos espaços que seguem suas máquinas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Его пространства остаются открытыми и возвращаются в области, которые следят за их машинами."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เวิร์กสเปซยังเปิดอยู่และกลับไปยังพื้นที่ที่ติดตามเครื่องของเวิร์กสเปซนั้น"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Çalışma alanları açık kalır ve makinelerini izleyen alanlara döner."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Її робочі області лишаються відкритими й повертаються до просторів, що стежать за їхніми машинами."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Các không gian làm việc vẫn mở và quay về những không gian theo dõi máy của chúng."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作区保持打开，并回到关注其机器的空间。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作區保持開啟，並回到追蹤其機器的空間。"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 個工作區將關閉。"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 個工作區將關閉。"
+                }
+              }
+            }
           }
         }
       }
@@ -652,6 +773,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "刪除空間「%@」？"
+          }
+        }
+      }
+    },
+    "rooms.deletedToast" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Space “%@” deleted"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تم حذف المساحة “%@”"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prostor „%@“ je izbrisan"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Området “%@” er slettet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Space „%@“ gelöscht"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espacio «%@» eliminado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espace « %@ » supprimé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spazio “%@” eliminato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スペース「%@」を削除しました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលុបលំហ “%@”"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스페이스 “%@” 삭제됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Området «%@» er slettet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunięto obszar „%@”"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaço “%@” excluído"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Область «%@» удалена"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบพื้นที่ “%@” แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” alanı silindi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Простір «%@» видалено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xóa không gian “%@”"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已删除空间“%@”"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已刪除空間「%@」"
           }
         }
       }
@@ -1962,6 +2214,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "重新命名空間"
+          }
+        }
+      }
+    },
+    "rooms.refusal.spaceNotShown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the space is not shown in the active window; switch to it first"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المساحة غير معروضة في النافذة النشطة؛ انتقل إليها أولاً"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "prostor nije prikazan u aktivnom prozoru; prvo se prebacite na njega"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "området vises ikke i det aktive vindue; skift til det først"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der Space wird im aktiven Fenster nicht angezeigt; wechsle zuerst zu ihm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "el espacio no se muestra en la ventana activa; cambia a él primero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "l’espace n’est pas affiché dans la fenêtre active ; passez d’abord à cet espace"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "lo spazio non è mostrato nella finestra attiva; passa prima a esso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このスペースはアクティブなウインドウに表示されていません。先にスペースを切り替えてください"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លំហនេះមិនបង្ហាញក្នុងបង្អួចសកម្មទេ សូមប្តូរទៅវាជាមុនសិន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "활성 창에 이 스페이스가 표시되지 않습니다. 먼저 해당 스페이스로 전환하세요"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "området vises ikke i det aktive vinduet; bytt til det først"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "obszar nie jest wyświetlany w aktywnym oknie; najpierw przełącz się na niego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "o espaço não está sendo mostrado na janela ativa; mude para ele primeiro"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "область не показана в активном окне; сначала переключитесь на неё"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พื้นที่นี้ไม่ได้แสดงในหน้าต่างที่ใช้งานอยู่ ให้สลับไปที่พื้นที่นั้นก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "alan etkin pencerede gösterilmiyor; önce ona geçin"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "простір не показано в активному вікні; спершу перейдіть до нього"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không gian này không hiển thị trong cửa sổ đang hoạt động; hãy chuyển sang nó trước"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "活动窗口未显示该空间，请先切换到该空间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "使用中的視窗未顯示該空間，請先切換到該空間"
           }
         }
       }

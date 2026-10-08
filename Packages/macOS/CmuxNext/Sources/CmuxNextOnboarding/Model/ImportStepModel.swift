@@ -192,6 +192,9 @@ public final class ImportStepModel {
         return items
     }
 
+    /// Whether a Firefox profile is among them: its key is in the profile, not the Keychain.
+    public var passwordsIncludeFirefox: Bool { passwordProfiles.contains { $0.browser.family == .firefox } }
+
     public var isConfirmingPasswords: Bool { phase == .confirmingPasswords }
 
     public var canStart: Bool {

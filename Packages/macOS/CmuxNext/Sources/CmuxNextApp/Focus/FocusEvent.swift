@@ -65,6 +65,10 @@ nonisolated enum FocusEvent: Hashable, Sendable, Codable {
     /// The window's sidebar was shown or hidden. Hiding it while it (or
     /// its rename field) has the keyboard returns focus to the content.
     case sidebarVisibility(hidden: Bool)
+    /// The pane this window's record saved for `workspace` (relaunch): the
+    /// pane that workspace focuses when it first shows, unless focus there
+    /// already moved.
+    case restoredPane(String, workspace: String)
 }
 
 extension FocusEvent {

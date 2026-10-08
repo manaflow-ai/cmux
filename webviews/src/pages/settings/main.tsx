@@ -3,10 +3,12 @@
 // `?mock`) the in-memory mock provider stands in for the app.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../../ui/ui.css";
 import { createPageClient } from "../shared/pageClient";
 import { createMockClient } from "./mockProvider";
 import { mountSettingsPage } from "./mount";
 import "./styles.css";
+import "./layout.css";
 import { installCatalog } from "./strings";
 
 // The dev server has no locales/*.js: install the full table there. The production bundle drops

@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// Reads the colors in a tracked scope for the menu bar host.
@@ -40,7 +41,7 @@ struct FeedMenubarView: View {
                 HStack {
                     Text(FeedStrings.openFeed)
                     Spacer()
-                    Image(systemName: "arrow.up.forward.app").font(.system(size: 11))
+                    Icon(.appOpenExternal, size: .iconRowSize(forLabelPointSize: 11))
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(colors.secondary)

@@ -43,8 +43,11 @@ describe("a turn's local web page", () => {
     expect(latestLocalUrl(["http://localhost:/x"])).toBeUndefined();
   });
 
-  test("the frame loads only the page's root", () => {
-    expect(previewFrameUrl("http://127.0.0.1:8080/admin/reset?confirm=1#x")).toBe("http://127.0.0.1:8080/");
+  test("the frame loads the address the card shows: same host and port, no fragment", () => {
+    expect(previewFrameUrl("http://127.0.0.1:8080/preview.html?tab=1#x")).toBe(
+      "http://127.0.0.1:8080/preview.html?tab=1",
+    );
+    expect(previewFrameUrl("http://localhost:5173/")).toBe("http://localhost:5173/");
   });
 
   test("ignores pages a frame in the pane may not load", () => {

@@ -49,6 +49,12 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .with_context(|| format!("failed to bind relay at {}", config.bind))?;
             let address = listener.local_addr()?;
+            if config.ticket_secret.is_none() {
+                eprintln!(
+                    "cmux-relay: OPEN MODE (--allow-open): any peer that reaches {address} can register \
+                     or connect to any slot; development only"
+                );
+            }
             let relay = Relay::new(config)?;
             let cleanup = relay.spawn_cleanup();
             let (listener, router) = relay.server_parts(listener);

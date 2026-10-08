@@ -4,6 +4,10 @@ use crate::error::DecodeError;
 pub const STREAM_CONTROL: u8 = 1;
 /// Stream frame type of one datagram (header and payload) carried on the stream.
 pub const STREAM_DATAGRAM: u8 = 2;
+/// Stream frame type of one bulk chunk (file bytes; rd change C5): see
+/// [`crate::BulkFrame`]. Sent only when both sides list the `bulk` cap: an
+/// older deframer refuses the type and ends the session.
+pub const STREAM_BULK: u8 = 3;
 /// Size of the stream frame prefix: `u8 type`, `u32 len`.
 pub const STREAM_PREFIX_LEN: usize = 5;
 /// Largest stream frame payload.
@@ -15,7 +19,7 @@ pub const MAX_STREAM_FRAME: usize = 1 << 20;
 /// control messages and datagrams in these frames until the overlay datagram
 /// service is available on a path.
 pub fn encode_stream_frame(kind: u8, payload: &[u8], out: &mut Vec<u8>) -> Result<(), DecodeError> {
-    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM) {
+    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) {
         return Err(DecodeError::Invalid("stream frame type"));
     }
     if payload.len() > MAX_STREAM_FRAME {
@@ -67,7 +71,8 @@ impl StreamDeframer {
         }
         let kind = rest[0];
         let len = u32::from_le_bytes([rest[1], rest[2], rest[3], rest[4]]) as usize;
-        if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM) || len > MAX_STREAM_FRAME {
+        if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) || len > MAX_STREAM_FRAME
+        {
             self.failed = true;
             self.buf = Vec::new();
             self.read = 0;

@@ -35,6 +35,10 @@ pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> any
            record_json TEXT NOT NULL
          );
          CREATE INDEX IF NOT EXISTS closed_groups_window ON closed_groups(window_id, seq);
+         CREATE TABLE IF NOT EXISTS closed_group_pending (
+           closed_id TEXT PRIMARY KEY NOT NULL,
+           extra_json TEXT NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS state_pending_changes (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
            change_json TEXT NOT NULL
@@ -262,17 +266,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         "pinned": pinned,
     });
     if kind == "terminal" {
-        let cwd = connection
-            .query_row(
-                "SELECT json_extract(h.launch_spec_json, '$.cwd')
-                 FROM resource_terminals AS t JOIN terminal_hosts AS h ON h.terminal_id = t.terminal_id
-                 WHERE t.public_id = ?1",
-                [&content_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?
-            .flatten();
-        record["cwd"] = json!(cwd);
+        // The closed tab keeps its own copy of the relaunch record, so reopen
+        // works after the terminal's row is gone.
+        let relaunch =
+            crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
+        record["cwd"] = relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone());
+        record["relaunch"] = relaunch.unwrap_or(Value::Null);
         record["terminal_id"] = json!(content_id);
     } else {
         let url = connection
@@ -352,16 +351,30 @@ fn insert_group(
     members: Vec<Value>,
     window: Option<String>,
 ) -> anyhow::Result<()> {
-    let closed_id = format!("closed_{}", new_uuid_v4().replace('-', ""));
+    let pending = take_pending_group(transaction)?;
+    let closed_id = match &pending {
+        Some((closed_id, _)) => closed_id.clone(),
+        None => new_closed_id(),
+    };
     let closed_at_ms = unix_epoch_ms()?;
-    let kind = group_kind(&members);
-    let record = json!({
+    let mut record = json!({
         "id": closed_id,
-        "kind": kind,
+        "kind": group_kind(&members),
         "window": window,
         "closed_at_ms": closed_at_ms.to_string(),
         "members": members,
     });
+    if let Some((_, Value::Object(extra))) = pending {
+        for (key, value) in extra {
+            record[key] = value;
+        }
+        // A deleted space with no workspace left to close is still a
+        // workspace-level group: reopening it restores the space.
+        if record["members"].as_array().is_some_and(Vec::is_empty) {
+            record["kind"] = json!("workspace");
+        }
+    }
+    let kind = record["kind"].as_str().unwrap_or("tab").to_string();
     transaction.execute(
         "INSERT INTO closed_groups(closed_id, kind, window_id, closed_at_ms, record_json)
          VALUES(?1, ?2, ?3, ?4, ?5)",
@@ -374,6 +387,45 @@ fn insert_group(
         ],
     )?;
     queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+}
+
+/// A new closed group id.
+pub(crate) fn new_closed_id() -> String {
+    format!("closed_{}", new_uuid_v4().replace('-', ""))
+}
+
+/// Announce, inside a transaction, the next group it stores: that group
+/// gets `closed_id` and the fields of `extra` (a deleted space's record).
+/// [`flush_pending_group`] stores it with no member when no close does.
+pub(crate) fn pend_group(
+    transaction: &Transaction<'_>,
+    closed_id: &str,
+    extra: &Value,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO closed_group_pending(closed_id, extra_json) VALUES(?1, ?2)",
+        params![closed_id, serde_json::to_string(extra)?],
+    )?;
+    Ok(())
+}
+
+fn take_pending_group(transaction: &Transaction<'_>) -> anyhow::Result<Option<(String, Value)>> {
+    let pending = transaction
+        .query_row("SELECT closed_id, extra_json FROM closed_group_pending LIMIT 1", [], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .optional()?;
+    let Some((closed_id, extra)) = pending else { return Ok(None) };
+    transaction.execute("DELETE FROM closed_group_pending WHERE closed_id = ?1", [&closed_id])?;
+    Ok(Some((closed_id, serde_json::from_str(&extra)?)))
+}
+
+/// Store the announced group that no close stored (no member).
+pub(crate) fn flush_pending_group(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let pending: bool =
+        transaction
+            .query_row("SELECT EXISTS(SELECT 1 FROM closed_group_pending)", [], |row| row.get(0))?;
+    if pending { insert_group(transaction, Vec::new(), None) } else { Ok(()) }
 }
 
 /// The highest level among the members: a group with a screen is a screen

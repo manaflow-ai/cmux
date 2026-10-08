@@ -51,6 +51,32 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 keywords: ["ssh", "remote", "remove", "delete"], category: .remote, symbol: "trash",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote forget", destructive: true
             ),
+            // DEV and NIGHTLY only: a remote browser tab (remote-tab.md r2)
+            // from a loopback rb/1 host such as cmux-remote-browser-testhost.
+            // Scripts reach it through `action.run`, the same path.
+            ActionDescriptor(
+                id: "remote.openBrowserTab",
+                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host"], category: .remote, symbol: "globe",
+                surfaces: [.palette],
+                arguments: [ActionArgument(
+                    name: "address",
+                    title: String(localized: "argument.remote.hostAddress", defaultValue: "Host Address", table: "RemoteActions", bundle: .module),
+                    kind: .string)],
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // DEV only: starts this build's remote browser host on a free
+            // loopback port and opens a remote tab to it; closing the tab
+            // stops the host (RemoteBrowserPages.openLocal).
+            ActionDescriptor(
+                id: "remote.openLocalBrowserTab",
+                title: String(localized: "action.remote.openLocalBrowserTab", defaultValue: "Open Remote Browser Tab (Local Host)", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host", "local", "loopback"], category: .remote, symbol: "globe",
+                surfaces: [.palette],
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 }

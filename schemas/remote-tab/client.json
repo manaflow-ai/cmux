@@ -1,0 +1,1833 @@
+{
+  "description": "Remote browser tab CLIENT reducer (viewer side; plans/cmux-next/remote-tab-protocol.md, remote-tab-r2 client cx-wb5.29). Each case starts with no open menu or dialog and screen seq 0. After each step the reducer returns exactly these effects (in order) and note, or this reject (state unchanged); then the open menu token, open dialog token (null = none) and the last sent screen seq. Effects: send (a control message to the host), show_menu/close_menu, show_dialog/close_dialog (sheets), set_cursor, page, text_input, screen_applied, session. The viewer never answers a token that is not open, never sends a menu choice the menu did not offer (reject invalid_choice, the menu stays open), closes a dialog the host cancels (rb.dialog.cancel) without answering, never acts on viewer-to-host messages, and closes open UI when the session crashes or closes. Implementation: cmux-tui/crates/cmux-remote-browser (client.rs).",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a context menu shows, the person picks a command, the result goes to the host once",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 1,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 1,
+                "menu": {
+                  "kind": "context",
+                  "anchor": {
+                    "x": 120.0,
+                    "y": 80.0,
+                    "width": 0.0,
+                    "height": 0.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 50150,
+                      "type": "command",
+                      "label": "Copy",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": null,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "command",
+              "id": 50150
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.menu.result",
+                  "token": 1,
+                  "choice": {
+                    "choice": "command",
+                    "id": 50150
+                  }
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "cancel"
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_answer",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a new menu closes the open one locally; the old menu's late answer is stale",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 1,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 1,
+                "menu": {
+                  "kind": "context",
+                  "anchor": {
+                    "x": 120.0,
+                    "y": 80.0,
+                    "width": 0.0,
+                    "height": 0.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 50150,
+                      "type": "command",
+                      "label": "Copy",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": null,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 2,
+              "menu": {
+                "kind": "select",
+                "anchor": {
+                  "x": 40.0,
+                  "y": 300.0,
+                  "width": 180.0,
+                  "height": 24.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 0,
+                    "type": "option",
+                    "label": "Red",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": 0,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "close_menu",
+                "token": 1
+              },
+              {
+                "effect": "show_menu",
+                "token": 2,
+                "menu": {
+                  "kind": "select",
+                  "anchor": {
+                    "x": 40.0,
+                    "y": 300.0,
+                    "width": 180.0,
+                    "height": 24.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 0,
+                      "type": "option",
+                      "label": "Red",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": 0,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 2,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.cancel",
+              "token": 1
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_cancel",
+            "reject": null,
+            "open_menu": 2,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "cancel"
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_answer",
+            "reject": null,
+            "open_menu": 2,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 2,
+            "choice": {
+              "choice": "indices",
+              "indices": [
+                0
+              ]
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.menu.result",
+                  "token": 2,
+                  "choice": {
+                    "choice": "indices",
+                    "indices": [
+                      0
+                    ]
+                  }
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "the page cancels the open menu: it closes and nothing is sent",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 5,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 5,
+                "menu": {
+                  "kind": "context",
+                  "anchor": {
+                    "x": 120.0,
+                    "y": 80.0,
+                    "width": 0.0,
+                    "height": 0.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 50150,
+                      "type": "command",
+                      "label": "Copy",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": null,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 5,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.cancel",
+              "token": 5
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "close_menu",
+                "token": 5
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 5,
+            "choice": {
+              "choice": "cancel"
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_answer",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a menu token that does not increase is a stale show",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 3,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 3,
+                "menu": {
+                  "kind": "context",
+                  "anchor": {
+                    "x": 120.0,
+                    "y": 80.0,
+                    "width": 0.0,
+                    "height": 0.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 50150,
+                      "type": "command",
+                      "label": "Copy",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": null,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 3,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 3,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_show",
+            "reject": null,
+            "open_menu": 3,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a dialog shows as a sheet and its answer goes to the host",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.show",
+              "token": 4,
+              "dialog": {
+                "kind": "prompt",
+                "origin": "https://example.com",
+                "message": "Name?",
+                "default_text": "Ada",
+                "is_reload": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_dialog",
+                "token": 4,
+                "dialog": {
+                  "kind": "prompt",
+                  "origin": "https://example.com",
+                  "message": "Name?",
+                  "default_text": "Ada",
+                  "is_reload": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": 4,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "dialog_answered",
+            "token": 4,
+            "accept": true,
+            "text": "Grace"
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.dialog.result",
+                  "token": 4,
+                  "accept": true,
+                  "text": "Grace"
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "dialog_answered",
+            "token": 4,
+            "accept": false,
+            "text": null
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_answer",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a crash closes the open menu and dialog without answers",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 1,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 1,
+                "menu": {
+                  "kind": "context",
+                  "anchor": {
+                    "x": 120.0,
+                    "y": 80.0,
+                    "width": 0.0,
+                    "height": 0.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 50150,
+                      "type": "command",
+                      "label": "Copy",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": null,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.show",
+              "token": 2,
+              "dialog": {
+                "kind": "prompt",
+                "origin": "https://example.com",
+                "message": "Name?",
+                "default_text": "Ada",
+                "is_reload": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_dialog",
+                "token": 2,
+                "dialog": {
+                  "kind": "prompt",
+                  "origin": "https://example.com",
+                  "message": "Name?",
+                  "default_text": "Ada",
+                  "is_reload": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 1,
+            "open_dialog": 2,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.state",
+              "state": "crashed"
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "close_menu",
+                "token": 1
+              },
+              {
+                "effect": "close_dialog",
+                "token": 2
+              },
+              {
+                "effect": "session",
+                "state": "crashed"
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "rb.closed ends the session and closes what is open",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.show",
+              "token": 9,
+              "dialog": {
+                "kind": "prompt",
+                "origin": "https://example.com",
+                "message": "Name?",
+                "default_text": "Ada",
+                "is_reload": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_dialog",
+                "token": 9,
+                "dialog": {
+                  "kind": "prompt",
+                  "origin": "https://example.com",
+                  "message": "Name?",
+                  "default_text": "Ada",
+                  "is_reload": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": 9,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.closed",
+              "reason": "tab_closed"
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "close_dialog",
+                "token": 9
+              },
+              {
+                "effect": "session",
+                "state": "closed"
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "each resize sends rb.screen with the next seq; only the newest seq's applied size counts",
+      "steps": [
+        {
+          "input": {
+            "op": "resize",
+            "screen": {
+              "css_width": 900,
+              "css_height": 700,
+              "scale": 2.0,
+              "refresh_hz": 60,
+              "color_space": "srgb"
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.screen",
+                  "seq": 1,
+                  "screen": {
+                    "css_width": 900,
+                    "css_height": 700,
+                    "scale": 2.0,
+                    "refresh_hz": 60,
+                    "color_space": "srgb"
+                  }
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 1
+          }
+        },
+        {
+          "input": {
+            "op": "resize",
+            "screen": {
+              "css_width": 900,
+              "css_height": 700,
+              "scale": 2.0,
+              "refresh_hz": 60,
+              "color_space": "srgb"
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.screen",
+                  "seq": 2,
+                  "screen": {
+                    "css_width": 900,
+                    "css_height": 700,
+                    "scale": 2.0,
+                    "refresh_hz": 60,
+                    "color_space": "srgb"
+                  }
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 2
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.screen_applied",
+              "seq": 1,
+              "pixel_width": 1800,
+              "pixel_height": 1400,
+              "scale": 2.0
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_screen",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 2
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.screen_applied",
+              "seq": 2,
+              "pixel_width": 1800,
+              "pixel_height": 1400,
+              "scale": 2.0
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "screen_applied",
+                "pixel_width": 1800,
+                "pixel_height": 1400,
+                "scale": 2.0
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 2
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.screen_applied",
+              "seq": 3,
+              "pixel_width": 1,
+              "pixel_height": 1,
+              "scale": 1.0
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "unknown_screen_seq",
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "cursor, page and text input become effects for the pane and the local chrome",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.cursor",
+              "cursor": {
+                "kind": "pointer",
+                "hash": null
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "set_cursor",
+                "cursor": {
+                  "kind": "pointer",
+                  "hash": null
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.page",
+              "url": "https://example.com/a",
+              "title": "Example",
+              "loading": false,
+              "can_go_back": true,
+              "can_go_forward": false
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "page",
+                "url": "https://example.com/a",
+                "title": "Example",
+                "loading": false,
+                "can_go_back": true,
+                "can_go_forward": false
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.text_input",
+              "input_type": "text",
+              "composition_rects": [],
+              "caret": {
+                "x": 24.0,
+                "y": 20.0,
+                "width": 1.0,
+                "height": 18.0
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "text_input",
+                "input_type": "text",
+                "composition_rects": [],
+                "caret": {
+                  "x": 24.0,
+                  "y": 20.0,
+                  "width": 1.0,
+                  "height": 18.0
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a viewer-to-host message arriving from the host is a protocol error",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.result",
+              "token": 1,
+              "choice": {
+                "choice": "cancel"
+              }
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "wrong_direction",
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.screen",
+              "seq": 1,
+              "screen": {
+                "css_width": 900,
+                "css_height": 700,
+                "scale": 2.0,
+                "refresh_hz": 60,
+                "color_space": "srgb"
+              }
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "wrong_direction",
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unhandled key becomes an effect for the tab; a typed address goes to the host",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.key_unhandled",
+              "input_seq": 7
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "key_unhandled",
+                "input_seq": 7
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "navigate",
+            "url": "https://example.com/typed"
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.navigate",
+                  "url": "https://example.com/typed"
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cmd-click opens a background tab; the App's answer goes to the host once",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.open_tab",
+              "request": 3,
+              "url": "https://example.com/c",
+              "disposition": "background_tab",
+              "user_gesture": true
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "open_tab",
+                "request": 3,
+                "url": "https://example.com/c",
+                "disposition": "background_tab",
+                "user_gesture": true
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "tab_opened",
+            "request": 3,
+            "tab": "tab-9",
+            "refused": null
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.open_tab.result",
+                  "request": 3,
+                  "tab": "tab-9",
+                  "refused": null
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "tab_opened",
+            "request": 3,
+            "tab": "tab-9",
+            "refused": null
+          },
+          "expect": {
+            "effects": [],
+            "note": "unknown_request",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "host messages a later step handles are noted, not acted on",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.status_url",
+              "url": "https://example.com/b"
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "unhandled",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "rb.navigate from the host is a protocol error",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.navigate",
+              "url": "https://example.com/"
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "wrong_direction",
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "the host cancels the open dialog (the page navigated away): the sheet closes without an answer and a late answer is stale",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.show",
+              "token": 1,
+              "dialog": {
+                "kind": "alert",
+                "origin": "https://example.com",
+                "message": "Saved",
+                "default_text": null,
+                "is_reload": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_dialog",
+                "token": 1,
+                "dialog": {
+                  "kind": "alert",
+                  "origin": "https://example.com",
+                  "message": "Saved",
+                  "default_text": null,
+                  "is_reload": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": 1,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.cancel",
+              "token": 1
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "close_dialog",
+                "token": 1
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "dialog_answered",
+            "token": 1,
+            "accept": true,
+            "text": null
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_answer",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a dialog cancel for a dialog that is not open is stale and leaves the open dialog",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.show",
+              "token": 2,
+              "dialog": {
+                "kind": "alert",
+                "origin": "https://example.com",
+                "message": "Saved",
+                "default_text": null,
+                "is_reload": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_dialog",
+                "token": 2,
+                "dialog": {
+                  "kind": "alert",
+                  "origin": "https://example.com",
+                  "message": "Saved",
+                  "default_text": null,
+                  "is_reload": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": 2,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.dialog.cancel",
+              "token": 1
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": "stale_cancel",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": 2,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a context menu answer the menu never offered (an unknown id, a separator, a submenu) is refused and the menu stays open; a nested command is accepted",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 1,
+              "menu": {
+                "kind": "context",
+                "anchor": {
+                  "x": 120.0,
+                  "y": 80.0,
+                  "width": 0.0,
+                  "height": 0.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 50150,
+                    "type": "command",
+                    "label": "Copy",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  },
+                  {
+                    "id": 0,
+                    "type": "separator",
+                    "label": "",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  },
+                  {
+                    "id": 0,
+                    "type": "submenu",
+                    "label": "Search",
+                    "enabled": true,
+                    "checked": false,
+                    "items": [
+                      {
+                        "id": 50200,
+                        "type": "command",
+                        "label": "Search the web",
+                        "enabled": true,
+                        "checked": false,
+                        "items": []
+                      }
+                    ]
+                  }
+                ],
+                "selected": null,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 1,
+                "menu": {
+                  "kind": "context",
+                  "anchor": {
+                    "x": 120.0,
+                    "y": 80.0,
+                    "width": 0.0,
+                    "height": 0.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 50150,
+                      "type": "command",
+                      "label": "Copy",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    },
+                    {
+                      "id": 0,
+                      "type": "separator",
+                      "label": "",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    },
+                    {
+                      "id": 0,
+                      "type": "submenu",
+                      "label": "Search",
+                      "enabled": true,
+                      "checked": false,
+                      "items": [
+                        {
+                          "id": 50200,
+                          "type": "command",
+                          "label": "Search the web",
+                          "enabled": true,
+                          "checked": false,
+                          "items": []
+                        }
+                      ]
+                    }
+                  ],
+                  "selected": null,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "command",
+              "id": 999
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "invalid_choice",
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "command",
+              "id": 0
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "invalid_choice",
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "indices",
+              "indices": [
+                0
+              ]
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "invalid_choice",
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "command",
+              "id": 50200
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.menu.result",
+                  "token": 1,
+                  "choice": {
+                    "choice": "command",
+                    "id": 50200
+                  }
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a select answer must be in range, unique and single unless multiple; cancel is always valid",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.menu.show",
+              "token": 1,
+              "menu": {
+                "kind": "select",
+                "anchor": {
+                  "x": 40.0,
+                  "y": 300.0,
+                  "width": 180.0,
+                  "height": 24.0
+                },
+                "surface": 0,
+                "items": [
+                  {
+                    "id": 0,
+                    "type": "option",
+                    "label": "Red",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  },
+                  {
+                    "id": 1,
+                    "type": "option",
+                    "label": "Green",
+                    "enabled": true,
+                    "checked": false,
+                    "items": []
+                  }
+                ],
+                "selected": 0,
+                "multiple": false,
+                "right_aligned": false
+              }
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "show_menu",
+                "token": 1,
+                "menu": {
+                  "kind": "select",
+                  "anchor": {
+                    "x": 40.0,
+                    "y": 300.0,
+                    "width": 180.0,
+                    "height": 24.0
+                  },
+                  "surface": 0,
+                  "items": [
+                    {
+                      "id": 0,
+                      "type": "option",
+                      "label": "Red",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    },
+                    {
+                      "id": 1,
+                      "type": "option",
+                      "label": "Green",
+                      "enabled": true,
+                      "checked": false,
+                      "items": []
+                    }
+                  ],
+                  "selected": 0,
+                  "multiple": false,
+                  "right_aligned": false
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "indices",
+              "indices": [
+                0,
+                1
+              ]
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "invalid_choice",
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "indices",
+              "indices": [
+                2
+              ]
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "invalid_choice",
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "command",
+              "id": 1
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "invalid_choice",
+            "open_menu": 1,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "menu_chosen",
+            "token": 1,
+            "choice": {
+              "choice": "cancel"
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.menu.result",
+                  "token": 1,
+                  "choice": {
+                    "choice": "cancel"
+                  }
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    }
+  ]
+}

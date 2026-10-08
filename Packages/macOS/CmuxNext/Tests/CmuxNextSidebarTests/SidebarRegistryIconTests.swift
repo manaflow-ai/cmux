@@ -13,7 +13,6 @@ import Testing
             .home: .home, .settings: .settings, .account: .account, .notifications: .notification,
             .history: .history, .bookmarks: .bookmarkManager, .appStore: .store, .newTerminal: .terminalNew,
             .newBrowser: .browserNew, .newAgentChat: .agentChatNew, .customize: .theme,
-            .newWorkspace: .workspaceNew, .importSync: .actionDownload,
         ]
         for (builtIn, name) in expected {
             #expect(builtIn.icon == name, "\(builtIn)")

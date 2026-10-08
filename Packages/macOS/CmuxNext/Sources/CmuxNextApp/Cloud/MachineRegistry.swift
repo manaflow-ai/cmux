@@ -5,7 +5,8 @@ import Foundation
 import Observation
 
 /// Every daemon tree the app shows: the local daemon plus one connection per
-/// Cloud machine and per SSH machine (`SSHService`). Each is a separate tree
+/// Cloud machine, per SSH machine (`SSHService`) and per paired server
+/// (`ServerReachService`). Each is a separate tree
 /// with its own store, shown as its own sidebar section. Workspaces never mix machines (REWRITE.md "no
 /// mixed-machine workspaces in v1"), so a workspace, pane, or tab resolves
 /// to exactly one daemon, and every command for it goes there.
@@ -18,6 +19,8 @@ final class MachineRegistry {
     private(set) var cloud: [CloudMachineSession] = []
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
+    /// Paired servers whose Chief brain session the app shows (`ServerReachService`).
+    private(set) var servers: [ServerMachineSession] = []
 
     /// Whether an administrator turned off a feature (`DisabledFeatures`):
     /// a Cloud machine is not reachable with `cloud` off, an SSH machine
@@ -28,11 +31,11 @@ final class MachineRegistry {
         self.local = local
     }
 
-    /// Local first, then Cloud machines, then SSH machines.
+    /// Local first, then Cloud machines, then SSH machines, then servers.
     var daemons: [DaemonService] { [local] + remoteDaemons }
 
     /// Every daemon that is not the local one.
-    var remoteDaemons: [DaemonService] { cloud.map(\.daemon) + ssh.map(\.daemon) }
+    var remoteDaemons: [DaemonService] { cloud.map(\.daemon) + ssh.map(\.daemon) + servers.map(\.daemon) }
 
     func session(_ machineID: String) -> CloudMachineSession? {
         cloud.first { $0.machineID == machineID }
@@ -42,34 +45,39 @@ final class MachineRegistry {
         ssh.first { $0.machineID == machineID }
     }
 
+    func server(_ machineID: String) -> ServerMachineSession? {
+        servers.first { $0.machineID == machineID }
+    }
+
     /// The machine's daemon even while its feature is turned off (its
     /// endpoint refuses); for routing that must not fall back to this Mac.
     func anyDaemon(machine machineID: String) -> DaemonService? {
-        machineID == Self.localID ? local : session(machineID)?.daemon ?? sshSession(machineID)?.daemon
+        machineID == Self.localID ? local : session(machineID)?.daemon ?? sshSession(machineID)?.daemon ?? server(machineID)?.daemon
     }
 
     func daemon(machine machineID: String) -> DaemonService? {
         if machineID == Self.localID { return local }
         if let cloud = session(machineID) { return isFeatureDisabled(.cloud) ? nil : cloud.daemon }
-        return isFeatureDisabled(.remoteHosts) ? nil : sshSession(machineID)?.daemon
+        // A server's session rides the remote-hosts carrier.
+        return isFeatureDisabled(.remoteHosts) ? nil : sshSession(machineID)?.daemon ?? server(machineID)?.daemon
     }
 
     /// The empty-workspace repair of `machineID` (the local one for local
     /// or an unknown machine).
     func emptyWorkspaceRepair(_ machineID: String?, local fallback: EmptyWorkspaceRepair) -> EmptyWorkspaceRepair {
         guard let machineID else { return fallback }
-        return session(machineID)?.emptyWorkspaces ?? sshSession(machineID)?.emptyWorkspaces ?? fallback
+        return session(machineID)?.emptyWorkspaces ?? sshSession(machineID)?.emptyWorkspaces ?? server(machineID)?.emptyWorkspaces ?? fallback
     }
 
     /// The short name on a remote machine's tabs: the host (never the
     /// session), or the Cloud machine's title.
     func machineBadge(_ machineID: String) -> String? {
-        session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName
+        session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName ?? server(machineID)?.name
     }
 
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
-        session(machineID)?.machine.title ?? sshSession(machineID)?.host.label
+        session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
     }
 
     /// What `daemon` can do for the app. A remote daemon never needs the
@@ -142,5 +150,17 @@ final class MachineRegistry {
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
         return ssh.remove(at: index)
+    }
+
+    // MARK: Servers (ServerReachService only)
+
+    func add(_ session: ServerMachineSession) {
+        guard server(session.machineID) == nil else { return }
+        servers.append(session)
+    }
+
+    func removeServer(_ machineID: String) -> ServerMachineSession? {
+        guard let index = servers.firstIndex(where: { $0.machineID == machineID }) else { return nil }
+        return servers.remove(at: index)
     }
 }

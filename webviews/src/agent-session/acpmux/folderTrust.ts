@@ -2,12 +2,14 @@
 // in Claude Code's `~/.claude.json` and Codex's `~/.codex/config.toml` for the folder, per
 // harness, and the stricter of the two (or "unknown"). Those files each keep their one
 // writer: `acp.trust.set {cwd, level}` records the decision in acpmux's own per-folder
-// record, which acpmux applies as launch overrides for the sessions it starts there; level
-// "unknown" clears that record, so each agent's own default applies again (Undo).
+// record; level "unknown" clears it, so each agent's own level answers again (Undo). Until
+// the folder reads as trusted, acpmux refuses the pane's prompts there (`trust_gate.rs`).
 
 export type TrustLevel = "trusted" | "untrusted" | "unknown";
 export type HarnessTrust = { claude?: TrustLevel; codex?: TrustLevel };
-export type FolderTrust = { cwd: string; level: TrustLevel; harnesses?: HarnessTrust };
+/// `decided`: acpmux holds the user's own answer for the folder (an older acpmux and the mock
+/// daemon leave it out).
+export type FolderTrust = { cwd: string; level: TrustLevel; harnesses?: HarnessTrust; decided?: boolean };
 
 export type TrustSource = {
   get(cwd: string): Promise<unknown>;
@@ -29,7 +31,17 @@ export function readTrust(value: unknown): FolderTrust | undefined {
     cwd: reply.cwd,
     level: reply.level as TrustLevel,
     ...(Object.keys(harnesses).length > 0 ? { harnesses } : {}),
+    ...(typeof reply.decided === "boolean" ? { decided: reply.decided } : {}),
   };
+}
+
+/// The folder's level for a chat with the agent `family`, as acpmux's trust gate reads it
+/// (`trust::session_level`): the user's answer first; without one, that agent's own level
+/// (Claude Code's or Codex's), else the stricter of both.
+export function sessionTrust(trust: FolderTrust, family?: string): TrustLevel {
+  if (trust.decided !== false) return trust.level;
+  const own = family === "claude" || family === "codex" ? trust.harnesses?.[family] : undefined;
+  return own ?? trust.level;
 }
 
 /// The stricter of two levels: untrusted over unknown over trusted.

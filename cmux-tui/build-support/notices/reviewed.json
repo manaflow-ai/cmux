@@ -53,7 +53,7 @@
   },
   "license_texts": {
     "block2 0.6.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\"; objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-b4167b582b2f/LICENSE.md",
@@ -61,9 +61,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         }
       ]
     },
@@ -78,7 +78,7 @@
       ]
     },
     "dispatch2 0.3.1": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Mary and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\", \"Mary <mary@mary.zone>\"; dispatch2 started as marysaka/dispatch2 (its LICENSE-MIT has no copyright line); the objc2 crates started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-8852b424193c/LICENSE.md",
@@ -86,9 +86,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Mary-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "9b36d4f0d60cb55e11133b96daf79a9ec6fe08dff6048d48287e209253f303df"
         },
         {
           "file": "texts/reviewer-supplied/Zlib.txt",
@@ -253,7 +253,7 @@
       ]
     },
     "objc2 0.6.4": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\"; objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-8852b424193c/LICENSE.md",
@@ -261,14 +261,14 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         }
       ]
     },
     "objc2-core-foundation 0.3.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
@@ -276,9 +276,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         },
         {
           "file": "texts/reviewer-supplied/Zlib.txt",
@@ -293,7 +293,7 @@
       ]
     },
     "objc2-core-wlan 0.3.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
@@ -301,9 +301,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         },
         {
           "file": "texts/reviewer-supplied/Zlib.txt",
@@ -318,7 +318,7 @@
       ]
     },
     "objc2-encode 4.1.0": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\"; objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-8d214f547736/LICENSE.md",
@@ -326,14 +326,14 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         }
       ]
     },
     "objc2-foundation 0.3.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
@@ -341,14 +341,14 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         }
       ]
     },
     "objc2-security 0.3.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
@@ -356,9 +356,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         },
         {
           "file": "texts/reviewer-supplied/Zlib.txt",
@@ -373,7 +373,7 @@
       ]
     },
     "objc2-security-foundation 0.3.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
@@ -381,9 +381,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         },
         {
           "file": "texts/reviewer-supplied/Zlib.txt",
@@ -398,7 +398,7 @@
       ]
     },
     "objc2-system-configuration 0.3.2": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
         {
           "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
@@ -406,9 +406,9 @@
           "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
         },
         {
-          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
-          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+          "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
         },
         {
           "file": "texts/reviewer-supplied/Zlib.txt",

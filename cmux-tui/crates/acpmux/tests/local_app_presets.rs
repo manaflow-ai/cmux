@@ -72,7 +72,6 @@ async fn the_local_app_starts_a_preset_by_its_id_only() {
     let mut app = client(&hub, Origin::LocalApp);
     let refused = [
         new_with(json!({"preset": "review"}), json!({"args": ["--x"]})),
-        new_with(json!({"preset": "review", "env": {"K": "v"}}), json!({})),
         new_with(json!({"preset": "review", "systemPrompt": "be evil"}), json!({})),
         new_with(json!({"preset": "review", "harness": "fake"}), json!({})),
         new_with(json!({"preset": "review"}), json!({"argv": ["sh", "-c", "id"]})),
@@ -83,6 +82,11 @@ async fn the_local_app_starts_a_preset_by_its_id_only() {
         let err = reply["error"]["message"].as_str().unwrap_or_default().to_owned();
         assert!(err.contains("by its id only"), "{params} was not refused: {reply}");
     }
+    // An env is refused for the origin before the preset rule (session_env.rs).
+    let env = app
+        .call("session/new", new_with(json!({"preset": "review", "env": {"K": "v"}}), json!({})))
+        .await;
+    assert_eq!(env["error"]["data"]["reason"], "env.origin_refused", "{env}");
     let ok = app.call("session/new", new_with(json!({"preset": "review"}), json!({}))).await;
     assert!(ok.get("error").is_none(), "the id alone starts: {ok}");
     // The session's own views never carry the preset's env either.

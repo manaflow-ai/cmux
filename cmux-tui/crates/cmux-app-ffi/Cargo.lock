@@ -39,11 +39,21 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-remote-browser",
+ "serde_json",
 ]
 
 [[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-remote-browser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "itoa"

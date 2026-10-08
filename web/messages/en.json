@@ -1759,7 +1759,11 @@
       ],
       "hostedNetworkingFeatures": [
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
-      ]
+      ],
+      "annual": {
+        "yearly": "Yearly",
+        "billedYearlySaving": "${amount} billed yearly, save {percent}%"
+      }
     },
     "max": {
       "name": "Max",
@@ -2001,7 +2005,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Paid plans are billed monthly. Pro is $50/mo, Max is $200/mo, and Team is $60/user/mo. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo and Team is $60/user/mo, both billed monthly. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2020,7 +2024,7 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
-    "billingAnnualUnavailable": "Annual billing is not available for new subscriptions. Choose a monthly plan below.",
+    "billingAnnualUnavailable": "Annual billing is available only for Pro. Choose a plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
