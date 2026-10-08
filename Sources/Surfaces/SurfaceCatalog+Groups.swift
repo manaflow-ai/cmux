@@ -2,7 +2,6 @@ import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
-
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
 /// workspace on a machine, or a local workspace (the panes it projects). The canonical
 /// payload is typed placements. `resources` and the group workspace id remain as derived
@@ -181,33 +180,6 @@ extension SurfaceCatalog {
         return projected
     }
 
-    private func resolveRemoteView(
-        for member: SurfaceResourcePlacement,
-        fallbackWorkspaceID: String?
-    ) throws -> SurfaceRemoteView? {
-        // Unknown resources are skipped by the group projector. Once a resource exists,
-        // delegate placement validation to the catalog's single resolver so explicit IDs
-        // cannot silently fall back when remote view metadata is absent.
-        guard resources[member.resource] != nil else {
-            return nil
-        }
-        if let tabID = member.remoteTabID {
-            return try remoteView(
-                for: member.resource,
-                tabID: tabID,
-                workspaceID: member.remoteWorkspaceID ?? fallbackWorkspaceID
-            )
-        }
-        let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
-        guard let workspaceID else { return nil }
-        if projections.contains(where: {
-            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
-        }) {
-            return nil
-        }
-        return try remoteView(for: member.resource, workspaceID: workspaceID)
-    }
-
     /// How a group becomes a new local workspace: the machinery a caller injects so the
     /// layout can be checked without AppKit.
     struct NewWorkspaceHost {
@@ -314,7 +286,13 @@ extension SurfaceCatalog {
         let current = try currentCloudWorkspace(group)
         let group = current?.group ?? group
         let title = current?.group.title ?? title
-        let layout = current.map { $0.layout } ?? layout
+        // A Cloud VM's installed graph owns its geometry, even when it has none.
+        // Another Mac installs no geometry: the layout its caller fetched from
+        // that Mac stays authoritative, and DeviceWorkspaceLayoutCoordinator
+        // reconciles it afterwards.
+        let layout = group.placements.first?.resource.machine.isDevice == true
+            ? layout
+            : (current.map { $0.layout } ?? layout)
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
         let created = try host.create(title, focus)

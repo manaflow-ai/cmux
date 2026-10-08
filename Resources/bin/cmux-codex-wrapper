@@ -180,7 +180,7 @@ cmux_computer_use_stat_owner_modes() {
     local stat_bin=/usr/bin/stat
     [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
     [[ -x "$stat_bin" ]] || return 1
-    "$stat_bin" -f '%u %Lp' -- "$@" 2>/dev/null || "$stat_bin" -c '%u %a' -- "$@" 2>/dev/null
+    "$stat_bin" -f '%u %Lp' "$@" 2>/dev/null || "$stat_bin" -c '%u %a' "$@" 2>/dev/null
 }
 
 # Succeed only when every "<owner> <mode>" line is owned by root or the current
@@ -261,6 +261,14 @@ cmux_computer_use_resolve_client() {
     # unless it is the exact app-installed cmux-cua helper selected by cmux.
     local installed_client client_real
     installed_client="${CMUX_CUA_CLIENT_PATH:-}"
+    # Older app launches and CI-hosted wrapper invocations may not inherit the
+    # app's exported client path. Reconstruct the same app-owned location from
+    # the runtime scope, then apply the identical canonicalization and trust
+    # checks below. Never fall back to an untrusted PATH lookup.
+    if [[ -z "$installed_client" && "${HOME:-}" = /* ]]; then
+        local runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+        installed_client="${HOME}/Library/Application Support/cmux/cmux-cua/helper/${runtime_scope}/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+    fi
     [[ -n "$installed_client" ]] || return 1
     client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
     cmux_computer_use_trusted_client_path "$client_real" || return 1
@@ -411,12 +419,13 @@ cmux_codex_emit_computer_use_args() {
     # reconciled above. The MCP attachment remains fail-closed on cmux
     # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
-    local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    local client default_session runtime_scope runtime_uid cua_socket state_dir
     # Read the uid in this shell first: the helpers below run in command
     # substitutions, so a uid they cache would not survive back here.
     cmux_codex_wrapper_effective_uid || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
-    auth_token="$(cmux_computer_use_auth_token)" || return 1
+    # Gate on the credential here; the parent shell exports its value.
+    cmux_computer_use_auth_token >/dev/null || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
@@ -441,7 +450,7 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         'mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
-        "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        'mcp_servers.cmux-cua.env_vars=["CMUX_CUA_SOCKET_AUTH_TOKEN"]' \
         "-c" \
         "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
@@ -512,7 +521,8 @@ codex_known_subcommand() {
 codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -s|--sandbox|--output-last-message|--enable|--disable|--add-dir|-i|--image|\
+        --local-provider|--remote-auth-token-env|--output-schema|--color)
             return 0
             ;;
     esac
@@ -569,6 +579,114 @@ should_inject_codex_hooks() {
     done
 
     return 0
+}
+
+# Codex declares -c/--config, --enable, and --disable as clap `global`
+# arguments. When a subcommand also receives one of them, Codex keeps only the
+# subcommand-level values: on codex-cli 0.159.3, `codex -c a=1 mcp -c b=2 list`
+# sees only b. The wrapper places its own overrides before the user's argv, so
+# `codex exec -c model=x` or `codex resume --last -c ...` silently dropped the
+# cmux-cua MCP server, the hook config, and `--disable computer_use`. A global
+# argument means the same thing at either position, so move the user's
+# subcommand-level occurrences, in order, in front of the subcommand. Codex then
+# sees one root-level list: wrapper values, user root values, user subcommand
+# values, with later values winning as before. Tokens after `--` are prompt
+# text and stay in place. Without a subcommand nothing moves.
+cmux_codex_session_args=()
+cmux_codex_hoist_session_global_args() {
+    local -a head=() hoisted=() tail=()
+    local arg
+    cmux_codex_session_args=()
+    while (( $# > 0 )); do
+        arg="$1"
+        case "$arg" in
+            --)
+                head+=("$@")
+                break
+                ;;
+            -*)
+                head+=("$arg")
+                shift
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg" && (( $# > 0 )); then
+                    head+=("$1")
+                    shift
+                fi
+                continue
+                ;;
+        esac
+        if ! codex_known_subcommand "$arg"; then
+            # First bare token is a prompt: an interactive session has no
+            # subcommand scope, so every option is already root-level.
+            head+=("$@")
+            break
+        fi
+        tail+=("$arg")
+        shift
+        while (( $# > 0 )); do
+            arg="$1"
+            case "$arg" in
+                --)
+                    tail+=("$@")
+                    break
+                    ;;
+                -c|--config|--enable|--disable)
+                    if (( $# >= 2 )); then
+                        hoisted+=("$arg" "$2")
+                        shift 2
+                    else
+                        tail+=("$arg")
+                        shift
+                    fi
+                    ;;
+                -c=*|--config=*|--enable=*|--disable=*|-c?*)
+                    hoisted+=("$arg")
+                    shift
+                    ;;
+                -*)
+                    tail+=("$arg")
+                    shift
+                    if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg" && (( $# > 0 )); then
+                        tail+=("$1")
+                        shift
+                    fi
+                    ;;
+                *)
+                    tail+=("$arg")
+                    shift
+                    ;;
+            esac
+        done
+        break
+    done
+    (( ${#head[@]} > 0 )) && cmux_codex_session_args+=("${head[@]}")
+    (( ${#hoisted[@]} > 0 )) && cmux_codex_session_args+=("${hoisted[@]}")
+    (( ${#tail[@]} > 0 )) && cmux_codex_session_args+=("${tail[@]}")
+    return 0
+}
+
+# `codex exec` runs headless. It shares the pane's surface with any
+# interactive Codex there, so the agent message hooks skip it.
+codex_launch_is_headless() {
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 1 ;;
+            -*)
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            exec|e) return 0 ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
 }
 
 # Codex does not emit its own SessionStart hook for an explicit `resume <id>`
@@ -642,11 +760,24 @@ exec_real_codex_passthrough() {
 
 cmux_codex_computer_use_args=()
 cmux_codex_read_computer_use_args() {
-    local arg
+    local arg auth_token
     while IFS= read -r -d '' arg; do
         cmux_codex_computer_use_args+=("$arg")
     done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
     (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    # Codex's -c overrides are argv, and any local user can read argv with ps.
+    # Keep the socket credential in the Codex process environment instead; the
+    # emitted `env_vars` entry tells Codex to forward it by name to the MCP
+    # server. Codex's default shell_environment_policy excludes *TOKEN* names
+    # from agent shell commands. The emitter runs in a process substitution, so
+    # the export must happen here in the parent shell. Fail closed: without a
+    # credential, attach nothing.
+    if ! cmux_codex_wrapper_effective_uid ||
+       ! auth_token="$(cmux_computer_use_auth_token)"; then
+        cmux_codex_computer_use_args=()
+        return 1
+    fi
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
     return 0
 }
 
@@ -705,6 +836,11 @@ else
     unset CMUX_CODEX_PARENT_INVOCATION_ID
 fi
 export CMUX_CODEX_PID=$$
+if codex_launch_is_headless "$@"; then
+    export CMUX_CODEX_HEADLESS=1
+else
+    export CMUX_CODEX_HEADLESS=0
+fi
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
@@ -815,11 +951,13 @@ if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
     fi
 fi
 
+cmux_codex_hoist_session_global_args "$@"
+
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" \
         "${cmux_codex_native_computer_use_args[@]}" \
         "${cmux_codex_computer_use_args[@]}" \
-        "${cmux_codex_injected_args[@]}" "$@"
+        "${cmux_codex_injected_args[@]}" "${cmux_codex_session_args[@]}"
 fi
 
 # A reconciled persistent channel intentionally emits no overrides; an emitter
@@ -828,4 +966,4 @@ fi
 # bind this session.
 exec "$REAL_CODEX" \
     "${cmux_codex_native_computer_use_args[@]}" \
-    "${cmux_codex_computer_use_args[@]}" "$@"
+    "${cmux_codex_computer_use_args[@]}" "${cmux_codex_session_args[@]}"

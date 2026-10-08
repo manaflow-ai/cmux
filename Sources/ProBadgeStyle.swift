@@ -158,10 +158,15 @@ enum ProBadgePalette {
         endPoint: .trailing
     )
 
-    static func foreground(for style: ProBadgeStyle) -> AnyShapeStyle {
+    /// - Parameter plainColor: The secondary color for plain badges; the
+    ///   sidebar passes one floored for contrast over its backdrop.
+    static func foreground(
+        for style: ProBadgeStyle,
+        plainColor: Color = Color(nsColor: .secondaryLabelColor)
+    ) -> AnyShapeStyle {
         switch style.appearance {
         case .plain:
-            return AnyShapeStyle(Color(nsColor: .secondaryLabelColor))
+            return AnyShapeStyle(plainColor)
         case .gradientTint:
             return AnyShapeStyle(logoGradient)
         case .gradientSolid:
@@ -184,9 +189,14 @@ enum ProBadgePalette {
 /// Icon + text content of one badge style, tinted per appearance. No capsule.
 struct ProBadgeContent: View {
     let style: ProBadgeStyle
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
 
     var body: some View {
-        let foreground = ProBadgePalette.foreground(for: style)
+        let foreground = ProBadgePalette.foreground(
+            for: style,
+            plainColor: readablePlainColor(colorScheme: colorScheme, backdrop: readabilityBackdrop)
+        )
         HStack(spacing: 3) {
             switch style.leading {
             case .none:
@@ -243,8 +253,10 @@ struct ProBadgeLabel: View {
 
 /// The Pro badge: renders the active ``ProBadgeStyle`` and opens the shared
 /// pricing destination. On hover the capsule widens to reveal a dismiss X
-/// inside it. Gated on the pro-upgrade-ui feature flag.
+/// inside it. The local dismissal preference controls visibility.
 struct ProBadgeView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
     @State private var isHovered = false
 
     private var helpTitle: String {
@@ -256,10 +268,12 @@ struct ProBadgeView: View {
     }
 
     var body: some View {
-        if CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
-           !ProBadgeStyleStore.shared.isDismissed {
+        if !ProBadgeStyleStore.shared.isDismissed {
             let style = ProBadgeStyleStore.shared.current
-            let foreground = ProBadgePalette.foreground(for: style)
+            let foreground = ProBadgePalette.foreground(
+                for: style,
+                plainColor: readablePlainColor(colorScheme: colorScheme, backdrop: readabilityBackdrop)
+            )
             HStack(spacing: 0) {
                 Button {
                     ProUpgradePresenter.present(source: .sidebarBadge)
@@ -380,4 +394,16 @@ private struct ProBadgeDebugView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+}
+
+/// The plain badge's secondary color: the system secondary label over the
+/// sidebar material, floored for contrast over a terminal-matched backdrop.
+@MainActor
+private func readablePlainColor(colorScheme: ColorScheme, backdrop: NSColor?) -> Color {
+    guard let backdrop else { return Color(nsColor: .secondaryLabelColor) }
+    return Color(nsColor: SidebarAppearanceColorResolver().readableSecondaryColor(
+        .secondaryLabelColor,
+        for: colorScheme,
+        over: backdrop
+    ))
 }

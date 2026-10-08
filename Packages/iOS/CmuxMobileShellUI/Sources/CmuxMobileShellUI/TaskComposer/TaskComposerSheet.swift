@@ -53,6 +53,7 @@ struct TaskComposerSheet: View {
     @State var failureTitleStyle: TaskComposerFailureTitleStyle = .launchFailed
     @State private var isEditorPresented = false
     @State var shouldPersistDraftOnDisappear = true
+    @State var shouldPersistPickerPreferencesOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
@@ -182,10 +183,16 @@ struct TaskComposerSheet: View {
         self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
-        // Restore persisted Mac IDs only while they remain paired.
+        // Restore the exact app-instance pairing before considering legacy
+        // physical-Mac ids. A physical Mac can have Stable and Nightly rows.
         let availablePairedMacs = availableMachines ?? store.taskComposerPairedMacs
-        let restoredMac = store.taskTemplateStore?.lastMacDeviceID()
-            .flatMap { id in availablePairedMacs.first { $0.id == id } }
+        let restoredPairingID = store.taskTemplateStore?.lastMacPairingID()
+        let legacyRestoredMacID = store.taskTemplateStore?.lastMacDeviceID()
+        let restoredMac = availablePairedMacs.first { $0.id == restoredPairingID }
+            ?? availablePairedMacs.first { $0.id == legacyRestoredMacID }
+            ?? availablePairedMacs.first {
+                $0.instanceTag == nil && $0.macDeviceID == legacyRestoredMacID
+            }
         // Restore a draft only when its complete pairing identity still exists.
         // A device-only legacy draft cannot select an arbitrary Stable/Nightly
         // sibling that happens to sort first.
@@ -232,12 +239,22 @@ struct TaskComposerSheet: View {
         // still exists. The workspace/group projection is populated after the
         // sheet can be initialized, so an empty snapshot here means
         // "not loaded yet", not "definitively ungrouped".
-        let initialWorkspaceGroupID = draft?.workspaceGroupID
-        let draftTemplateID = draft?.templateID
-            .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
+        let rememberedPickers = draft == nil ? store.taskTemplateStore?.composerPickerPreferences(
+            macPairingID: MobilePairedMac.pairingID(
+                macDeviceID: selectedMacID, instanceTag: selectedMacInstanceTag
+            )
+        ) : nil
+        let initialWorkspaceGroupID = draft == nil
+            ? rememberedPickers?.workspaceGroupID : draft?.workspaceGroupID
+        let draftTemplateID = Self.validTemplateID(draft?.templateID, in: templates)
+        let rememberedTemplateID = Self.validTemplateID(rememberedPickers?.templateID, in: templates)
+        let lastTemplateID = Self.validTemplateID(
+            store.taskTemplateStore?.lastTemplateID(),
+            in: templates
+        )
         let selectedTemplateID = draftTemplateID
-            ?? store.taskTemplateStore?.lastTemplateID()
-            .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
+            ?? rememberedTemplateID
+            ?? lastTemplateID
             ?? templates.first?.id
         let selectedTemplate = selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
         let initialProvider = selectedTemplate.flatMap {
@@ -250,28 +267,53 @@ struct TaskComposerSheet: View {
                 instanceTag: selectedMacInstanceTag
             )
         }
+        let matchingRememberedPickers = rememberedPickers?.templateID == selectedTemplateID
+            ? rememberedPickers : nil
+        let initialDefaultModel: MobileTaskAgentModel?
+        if let initialModelResult {
+            if let defaultModel = initialModelResult.defaultModel {
+                initialDefaultModel = defaultModel
+            } else if initialModelResult.error != nil || initialModelResult.models.isEmpty {
+                initialDefaultModel = matchingRememberedPickers?.defaultModel
+            } else {
+                initialDefaultModel = nil
+            }
+        } else {
+            initialDefaultModel = matchingRememberedPickers?.defaultModel
+        }
         let initialModelAvailability = MobileTaskModelAvailability(
             template: selectedTemplate,
             discoveredModels: initialModelResult?.models,
-            defaultModel: initialModelResult?.defaultModel
+            defaultModel: initialDefaultModel
         )
         // A model persisted by this composer was already validated when the
         // user selected it. Preserve that explicit choice across a cold cache
         // or later delisting instead of changing the request while discovery
         // is still loading.
-        let restoredDraftModelID = (draft?.templateID == selectedTemplateID)
-            ? draft?.modelID
-            : nil
-        let initialModelID = initialModelAvailability.validatedModelID(
-            restoredDraftModelID,
-            previouslyValidModelID: restoredDraftModelID
-        )
-        let initialSelectedModel = initialModelAvailability.models.first {
-            $0.id == initialModelID
+        let restoredDraftModelID = draft == nil
+            ? matchingRememberedPickers?.model?.id
+            : (draft?.templateID == selectedTemplateID ? draft?.modelID : nil)
+        let initialModelID: String?
+        let initialSelectedModel: MobileTaskAgentModel?
+        if draft == nil, let matchingRememberedPickers {
+            // A nil remembered model is an explicit Default selection. Keep the
+            // model picker empty and use the separately persisted default model
+            // for effort restoration instead of selecting the first discovered
+            // model while the host catalog is cold.
+            initialModelID = matchingRememberedPickers.model?.id
+            initialSelectedModel = matchingRememberedPickers.model
+        } else {
+            initialModelID = initialModelAvailability.validatedModelID(
+                restoredDraftModelID,
+                previouslyValidModelID: restoredDraftModelID
+            )
+            initialSelectedModel = initialModelAvailability.models.first {
+                $0.id == initialModelID
+            }
         }
-        let restoredDraftEffortID = (draft?.modelID == initialModelID)
-            ? draft?.effortID
-            : nil
+        let restoredDraftEffortID = draft == nil
+            ? matchingRememberedPickers?.effortID
+            : (draft?.modelID == initialModelID ? draft?.effortID : nil)
         let initialEffortModel = initialSelectedModel ?? initialModelAvailability.defaultModel
         let initialEffortID = initialEffortModel.flatMap { model in
             model.efforts.contains { $0.id == restoredDraftEffortID }
@@ -290,15 +332,21 @@ struct TaskComposerSheet: View {
             draft?.didEditDirectory == true
                 || (draft?.templateID == selectedTemplateID && draftMatchesSelectedMac)
         )
+        let rememberedDirectory = rememberedPickers?.didEditDirectory == true
+            ? rememberedPickers?.directory
+            : nil
         let initialDirectory = canRestoreDraftDirectory
             ? draft?.directory ?? "~"
-            : Self.suggestedDirectory(
+            : rememberedDirectory ?? Self.suggestedDirectory(
                 template: selectedTemplate,
                 macDeviceID: selectedMacID,
                 instanceTag: selectedMacInstanceTag,
                 templateStore: store.taskTemplateStore,
                 openDirectory: openDirectory
             )
+        let initialDidEditDirectory = draft == nil
+            ? rememberedPickers?.didEditDirectory == true
+            : canRestoreDraftDirectory && draft?.didEditDirectory == true
         // A draft model that fails the cached effective-list validation changes the request
         // bytes, so its operation ID (and any recovery bound to it) must not
         // be reused for the resulting default-model command.
@@ -330,7 +378,7 @@ struct TaskComposerSheet: View {
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
                 workspaceGroupID: initialWorkspaceGroupID,
-                didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
+                didEditDirectory: initialDidEditDirectory,
                 attachments: restoredAttachments.map {
                     MobileTaskSubmissionAttachment(uploadID: $0.id, byteCount: $0.byteCount)
                 },
@@ -348,7 +396,7 @@ struct TaskComposerSheet: View {
                 instanceTag: selectedMacInstanceTag
             ),
             directory: initialDirectory,
-            didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
+            didEditDirectory: initialDidEditDirectory,
             workspaceGroupID: initialWorkspaceGroupID,
             attachmentIDs: Set(initialAttachments.map(\.id))
                 .union(restoredAttachments.map(\.id))
@@ -370,20 +418,18 @@ struct TaskComposerSheet: View {
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedModelID = State(initialValue: initialModelID)
-        _explicitlySelectedModel = State(initialValue: initialModelAvailability.models.first {
-            $0.id == initialModelID
-        })
+        _explicitlySelectedModel = State(initialValue: initialSelectedModel)
         _selectedEffortID = State(initialValue: initialEffortID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMacInstanceTag)
         _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
-        _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
+        _pendingRestoredWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
         _displayedModels = State(initialValue: initialModelResult?.models ?? [])
-        _displayedDefaultModel = State(initialValue: initialModelResult?.defaultModel)
+        _displayedDefaultModel = State(initialValue: initialModelAvailability.defaultModel)
         _displayedModelError = State(initialValue: initialModelResult?.error)
         _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
-        _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
+        _didEditDirectory = State(initialValue: initialDidEditDirectory)
         _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(
             id: initialOperationID,
             initialRequest: initialRequest
@@ -401,6 +447,14 @@ struct TaskComposerSheet: View {
         _failureTitleStyle = State(
             initialValue: initialCompletedOperationRecovery == nil ? .launchFailed : .taskAccepted
         )
+    }
+
+    private static func validTemplateID(
+        _ id: MobileTaskTemplate.ID?,
+        in templates: [MobileTaskTemplate]
+    ) -> MobileTaskTemplate.ID? {
+        guard let id, templates.contains(where: { $0.id == id }) else { return nil }
+        return id
     }
 
     var body: some View {
@@ -427,6 +481,9 @@ struct TaskComposerSheet: View {
                 )
             }
             .onDisappear {
+                if shouldPersistPickerPreferencesOnDisappear {
+                    persistPickerPreferences()
+                }
                 store.recordAppEvent(
                     .taskComposerClosed,
                     correlationID: submissionIdentity.id.uuidString
@@ -795,6 +852,19 @@ struct TaskComposerSheet: View {
         displayedModels.isEmpty && modelRefreshOperationID != nil
     }
 
+    private func defaultModel(
+        from result: MobileTaskModelListResult,
+        preserving previous: MobileTaskAgentModel?
+    ) -> MobileTaskAgentModel? {
+        if let defaultModel = result.defaultModel {
+            return defaultModel
+        }
+        // An empty or failed result means no fresh catalog replaced the
+        // restored picker state. A nonempty successful catalog is authoritative
+        // even when the provider did not report a default model.
+        return result.error != nil || result.models.isEmpty ? previous : nil
+    }
+
     private func updateModelLoadingIndicator(isLoading: Bool) async {
         guard isModelLoadingIndicatorVisible != isLoading else { return }
         // task(id:) cancels this debounce when the fetch changes state. Fast
@@ -835,7 +905,10 @@ struct TaskComposerSheet: View {
         // Keep a usable cached catalog visible while the host and backend are
         // refreshed. An authoritative host result replaces it in place.
         displayedModels = cachedResult.models
-        displayedDefaultModel = cachedResult.defaultModel
+        displayedDefaultModel = defaultModel(
+            from: cachedResult,
+            preserving: displayedDefaultModel
+        )
         displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
@@ -850,13 +923,19 @@ struct TaskComposerSheet: View {
                     let outcome = await store.refreshTaskModels(
                         provider: provider,
                         macDeviceID: macDeviceID,
-                        instanceTag: instanceTag
+                        instanceTag: instanceTag,
+                        // Render the prefetched catalog immediately above, then
+                        // revalidate the host whenever the composer opens.
+                        maximumCacheAge: 0
                     ) { result in
                         guard !Task.isCancelled,
                               modelRefreshOperationID == operationID,
                               modelRefreshID == refreshID else { return }
                         displayedModels = result.models
-                        displayedDefaultModel = result.defaultModel
+                        displayedDefaultModel = defaultModel(
+                            from: result,
+                            preserving: displayedDefaultModel
+                        )
                         displayedModelError = result.error
                         reconcileSelectedEffort()
                     }
@@ -898,7 +977,10 @@ struct TaskComposerSheet: View {
                 instanceTag: instanceTag
             ) {
                 displayedModels = refreshedResult.models
-                displayedDefaultModel = refreshedResult.defaultModel
+                displayedDefaultModel = defaultModel(
+                    from: refreshedResult,
+                    preserving: displayedDefaultModel
+                )
                 displayedModelError = refreshedResult.error
                 reconcileSelectedEffort()
             }
@@ -1061,10 +1143,12 @@ struct TaskComposerSheet: View {
     private func resumeDraft(_ id: UUID) {
         guard let onSwitchDraft else { return }
         guard persistDraftContent(base: draftSnapshot()) else { return }
+        persistPickerPreferences()
         // The replaced view's onDisappear must not persist again: state
         // storage is already torn down by the identity switch, so that late
-        // persist reads initial values and its empty snapshot would delete
-        // the draft that was just saved.
+        // persist reads initial values and would overwrite the next composer's
+        // picker choices.
+        shouldPersistPickerPreferencesOnDisappear = false
         shouldPersistDraftOnDisappear = false
         onSwitchDraft(.resume(id))
     }
@@ -1074,7 +1158,10 @@ struct TaskComposerSheet: View {
     private func startNewDraft() {
         guard let onSwitchDraft else { return }
         guard persistDraftContent(base: draftSnapshot()) else { return }
-        // See resumeDraft: block the torn-down view's late empty persist.
+        // See resumeDraft: save the picker snapshot before the identity switch
+        // and block the torn-down view's late callback.
+        persistPickerPreferences()
+        shouldPersistPickerPreferencesOnDisappear = false
         shouldPersistDraftOnDisappear = false
         onSwitchDraft(.new)
     }
@@ -1094,6 +1181,10 @@ struct TaskComposerSheet: View {
                       instanceTag: instanceTag
                   )
               }) else { return }
+        guard selectedMacPairingID != MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID, instanceTag: instanceTag
+        ) else { return }
+        persistPickerPreferences()
         store.recordAppEvent(
             .taskMachineSelected,
             correlationID: macDeviceID
@@ -1108,16 +1199,10 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
-            pendingRestoredWorkspaceGroupID = nil
-            workspaceGroupSelectionRequiresResolution = false
-            selectedWorkspaceGroupID = validWorkspaceGroupID(
-                selectedWorkspaceGroupID,
-                groups: workspaceGroups,
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-            syncSuggestedDirectory()
+            restorePickerPreferences(templates: templates)
         }
+        validateWorkspaceGroupSelection()
+        persistPickerPreferences()
     }
 
     private func selectWorkspaceGroup(_ groupID: MobileWorkspaceGroupPreview.ID?) {
@@ -1131,6 +1216,7 @@ struct TaskComposerSheet: View {
             workspaceGroupSelectionRequiresResolution = false
             selectedWorkspaceGroupID = groupID
         }
+        persistPickerPreferences()
     }
 
     func startSubmission() {
@@ -1239,6 +1325,7 @@ struct TaskComposerSheet: View {
             selectedEffortID = nil
             syncSuggestedDirectory()
         }
+        persistPickerPreferences()
         store.recordAppEvent(
             .taskTemplateCreated,
             correlationID: template.id.uuidString
@@ -1288,16 +1375,9 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             selectedMacInstanceTag = machines.first?.instanceTag
-            pendingRestoredWorkspaceGroupID = nil
-            workspaceGroupSelectionRequiresResolution = false
-            selectedWorkspaceGroupID = validWorkspaceGroupID(
-                selectedWorkspaceGroupID,
-                groups: workspaceGroups,
-                macDeviceID: selectedMacDeviceID,
-                instanceTag: selectedMacInstanceTag
-            )
-            syncSuggestedDirectory()
+            restorePickerPreferences(templates: templates)
         }
+        validateWorkspaceGroupSelection()
     }
 
     private func validateWorkspaceGroupSelection() {

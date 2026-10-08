@@ -85,6 +85,7 @@ extension CmuxSettingsFileStore {
                     "confirmQuit": AppCatalogSection().confirmQuitMode.defaultValue.rawValue,
                     "warnBeforeClosingTab": AppCatalogSection().warnBeforeClosingTab.defaultValue,
                     "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
+                    "warnBeforeClosingAgentSession": AppCatalogSection().warnBeforeClosingAgentSession.defaultValue,
                     "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
                     "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
@@ -131,6 +132,9 @@ extension CmuxSettingsFileStore {
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "paneFlashDoubleBlink": NotificationPaneFlashSettings.defaultDoubleBlink,
+                    "paneFlashOnTyping": NotificationPaneFlashSettings.defaultOnTyping,
+                    "paneFlashThemeColor": NotificationPaneFlashSettings.defaultThemeColor,
                     "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
@@ -147,6 +151,9 @@ extension CmuxSettingsFileStore {
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
                     "workspaceDescriptionColor": NSNull(),
                     "beta": [
+                        "conversations": [
+                            "enabled": SettingCatalog().betaFeatures.conversationSidebar.defaultValue,
+                        ],
                         "workspaceTodos": [
                             "controls": [
                                 "enabled": SettingCatalog().betaFeatures.workspaceTodoControls.defaultValue,
@@ -169,6 +176,7 @@ extension CmuxSettingsFileStore {
                     "showPorts": SidebarWorkspaceDetailDefaults.showPorts,
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
+                    "showAgentUsage": SidebarWorkspaceDetailDefaults.showAgentUsage,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
                     "compactAgentStatus": SidebarWorkspaceDetailDefaults.compactAgentStatus,
@@ -180,6 +188,7 @@ extension CmuxSettingsFileStore {
                     "indicatorStyle": SettingCatalog().workspaceColors.indicatorStyle.defaultValue.rawValue,
                     "selectionColor": NSNull(),
                     "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
+                    "brightenInDarkMode": SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
@@ -188,7 +197,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebarAppearance": [
-                    "matchTerminalBackground": false,
+                    "matchTerminalBackground": SettingCatalog().sidebarAppearance.matchTerminalBackground.defaultValue,
                     "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
@@ -223,8 +232,12 @@ extension CmuxSettingsFileStore {
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
+                    "hiddenWebViewDiscardMode": BrowserHiddenWebViewDiscardPolicy.defaultMode.rawValue,
+                    "hiddenWebViewMemoryBudgetMB": BrowserHiddenWebViewDiscardPolicy.defaultMemoryBudgetMB,
                     "hiddenWebViewDiscardDelaySeconds": BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
+                    "autoRestoreUnloadedPages": BrowserHiddenWebViewDiscardPolicy.defaultAutoRestore,
                     "askWhereToSaveDownloads": SettingCatalog().browser.askWhereToSaveDownloads.defaultValue,
+                    "showLinkHoverURL": SettingCatalog().browser.showLinkHoverURL.defaultValue,
                     "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
                     "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
                     "hostsToOpenInEmbeddedBrowser": [String](),

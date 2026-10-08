@@ -9,10 +9,6 @@ import Testing
 @testable import cmux
 #endif
 
-// The CLI executable's CMUXCLI type is not part of the app test target. The
-// provider-first alias is a pure routing helper shared with the app instead.
-typealias CMUXCLI = CmuxTuiRemoteRouting
-
 @Suite struct AgentAliasArgumentTests {
     final class BundleProbe {}
 
@@ -670,16 +666,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testProviderFirstAgentAliasAddsTheCanonicalSeparator() {
         XCTAssertEqual(
-            CMUXCLI.vmAgentAliasArgs(["claude", "--machine", "vm-agent-test", "reply exactly pong"]),
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["claude", "--machine", "vm-agent-test", "reply exactly pong"]),
             ["--agent", "claude", "--machine", "vm-agent-test", "--", "reply exactly pong"]
         )
         XCTAssertEqual(
-            CMUXCLI.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
             ["--agent", "codex", "--", "exec", "summarize"]
         )
         // Focus flags belong to `vm agent`, not to the agent's prompt.
         XCTAssertEqual(
-            CMUXCLI.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
             ["--agent", "claude", "--no-focus", "--", "reply exactly pong"]
         )
     }

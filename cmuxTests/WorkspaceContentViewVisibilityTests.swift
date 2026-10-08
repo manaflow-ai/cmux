@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Combine
 import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
@@ -205,7 +206,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(coordinator.pendingTarget == nil)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
         _ = NSApplication.shared
@@ -221,10 +222,39 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
+        // Workspace initialization discovers its project root asynchronously,
+        // even for loading cards. A few quiet runloop turns do not prove that
+        // discovery finished: its @Published result can arrive during the
+        // measured toggle and invalidate WorkspaceContentView independently.
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(
+            at: projectRoot.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
         let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { tabManager.finalizeAllWorkspacesForWindowClose() }
         for _ in 0..<7 {
-            tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: tabManager.tabs.isEmpty, autoWelcomeIfNeeded: false)
+            tabManager.addWorkspace(
+                workingDirectory: projectRoot.path,
+                initialSurface: .cloudVMLoading,
+                select: tabManager.tabs.isEmpty,
+                autoWelcomeIfNeeded: false
+            )
         }
+        for workspace in tabManager.tabs {
+            for await root in workspace.$extensionSidebarProjectRootPath.values {
+                if root == projectRoot.path { break }
+            }
+            try #require(workspace.extensionSidebarProjectRootPath == projectRoot.path)
+        }
+        // The right-side file explorer is outside this test's minimal-mode
+        // scope. Keep it hidden so delayed workspace-root discovery cannot
+        // invalidate the chrome bodies during the toggle measurement.
+        let fileExplorerState = FileExplorerState(defaults: defaults)
+        fileExplorerState.setVisible(false)
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
@@ -232,7 +262,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
+            .environmentObject(fileExplorerState)
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
@@ -257,7 +287,6 @@ final class WorkspaceContentViewVisibilityTests {
         window.displayIfNeeded()
         defer {
             window.contentView = nil
-            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
         await Self.drainMainRunLoop(for: window)
@@ -504,6 +533,28 @@ final class WorkspaceContentViewVisibilityTests {
 
         #expect(minimalControls == [.upgrade])
         #expect(standardControls == SidebarFooterControl.allCases)
+    }
+
+    @Test
+    func upgradeVisibilityRequiresKnownFreeEntitlement() {
+        #expect(
+            SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: false,
+                isProStatusKnown: true
+            )
+        )
+        #expect(
+            !SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: true,
+                isProStatusKnown: true
+            )
+        )
+        #expect(
+            !SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: false,
+                isProStatusKnown: false
+            )
+        )
     }
 
     @Test

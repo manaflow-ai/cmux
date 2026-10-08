@@ -193,6 +193,11 @@ public abstract class GeneratedCmuxClient {
         return FrontendProjection.fromWire(result);
     }
 
+    public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_SIZE_STATE, request.toWire());
+        return GetSizeStateResult.fromWire(result);
+    }
+
     public final IdentifyResult identify() throws CmuxException {
         Object result = execute(Commands.IDENTIFY, Map.of());
         return IdentifyResult.fromWire(result);
@@ -303,6 +308,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final NoteSizeActivityResult noteSizeActivity(NoteSizeActivityRequest request) throws CmuxException {
+        Object result = execute(Commands.NOTE_SIZE_ACTIVITY, request.toWire());
+        return NoteSizeActivityResult.fromWire(result);
+    }
+
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
         Object result = execute(Commands.NOTIFY, request.toWire());
         return NotifyResult.fromWire(result);
@@ -346,6 +356,11 @@ public abstract class GeneratedCmuxClient {
     public final ReadScrollbackResult readScrollback(ReadScrollbackRequest request) throws CmuxException {
         Object result = execute(Commands.READ_SCROLLBACK, request.toWire());
         return ReadScrollbackResult.fromWire(result);
+    }
+
+    public final ReattachViewResult reattachView(ReattachViewRequest request) throws CmuxException {
+        Object result = execute(Commands.REATTACH_VIEW, request.toWire());
+        return ReattachViewResult.fromWire(result);
     }
 
     public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {
@@ -481,6 +496,16 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult setRatio(SetRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final SetSizeCountsResult setSizeCounts(SetSizeCountsRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SIZE_COUNTS, request.toWire());
+        return SetSizeCountsResult.fromWire(result);
+    }
+
+    public final SetSizePolicyResult setSizePolicy(SetSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SIZE_POLICY, request.toWire());
+        return SetSizePolicyResult.fromWire(result);
     }
 
     public final EmptyResult setSplitRatio(SetSplitRatioRequest request) throws CmuxException {

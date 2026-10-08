@@ -24,12 +24,16 @@ struct CloudPrivateRouteSelectionTests {
         var refreshes = 0
     }
 
-    private func manager(hub: CloudWireGuardHub? = nil) -> CloudMachineLinkManager {
+    private func manager(
+        hub: CloudWireGuardHub? = nil,
+        privateRouteConnector: CloudHubConnector = CloudHubConnector()
+    ) -> CloudMachineLinkManager {
         CloudMachineLinkManager(
             paths: CloudTuiClientPaths(home: URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")),
             clientURL: nil,
             hub: hub,
-            hostThemeColors: { nil }
+            hostThemeColors: { nil },
+            privateRouteConnector: privateRouteConnector
         )
     }
 
@@ -147,14 +151,23 @@ struct CloudPrivateRouteSelectionTests {
         let hub = try CloudLoopbackPortForwardTests.FakeSocksHub(unixSocketPath: path)
         try await hub.start()
         defer { hub.stop() }
-        let manager = manager()
+        let clock = SidebarTestManualClock()
+        let manager = manager(privateRouteConnector: CloudHubConnector(fallbackDelay: .zero, clock: clock))
         await manager.setPrivateAddresses(["10.16.0.2", "fd00::2"], for: "vm-test")
         let ready = CloudWireGuardHub.Ready(socketPath: path, routes: ["10.16.0.0/24", "fd00::/8"])
         hub.refusedHosts = ["10.16.0.2", "fd00::2"]
 
-        await #expect(throws: (any Error).self) {
-            try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
+        let failedProbe = Task {
+            await #expect(throws: (any Error).self) {
+                try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
+            }
         }
+        #expect(await CloudLoopbackPortForwardTests.waitUntil {
+            Set(hub.connectTargets.map(\.host)) == Set(["10.16.0.2", "fd00::2"])
+        })
+        await clock.waitUntilSleeping(for: .seconds(15))
+        clock.advance(by: .seconds(15))
+        await failedProbe.value
         hub.refusedHosts = ["10.16.0.2"]
         #expect(try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
                 == "ws://[fd00::2]:1337/v1/link")

@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxAuthRuntime
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Both Files presentations resolve through the same workspace and account authority.
@@ -30,6 +31,23 @@ struct FileExplorerWorkspaceRootResolver {
         // transport, otherwise Files would silently change hosts.
         if let binding = workspace.cloudVMBinding {
             let vmID = binding.vmID
+            if vmID.hasPrefix("ssh:") {
+                guard let configuration = workspace.remoteConfiguration,
+                      configuration.transport == .ssh else { return .none }
+                return .remoteSSH(
+                    workspaceId: workspace.id,
+                    connection: SSHFileExplorerConnection(destination: configuration.destination,
+                        port: configuration.port, identityFile: configuration.identityFile, sshOptions: configuration.sshOptions),
+                    displayTarget: configuration.displayTarget,
+                    rootPath: workspace.trustedRemoteCurrentDirectory,
+                    isAvailable: workspace.remoteConnectionState == .connected,
+                    unavailableDetail: workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
+                )
+            }
+            // The binding's machine id is authoritative.  Device ids use the
+            // same wire representation as cloud ids but are owned by the
+            // device provider, so do not force them through `.cloud`.
+            let machine = SurfaceMachineID(rawValue: vmID)
             let managedEnabled = managedCloudEnabled()
             let featureEnabled = cloudEnabled()
             let identity = Self.cloudIdentity(
@@ -40,7 +58,7 @@ struct FileExplorerWorkspaceRootResolver {
                 catalog: catalog,
                 teamScope: teamScope
             )
-            let connected = catalog.machines[.cloud(vmID)]?.linkState == .connected
+            let connected = catalog.machines[machine]?.linkState == .connected
             let detail: String?
             if !managedEnabled {
                 detail = ManagedCloudPolicy.disabledMessage
@@ -70,7 +88,7 @@ struct FileExplorerWorkspaceRootResolver {
             }
             return .remoteCloud(
                 workspaceId: workspace.id, vmID: vmID,
-                displayTarget: catalog.machines[.cloud(vmID)]?.name ?? vmID,
+                displayTarget: catalog.machines[machine]?.name ?? vmID,
                 rootPath: target == nil ? nil : workspace.trustedRemoteCurrentDirectory,
                 isAvailable: target != nil,
                 unavailableDetail: detail,
@@ -97,7 +115,11 @@ struct FileExplorerWorkspaceRootResolver {
             )
         }
         let path = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? .none : .local(workspaceId: workspace.id, path: path)
+        // A local workspace may not have reported a cwd yet (fresh and
+        // restored workspaces do this briefly).  Files still belongs to this
+        // Mac; use its home directory instead of dropping the root entirely.
+        let localPath = path.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : path
+        return .local(workspaceId: workspace.id, path: localPath)
     }
 
     private static func cloudIdentity(
@@ -108,22 +130,23 @@ struct FileExplorerWorkspaceRootResolver {
         catalog: SurfaceCatalog,
         teamScope: @MainActor @Sendable () -> AuthenticatedTeamScope?
     ) -> CloudFileExplorerTarget.Identity? {
+        let machine = SurfaceMachineID(rawValue: vmID)
         guard !workspace.isRetiredFromOwningTabManager, workspace.cloudVMBinding?.vmID == vmID,
               WorkspaceCloudVMBinding.normalizedVMID(vmID) != nil,
               managedPolicyEnabled, featureEnabled, let team = teamScope(),
-              let provider = catalog.provider(for: .cloud(vmID)),
-              catalog.machines[.cloud(vmID)]?.linkState == .connected,
-              catalog.cloudStateObservations[.cloud(vmID)]?.freshness == .current else { return nil }
+              let provider = catalog.provider(for: machine),
+              catalog.machines[machine]?.linkState == .connected,
+              catalog.cloudStateObservations[machine]?.freshness == .current else { return nil }
         if let concrete = provider as? CmuxTuiSurfaceProvider,
            concrete.isFeatureSuspended || concrete.fileAccessTeamScope != team || !concrete.capabilities.exec { return nil }
         guard catalog.projectionMachines(forWorkspace: workspace.id).allSatisfy({
-            $0.isLocal || $0 == .cloud(vmID)
+            $0.isLocal || $0 == machine
         }) else { return nil }
         guard workspace.cloudBindingState.projectedResources.values.allSatisfy({
-            $0.machine.isLocal || $0.machine == .cloud(vmID)
+            $0.machine.isLocal || $0.machine == machine
         }) else { return nil }
         let remoteID = workspace.cloudVMBinding?.remoteWorkspaceID
-        if let remoteID, catalog.cloudStates[.cloud(vmID)]?.workspaces.contains(where: { $0.id == remoteID }) != true {
+        if let remoteID, catalog.cloudStates[machine]?.workspaces.contains(where: { $0.id == remoteID }) != true {
             return nil
         }
         return CloudFileExplorerTarget.Identity(workspaceID: workspace.id, vmID: vmID,

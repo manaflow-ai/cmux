@@ -13,7 +13,7 @@ struct ClaudeBackgroundWorkNotifyTests {
         (snapshot.compactMap(AgentHookTestNotificationPipeline.candidatePresentation) + snapshot).first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
     }
 
-    @Test func stopHookContinuationDoesNotPoisonTheLaterIdleSignal() throws {
+    @Test func reentrantStopWithoutBackgroundWorkSettlesIdle() throws {
         let result = try runStopHook(name: "stop-continuation", sessionId: "continued-session", stdin: """
         {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
         """)
@@ -22,6 +22,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         // must not mark the completion as pending or poison the later idle signal.
         #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=0") != nil)
         #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: false) != nil)
+        // Hook recursion is not evidence of live work. The final re-entrant
+        // Stop must settle the pane so it cannot remain stuck on Running until
+        // another user prompt arrives.
+        #expect(statusLine(result.snapshot, value: "Idle") != nil)
+        #expect(statusLine(result.snapshot, value: "Running") == nil)
+        #expect(statusLine(result.snapshot, value: "Waiting") == nil)
     }
 
     private func statusLine(_ snapshot: [String], value: String) -> String? {
@@ -102,10 +108,14 @@ struct ClaudeBackgroundWorkNotifyTests {
             "Stop with a running background task must tag the done-ping pending; saw \(snapshot)"
         )
         #expect(cached == true)
-        // Sidebar pill must not say "Idle" while background work is live.
-        #expect(statusLine(snapshot, value: "Running") != nil,
-                "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
+        // Sidebar pill must not say "Idle" while background work is live. A
+        // live background task is a deterministic wakeup, so the pane reads as
+        // Waiting rather than Running, and reports that to the compact glyph.
+        #expect(statusLine(snapshot, value: "Waiting") != nil,
+                "Pending stop must show a Waiting pill, not Idle; saw \(snapshot)")
         #expect(statusLine(snapshot, value: "Idle") == nil)
+        #expect(lastLine(snapshot, prefix: "set_status claude_code Waiting ")?.contains("--work=waiting") == true,
+                "The Waiting pill must carry the work state the sidebar glyph reads; saw \(snapshot)")
         // And the journaled turn boundary must carry pending_work=true so the
         // reduced lifecycle stays running (non-hibernatable) while the
         // background task is live.

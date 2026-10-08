@@ -19,7 +19,7 @@ extension SettingsWindowRoot {
     @ViewBuilder
     func sectionStack(proxy: ScrollViewProxy) -> some View {
         // Top to bottom in ``SettingsSectionMountModel/displayOrder``, the
-        // order sections mount in: Account through Sleepy Mode, then Mobile,
+        // order sections mount in: Account, App, Themes, Terminal, TextBox, Sleepy Mode, then Mobile,
         // Cloud, Devices, Networking, the sidebar sections, Beta Features,
         // Automation, Computer Use, Browser (with embedded Import), Global
         // Hotkey, Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
@@ -34,11 +34,19 @@ extension SettingsWindowRoot {
         slot(.app, proxy: proxy) {
             AppSection(
                 defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: hostActions,
+                soundAgentCache: soundAgentCache
+            )
+        }
+
+        slot(.themes, proxy: proxy) {
+            ThemesSection(
+                defaultsStore: defaultsStore,
                 jsonStore: jsonStore,
                 catalog: catalog,
                 errorLog: runtime.errorLog,
-                hostActions: hostActions,
-                soundAgentCache: soundAgentCache
+                hostActions: hostActions
             )
         }
 
@@ -64,10 +72,11 @@ extension SettingsWindowRoot {
         }
 
         slot(.cloudMachines, proxy: proxy) {
-            // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
-            // while unavailable, not just no placeholder.
+            // `DisableCloud` (MDM) controls administrator availability; the
+            // local first-use marker controls whether Cloud work may run.
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
+                    .id(cloudSectionIdentity)
             }
         }
 

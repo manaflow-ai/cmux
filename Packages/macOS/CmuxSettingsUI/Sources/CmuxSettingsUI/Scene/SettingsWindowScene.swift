@@ -25,7 +25,6 @@ public struct SettingsWindowRoot: View {
     @State var mountModel: SettingsSectionMountModel
 
     static let selectedSectionDefaultsKey = "selectedSettingsSection"
-    static let cloudMachinesBetaDefaultsKey = "cloud.beta.machines.enabled"
 
     /// - Parameters:
     ///   - runtime: Catalog, stores, and host actions shared by every section.
@@ -43,17 +42,15 @@ public struct SettingsWindowRoot: View {
         self.searchIndex = runtime.searchIndex
         self.initialSection = initialSection
         _pendingInitialSection = State(initialValue: initialSection)
+        _searchQuery = State(initialValue: SettingsSearchQuery(index: runtime.searchIndex))
         // The `@AppStorage` properties below read the same store; the restore
         // target has to be known before the first body evaluation because
         // that pass runs inside `NSWindow(contentViewController:)`.
         let defaults = UserDefaults.standard
         let restoredSection = defaults.string(forKey: Self.selectedSectionDefaultsKey)
             .flatMap(SettingsSectionID.init(rawValue:)) ?? .account
-        let betaEnabled = defaults.object(forKey: Self.cloudMachinesBetaDefaultsKey) as? Bool
-            ?? BetaFeaturesCatalogSection().cloudMachines.defaultValue
         let cloudAvailable = !ManagedDevicePolicy().isEnforced(.disableCloud)
             && runtime.hostActions.isCloudMachinesAvailable
-            && betaEnabled
         _mountModel = State(initialValue: mountModel ?? SettingsSectionMountModel(
             initial: initialSection ?? restoredSection,
             order: Self.mountOrder(cloudAvailable: cloudAvailable)
@@ -69,7 +66,13 @@ public struct SettingsWindowRoot: View {
     @State var shownPaneSection: SettingsSectionID?
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var cloudFeatureFlagRevision = 0
-    @State private var searchText: String = ""
+    /// Never read in this body, so a keystroke does not re-render the root
+    /// or its detail pane; see ``SettingsSearchQuery``.
+    @State private var searchQuery: SettingsSearchQuery
+
+    var cloudSectionIdentity: String {
+        "cloud-machines-section-\(cloudFeatureFlagRevision)"
+    }
     /// Loaded when the window opens so the App pane renders its agent
     /// sound matrix at full height on every visit.
     @State var soundAgentCache = NotificationSoundAgentCache()
@@ -85,11 +88,6 @@ public struct SettingsWindowRoot: View {
     // there is no SwiftUI scene to store into (cmux issue #7777).
     @AppStorage(SettingsWindowRoot.selectedSectionDefaultsKey) private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
     @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
-    // Mirrors BetaFeaturesCatalogSection.cloudMachines so flipping the Beta
-    // Features toggle shows/hides the Cloud sidebar row without reopening
-    // Settings; the host folds in the remote rollout flag.
-    @AppStorage(SettingsWindowRoot.cloudMachinesBetaDefaultsKey)
-    private var cloudMachinesBetaEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
@@ -125,11 +123,11 @@ public struct SettingsWindowRoot: View {
     var hostActions: SettingsHostActions { runtime.hostActions }
     var accountFlow: AccountFlow? { runtime.accountFlow }
     /// Whether the Cloud section (and its sidebar row) is offered at all. The
-    /// host owns the remote flag and managed-policy decision; this local value
-    /// keeps the section responsive to the Beta Features toggle as well.
+    /// host owns the managed-policy decision; first-use activation belongs to
+    /// the Cloud tab itself.
     var isCloudSectionAvailable: Bool {
         _ = cloudFeatureFlagRevision
-        return !cloudDisabledByPolicy && hostActions.isCloudMachinesAvailable && cloudMachinesBetaEnabled
+        return !cloudDisabledByPolicy && hostActions.isCloudMachinesAvailable
     }
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value
@@ -141,10 +139,12 @@ public struct SettingsWindowRoot: View {
     var activeSection: SettingsSectionID {
         pendingInitialSection ?? selectedSection
     }
-    /// Whether the user currently has a non-empty search query. When
-    /// false the sidebar should track section selection only; when true
-    /// the per-entry selection survives.
-    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Whether the sidebar is showing search hits for a non-empty query.
+    /// When false the sidebar should track section selection only; when
+    /// true the per-entry selection survives. Follows the applied results,
+    /// not the field text, so a click during the match debounce is judged
+    /// by the list the user actually clicked in.
+    private var isSearching: Bool { searchQuery.isShowingSearchResults }
     // Legacy uses a non-optional `Binding<String>` because a sidebar
     // selection always points at *some* entry (section row or setting
     // hit). Mirroring that here lets List's selection semantics behave
@@ -161,7 +161,11 @@ public struct SettingsWindowRoot: View {
     }
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
+            SettingsSidebarList(
+                query: searchQuery,
+                selection: sidebarSelectionBinding,
+                isCloudSectionAvailable: isCloudSectionAvailable
+            )
         } detail: {
             detailScroll
         }
@@ -176,6 +180,15 @@ public struct SettingsWindowRoot: View {
         // so the package window can shrink to the same lower bound.
         .frame(minWidth: 820, minHeight: 540)
         .settingsErrorAlert(log: runtime.errorLog)
+        .onAppear {
+            // Legacy SettingsRootView resyncs the sidebar entry to the
+            // section row whenever the search text is cleared, so
+            // typing then clearing doesn't leave a stale "deep" entry
+            // selected.
+            searchQuery.onQueryCleared = {
+                selectedSidebarEntryID = sectionEntryID(for: selectedSection)
+            }
+        }
         .task {
             let signals = ManagedDevicePolicy.changeSignals()
             cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
@@ -199,14 +212,6 @@ public struct SettingsWindowRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cmuxFeatureFlagsDidChange"))) { _ in
             cloudFeatureFlagRevision &+= 1
             leaveCloudSectionIfDisabledByPolicy()
-        }
-        .onChange(of: searchText) { _, newValue in
-            // Legacy SettingsRootView resyncs the sidebar entry to the
-            // section row whenever the search text is cleared, so
-            // typing then clearing doesn't leave a stale "deep" entry
-            // selected.
-            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            selectedSidebarEntryID = sectionEntryID(for: selectedSection)
         }
     }
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
@@ -249,92 +254,7 @@ public struct SettingsWindowRoot: View {
         }
     }
 
-    private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
-        guard !isCloudSectionAvailable else { return true }
-        switch entry.kind {
-        case .section:
-            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
-        case .setting(let parent):
-            return parent != .cloudMachines
-        }
-    }
-
-    /// Shows grouped browse categories until search is active, then preserves the flat ranked result list.
-    @ViewBuilder
-    private var sidebar: some View {
-        List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText).filter { isEntryVisible($0) }
-            if matches.isEmpty {
-                Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                    .foregroundStyle(.secondary)
-            } else if isSearching {
-                // Search stays flat and relevance-ranked. Taxonomy only
-                // reorganizes the default browse view, so existing setting
-                // hit IDs, row anchors, and deep-link selection semantics
-                // remain unchanged while a query is active.
-                ForEach(matches) { entry in
-                    sidebarEntryRow(entry)
-                }
-            } else {
-                ForEach(SettingsTaxonomyGroup.allCases) { group in
-                    let groupEntries = taxonomyEntries(for: group, from: matches)
-                    if !groupEntries.isEmpty {
-                        Section {
-                            ForEach(groupEntries) { entry in
-                                sidebarEntryRow(entry)
-                            }
-                        } header: {
-                            Text(group.title)
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
-    }
-
-    /// Renders one existing search-index entry as a selectable sidebar leaf.
-    @ViewBuilder
-    private func sidebarEntryRow(_ entry: SettingsSearchIndex.Entry) -> some View {
-        SettingsSidebarEntryRow(
-            title: entry.title,
-            symbolName: entry.symbolName,
-            subtitle: subtitle(for: entry)
-        )
-        .tag(entry.id)
-    }
-
-    /// Returns the existing section entries in taxonomy order without
-    /// changing their ids or targets. Runtime visibility filtering happens
-    /// before this step, so unavailable leaves simply disappear from their
-    /// group while the remaining destinations keep their stable identities.
-    private func taxonomyEntries(
-        for group: SettingsTaxonomyGroup,
-        from entries: [SettingsSearchIndex.Entry]
-    ) -> [SettingsSearchIndex.Entry] {
-        group.sections.compactMap { section in
-            entries.first { $0.id == sectionEntryID(for: section) }
-        }
-    }
-
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
-
-    /// Legacy `SettingsSearchEntry` populates `subtitle` with the
-    /// parent section's title for setting-type hits and `nil` for
-    /// section-type hits, so `SettingsSidebarEntryRow` renders the
-    /// section name underneath each search hit but keeps section
-    /// rows single-line. Mirror that here.
-    private func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
-        switch entry.kind {
-        case .section:
-            return nil
-        case .setting(let parent):
-            return parent.title
-        }
-    }
 
     /// Updates both the sidebar entry selection and the underlying
     /// section pane based on the clicked sidebar row. Setting-hit
@@ -461,6 +381,12 @@ public struct SettingsWindowRoot: View {
                     .padding(.bottom, 20)
                 }
             }
+            // Reserve the vertical scroller's gutter on every page. With
+            // legacy (always-shown) scrollers, a page that grows past the
+            // window, like Themes once its gallery loads, would otherwise
+            // add a scroller and narrow every card mid-view; switching
+            // between short and long pages shifted the same way.
+            .scrollIndicators(.visible, axes: .vertical)
             .toggleStyle(.switch)
             .onAppear {
                 // Reopening Settings lands at the top of the last-viewed

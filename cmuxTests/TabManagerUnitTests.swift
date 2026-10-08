@@ -20,15 +20,15 @@ import CmuxSettings
 #endif
 
 let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
-
-func drainMainQueue() {
+func drainMainQueue(timeout: TimeInterval = 1.0) {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
         expectation.fulfill()
     }
-    XCTWaiter().wait(for: [expectation], timeout: 1.0)
+    XCTWaiter().wait(for: [expectation], timeout: timeout)
 }
 
+func drainMainQueue() { drainMainQueue(timeout: 1.0) }
 @discardableResult
 private func waitForCondition(
     timeout: TimeInterval = 3.0,
@@ -277,22 +277,39 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
+    private var previousCloudActivationMarker: Any?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        previousCloudActivationMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        try XCTSkipIf(
+            ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
+            "macOS 26 aborts while forming weak references during these AppKit window fixtures"
+        )
+    }
+
+    override func tearDown() {
+        if let previousCloudActivationMarker {
+            UserDefaults.standard.set(previousCloudActivationMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        }
+        super.tearDown()
+    }
+
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
-
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
-
         guard let secondPanelId = second.focusedPanelId else {
             XCTFail("Expected focused panel in selected workspace")
             return
         }
-
         manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
-
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id])
         XCTAssertEqual(
             manager.selectedTabId,
@@ -549,10 +566,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
-        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
-        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
-        defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         let reservedSocket = TerminalController.shared.reserveStartupSocketPath(
             "/tmp/cmux-cloud-reconnect-\(UUID().uuidString).sock"
@@ -997,7 +1010,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 }
-
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
@@ -1704,7 +1716,7 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
-    func testRunningProcessWorkspaceCloseSkipsPromptWhenSettingDisabled() {
+    func testRunningProcessWorkspaceCloseStillWarnsWhenSettingDisabled() {
         let manager = makeManager(warnBeforeClosingWorkspace: false)
         let workspace = manager.tabs[1]
         markRunningProcess(workspace)
@@ -1715,9 +1727,9 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return false
         }
 
-        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(prompts, [])
-        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(prompts, [closeWorkspaceTitle])
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
     func testMultiWorkspaceCloseSkipsPromptWhenSettingDisabled() {
@@ -1777,8 +1789,8 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false))
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
-        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "The window setting turns the prompt off")
-        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "Active processes always require a safety prompt")
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
     }
 
     func testClosingEveryWorkspaceFollowsTheWindowSetting() {
@@ -1874,12 +1886,13 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         }
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
-        XCTAssertEqual(offered, [.workspace])
+        XCTAssertEqual(offered, [[.workspace, .safety]])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
 
+        drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
-        XCTAssertEqual(promptCount, 1, "The second close should not ask")
+        XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
     }
 
     func testUntickedDontAskAgainKeepsWarningOn() {
@@ -1914,7 +1927,7 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
 
         manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
 
-        XCTAssertEqual(offered, [.tab])
+        XCTAssertEqual(offered, [[.tab, .safety]])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertNotNil(workspace.panels[panelId], "Cancel still keeps the tab open")
@@ -2119,8 +2132,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledFromCmuxJSON() throws {
         try assertCloseCurrentPanelConfirmation(
             warnBeforeClosingTab: false,
-            expectedPromptCount: 0,
-            expectedPanelClosed: true
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
         )
     }
 
@@ -2236,8 +2249,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledForPinnedWorkspaceLastSurface() throws {
         try assertPinnedWorkspaceLastSurfaceConfirmation(
             warnBeforeClosingTab: false,
-            expectedPromptCount: 0,
-            expectedWorkspaceClosed: true
+            expectedPromptCount: 1,
+            expectedWorkspaceClosed: false
         )
     }
 
@@ -2897,6 +2910,62 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
     }
 
+    func testClosingUnselectedTabPreservesTheSelectedTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let selectedPanel = workspace.newTerminalSurface(inPane: paneId, focus: true),
+              let closedPanel = workspace.newTerminalSurface(
+                  inPane: paneId,
+                  focus: false,
+                  preserveBonsplitSelectionWhenUnfocused: true
+              ) else {
+            XCTFail("Expected multiple tabs in one pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, selectedPanel.id)
+        XCTAssertTrue(workspace.closePanel(closedPanel.id, force: true))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            selectedPanel.id,
+            "Closing another tab must not steal focus from the selected agent"
+        )
+    }
+
+    func testClosingUnselectedTabInUnfocusedPanePreservesItsSelection() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPane = workspace.bonsplitController.focusedPaneId,
+              let selectedPanel = workspace.newTerminalSurface(inPane: firstPane, focus: true),
+              let closedPanel = workspace.newTerminalSurface(
+                  inPane: firstPane,
+                  focus: false,
+                  preserveBonsplitSelectionWhenUnfocused: true
+              ),
+              workspace.newTerminalSplit(from: selectedPanel.id, orientation: .horizontal) != nil,
+              let secondPane = workspace.bonsplitController.allPaneIds.first(where: { $0 != firstPane }) else {
+            XCTFail("Expected two panes with multiple tabs in the first pane")
+            return
+        }
+
+        workspace.bonsplitController.focusPane(secondPane)
+        XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: firstPane)?.id, workspace.surfaceIdFromPanelId(selectedPanel.id))
+        XCTAssertTrue(workspace.closePanel(closedPanel.id, force: true))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: firstPane)?.id,
+            workspace.surfaceIdFromPanelId(selectedPanel.id),
+            "Closing a tab in an unfocused pane must preserve that pane's selection"
+        )
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, secondPane)
+    }
+
     func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -2934,7 +3003,6 @@ final class TabManagerNotificationFocusTests: XCTestCase {
                 defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
             }
         }
-
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -3992,8 +4060,10 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
 
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
-    func testFocusPanelDismissesUnreadNotificationWithDismissFlash() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+    func testFocusPanelDismissesUnreadNotificationWithDismissFlash() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
         let defaults = UserDefaults.standard
@@ -4018,6 +4088,10 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
+            AppDelegate.shared = originalAppDelegate
+            if let originalAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(originalAppDelegate)
+            }
             if let originalExperimentEnabled {
                 defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
             } else {
@@ -4029,14 +4103,12 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
                 defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
             }
         }
-
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
-
         store.addNotification(
             tabId: workspace.id,
             surfaceId: leftPanelId,
@@ -4049,7 +4121,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId))
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
         XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
-
         workspace.focusPanel(leftPanelId)
         // Focus itself is synchronous, but the notification dismissal it triggers rides the
         // `.ghosttyDidFocusSurface` broadcast, which `FocusSurfaceBroadcaster` never delivers
@@ -4074,7 +4145,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, leftPanelId)
         XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }
-
     func testDismissNotificationOnDirectInteractionClearsFocusedNotificationIndicator() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -4103,7 +4173,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
-
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
 
@@ -4112,7 +4181,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         )
         XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
     }
-
     func testDismissNotificationOnDirectInteractionTriggersDismissFlashForFocusedIndicatorOnly() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -4156,7 +4224,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
-
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
@@ -4176,7 +4243,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }
 }
-
 @MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
     func testStandardBrowserTabCloseStagesRestoreSnapshot() {

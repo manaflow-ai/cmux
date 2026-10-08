@@ -67,6 +67,7 @@ const {
   authenticateRouteToken,
   bindRouteTokenToVm,
   issueRouteToken,
+  revokeRouteTokensForTeamMember,
   revokeRouteTokensForVm,
   routeTokenHash,
   routeTokenLastUsedWritesSettled,
@@ -131,6 +132,26 @@ describe("coderouter route token VM binding", () => {
     const joinSql = rendered(join ?? null);
     expect(joinSql.sql).toBe('"cloud_vms"."id" = $1');
     expect(joinSql.params).toEqual([vmId]);
+  });
+
+  test("a machine-bound credential is not cut off by its expiry timestamp", async () => {
+    const vmId = "00000000-0000-4000-8000-000000000001";
+    const token = await vmToken(vmId, "team-1", "user-1");
+    const later = new Date(Date.now() + 90 * 24 * 60 * 60 * 1_000);
+    returnedRows = [{ poolId: "pool-1" }];
+    await expect(authenticateRouteToken(token, later)).resolves.toMatchObject({ vmId, poolId: "pool-1" });
+    returnedRows = [{ id: "token-a", teamId: "team-1", stackUserId: "user-1", vmId }];
+    await authenticateRouteToken(TOKEN, later);
+    const [signed, legacy] = statements.filter((statement) => statement.kind === "select");
+    // Revocation and live machine ownership still gate every request.
+    for (const statement of [signed, legacy]) {
+      const where = rendered(statement?.where ?? null).sql;
+      expect(where).toContain('"coderouter_route_tokens"."revoked_at" is null');
+    }
+    expect(rendered(signed?.where ?? null).sql).not.toContain("expires_at");
+    // An unbound CLI session still expires; a machine-bound one does not.
+    expect(rendered(legacy?.where ?? null).sql)
+      .toMatch(/\(+"coderouter_route_tokens"\."vm_id" is not null\)+ or \("coderouter_route_tokens"\."expires_at" > \$\d+\)/);
   });
 
   test("a signed VM claim that is not a uuid fails closed before querying", async () => {
@@ -198,6 +219,23 @@ describe("coderouter route token VM binding", () => {
     await expect(bindRouteTokenToVm("team-1", "not-a-token", "vm-1")).resolves.toBe(false);
     await expect(bindRouteTokenToVm("team-1", "crt_short", "vm-1")).resolves.toBe(false);
     expect(statements).toHaveLength(0);
+  });
+
+  // A member removed from a team (Stack team_membership.deleted) loses that
+  // team's CLI sessions at once, not when their 30-day lifetime ends.
+  test("revokeRouteTokensForTeamMember revokes that member's live sessions in that team", async () => {
+    const now = new Date("2026-09-30T10:00:00.000Z");
+    await revokeRouteTokensForTeamMember({ teamId: "team-1", userId: "user-1" }, now);
+    const [statement] = statements;
+    expect(statement?.kind).toBe("update");
+    expect(statement?.values).toEqual({ revokedAt: now });
+    const { sql, params } = rendered(statement?.where ?? null);
+    expect(sql).toContain('"coderouter_route_tokens"."team_id" = $1');
+    expect(sql).toContain('"coderouter_route_tokens"."stack_user_id" = $2');
+    // VM-bound tokens belong to the VM's lifecycle, which revokes them itself.
+    expect(sql).toContain('"coderouter_route_tokens"."vm_id" is null');
+    expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
+    expect(params).toEqual(["team-1", "user-1"]);
   });
 
   test("revokeRouteTokensForVm revokes only that VM's live tokens", async () => {

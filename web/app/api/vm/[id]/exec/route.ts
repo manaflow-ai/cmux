@@ -6,7 +6,8 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
-import { execVm } from "../../../../../services/vms/workflows";
+import { execAnswerBudgetMs, execVm } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
 
 // Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
@@ -24,7 +25,7 @@ export async function POST(
     "/api/vm/[id]/exec",
     { "cmux.vm.operation": "exec" },
     "/api/vm/[id]/exec POST failed",
-    async ({ user, span }) => {
+    async ({ user, span, routeStartedAtMs }) => {
       let rawBody: unknown;
       try {
         rawBody = await request.json();
@@ -94,6 +95,10 @@ export async function POST(
         providerVmId: id,
         command,
         timeoutMs,
+        // Measured from the request's start: the client's budget is its
+        // timeout plus 5 s from when it sent the request.
+        answerWithinMs: execAnswerBudgetMs(timeoutMs, performance.now() - routeStartedAtMs),
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const result = run.value;

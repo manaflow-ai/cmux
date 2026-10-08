@@ -62,7 +62,7 @@ extension CloudMachineLinkManager {
             let host = primary.contains(":") ? "[\(primary)]" : primary
             return "ws://\(host):1337/v1/link"
         }
-        var connector = CloudHubConnector()
+        var connector = privateRouteConnector
         if let deadline { connector.timeout = Self.remaining(until: deadline) }
         let connected = try await connector.connect(
             endpoint: .unix(path: hub.socketPath),

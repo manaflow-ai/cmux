@@ -12,6 +12,168 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFeedStartsBelowToolbar() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let firstAuthor = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Codex")
+        ).firstMatch
+        XCTAssertTrue(firstAuthor.waitForExistence(timeout: 10))
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.exists)
+        let gap = firstAuthor.frame.minY - settings.frame.maxY
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "feed-first-row-spacing"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertGreaterThanOrEqual(gap, 0, "The first row must remain below the toolbar")
+        XCTAssertLessThanOrEqual(gap, 32, "Feed must not reserve an empty large-title area")
+    }
+
+    @MainActor
+    func testFeedRowTapOpensItsDestination() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let row = app.descendants(matching: .any)["MobileAgentFeedRow-short-text-preview"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        // Tap the author line, not a button, link, or See more.
+        let author = row.staticTexts.matching(NSPredicate(format: "label == %@", "Codex")).firstMatch
+        XCTAssertTrue(author.exists)
+        author.tap()
+        XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 5))
+        let opened = XCTAttachment(screenshot: app.screenshot())
+        opened.name = "feed-row-tap-opened-destination"
+        opened.lifetime = .keepAlways
+        add(opened)
+    }
+
+    @MainActor
+    func testFeedFullTextReadingAndRetry() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+            "CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE": "1",
+        ])
+        defer { app.terminate() }
+        let open = app.buttons["MobileAgentFeedFullText-full-text-preview"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        XCTAssertEqual(open.label, "See more")
+        XCTAssertFalse(app.buttons["MobileAgentFeedFullText-short-text-preview"].exists)
+        let preview = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Markdown preview with emphasis, inline code, and a link.")).firstMatch
+        XCTAssertTrue(preview.exists)
+        XCTAssertFalse(preview.label.contains("**"))
+        XCTAssertFalse(preview.label.contains("https://example.com"))
+        XCTAssertFalse(preview.label.contains("##"))
+        XCTAssertTrue(preview.label.contains("• First item"))
+        for identifier in ["MobileWorkspaceSettingsMenu", "MobileWorkspaceMacPicker", "MobileWorkspaceDevicesButton"] {
+            XCTAssertTrue(app.buttons[identifier].exists, identifier)
+        }
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "feed-full-text-entry"
+        before.lifetime = .keepAlways
+        add(before)
+        open.tap()
+        let retry = app.buttons["Try again"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        retry.tap()
+        let heading = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Implementation notes")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 15))
+        let formatted = XCTAttachment(screenshot: app.screenshot())
+        formatted.name = "feed-markdown-heading-list-code"
+        formatted.lifetime = .keepAlways
+        add(formatted)
+        let finalParagraph = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "FINAL PARAGRAPH: The complete response ends here.")).firstMatch
+        for _ in 0..<16 where !finalParagraph.isHittable { app.swipeUp() }
+        XCTAssertTrue(finalParagraph.isHittable)
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "feed-full-text-final-paragraph"
+        after.lifetime = .keepAlways
+        add(after)
+        app.buttons["MobileAgentFeedFullTextClose"].tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        XCTAssertTrue(open.isHittable)
+        let longRow = app.descendants(matching: .any)["MobileAgentFeedRow-full-text-preview"]
+        let reply = longRow.buttons["MobileAgentFeedReplyButton"]
+        XCTAssertTrue(reply.waitForExistence(timeout: 5))
+        reply.tap()
+        let composeSeeMore = app.buttons["MobileAgentFeedComposeSeeMore"]
+        XCTAssertTrue(composeSeeMore.waitForExistence(timeout: 5))
+        composeSeeMore.tap()
+        let composeFinalParagraph = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "FINAL PARAGRAPH: The complete response ends here.")
+        ).firstMatch
+        XCTAssertTrue(composeFinalParagraph.waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        let shortText = app.textViews.matching(NSPredicate(format: "label == %@", "Stopped.")).firstMatch
+        XCTAssertTrue(shortText.exists)
+        shortText.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Open"].waitForExistence(timeout: 3))
+        app.buttons["Open"].tap()
+        XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 3))
+        app.navigationBars.buttons.firstMatch.tap()
+        app.tabBars.buttons["Search"].tap()
+        let search = app.searchFields["Search Feed"]
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap()
+        search.typeText("Stopped")
+        XCTAssertTrue(shortText.waitForExistence(timeout: 3))
+        XCTAssertFalse(open.exists)
+        let scopedSearch = XCTAttachment(screenshot: app.screenshot())
+        scopedSearch.name = "feed-scoped-search-and-toolbar"
+        scopedSearch.lifetime = .keepAlways
+        add(scopedSearch)
+    }
+
+    @MainActor
+    func testAgentFeedHeavyActivityScrollPacing() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "400",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let scrollContainer = app.descendants(matching: .any)["AgentFeedScrollContainer"]
+        XCTAssertTrue(scrollContainer.waitForExistence(timeout: 10))
+        let metrics = app.descendants(matching: .any)["AgentFeedScrollStressMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 5))
+
+        for _ in 0..<14 {
+            scrollContainer.swipeUp(velocity: .fast)
+        }
+        for _ in 0..<14 {
+            scrollContainer.swipeDown(velocity: .fast)
+        }
+
+        let complete = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
+            object: metrics
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 15), .completed)
+        let value = try XCTUnwrap(metrics.value as? String)
+        print("AgentFeedScrollStressMetrics: \(value)")
+
+        let fields: [String: String] = value.split(separator: ";").reduce(into: [:]) { fields, component in
+            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return }
+            fields[pair[0]] = pair[1]
+        }
+        let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(frames, 120, value)
+        if #available(iOS 18.0, *) {
+            let callbacks = try XCTUnwrap(fields["native_scroll_callbacks"].flatMap(Int.init), value)
+            XCTAssertGreaterThan(callbacks, 60, "Native Feed scroll phase hook must produce callbacks: " + value)
+        }
+        let projections = try XCTUnwrap(fields["published_projections"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(projections, 0, "Feed updates must reach the observation port: " + value)
+        XCTAssertNotNil(fields["frame_p95_ms"], value)
+        XCTAssertNotNil(fields["hitches"], value)
+    }
+
+    @MainActor
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -2286,6 +2448,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(picker.label, "All Computers")
         XCTAssertEqual(picker.value as? String, "Reconnecting…")
 
+        let statusLine = app.descendants(matching: .any)[
+            "MobileWorkspaceConnectionStatusLine"
+        ]
+        XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            statusLine.frame.minY,
+            picker.frame.minY - 1,
+            "The connection status must stay inside the picker while it is shown."
+        )
+        XCTAssertLessThanOrEqual(
+            statusLine.frame.maxY,
+            picker.frame.maxY + 1,
+            "The connection status must not be clipped by the picker frame."
+        )
+
         picker.tap()
 
         let allComputersItem = waitForVisibleElement(
@@ -2308,6 +2485,94 @@ final class cmuxUITests: XCTestCase {
         attachment.name = "workspace-mac-picker-computer-copy"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testComputerPickerStatusTransitionKeepsBothLayoutsVisible() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS": "1",
+        ])
+        defer { app.terminate() }
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        let statusLine = app.descendants(matching: .any)[
+            "MobileWorkspaceConnectionStatusLine"
+        ]
+        XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+        let toggleStatus = app.buttons[
+            "MobileWorkspaceListPreviewTogglePickerStatus"
+        ]
+        XCTAssertTrue(toggleStatus.waitForExistence(timeout: 3))
+
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "computer-picker-status-before-transition"
+        before.lifetime = .keepAlways
+        add(before)
+
+        let pickerHeightWithStatus = picker.frame.height
+
+        toggleStatus.tap()
+        let heightsDuringStatusRemoval = samplePickerHeights(
+            for: 0.5,
+            picker: picker
+        )
+        XCTAssertTrue(
+            statusLine.waitForNonExistence(timeout: 3),
+            "The preview must exercise the status-to-title transition."
+        )
+        let pickerHeightWithoutStatus = picker.frame.height
+        assertPickerHeights(
+            heightsDuringStatusRemoval,
+            stayAt: [pickerHeightWithStatus, pickerHeightWithoutStatus]
+        )
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "computer-picker-status-after-transition"
+        after.lifetime = .keepAlways
+        add(after)
+
+        toggleStatus.tap()
+        let heightsDuringStatusAppearance = samplePickerHeights(
+            for: 0.5,
+            picker: picker
+        )
+        XCTAssertTrue(
+            statusLine.waitForExistence(timeout: 3),
+            "The preview must exercise the title-to-status transition."
+        )
+        assertPickerHeights(
+            heightsDuringStatusAppearance,
+            stayAt: [pickerHeightWithoutStatus, pickerHeightWithStatus]
+        )
+        XCTAssertGreaterThanOrEqual(statusLine.frame.minY, picker.frame.minY - 1)
+        XCTAssertLessThanOrEqual(statusLine.frame.maxY, picker.frame.maxY + 1)
+    }
+
+    private func samplePickerHeights(
+        for duration: TimeInterval,
+        picker: XCUIElement
+    ) -> [CGFloat] {
+        let deadline = Date().addingTimeInterval(duration)
+        var heights: [CGFloat] = []
+        while Date() < deadline {
+            heights.append(picker.frame.height)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return heights
+    }
+
+    private func assertPickerHeights(
+        _ observedHeights: [CGFloat],
+        stayAt restingHeights: [CGFloat]
+    ) {
+        XCTAssertFalse(observedHeights.isEmpty)
+        for height in observedHeights {
+            XCTAssertTrue(
+                restingHeights.contains { abs($0 - height) <= 1 },
+                "Picker height \(height) must stay at a resting layout height."
+            )
+        }
     }
 
     @MainActor
@@ -3060,6 +3325,11 @@ final class cmuxUITests: XCTestCase {
             firstRow.frame.minY,
             settingsButton.frame.maxY - 1,
             "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
+        )
+        XCTAssertLessThanOrEqual(
+            firstRow.frame.minY - settingsButton.frame.maxY,
+            32,
+            "The workspace list must not reserve an empty large-title area below the toolbar."
         )
 
         for _ in 0..<20 where !lastRow.isHittable {
@@ -12379,6 +12649,12 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         app.launchEnvironment = [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1",
+            // Keep the final page on a deterministic automatic connection
+            // method instead of inheriting simulator defaults from another UI test.
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": "automatic",
         ]
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -12402,7 +12678,6 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             capture("onboarding-\(index + 1)-\(scene.lowercased())", in: app)
             if scene != "Push" { primary.tap() }
         }
-        record("onboarding-button-frames", frames.joined(separator: "\n"))
         XCTAssertEqual(primary.label, "Enable Notifications")
         XCTAssertTrue(app.buttons["MobileOnboardingSecondaryButton"].isHittable)
         primary.tap()
@@ -12411,8 +12686,32 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)[
             "MobileOnboardingPairingSettingsScreenshot"
         ].waitForExistence(timeout: 5))
-        capture("onboarding-4-enable-completed", in: app)
+        let pairingAligned = NSPredicate { _, _ in
+            abs(primary.frame.minY - referenceFrame.minY) < 0.5
+                && abs(primary.frame.maxY - referenceFrame.maxY) < 0.5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: pairingAligned, object: nil
+        )], timeout: 3), .completed)
+        frames.append("Pairing: \(primary.frame)")
+        capture("onboarding-4-pairing", in: app)
         record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
+
+        primary.tap()
+        let connect = app.descendants(matching: .any)["MobileOnboardingConnectScene"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 5))
+        let finalPageAligned = NSPredicate { _, _ in
+            abs(primary.frame.minY - referenceFrame.minY) < 0.5
+                && abs(primary.frame.maxY - referenceFrame.maxY) < 0.5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: finalPageAligned, object: nil
+        )], timeout: 3), .completed)
+        XCTAssertEqual(primary.label, "Check Again")
+        frames.append("Connect: \(primary.frame)")
+        capture("onboarding-5-connect", in: app)
+        record("onboarding-button-frames", frames.joined(separator: "\n"))
+        record("onboarding-final-page-result", "The final connection page keeps the primary action aligned with the preceding onboarding pages.")
     }
 
     @MainActor

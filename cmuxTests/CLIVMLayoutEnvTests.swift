@@ -612,10 +612,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
+        var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+        // Every attempt fails here, so do not wait out the one second between them.
+        environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"] = "0.05"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path, "--open"],
-            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
+            environment: environment,
             timeout: 60
         )
 
@@ -625,6 +628,68 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(log.methods.filter { $0 == "vm.workspace_open" }.count, 5, "five attempts, one second apart: \(log.methods)")
         XCTAssertTrue(result.stderr.contains("ws_7"), result.stderr)
         XCTAssertTrue(result.stderr.contains("cmux vm workspace open brave-otter ws_7"), result.stderr)
+    }
+
+    func testVMLayoutApplyOpenRejectsOversizedRetryDelayOverride() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-layout-open-infinite-delay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMLayoutEnvRequestLog()
+        let openAttempts = VMLayoutEnvCounter()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = try vmLayoutEnvTempDir("layout-open-infinite-delay")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let layoutFile = tempDir.appendingPathComponent("one.json")
+        try JSONSerialization.data(withJSONObject: ["pane": ["surfaces": [["type": "terminal"]]]]).write(to: layoutFile)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            log.append(request)
+            switch method {
+            case "vm.exec":
+                return self.vmLayoutEnvExecResponse(id: id, stdout: "{\"workspace_id\":\"ws_inf\",\"workspace_name\":\"one\",\"panes\":[],\"warnings\":[]}\n")
+            case "vm.tree":
+                return self.v2Response(id: id, ok: true, result: ["machines": [], "resources": [], "projections": []])
+            case "vm.workspace_open":
+                if openAttempts.next() == 1 {
+                    return self.v2Response(id: id, ok: true, result: ["opened": 0, "empty": true])
+                }
+                return self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": UUID().uuidString,
+                    "opened": 1,
+                    "empty": false,
+                ])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+        }
+
+        var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+        environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"] = "3600"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path, "--open"],
+            environment: environment,
+            timeout: 10
+        )
+
+        wait(for: [serverHandled], timeout: 10)
+        XCTAssertFalse(result.timedOut, "an oversized injected delay must fall back instead of sleeping forever")
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(
+            log.methods.filter { $0 == "vm.workspace_open" }.count,
+            2,
+            "the first retry must complete and open on the second attempt"
+        )
     }
 
     func testVMLayoutApplyRejectsInvalidDocumentsBeforeTouchingTheMachine() throws {
@@ -1049,7 +1114,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "layout", "--help"], ["cmux vm layout"], ["cmux vm new"]),
             // The family text stays for the family itself and for verbs without their own usage.
             (["vm", "--help"], ["pause|resume", "terminal wait-exit", "exec [--timeout <s>]", "workspace new <machine> [--name <name>] [--reuse]", "resize <id>"], []),
-            (["vm", "ls", "--help"], ["Usage: cmux vm <", "resize <id>"], []),
+            (["vm", "new", "--help"], ["Usage:", "cmux vm new", "--size", "--detach"], ["Usage: cmux vm <"]),
+            (["vm", "ls", "--help"], ["Usage:", "cmux vm ls", "List your Cloud VMs"], ["Usage: cmux vm <"]),
+            (["vm", "ports", "--help"], ["Usage:", "cmux vm ports", "listening TCP ports"], ["Usage: cmux vm <"]),
         ]
         for testCase in cases {
             let result = runProcess(executablePath: cliPath, arguments: testCase.arguments, environment: environment, timeout: 30)

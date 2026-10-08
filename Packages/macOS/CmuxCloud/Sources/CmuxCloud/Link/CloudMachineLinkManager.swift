@@ -62,11 +62,22 @@ public actor CloudMachineLinkManager {
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
+    /// The team that owns each machine, captured when its provider was
+    /// registered. Control-plane calls a link makes name this team, so a link
+    /// to another team's machine keeps working after the selected team changes.
+    private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
+    private var machineStatuses: [String: String] = [:]
+    private var localStatusChanges: [String: Date] = [:]
+    /// Explicit connects share one resume operation per machine. The token lets
+    /// each waiter clean up only the task it joined if a later resume starts.
+    private var resumesInFlight: [String: Task<String, Error>] = [:]
+    private var resumeTokens: [String: UUID] = [:]
+    private let resumeMachine: @Sendable (String) async throws -> String
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
@@ -80,12 +91,14 @@ public actor CloudMachineLinkManager {
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
-
     /// Time left before `deadline`, never less than one second so the final
     /// step still gets a real attempt instead of an immediate timeout.
     static func remaining(until deadline: ContinuousClock.Instant) -> Duration {
         max(deadline - ContinuousClock.now, .seconds(1))
     }
+    /// Races the private addresses of a dual-stack machine through the hub.
+    /// Tests that expect every address to fail pass a short deadline.
+    let privateRouteConnector: CloudHubConnector
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -106,11 +119,20 @@ public actor CloudMachineLinkManager {
         hub: CloudWireGuardHub? = nil,
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        resumeMachine: @escaping @Sendable (String) async throws -> String = { machineID in
+            guard let client = await MainActor.run(body: { VMClient.shared }) else {
+                throw ManagerError.clientMissing
+            }
+            return try await client.resume(id: machineID)
+        },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
-        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in }
+        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
+        privateRouteConnector: CloudHubConnector = CloudHubConnector()
     ) {
+        self.privateRouteConnector = privateRouteConnector
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
+        self.resumeMachine = resumeMachine
         self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
@@ -156,6 +178,16 @@ public actor CloudMachineLinkManager {
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
     }
 
+    /// Records the team that owns `machineID`; nil clears it (selected team).
+    public func setOwnerTeam(_ teamID: String?, for machineID: String) {
+        ownerTeams[machineID] = teamID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The owning team recorded for `machineID`, if any.
+    public func ownerTeam(for machineID: String) -> String? {
+        ownerTeams[machineID]
+    }
+
     public func privateAddresses(for machineID: String) -> [String] {
         privateAddressCandidates[machineID] ?? []
     }
@@ -182,6 +214,31 @@ public actor CloudMachineLinkManager {
     }
 
     private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
+        if let status = machineStatuses[machineID], Self.isAsleepStatus(status) {
+            if Self.isBackgroundUpkeep {
+                throw ManagerError.retryLater("Cloud machine is \(status); waiting for it to run.")
+            }
+            let token: UUID
+            let task: Task<String, Error>
+            if let existing = resumesInFlight[machineID], let existingToken = resumeTokens[machineID] {
+                task = existing
+                token = existingToken
+            } else {
+                token = UUID()
+                let resume = resumeMachine
+                task = Task { try await resume(machineID) }
+                resumesInFlight[machineID] = task
+                resumeTokens[machineID] = token
+            }
+            defer {
+                if resumeTokens[machineID] == token {
+                    resumesInFlight[machineID] = nil
+                    resumeTokens[machineID] = nil
+                }
+            }
+            let resumed = try await task.value
+            recordLocalMachineStatus(resumed, for: machineID)
+        }
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
         }
@@ -237,7 +294,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: capabilities
+                    clientCapabilities: capabilities,
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 session = endpoint.session
                 guard endpoint.trustedCarrier else {
@@ -336,6 +394,26 @@ public actor CloudMachineLinkManager {
         links[machineID]
     }
 
+    public static func backgroundUpkeepShouldConnect(status: String) -> Bool {
+        !isAsleepStatus(status)
+    }
+
+    public static func isAsleepStatus(_ status: String) -> Bool {
+        ["paused", "pausing", "stopped", "suspended"].contains(status)
+    }
+
+    @discardableResult
+    public func setMachineStatus(_ status: String, for machineID: String, observedAt: Date = Date()) -> Bool {
+        guard resumesInFlight[machineID] == nil, localStatusChanges[machineID].map({ $0 <= observedAt }) != false else { return false }
+        machineStatuses[machineID] = status
+        return true
+    }
+
+    public func recordLocalMachineStatus(_ status: String, for machineID: String) {
+        localStatusChanges[machineID] = Date()
+        machineStatuses[machineID] = status
+    }
+
     /// A browser carrier can present the machine's stored device identity directly.
     /// Only a first-time machine needs the one-time trusted-listener preparation.
     public nonisolated static func browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: String?) -> Bool {
@@ -378,7 +456,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL)
+                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL),
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(
@@ -514,6 +593,9 @@ public actor CloudMachineLinkManager {
     public func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
+        machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
+        localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
+        ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

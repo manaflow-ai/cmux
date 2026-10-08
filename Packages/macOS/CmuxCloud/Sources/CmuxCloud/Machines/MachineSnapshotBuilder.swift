@@ -37,7 +37,7 @@ public enum MachineSnapshotBuilder: Sendable {
         let freeAccess = summary.freeAccessExpiresAt.map { expiresAt in
             freeAccessState(expiresAt: Date(timeIntervalSince1970: TimeInterval(expiresAt) / 1000), now: now)
         } ?? freeAccessState(createdAt: createdAt, windowDays: freeAccessWindowDays, now: now)
-        return MachineSnapshot(
+        var snapshot = MachineSnapshot(
             id: summary.id,
             provider: summary.provider,
             image: summary.image,
@@ -45,12 +45,15 @@ public enum MachineSnapshotBuilder: Sendable {
             capabilities: summary.capabilities,
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
+            createdBy: summary.createdBy,
             label: summary.displayName,
             slug: summary.slug,
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
             privateAddress: summary.preferredPrivateAddress
         )
+        snapshot.agentUpdates = summary.agentUpdates
+        return snapshot
     }
 
     /// Row state from a known expiry instant.
@@ -162,6 +165,20 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
+    /// Updates only one machine's user label while a rename command is in flight.
+    public static func applyingLabel(
+        to snapshots: [MachineSnapshot],
+        machineID: String,
+        label: String?
+    ) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            guard snapshot.id == machineID else { return snapshot }
+            var next = snapshot
+            next.label = label
+            return next
+        }
+    }
+
     /// Recomputes only the free-access facet of existing snapshots against a
     /// fresh clock — no network, stats and identity preserved.
     public static func applyingFreeAccess(
@@ -202,7 +219,8 @@ public enum MachineSnapshotBuilder: Sendable {
             planId: limits.planId,
             freeAccessWindowDays: limits.freeAccessWindowDays,
             freeAccessExpiresAt: expiresAt,
-            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now)
+            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now),
+            resourcePool: limits.resourcePool
         )
     }
 }

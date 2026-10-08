@@ -21,6 +21,9 @@ import {
   AGENT_PIN_ARGS,
   DEVBOX_SOURCE_SCHEMA,
   DEVBOX_TEMPLATE_FILES,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
   agentPinDrift,
   devboxAgentPins,
   devboxCuaDriverVersion,
@@ -118,8 +121,10 @@ describe("devbox image template", () => {
       "cmux-opencode",
       "cmux-prompt-sync",
       "cmux-prompt.bash",
+      "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "cmux-tui-state-mount",
       "codex-managed.toml",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
@@ -135,8 +140,10 @@ describe("devbox image template", () => {
       "cmux-motd",
       "cmux-opencode",
       "cmux-prompt.bash",
+      "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "cmux-tui-state-mount",
       "codex-managed.toml",
       "seed-history",
     ]);
@@ -184,10 +191,37 @@ describe("devbox image template", () => {
       const result = await runChild("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
-    for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
+    for (const name of ["cmux-devbox-boot", "cmux-tui-state-mount", "cmux-motd"]) {
       const result = await runChild("sh", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
+  });
+
+  test("reserves an isolated, preallocated cmux-tui state filesystem without resizing the VM", () => {
+    const mount = read("cmux-tui-state-mount");
+    const freestyle = readScript("build-devbox-freestyle.ts");
+    expect(mount).toContain(`STATE_SIZE_BYTES=${CMUX_TUI_STATE_RESERVATION_BYTES}`);
+    expect(mount).toContain("fallocate -l \"$STATE_SIZE_BYTES\"");
+    expect(mount).toContain("mkfs.ext4 -F -m 0");
+    expect(mount).toContain("mount -o loop");
+    expect(mount).toContain("[ -f \"$STATE_IMAGE\" ] || return 0");
+    expect(read("cmux-devbox-boot")).toContain("cmux-tui state reservation is unavailable");
+    expect(read("cmux-devbox-boot")).toContain(`STATE_RESERVATION_MARKER=${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}`);
+    expect(read("cmux-devbox-boot")).toContain("[ ! -x \"$STATE_MOUNT\" ] || [ ! -f \"$STATE_IMAGE\" ]");
+    expect(freestyle).toContain(`await put("cmux-tui-state-mount", "${CMUX_TUI_STATE_MOUNT_HELPER_PATH}", 0o755);`);
+    expect(freestyle).toContain('"cmux-tui-state-reservation"');
+    expect(freestyle).toContain("stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH}");
+    expect(freestyle).toContain("printf 'cmux-tui-state-v1");
+    expect(freestyle).toContain("> ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}");
+    expect(mount).toContain('if [ -d "$state" ]; then');
+    expect(mount).toContain('cp -a "$state/." "$seed/"');
+    expect(mount).toContain('cp -a "$seed/." "$state/"');
+    expect(mount).not.toContain('cp -a "$state/." "$seed/" 2>/dev/null || true');
+    expect(mount).not.toContain('cp -a "$seed/." "$state/" 2>/dev/null || true');
+    // The resource ladder remains the source of the VM's provisioned disk;
+    // this fix must not smuggle in a larger storageMb or a new image size.
+    expect(freestyle).not.toContain("storageMb: 65536");
+    expect(freestyle).not.toContain("CMUX_VM_DISK_MB");
   });
 
   test("the login banner is cmux's, offline, and installed everywhere the base motd was", () => {
@@ -305,6 +339,62 @@ describe("devbox image template", () => {
         bootRuntime,
       );
       expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("dotted python -m completion lists one package's submodules without importing others", async () => {
+    // ble.sh ghost text runs programmable completion after every keystroke.
+    // Ubuntu's stock helper walks (imports) every installed package once the
+    // word has a dot, which stalled typing `python -m http.` for ~5 s.
+    const python = (await runChild("bash", ["-c", "command -v python3"])).stdout.trim();
+    expect(python).not.toBe("");
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-python-completion-"));
+    const marker = path.join(directory, "imported");
+    mkdirSync(path.join(directory, "noisy"));
+    writeFileSync(path.join(directory, "noisy", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    mkdirSync(path.join(directory, "target", "beta"), { recursive: true });
+    // Resolving `target.` must not execute the package itself either.
+    writeFileSync(path.join(directory, "target", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    // A checkout in the shell's cwd must not shadow the helper's imports.
+    const checkout = path.join(directory, "checkout");
+    mkdirSync(path.join(checkout, "evil"), { recursive: true });
+    writeFileSync(path.join(checkout, "pkgutil.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(checkout, "evil", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(directory, "target", "alpha.py"), "");
+    writeFileSync(path.join(directory, "target", "beta", "__init__.py"), "");
+    // Namespace levels (no __init__.py) under a regular and a namespace parent.
+    mkdirSync(path.join(directory, "target", "spaced", "leaf"), { recursive: true });
+    writeFileSync(path.join(directory, "target", "spaced", "leaf", "__init__.py"), "");
+    mkdirSync(path.join(directory, "nsroot", "nsmid"), { recursive: true });
+    writeFileSync(path.join(directory, "nsroot", "nsmid", "tip.py"), "");
+    const stock = path.join(directory, "stock-python-completion");
+    writeFileSync(stock, "");
+    const completion = path.join(directory, "python-completion");
+    writeFileSync(
+      completion,
+      readFileSync(path.join(templateDir, "cmux-python-completion.bash"), "utf8")
+        .replaceAll("/usr/share/bash-completion/completions/python", stock),
+    );
+    try {
+      const complete = async (cur: string) => {
+        const result = await runChild("bash", ["--noprofile", "--norc", "-c", `. '${completion}'; cur='${cur}'; COMPREPLY=(); _python_modules '${python}'; printf '%s\\n' "\${COMPREPLY[@]}" | sort`], {
+          cwd: checkout,
+          // The leading empty entry is how `PYTHONPATH=$PYTHONPATH:/x` adds the cwd.
+          env: { PATH: process.env.PATH!, HOME: directory, PYTHONPATH: `:${directory}` },
+        });
+        expect(result.status).toBe(0);
+        return result.stdout.trim().split("\n");
+      };
+      expect(await complete("target.")).toEqual(["target.alpha", "target.beta"]);
+      expect(await complete("target.spaced.")).toEqual(["target.spaced.leaf"]);
+      expect(await complete("nsroot.nsmid.")).toEqual(["nsroot.nsmid.tip"]);
+      expect(await complete("target.al")).toEqual(["target.alpha"]);
+      expect(await complete("targ")).toEqual(["target"]);
+      await complete("evil.x.");
+      await complete("ht");
+      expect(existsSync(marker)).toBe(false);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -483,6 +573,9 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('BIN="$CMUX_TUI_BIN"');
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
+    expect(dockerfile).toContain("COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount");
+    expect(dockerfile).toContain("    e2fsprogs \\");
+    expect(readScript("build-devbox-freestyle.ts")).toContain('await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);');
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
     // identity on the platform instance id and holds the daemon on the
     // builder. A fork or checkpoint of a running machine carries its parent's
@@ -673,7 +766,7 @@ describe("devbox image template", () => {
     expect(dockerfile).toContain("    bubblewrap \\");
     expect(dockerfile).toContain("bwrap --version");
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux bubblewrap");
+    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
     expect(bake).toContain("bwrap --version");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.

@@ -62,10 +62,20 @@ extension BrowserPanel {
         return cloudResourceForDuplication
     }
 
+    /// The owning team persisted with ``cloudResourceForSession``: the
+    /// machine's provider team, else the restored team, else the selected team.
+    var cloudTeamIDForSession: String? {
+        guard let machineID = cloudResourceForSession?.machine.cloudMachineID else { return nil }
+        if let owner = CmuxTuiSurfaceProviderRegistry.shared.ownerTeamID(forMachineID: machineID) {
+            return owner
+        }
+        return restoredCloudTeamID ?? WorkspaceCloudVMBinding.owningTeamID(forVMID: machineID, previous: nil)
+    }
+
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
-                             activate: Bool = true) {
+                             activate: Bool = true, automaticRetriesRemaining: Int = 2) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
@@ -79,9 +89,24 @@ extension BrowserPanel {
         retainTransferredSurfaceMachine(resource.machine)
         catalog.restore([SurfaceProjectionRecord(panelID: id, resource: resource)], workspaceID: workspaceId)
         guard activate else { return }
-        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
-              let known = catalog.resources[resource] else {
-            cloudAccess.showUnavailable(String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."))
+        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+            showCloudRestoreUnavailable(
+                resource,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetriesRemaining: automaticRetriesRemaining
+            )
+            return
+        }
+        guard let known = catalog.resources[resource] else {
+            // The provider can be registered before its first port/display
+            // snapshot. Force that provider's metadata and graph refresh so a
+            // restored port is discovered before retrying materialization.
+            showCloudRestoreUnavailable(
+                resource,
+                provider: provider,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetriesRemaining: automaticRetriesRemaining
+            )
             return
         }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
@@ -92,8 +117,45 @@ extension BrowserPanel {
                     resourceID: resource)
                 if configured { pendingCloudRestoreURL = nil }
             }
-        case .unsupported(let message): cloudAccess.showUnavailable(message)
+        case .unsupported(let message):
+            // The provider owns the retry because it can refresh the machine's
+            // private address before trying to materialize the saved projection.
+            // This is the same recovery path used by a live port row.
+            provider.showPortUnavailable(message, resourceID: resource, browser: self)
         }
+    }
+
+    /// Keep a restored Cloud pane recoverable while its provider is being
+    /// discovered. Session restore can run before the machine list has
+    /// registered the provider or before its first resource snapshot arrives.
+    private func showCloudRestoreUnavailable(
+        _ resource: SurfaceResourceID,
+        provider: CmuxTuiSurfaceProvider? = nil,
+        message: String,
+        automaticRetriesRemaining: Int
+    ) {
+        let preferredURL = pendingCloudRestoreURL
+        let recover: @MainActor (UInt64) async -> Void = { [weak self] request in
+            guard let self else { return }
+            if let provider {
+                provider.requestPortDiscovery()
+                try? await provider.refreshPortMetadata()
+                await provider.refresh(force: true)
+            } else {
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            }
+            guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
+            self.restoreCloudResource(
+                resource,
+                preferredURL: preferredURL,
+                automaticRetriesRemaining: max(automaticRetriesRemaining - 1, 0)
+            )
+        }
+        // The staged projection resolves on its own once the provider
+        // publishes the resource, so a miss here is still loading. The
+        // provider's settled port scan or the restore deadline ends it.
+        cloudAccess.showRestoring(retry: recover, unavailableMessage: message)
+        if automaticRetriesRemaining > 0 { cloudAccess.retryUnavailable() }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {

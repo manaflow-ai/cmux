@@ -12,7 +12,14 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import BinaryIO
+
+# Running as a script puts this directory on sys.path. Tests load this module
+# through importlib, so mirror the other CI helpers' import path setup.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from ci_process_tree import terminate_pid  # noqa: E402
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
@@ -38,6 +45,12 @@ SWIFT_TESTING_RUN_DONE_RE = re.compile(
     rb"Test run with \d+ tests? in \d+ suites? (passed|failed) after "
 )
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+# xcodebuild prints its own verdict once the app host has exited, then writes
+# the result bundle, Info.plist last. A slow app-host exit can use most of the
+# post-test deadline (run 37374680247 printed this 45s after the Swift Testing
+# summary), and stopping xcodebuild while it writes leaves a bundle xcresulttool
+# cannot read. The deadline restarts once here, and a slow exit is reported.
+XCODEBUILD_VERDICT_RE = re.compile(rb"\*\* TEST (?:EXECUTE )?(?:SUCCEEDED|FAILED) \*\*")
 # xcodebuild prints "Testing started" once it hands the run to testmanagerd,
 # then the first suite or case line once the test runner has connected. When
 # testmanagerd refuses xcodebuild's IDE channel, the app host launches and
@@ -323,35 +336,10 @@ def heartbeat_seconds() -> float | None:
 
 
 def terminate_child(pid: int) -> None:
-    try:
-        os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            finished, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            return
-        if finished:
-            return
-        time.sleep(0.1)
-
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
+    # xcodebuild can detach the XCTest app host into a new process group. The
+    # shared helper snapshots parent links before signalling the group, so a
+    # cancellation cannot leave that host running after this PTY wrapper exits.
+    terminate_pid(pid)
 
 
 def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) -> None:
@@ -401,6 +389,7 @@ def main() -> int:
     saw_passing_terminal_summary = False
     swift_testing_run_started = False
     swift_testing_run_finished = False
+    xcodebuild_verdict_seen = False
     log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
     log_file: BinaryIO | None = None
     if log_path:
@@ -438,7 +427,9 @@ def main() -> int:
     # that to the whole xcodebuild process group so the test host cannot
     # outlive the wrapper and hold the batch's output pipe open.
     def forward_termination(signum: int, _frame: object) -> None:
-        message = f"Terminated by signal {signum}; stopping xcodebuild process group\n"
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        message = f"Terminated by signal {signum}; stopping xcodebuild process tree\n"
         write_child_output(message.encode(), log_file, stdout_fd)
         if log_file is not None:
             try:
@@ -550,6 +541,27 @@ def main() -> int:
                 if swift_testing_match.group(1) == b"failed":
                     selected_tests_result = "failed"
                 post_test_deadline = time.monotonic() + post_test_timeout
+            if (
+                post_test_deadline is not None
+                and not xcodebuild_verdict_seen
+                and XCODEBUILD_VERDICT_RE.search(prompt_window)
+            ):
+                xcodebuild_verdict_seen = True
+                now = time.monotonic()
+                # A slow app-host exit is what used most of the deadline; keep
+                # it visible even though the batch can now finish.
+                waited = post_test_timeout - (post_test_deadline - now)
+                if waited >= post_test_timeout / 3:
+                    write_child_output(
+                        (
+                            f"\nxcodebuild printed its verdict {waited:.0f}s after the "
+                            "test run summary (slow app-host exit); waiting up to "
+                            f"{post_test_timeout:g}s more for the result bundle\n"
+                        ).encode(),
+                        log_file,
+                        stdout_fd,
+                    )
+                post_test_deadline = now + post_test_timeout
         if SUCCESS_MARKER in prompt_window:
             saw_passing_terminal_summary = True
         if SWIFT_CRASH_PROMPT in prompt_window:

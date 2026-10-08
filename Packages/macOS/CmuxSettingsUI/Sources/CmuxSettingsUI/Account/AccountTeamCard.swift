@@ -1,0 +1,534 @@
+import AppKit
+import Observation
+import SwiftUI
+
+/// The **Members** card under Account: who is on the selected team, pending
+/// invitations and invite links, as plain rows in the same shape as the
+/// identity row above. Every action goes through the host's
+/// ``AccountTeamManagement`` implementation.
+@MainActor
+public struct AccountTeamCard: View {
+    /// Posted by the host to expand the invite composer and focus its field,
+    /// for example from the Cloud header's Invite button or the palette.
+    public static let focusInviteRequestName = Notification.Name("cmux.settings.team.focusInvite")
+    /// The search anchor the host navigates to when it opens this card.
+    public static let searchAnchorID = "setting:account:team"
+
+    @State private var model: AccountTeamCardModel
+    @FocusState private var inviteFieldFocused: Bool
+
+    public init(flow: AccountFlow) {
+        _model = State(initialValue: AccountTeamCardModel(flow: flow))
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if model.isComposingInvite, model.detail?.canInvite ?? false {
+                Divider()
+                inviteComposer
+            }
+            if let message = model.errorMessage ?? model.notice {
+                Divider()
+                Text(message)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(model.errorMessage != nil ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier(model.errorMessage != nil ? "SettingsTeamError" : "SettingsTeamNotice")
+            }
+            if let detail = model.detail {
+                Divider()
+                rosterRows(detail)
+                if detail.canInvite, !detail.invitations.isEmpty {
+                    Divider()
+                    invitationRows(detail.invitations)
+                }
+                if detail.canInvite, !detail.links.isEmpty {
+                    Divider()
+                    linkRows(detail.links)
+                }
+            } else if model.isLoading {
+                Divider()
+                loadingRow
+            }
+        }
+        .onAppear { model.reloadIfNeeded() }
+        .onChange(of: model.selectedTeamID) { _, _ in model.reload() }
+        .onReceive(NotificationCenter.default.publisher(for: Self.focusInviteRequestName)) { _ in
+            model.isComposingInvite = true
+            inviteFieldFocused = true
+        }
+        .accessibilityIdentifier("SettingsTeamCard")
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "settings.team.members", defaultValue: "Members", bundle: .module))
+                    .cmuxFont(size: 13, weight: .medium)
+                Text(model.subtitle)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("SettingsTeamSubtitle")
+            }
+            Spacer(minLength: 12)
+                .overlay(alignment: .trailing) {
+                    saveIndicator(model.isInviting)
+                }
+            if model.detail?.canInvite ?? false {
+                Button {
+                    model.isComposingInvite.toggle()
+                    if model.isComposingInvite { inviteFieldFocused = true }
+                } label: {
+                    Text(model.isComposingInvite
+                        ? String(localized: "settings.team.invite.cancel", defaultValue: "Cancel", bundle: .module)
+                        : String(localized: "settings.team.invite.short", defaultValue: "Invite…", bundle: .module))
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTeamInviteButton")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    /// The first fetch has nothing to show yet; later reloads keep the rows.
+    private var loadingRow: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(String(localized: "settings.team.loading", defaultValue: "Loading members…", bundle: .module))
+                .cmuxFont(size: 12)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .accessibilityIdentifier("SettingsTeamLoading")
+    }
+
+    // MARK: Invite composer
+
+    private var inviteComposer: some View {
+        HStack(spacing: 8) {
+            TextField(
+                String(localized: "settings.team.invite.placeholder", defaultValue: "Email addresses, comma separated", bundle: .module),
+                text: $model.inviteEmails
+            )
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .focused($inviteFieldFocused)
+            .onSubmit { model.submitInvite() }
+            .disabled(model.isInviting)
+            .accessibilityIdentifier("SettingsTeamInviteField")
+            Picker("", selection: $model.inviteRole) {
+                Text(String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)).tag(AccountTeamRole.member)
+                Text(String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)).tag(AccountTeamRole.admin)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(width: 88)
+            .disabled(model.isInviting)
+            .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
+            Button(String(localized: "settings.team.invite.sendShort", defaultValue: "Send", bundle: .module)) {
+                model.submitInvite()
+            }
+            .controlSize(.small)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canSendInvite)
+            .accessibilityIdentifier("SettingsTeamSendInvitesButton")
+            Button(String(localized: "settings.team.link.copyShort", defaultValue: "Copy link", bundle: .module)) {
+                model.copyInviteLink()
+            }
+            .controlSize(.small)
+            .disabled(model.isInviting)
+            .accessibilityIdentifier("SettingsTeamCopyLinkButton")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+    }
+
+    // MARK: Rows
+
+    private func rosterRows(_ detail: AccountTeamDetail) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(detail.members.enumerated()), id: \.element.id) { index, member in
+                if index > 0 { Divider().padding(.leading, 14) }
+                memberRow(member, detail: detail)
+            }
+        }
+    }
+
+    private func memberRow(_ member: AccountTeamMember, detail: AccountTeamDetail) -> some View {
+        let pending = model.pendingID == member.id
+        return HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(member.label).cmuxFont(size: 13, weight: .medium).lineLimit(1)
+                    if member.isViewer {
+                        Text(String(localized: "settings.team.you", defaultValue: "you", bundle: .module))
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                if let email = member.email, email != member.label {
+                    Text(email).cmuxFont(size: 11).foregroundColor(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 12)
+                .overlay(alignment: .trailing) {
+                    saveIndicator(pending)
+                        .accessibilityIdentifier("SettingsTeamSaving_\(member.userID)")
+                }
+            if detail.canInvite, !member.isViewer {
+                Picker("", selection: Binding(
+                    get: { member.role },
+                    set: { model.setRole($0, for: member) }
+                )) {
+                    Text(String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)).tag(AccountTeamRole.member)
+                    Text(String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)).tag(AccountTeamRole.admin)
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 88)
+                .disabled(model.pendingID != nil)
+                .accessibilityIdentifier("SettingsTeamRole_\(member.userID)")
+                .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
+            } else {
+                Text(roleTitle(member.role))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+            }
+            if member.isViewer {
+                if detail.members.count > 1 {
+                    Button(String(localized: "settings.team.leave", defaultValue: "Leave", bundle: .module)) {
+                        model.remove(member)
+                    }
+                    .controlSize(.small)
+                    .disabled(model.pendingID != nil)
+                }
+            } else if detail.canRemoveMembers {
+                Button(String(localized: "settings.team.removeShort", defaultValue: "Remove", bundle: .module)) {
+                    model.remove(member)
+                }
+                .controlSize(.small)
+                .disabled(model.pendingID != nil)
+                .accessibilityLabel(String.localizedStringWithFormat(
+                    String(localized: "settings.team.remove", defaultValue: "Remove %@", bundle: .module),
+                    member.label
+                ))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .accessibilityIdentifier("SettingsTeamMember_\(member.userID)")
+    }
+
+    private func invitationRows(_ invitations: [AccountTeamInvitation]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionLabel(String(localized: "settings.team.section.invitations", defaultValue: "Pending invitations", bundle: .module))
+            ForEach(invitations) { invitation in
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(invitation.email ?? invitation.id).cmuxFont(size: 13, weight: .medium).lineLimit(1)
+                        Text(roleTitle(invitation.role)).cmuxFont(size: 11).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                        .overlay(alignment: .trailing) {
+                            saveIndicator(model.pendingID == invitation.id)
+                        }
+                    revokeControl { model.revoke(invitation) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .accessibilityIdentifier("SettingsTeamInvitation_\(invitation.id)")
+            }
+        }
+    }
+
+    private func linkRows(_ links: [AccountTeamInviteLink]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionLabel(String(localized: "settings.team.section.links", defaultValue: "Invite links", bundle: .module))
+            ForEach(links) { link in
+                HStack(alignment: .center, spacing: 12) {
+                    Text(model.linkSummary(link)).cmuxFont(size: 13, weight: .medium).lineLimit(1)
+                    Spacer(minLength: 12)
+                        .overlay(alignment: .trailing) {
+                            saveIndicator(model.pendingID == link.id)
+                        }
+                    revokeControl { model.revoke(link) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .accessibilityIdentifier("SettingsTeamInviteLink_\(link.id)")
+            }
+        }
+    }
+
+    private func revokeControl(action: @escaping () -> Void) -> some View {
+        Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
+            .controlSize(.small)
+            .disabled(model.pendingID != nil)
+    }
+
+    /// Draw in the existing flexible gap before the controls without moving them.
+    @ViewBuilder
+    private func saveIndicator(_ isSaving: Bool) -> some View {
+        if isSaving {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 12, height: 12)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .cmuxFont(size: 11)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+    }
+
+    private func roleTitle(_ role: AccountTeamRole) -> String {
+        role == .admin
+            ? String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)
+            : String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)
+    }
+}
+
+/// View state for the Members card. One mutation path (`run`) marks the row
+/// it acts on, reloads the roster after success and maps failures through
+/// the host. Rows stay visible and usable during a reload.
+@MainActor
+@Observable
+final class AccountTeamCardModel {
+    private let flow: AccountFlow
+    var detail: AccountTeamDetail?
+    var isLoading = false
+    var isComposingInvite = false
+    var errorMessage: String?
+    var notice: String?
+    var inviteEmails = ""
+    var inviteRole: AccountTeamRole = .member
+    /// The member, invitation or link id whose action is in flight, or the
+    /// composer's marker while an invite or link request runs.
+    var pendingID: String?
+    @ObservationIgnored private var loadedTeamID: String?
+    @ObservationIgnored private var pendingTeamID: String?
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+
+    static let composerPendingID = "composer"
+
+    init(flow: AccountFlow) {
+        self.flow = flow
+    }
+
+    var selectedTeamID: String? { flow.selectedTeamID }
+    var isInviting: Bool { pendingID == Self.composerPendingID }
+    var canSendInvite: Bool {
+        pendingID == nil && !inviteEmails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// "Lawrence Chen's Team · 2 of 3 seats used" or the member count.
+    var subtitle: String {
+        guard let detail else {
+            return isLoading
+                ? String(localized: "settings.team.loading", defaultValue: "Loading members…", bundle: .module)
+                : String(localized: "settings.team.subtitle.empty", defaultValue: "People who share this team's Cloud machines.", bundle: .module)
+        }
+        if let limit = detail.memberLimit {
+            return String.localizedStringWithFormat(
+                String(localized: "settings.team.seatSummary", defaultValue: "%1$@ · %2$d of %3$d seats used", bundle: .module),
+                detail.teamName,
+                detail.seatsUsed,
+                limit
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "settings.team.memberCount", defaultValue: "%1$@ · %2$d members", bundle: .module),
+            detail.teamName,
+            detail.members.count
+        )
+    }
+
+    func reloadIfNeeded() {
+        guard detail == nil || loadedTeamID != flow.selectedTeamID else { return }
+        reload()
+    }
+
+    func reload() {
+        let teamID = flow.selectedTeamID
+        guard pendingID == nil || pendingTeamID != teamID else { return }
+        reloadTask?.cancel()
+        guard flow.supportsTeamManagement, teamID != nil else {
+            detail = nil
+            isLoading = false
+            return
+        }
+        if detail?.teamID != teamID {
+            detail = nil
+            errorMessage = nil
+            notice = nil
+        }
+        isLoading = true
+        reloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if !Task.isCancelled, teamID == flow.selectedTeamID { isLoading = false }
+            }
+            do {
+                let loaded = try await flow.loadTeamDetail()
+                guard !Task.isCancelled, teamID == flow.selectedTeamID else { return }
+                detail = loaded
+                loadedTeamID = teamID
+                errorMessage = nil
+            } catch is CancellationError {
+            } catch {
+                guard !Task.isCancelled, teamID == flow.selectedTeamID else { return }
+                errorMessage = flow.teamManagementMessage(for: error)
+            }
+        }
+    }
+
+    func submitInvite() {
+        let emails = inviteEmails
+            .split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == " " || $0 == ";" })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !emails.isEmpty else { return }
+        run(id: Self.composerPendingID) { [self] in
+            let outcome = try await flow.inviteTeamMembers(emails: emails, role: inviteRole)
+            if outcome.failedEmails.isEmpty {
+                inviteEmails = ""
+                isComposingInvite = false
+                notice = String(localized: "settings.team.invite.sent", defaultValue: "Invitations sent.", bundle: .module)
+            } else {
+                inviteEmails = outcome.failedEmails.joined(separator: ", ")
+                notice = String.localizedStringWithFormat(
+                    String(localized: "settings.team.invite.partial", defaultValue: "Could not invite: %@", bundle: .module),
+                    outcome.failedEmails.joined(separator: ", ")
+                )
+            }
+        }
+    }
+
+    func copyInviteLink() {
+        run(id: Self.composerPendingID) { [self] in
+            let created = try await flow.createTeamInviteLink()
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(created.url, forType: .string)
+            notice = String(localized: "settings.team.link.copied", defaultValue: "Invite link copied. It expires in 7 days.", bundle: .module)
+        }
+    }
+
+    func revoke(_ invitation: AccountTeamInvitation) {
+        run(id: invitation.id) { [self] in
+            try await flow.revokeTeamInvitation(id: invitation.id)
+            notice = nil
+        }
+    }
+
+    func revoke(_ link: AccountTeamInviteLink) {
+        run(id: link.id) { [self] in
+            try await flow.revokeTeamInviteLink(id: link.id)
+            notice = nil
+        }
+    }
+
+    func remove(_ member: AccountTeamMember) {
+        run(id: member.id) { [self] in
+            try await flow.removeTeamMember(userID: member.userID)
+        }
+    }
+
+    func setRole(_ role: AccountTeamRole, for member: AccountTeamMember) {
+        guard pendingID == nil, let detail, detail.teamID == selectedTeamID,
+              let current = detail.members.first(where: { $0.id == member.id }),
+              role != current.role else { return }
+        self.detail = detail.replacingRole(for: member.id, with: role)
+        run(id: member.id, rollback: { [self] in
+            self.detail = self.detail?.replacingRole(for: member.id, with: current.role)
+        }) { [self] in
+            try await flow.changeTeamMemberRole(userID: member.userID, role: role)
+        }
+    }
+
+    func linkSummary(_ link: AccountTeamInviteLink) -> String {
+        let uses: String
+        if let maxUses = link.maxUses {
+            uses = String.localizedStringWithFormat(
+                String(localized: "settings.team.link.usesOf", defaultValue: "%1$d of %2$d uses", bundle: .module),
+                link.useCount,
+                maxUses
+            )
+        } else {
+            uses = String.localizedStringWithFormat(
+                String(localized: "settings.team.link.uses", defaultValue: "%d uses", bundle: .module),
+                link.useCount
+            )
+        }
+        guard let expiresAt = link.expiresAt else { return uses }
+        return String.localizedStringWithFormat(
+            String(localized: "settings.team.link.summary", defaultValue: "%1$@ · expires %2$@", bundle: .module),
+            uses,
+            expiresAt.formatted(date: .abbreviated, time: .omitted)
+        )
+    }
+
+    /// Runs one action with its row marked pending. A second action waits
+    /// until the first finishes so the roster never reloads mid-mutation.
+    private func run(
+        id: String,
+        rollback: (@MainActor () -> Void)? = nil,
+        _ action: @escaping @MainActor () async throws -> Void
+    ) {
+        guard pendingID == nil else { return }
+        // A pre-mutation fetch must not overwrite the optimistic role.
+        reloadTask?.cancel()
+        isLoading = false
+        let teamID = selectedTeamID
+        pendingTeamID = teamID
+        pendingID = id
+        errorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                pendingID = nil
+                pendingTeamID = nil
+            }
+            guard teamID == selectedTeamID else { return }
+            do {
+                try await action()
+                guard teamID == selectedTeamID else { return }
+                pendingID = nil
+                reload()
+            } catch {
+                guard teamID == selectedTeamID else { return }
+                rollback?()
+                errorMessage = flow.teamManagementMessage(for: error)
+            }
+        }
+    }
+}
+
+private extension AccountTeamDetail {
+    func replacingRole(for userID: String, with role: AccountTeamRole) -> Self {
+        Self(
+            teamID: teamID, teamName: teamName, viewerUserID: viewerUserID,
+            viewerRole: viewerRole, canInvite: canInvite, canRemoveMembers: canRemoveMembers,
+            members: members.map { member in
+                guard member.userID == userID else { return member }
+                return AccountTeamMember(
+                    userID: member.userID, displayName: member.displayName,
+                    email: member.email, role: role, isViewer: member.isViewer
+                )
+            },
+            invitations: invitations, links: links, memberLimit: memberLimit
+        )
+    }
+}

@@ -88,6 +88,13 @@ enum SidebarFooterPresentationPolicy {
     ) -> Bool {
         presentationMode != .minimal || control == .upgrade
     }
+
+    static func isUpgradeVisible(
+        isProActive: Bool,
+        isProStatusKnown: Bool = true
+    ) -> Bool {
+        isProStatusKnown && !isProActive
+    }
 }
 
 #if DEBUG
@@ -192,13 +199,15 @@ enum SidebarFooterHelpIconDebugSettings {
 struct SidebarFooterCircularIcon: View {
     let systemName: String
     let style: SidebarFooterCircularIconStyle
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
 
     var body: some View {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: style.pointSize,
             weight: style.weight,
-            tint: .secondary
+            tint: SidebarAppearanceColorResolver().readableSecondary(for: colorScheme, over: readabilityBackdrop)
         )
     }
 }

@@ -182,6 +182,7 @@ struct MacAuthComposition {
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
+            approveUnsolicitedCallback: { await UnsolicitedAuthCallbackApprovalPrompt.present($0) },
             beginSignOut: {
                 // Tear down local Cloud VM workspaces before the coordinator
                 // clears auth. This closes live WebSockets, removes persisted
@@ -220,8 +221,8 @@ struct MacAuthComposition {
             browserSignIn: browserSignIn
         )
         self.teamScopeRecoveryTriggers = MacAuthTeamScopeRecoveryTriggers(coordinator: coordinator)
-        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
-            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) { isSameAccount in
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch(isSameAccount: isSameAccount)
         }
     }
 
@@ -412,5 +413,55 @@ final class MacAuthTeamScopeRecoveryTriggers {
                 await self?.coordinator.recoverTeamScopeIfNeeded()
             }
         })
+    }
+}
+
+/// Native confirmation shown before a stateless auth callback that cmux did
+/// not request (for example a `cmux://auth-callback` link opened by a web
+/// page) may sign the app in. Declining is the default action.
+@MainActor
+enum UnsolicitedAuthCallbackApprovalPrompt {
+    static func present(_ request: UnsolicitedAuthCallbackApprovalRequest) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = request.replacesSignedInSession ? .critical : .warning
+        alert.messageText = title(for: request)
+        alert.informativeText = message(for: request)
+        // The first button is the default (Return) action, so declining is the
+        // path of least resistance.
+        alert.addButton(withTitle: String(
+            localized: "account.callbackApproval.cancel",
+            defaultValue: "Don\u{2019}t Sign In"
+        ))
+        alert.addButton(withTitle: request.replacesSignedInSession
+            ? String(localized: "account.callbackApproval.replace.confirm", defaultValue: "Switch Account")
+            : String(localized: "account.callbackApproval.confirm", defaultValue: "Sign In"))
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    private static func title(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
+        if request.replacesSignedInSession {
+            return String(
+                localized: "account.callbackApproval.replace.title",
+                defaultValue: "Switch cmux to another account?"
+            )
+        }
+        return String(
+            localized: "account.callbackApproval.title",
+            defaultValue: "Sign in to cmux from a link?"
+        )
+    }
+
+    private static func message(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
+        let account = String(
+            localized: "account.callbackApproval.message.unknown",
+            defaultValue: "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        )
+        guard request.replacesSignedInSession else { return account }
+        let warning = String(
+            localized: "account.callbackApproval.replace.generic",
+            defaultValue: "You\u{2019}re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
+        )
+        return "\(account)\n\n\(warning)"
     }
 }

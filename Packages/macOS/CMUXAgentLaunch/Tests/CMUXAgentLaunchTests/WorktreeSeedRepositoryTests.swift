@@ -91,6 +91,24 @@ struct WorktreeSeedRepositoryTests {
         #expect(entry.escapesRepository)
     }
 
+    @Test func aDanglingSymlinkOutOfTheRepositoryIsAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let target = URL(fileURLWithPath: "/nonexistent-\(UUID().uuidString)/secret")
+        try tree.symlink("gone", to: target)
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "gone" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let target = tree.root.appendingPathComponent("future/secret")
+        try tree.symlink("future-link", to: target)
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "future-link" })
+        #expect(!entry.escapesRepository)
+    }
+
     @Test func aSiblingDirectoryWithTheRootAsAPrefixIsOutside() throws {
         let parent = try WorktreeSeedTemporaryTree("prefix")
         let root = try parent.directory("repo")

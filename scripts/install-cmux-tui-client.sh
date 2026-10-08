@@ -26,6 +26,8 @@
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
+# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
+# (default 60, below 1 KiB/s) bound each download attempt.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
@@ -93,10 +95,28 @@ verify_manifest_attestation() {
     exit 1
   }
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
-  gh attestation verify "$MANIFEST" "${args[@]}" >&2 || {
+  # An exhausted GitHub API quota says nothing about the attestation, and
+  # failing on it discards a signed nightly leg (run 37526635018). Retry only
+  # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
+  # failure is a verdict and stays final.
+  local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
+  local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
+  local output status
+  while :; do
+    status=0
+    output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    [[ $status -eq 0 ]] && return 0
+    if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
+      echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
+      sleep "$delay"
+      retries_left=$((retries_left - 1))
+      delay=$((delay * 2))
+      continue
+    fi
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
     exit 1
-  }
+  done
 }
 
 verify_probe() {
@@ -132,9 +152,36 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   exit 0
 fi
 
+# A dead HTTP/2 stream holds a transfer open until the server resets it, which
+# took twenty minutes per attempt on a Release job, and curl's own --retry
+# reuses that connection. Bound each attempt by progress, not total time, so a
+# slow but moving download of a 40 MB slice still finishes, and give each its
+# own curl process, so a retry opens a fresh connection.
+DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
+DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
+for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS"; do
+  [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
+    || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
+done
+download() { # <url> <output>
+  local attempt=1
+  until curl --proto '=https' --tlsv1.2 -fsSL \
+      --connect-timeout 30 \
+      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" \
+      "$1" -o "$2"; do
+    if (( attempt >= DOWNLOAD_ATTEMPTS )); then
+      echo "error: could not download $1 after $attempt attempts" >&2
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 3
+  done
+}
+
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+download "$MANIFEST_URL" "$MANIFEST"
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
@@ -165,7 +212,7 @@ fetch_slice() { # <artifact-name> -> path
   if [[ -f "$out" ]] && [[ "$(sha256_of "$out")" == "$want" ]]; then
     printf '%s' "$out"; return
   fi
-  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$BASE/$name" -o "$out.tmp"
+  download "$BASE/$name" "$out.tmp" || exit 1
   got="$(sha256_of "$out.tmp")"
   [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out.tmp"; exit 1; }
   mv -f "$out.tmp" "$out"

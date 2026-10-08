@@ -47,6 +47,20 @@ tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
 
+A machine can instead keep its agents current: with `agentUpdates: "latest"`
+(New Machine's "Keep coding agents up to date", checked by default in the
+sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
+create and each attach start a detached updater
+(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
+installs the newest x.y.z release that has been public for 3 days and is not
+above the latest release, after checking the download's sha256, at most once a
+day and never as a downgrade. On a machine baked with the npm pins above, the
+first update moves each agent to its standalone release and removes the npm
+copy once no process uses it. Outcome in `/etc/cmux/agent-updates.state`, log
+in `/var/log/cmux-agent-updates.log`. Moving the image recipe itself off npm
+needs a rebake and lands separately.
+
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
 `devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
@@ -305,6 +319,19 @@ supervisor and waits for a driver install.
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
+The bake also fully allocates a 1 GiB ext4 image at
+`/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
+`~/.local/state/cmux-tui` directory before the daemon starts. This gives the
+SQLite registry and journal a bounded filesystem even when general-purpose
+files fill the root filesystem. The image consumes space from the existing
+root disk; it does not change the Freestyle VM size or the image ladder. The
+bake writes a reservation marker only after the image is fully created and
+seeded. The boot supervisor reads that marker and requires the marker, helper,
+image, and mount after a snapshot resume before starting cmux-tui. If any of
+those checks fail, startup is deferred instead of falling back to the root
+filesystem. Older images without the marker continue using their existing
+state layout until they are replaced.
+
 ## Sizes: one bake, one snapshot per size
 
 A Freestyle VM boots at its snapshot's size and resize is grow-only, so the
@@ -542,3 +569,12 @@ HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundle
 `xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
 HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
 Chrome の直接起動は変更しません。
+
+## Terminal clipboard writes
+
+The Cloud guest integration installs `xclip`, `xsel`, and `wl-copy` write shims
+through the same create/attach-heal transaction as `cmux-open-url`. They accept
+stdin and emit a bounded OSC 52 write into the terminal stream. Read and paste
+modes fail, and no `wl-paste` helper is installed. Cloud terminal projections
+admit these writes into the Mac clipboard while cmux continues to deny terminal
+clipboard reads.

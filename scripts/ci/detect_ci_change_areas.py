@@ -869,6 +869,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
+    "scripts/ci/run-in-console-session.sh",
+    "scripts/ci/app-host-isolation.sh",
     "scripts/ci/require_selected_test_execution.sh",
     # The Python product lane consumes these alongside the host-free bundle.
     "scripts/ci/run_python_test_lane.py",
@@ -1653,6 +1655,7 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
 # this an exact list: test_linux_guard_only_scripts_reach_no_other_runner
 # fails if anything else starts naming one.
 LINUX_GUARD_ONLY_SCRIPTS = frozenset({
+    "scripts/check-cli-contract-verbs.py",
     "scripts/check-package-resolved-policy.py",
     "scripts/check-sidebar-lazy-layout.py",
     "scripts/lint-stored-dispatch-work-items.py",
@@ -1685,12 +1688,13 @@ def is_macos_neutral(
     # App/shared source remains routed through app-host macOS CI.
     if path.startswith("CLI/"):
         return True
-    # Keep current-main's guaranteed iOS-only test carveouts even if the
-    # package graph cannot be parsed and the broader router fails open.
-    if path.startswith((
-        "Packages/iOS/CmuxMobileShellUI/Tests/",
-        "Packages/iOS/CmuxMobileShell/Tests/",
-    )):
+    # Package tests run in the dedicated Swift-package lane and are never
+    # inputs to the macOS app target. Keep them macOS-neutral even when the
+    # package itself is shared with the desktop product; the package-test lane
+    # remains selected by is_swift_package_input() above. This avoids paying
+    # for compile admission on iOS-only test changes without reducing source
+    # coverage for shared package code.
+    if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
     # skills/cmux-cua as a folder resource, and skill scripts and manifests are

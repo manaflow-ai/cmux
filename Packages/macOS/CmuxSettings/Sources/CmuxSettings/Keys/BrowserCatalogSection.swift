@@ -51,12 +51,42 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserHiddenWebViewDiscardDelaySeconds"
     )
 
+    public let hiddenWebViewDiscardMode = DefaultsKey<BrowserHiddenWebViewDiscardMode>(
+        id: "browser.hiddenWebViewDiscardMode",
+        defaultValue: .memoryBudget,
+        userDefaultsKey: "browserHiddenWebViewDiscardMode"
+    )
+
+    /// Physical memory, in megabytes, that hidden browser panes may keep
+    /// before the pane hidden longest is discarded.
+    public let hiddenWebViewMemoryBudgetMB = DefaultsKey<Int>(
+        id: "browser.hiddenWebViewMemoryBudgetMB",
+        defaultValue: 2048,
+        userDefaultsKey: "browserHiddenWebViewMemoryBudgetMB"
+    )
+
+    /// Whether a page unloaded to save memory restores as soon as its pane
+    /// is shown. When off, the pane waits for the user to restore it.
+    public let autoRestoreUnloadedPages = DefaultsKey<Bool>(
+        id: "browser.autoRestoreUnloadedPages",
+        defaultValue: true,
+        userDefaultsKey: "browserAutoRestoreUnloadedPages"
+    )
+
     /// Shows a save panel for each browser download instead of saving directly
     /// to the user's Downloads folder.
     public let askWhereToSaveDownloads = DefaultsKey<Bool>(
         id: "browser.askWhereToSaveDownloads",
         defaultValue: false,
         userDefaultsKey: "browserAskWhereToSaveDownloads"
+    )
+
+    /// Shows a link's destination at the bottom-left of a browser pane while
+    /// the pointer is over the link or the link has keyboard focus.
+    public let showLinkHoverURL = DefaultsKey<Bool>(
+        id: "browser.showLinkHoverURL",
+        defaultValue: true,
+        userDefaultsKey: "browserShowLinkHoverURL"
     )
 
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(

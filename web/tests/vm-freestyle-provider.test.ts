@@ -178,6 +178,26 @@ describe("Freestyle platform contract", () => {
     await conflictProvider.privateNetworking!.ensureNetwork({ slug: "team-slug", membersRule: false });
   });
 
+  test("network creation names the requested IPv4 range and omits it otherwise", async () => {
+    const creates: unknown[] = [];
+    const client = {
+      vpc: {
+        create: async (options: { slug: string; cidr?: string }) => {
+          creates.push(options);
+          return { data: { id: `vpc-${creates.length}`, slug: options.slug, cidr: options.cidr ?? "10.16.1.0/24", cidrV6: "fd01::/64" } };
+        },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await expect(provider.privateNetworking!.ensureNetwork({ slug: "user-slug", membersRule: false, cidr: "10.200.0.0/16" }))
+      .resolves.toMatchObject({ cidr: "10.200.0.0/16" });
+    await provider.privateNetworking!.ensureNetwork({ slug: "team-slug", membersRule: false });
+    expect(creates).toEqual([
+      { slug: "user-slug", displayName: undefined, cidr: "10.200.0.0/16", firewall: { rules: [] } },
+      { slug: "team-slug", displayName: undefined, firewall: { rules: [] } },
+    ]);
+  });
+
   test("team tunnel attach/detach maps addresses and classifies overlap", async () => {
     const attachment = { vpcId: "vpc-team", ipv4: "10.2.0.2", ipv6: "fd02::2" };
     const client = {
@@ -401,6 +421,36 @@ describe("Freestyle platform contract", () => {
     expect(normalizeFreestyleExecTimeout(-5)).toBe(30_000);
     expect(normalizeFreestyleExecTimeout(10 * 60 * 1000)).toBe(300_000);
     expect(normalizeFreestyleExecTimeout(12_345)).toBe(12_345);
+  });
+
+  // A command that outlives its timeout and whose kill reports no exit comes
+  // back from Freestyle as 409 VM_NON_RESPONSIVE ("exec produced no exit
+  // within 35s") even though the machine answers the next exec at once. That
+  // is the command's timeout, the same outcome the guest reports as a null
+  // status, not a provider outage (production 2026-10-07, vm-96e008...).
+  const execFailing = (err: unknown) => ({
+    client: {
+      vms: { ref: () => ({ exec: async () => { throw err; } }) },
+    } as unknown as Freestyle,
+  });
+
+  test("an exec the provider saw no exit for reads as a command timeout (124)", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: exec produced no exit within 35s; the guest likely stopped mid-command",
+    }));
+    const result = await providerWith(fake).exec(VM_ID, "sleep 999", { timeoutMs: 30_000 });
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not exit within 30s");
+  });
+
+  test("other non-responsive answers stay provider errors", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: read_file stream: early eof",
+    }));
+    await expect(providerWith(fake).exec(VM_ID, "true", { timeoutMs: 30_000 })).rejects.toBeInstanceOf(ProviderError);
   });
 
   test("stopped VMs read as paused (start() recovers them), not destroyed", () => {

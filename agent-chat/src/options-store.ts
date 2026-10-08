@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./browser-storage";
 import type { OptionValue, SessionOption } from "./session";
 
 export interface ProviderOptionStore {
@@ -74,7 +75,7 @@ export function flatOptionsFromStore(store: ProviderOptionStore): Record<string,
   return out;
 }
 
-export function readStoredProviderOptions(provider: string, storage: StorageLike = localStorage): Record<string, OptionValue> {
+export function readStoredProviderOptions(provider: string, storage: StorageLike = preferenceStorage): Record<string, OptionValue> {
   try {
     return flatOptionsFromStore(normalizeProviderOptionStore(JSON.parse(storage.getItem(key(provider)) || "null")));
   } catch {
@@ -82,7 +83,7 @@ export function readStoredProviderOptions(provider: string, storage: StorageLike
   }
 }
 
-export function readProviderOptionStore(provider: string, storage: StorageLike = localStorage): ProviderOptionStore {
+export function readProviderOptionStore(provider: string, storage: StorageLike = preferenceStorage): ProviderOptionStore {
   try {
     return normalizeProviderOptionStore(JSON.parse(storage.getItem(key(provider)) || "null"));
   } catch {
@@ -90,7 +91,7 @@ export function readProviderOptionStore(provider: string, storage: StorageLike =
   }
 }
 
-export function writeProviderOptionStore(provider: string, store: ProviderOptionStore, storage: StorageLike = localStorage) {
+export function writeProviderOptionStore(provider: string, store: ProviderOptionStore, storage: StorageLike = preferenceStorage) {
   storage.setItem(key(provider), JSON.stringify(store));
 }
 
@@ -104,7 +105,7 @@ export function updateStoredProviderOption(
   id: string,
   value: OptionValue,
   options: SessionOption[],
-  storage: StorageLike = localStorage,
+  storage: StorageLike = preferenceStorage,
 ): Record<string, OptionValue> {
   const store = readProviderOptionStore(provider, storage);
   const activeModel = id === "model" && typeof value === "string" ? value : optionModel(options, store.model);
@@ -124,7 +125,7 @@ export function writeStoredProviderOptions(
   provider: string,
   values: Record<string, OptionValue>,
   options: SessionOption[] = [],
-  storage: StorageLike = localStorage,
+  storage: StorageLike = preferenceStorage,
 ): Record<string, OptionValue> {
   const store = readProviderOptionStore(provider, storage);
   const model = typeof values.model === "string" && values.model ? values.model : optionModel(options, store.model);
@@ -141,7 +142,7 @@ export function writeStoredProviderOptions(
   return flatOptionsFromStore(store);
 }
 
-export function persistOptionsSnapshot(provider: string, options: SessionOption[], storage: StorageLike = localStorage) {
+export function persistOptionsSnapshot(provider: string, options: SessionOption[], storage: StorageLike = preferenceStorage) {
   const values: Record<string, OptionValue> = {};
   for (const option of options) values[option.id] = option.value;
   writeStoredProviderOptions(provider, values, options, storage);

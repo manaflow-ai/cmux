@@ -1,0 +1,808 @@
+#if os(iOS)
+import CmuxMobileShellModel
+import CmuxMobileSupport
+import SwiftUI
+
+/// Store-free action closures the Feed rows invoke. Rows never retain the
+/// shell store (SwiftUI list-boundary rule); ``AgentFeedStoreView`` owns the
+/// store and builds one of these per render.
+struct AgentFeedActions {
+    var permissionReply: @MainActor (MobileAgentFeedItem, _ mode: String) -> Void = { _, _ in }
+    var questionReply: @MainActor (MobileAgentFeedItem, _ selections: [String]) -> Void = { _, _ in }
+    var exitPlanReply: @MainActor (MobileAgentFeedItem, _ mode: String, _ feedback: String?) -> Void = { _, _, _ in }
+    var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
+    /// Opens the X-style reply composer sheet; rows never host a keyboard.
+    var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
+    /// Reopens the reply composer with a failed reply's text.
+    var retryTerminalReply: @MainActor (MobileAgentFeedItem, String) -> Void = { _, _ in }
+    /// Opens the event's current tab when available, or its workspace when it
+    /// has no live tab target. The menu intentionally presents one action for
+    /// both destinations.
+    var openDestination: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
+    var viewFullText: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
+    var loadFullText: @MainActor (MobileAgentFeedItem) async throws -> String = { _ in
+        throw URLError(.unsupportedURL)
+    }
+    /// Local needs-input triage — the Feed's mark-read/unread analogue.
+    var setNeedsInput: @MainActor (MobileAgentFeedItem, Bool) -> Void = { _, _ in }
+    var refresh: @MainActor () async -> Void = {}
+    var filterChanged: @MainActor (AgentFeedFilter) -> Void = { _ in }
+}
+
+/// The one visual family every Feed action shares: compact social-feed pills
+/// with full-size hit regions. Primary uses the accent, neutral stays quiet,
+/// and destructive uses the system destructive tint.
+enum AgentFeedActionRole: Equatable {
+    case primary
+    case neutral
+    case destructive
+
+    var tint: Color {
+        switch self {
+        case .primary: return .accentColor
+        case .neutral: return .secondary
+        case .destructive: return .red
+        }
+    }
+
+    var buttonRole: ButtonRole? {
+        self == .destructive ? .destructive : nil
+    }
+}
+
+struct AgentFeedActionButton: View {
+    let title: String
+    let role: AgentFeedActionRole
+    let accessibilityIdentifier: String?
+    let action: @MainActor () -> Void
+
+    init(
+        title: String,
+        role: AgentFeedActionRole,
+        accessibilityIdentifier: String? = nil,
+        action: @escaping @MainActor () -> Void
+    ) {
+        self.title = title
+        self.role = role
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role.buttonRole, action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(role.tint)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 32)
+                .background(background, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(role.tint.opacity(0.22), lineWidth: 1)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    }
+
+    private var background: Color {
+        switch role {
+        case .primary: return Color.accentColor.opacity(0.16)
+        case .neutral: return Color.secondary.opacity(0.10)
+        case .destructive: return Color.red.opacity(0.12)
+        }
+    }
+}
+
+/// Shares the action row's compact capsule and full-height touch target.
+struct AgentFeedOverflowMenuLabel: View {
+    var body: some View {
+        Image(systemName: "ellipsis")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
+
+/// One X-style full-width Feed row: avatar gutter, author line, inline agent
+/// output, and — for respondable rows — the decision controls themselves.
+struct AgentFeedRow: View, Equatable {
+    let model: AgentFeedRowModel
+    let isReplyPending: Bool
+    let now: Date
+    /// CMUX Labs quote treatment: iMessage-style bubbles instead of the
+    /// leading-bar quote.
+    var bubbleQuotes = false
+    /// Settings > Display > Show Tab in Feed: append the event's tab to its
+    /// workspace in the author line.
+    var showsTab = false
+    /// This row's last terminal reply, when it failed to send.
+    var failedReply: MobileAgentFeedFailedReply?
+    let actions: AgentFeedActions
+
+    /// Rows re-render only when their item, pending flag, time reference, or
+    /// quote treatment changes; `actions` closures are excluded by design.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.model == rhs.model
+            && lhs.isReplyPending == rhs.isReplyPending
+            && lhs.now == rhs.now
+            && lhs.bubbleQuotes == rhs.bubbleQuotes
+            && lhs.showsTab == rhs.showsTab
+            && lhs.failedReply == rhs.failedReply
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            avatar
+            VStack(alignment: .leading, spacing: 4) {
+                authorLine
+                if let quoted = model.presentation.quotedUserMessage {
+                    quotedMessage(quoted)
+                }
+                if let output = model.presentation.outputText {
+                    AgentFeedInlineText(
+                        text: output,
+                        hasMoreText: model.item.fullTextTruncated,
+                        lineLimit: 8,
+                        itemID: model.item.itemID,
+                        open: { actions.viewFullText(model.item) }
+                    )
+                }
+                if let toolLine = model.presentation.toolLine {
+                    if model.item.kind == .toolResult {
+                        AgentFeedInlineText(
+                            text: toolLine,
+                            hasMoreText: model.item.fullTextTruncated
+                                || model.item.fullTextPreview.map { $0 != toolLine } == true,
+                            lineLimit: 2,
+                            itemID: model.item.itemID,
+                            textStyle: .caption1,
+                            monospaced: true,
+                            color: model.item.toolResultIsError ? .systemRed : .secondaryLabel,
+                            open: { actions.viewFullText(model.item) }
+                        )
+                    } else {
+                        Text(toolLine)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                if let resolution = model.presentation.resolutionLabel {
+                    resolutionLine(resolution)
+                } else if model.item.needsInput {
+                    AgentFeedDecisionControls(
+                        item: model.item,
+                        isReplyPending: isReplyPending,
+                        actions: actions
+                    )
+                } else if model.item.supportsTerminalReply, model.item.kind == .stop {
+                    if let reply = model.item.userReply {
+                        userReplyMarker(
+                            reply: reply,
+                            reference: model.presentation.replyReferenceSnippet
+                        )
+                    }
+                    if let failedReply, model.item.userReply == nil, !isReplyPending {
+                        failedReplyLine(failedReply)
+                    } else {
+                        replyButton
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        // Like a Notifications row, tapping the row opens where the event
+        // happened. Buttons, links, and See more inside it keep their taps.
+        .onTapGesture {
+            if canOpenDestination { actions.openDestination(model.item) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentFeedRow-\(model.item.itemID)")
+        .accessibilityAction(named: Text(String(
+            localized: "mobile.agentFeed.open", defaultValue: "Open", bundle: .module
+        ))) {
+            if canOpenDestination { actions.openDestination(model.item) }
+        }
+        .contextMenu {
+            if canOpenDestination {
+                Button {
+                    actions.openDestination(model.item)
+                } label: {
+                    Label(String(localized: "mobile.agentFeed.open", defaultValue: "Open", bundle: .module),
+                          systemImage: "rectangle.stack")
+                }
+            }
+        }
+    }
+
+    private var canOpenDestination: Bool {
+        model.item.connectionStatus == .connected && model.item.remoteWorkspaceID != nil
+    }
+
+    private var avatar: some View {
+        ZStack {
+            Circle()
+                .fill(Color.secondary.opacity(0.12))
+                .frame(width: 40, height: 40)
+            if model.presentation.authorIsUser {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+            } else {
+                TaskTemplateIcon(value: model.presentation.authorIconValue, size: 22)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if model.item.effectiveNeedsInput {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().stroke(PlatformPalette.systemBackground, lineWidth: 2))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var authorLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(model.presentation.authorName)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .layoutPriority(2)
+            if let headline = model.presentation.headline {
+                Text(headline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let location = locationLabel {
+                Text(verbatim: "· \(location)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("MobileAgentFeedRowLocation")
+            }
+            Spacer(minLength: 4)
+            Text(model.compactTimeLabel(now: now))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .layoutPriority(2)
+        }
+    }
+
+    /// Where the event came from: its workspace, plus its tab when the user
+    /// opted in, so the agent's context is visible without opening it.
+    private var locationLabel: String? {
+        let presentation = model.presentation
+        let tab = showsTab ? presentation.tabName : nil
+        switch (presentation.workspaceName, tab) {
+        case let (workspace?, tab?): return "\(workspace) › \(tab)"
+        case let (workspace?, nil): return workspace
+        case let (nil, tab?): return tab
+        case (nil, nil): return nil
+        }
+    }
+
+    @ViewBuilder
+    private func quotedMessage(_ message: String) -> some View {
+        if bubbleQuotes {
+            // The quoted prompt is the user's own message, so it reads as a
+            // sent bubble: trailing-aligned with its tail on the right.
+            bubbleQuote(message, lineLimit: 3, sender: .user)
+        } else {
+            barQuote(message)
+        }
+    }
+
+    /// Who wrote a bubble. Messages puts the user's messages on the trailing
+    /// side in the accent color and everyone else's on the leading side in
+    /// gray; Feed bubbles follow the same rule.
+    private enum BubbleSender {
+        case user
+        case agent
+
+        var tailEdge: HorizontalEdge { self == .user ? .trailing : .leading }
+        var alignment: Alignment { self == .user ? .trailing : .leading }
+    }
+
+    /// Keeps a bubble from spanning the full column, leaving the
+    /// opposite-side gutter Messages uses.
+    private static let bubbleOppositeInset: CGFloat = 40
+
+    /// Pads bubble content so the text clears the tail on its tail edge.
+    private func bubbleContentPadding<Content: View>(
+        _ content: Content,
+        sender: BubbleSender,
+        vertical: CGFloat
+    ) -> some View {
+        let tailSide = 12 + AgentFeedBubbleShape.tailWidth
+        return content
+            .padding(.leading, sender.tailEdge == .leading ? tailSide : 12)
+            .padding(.trailing, sender.tailEdge == .trailing ? tailSide : 12)
+            .padding(.vertical, vertical)
+    }
+
+    /// Places a bubble on its sender's side of the text column.
+    private func bubbleSide<Content: View>(_ content: Content, sender: BubbleSender) -> some View {
+        content
+            .padding(
+                sender == .user ? .leading : .trailing,
+                Self.bubbleOppositeInset
+            )
+            .frame(maxWidth: .infinity, alignment: sender.alignment)
+    }
+
+    /// An iMessage-style quoted message inside an outlined bubble: accent for
+    /// the user's own words, secondary gray for the agent's.
+    private func bubbleQuote(_ message: String, lineLimit: Int, sender: BubbleSender) -> some View {
+        let tint: Color = sender == .user ? .accentColor : .secondary
+        return HStack(spacing: 0) {
+            bubbleContentPadding(
+                AgentFeedMarkdownText(
+                    markdown: message,
+                    font: .footnote,
+                    color: tint,
+                    lineLimit: lineLimit
+                )
+                .fixedSize(horizontal: false, vertical: true),
+                sender: sender,
+                vertical: 7
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(
+                AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                    .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+            )
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func barQuote(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Color.secondary.opacity(0.35))
+                .frame(width: 3)
+            AgentFeedMarkdownText(
+                markdown: message,
+                font: .footnote,
+                color: .secondary,
+                lineLimit: 3
+            )
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The reply affordance under a finished turn follows social-feed action
+    /// bars: a quiet secondary-colored outline icon and label that sit at
+    /// text scale, so blue stays reserved for links like See more. The hit
+    /// area extends past the visible label to a 44-point target without
+    /// adding layout height to the row.
+    private var replyButton: some View {
+        Button {
+            actions.beginCompose(model.item, .terminalReply)
+        } label: {
+            HStack(alignment: .center, spacing: 5) {
+                Group {
+                    if isReplyPending {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Image(systemName: model.item.userReply == nil
+                            ? "arrowshape.turn.up.left"
+                            : "checkmark")
+                            .imageScale(.small)
+                            .fontWeight(.medium)
+                    }
+                }
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+                Text(replyButtonTitle)
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle().inset(by: -13))
+        }
+        .buttonStyle(.plain)
+        .disabled(isReplyPending || model.item.userReply != nil)
+        .accessibilityIdentifier("MobileAgentFeedReplyButton")
+    }
+
+    /// A reply that did not finish. The user's text is kept for Retry. When
+    /// the reply may already be in the terminal, the row says so and offers
+    /// the terminal first, so a retry never types the text twice unseen.
+    private func failedReplyLine(_ failure: MobileAgentFeedFailedReply) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label {
+                Text(failure.delivery == .notSent
+                    ? String(localized: "mobile.agentFeed.reply.failed.notSent",
+                             defaultValue: "Reply not sent.", bundle: .module)
+                    : String(localized: "mobile.agentFeed.reply.failed.unconfirmed",
+                             defaultValue: "Couldn’t confirm your reply was sent. Check the terminal before retrying.",
+                             bundle: .module))
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.circle")
+            }
+            .font(.footnote)
+            .foregroundStyle(.red)
+            HStack(spacing: 20) {
+                Button(String(localized: "mobile.agentFeed.retry",
+                              defaultValue: "Try Again", bundle: .module)) {
+                    actions.retryTerminalReply(model.item, failure.text)
+                }
+                .accessibilityIdentifier("MobileAgentFeedReplyRetry")
+                if failure.delivery == .unconfirmed, canOpenDestination {
+                    Button(String(localized: "mobile.agentFeed.reply.failed.openTerminal",
+                                  defaultValue: "Open Terminal", bundle: .module)) {
+                        actions.openDestination(model.item)
+                    }
+                    .accessibilityIdentifier("MobileAgentFeedReplyOpenTerminal")
+                }
+            }
+            .font(.footnote.weight(.medium))
+            .buttonStyle(.borderless)
+            .frame(minHeight: 44, alignment: .leading)
+        }
+        .padding(.top, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentFeedReplyFailed")
+    }
+
+    private var replyButtonTitle: String {
+        if isReplyPending {
+            return String(
+                localized: "mobile.agentFeed.reply.sending",
+                defaultValue: "Sending…",
+                bundle: .module
+            )
+        }
+        if model.item.userReply != nil {
+            return String(
+                localized: "mobile.agentFeed.reply.replied",
+                defaultValue: "Replied",
+                bundle: .module
+            )
+        }
+        return String(
+            localized: "mobile.agentFeed.compose.reply",
+            defaultValue: "Reply",
+            bundle: .module
+        )
+    }
+
+    /// The user's recorded reply, quote-referencing the message it answered.
+    @ViewBuilder
+    private func userReplyMarker(reply: String, reference: String?) -> some View {
+        if bubbleQuotes {
+            bubbleReplyMarker(reply: reply, reference: reference)
+        } else {
+            barReplyMarker(reply: reply, reference: reference)
+        }
+    }
+
+    /// iMessage inline-reply layout: the row already shows the agent's
+    /// message as plain text above, so the marker is only the user's reply as
+    /// a filled accent bubble, sized like the quoted-prompt bubbles. Bubbles
+    /// belong to user text alone.
+    private func bubbleReplyMarker(reply: String, reference: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            bubbleSide(
+                bubbleContentPadding(
+                    AgentFeedMarkdownText(markdown: reply, font: .footnote, color: .white)
+                        .fixedSize(horizontal: false, vertical: true),
+                    sender: .user,
+                    vertical: 7
+                )
+                .background(
+                    AgentFeedBubbleShape(tailEdge: .trailing)
+                        .fill(Color.accentColor)
+                ),
+                sender: .user
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                Text(String(
+                    localized: "mobile.agentFeed.reply.youLabel",
+                    defaultValue: "You",
+                    bundle: .module
+                )) + Text(verbatim: ": ") + Text(reply)
+            )
+        }
+        .padding(.top, 2)
+    }
+
+    private func barReplyMarker(reply: String, reference: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let reference {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrowshape.turn.up.left")
+                        .font(.caption2)
+                    Text(String(
+                        localized: "mobile.agentFeed.reply.referenceFormat",
+                        defaultValue: "Replying to “\(reference)”",
+                        bundle: .module
+                    ))
+                    .font(.caption)
+                    .lineLimit(1)
+                }
+                .foregroundStyle(.tertiary)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(String(
+                    localized: "mobile.agentFeed.reply.youLabel",
+                    defaultValue: "You",
+                    bundle: .module
+                ))
+                .font(.footnote.weight(.semibold))
+                AgentFeedMarkdownText(markdown: reply, font: .footnote)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+        }
+        .padding(.top, 2)
+    }
+
+    private func resolutionLine(_ label: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: resolutionSymbolName)
+                .font(.caption2)
+            Text(label)
+                .font(.footnote.weight(.medium))
+                .lineLimit(2)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.top, 2)
+    }
+
+    private var resolutionSymbolName: String {
+        switch model.item.status {
+        case .expired:
+            return "hourglass"
+        case .resolved(let decision):
+            return decision.mode == "deny" ? "xmark.circle" : "checkmark.circle"
+        case .pending, .telemetry:
+            return "checkmark.circle"
+        }
+    }
+}
+
+/// The respondable controls of one pending actionable row.
+private struct AgentFeedDecisionControls: View {
+    let item: MobileAgentFeedItem
+    let isReplyPending: Bool
+    let actions: AgentFeedActions
+
+    var body: some View {
+        Group {
+            switch item.kind {
+            case .permissionRequest:
+                permissionControls
+            case .exitPlan:
+                AgentFeedExitPlanControls(
+                    item: item,
+                    isReplyPending: isReplyPending,
+                    actions: actions
+                )
+            case .question:
+                AgentFeedQuestionControls(
+                    item: item,
+                    isReplyPending: isReplyPending,
+                    actions: actions
+                )
+            case .toolUse, .toolResult, .userPrompt, .assistantMessage, .stop, .todos, .unsupported:
+                EmptyView()
+            }
+        }
+        .disabled(isReplyPending)
+        .opacity(isReplyPending ? 0.55 : 1)
+        .padding(.top, 4)
+    }
+
+    private var permissionControls: some View {
+        HStack(spacing: 8) {
+            AgentFeedActionButton(
+                title: String(
+                    localized: "mobile.agentFeed.permission.allow",
+                    defaultValue: "Allow",
+                    bundle: .module
+                ),
+                role: .primary,
+                accessibilityIdentifier: "MobileAgentFeedPermissionAllow"
+            ) {
+                actions.permissionReply(item, "once")
+            }
+
+            AgentFeedActionButton(
+                title: String(
+                    localized: "mobile.agentFeed.permission.always",
+                    defaultValue: "Always",
+                    bundle: .module
+                ),
+                role: .neutral,
+                accessibilityIdentifier: "MobileAgentFeedPermissionAlways"
+            ) {
+                actions.permissionReply(item, "always")
+            }
+
+            AgentFeedActionButton(
+                title: String(
+                    localized: "mobile.agentFeed.permission.deny",
+                    defaultValue: "Deny",
+                    bundle: .module
+                ),
+                role: .destructive,
+                accessibilityIdentifier: "MobileAgentFeedPermissionDeny"
+            ) {
+                actions.permissionReply(item, "deny")
+            }
+
+            Menu {
+                Button {
+                    actions.permissionReply(item, "all")
+                } label: {
+                    Label(
+                        String(
+                            localized: "mobile.agentFeed.permission.allowAll",
+                            defaultValue: "Allow All This Session",
+                            bundle: .module
+                        ),
+                        systemImage: "checkmark.circle.badge.questionmark"
+                    )
+                }
+                Button {
+                    actions.permissionReply(item, "bypass")
+                } label: {
+                    Label(
+                        String(
+                            localized: "mobile.agentFeed.permission.bypass",
+                            defaultValue: "Bypass Permissions",
+                            bundle: .module
+                        ),
+                        systemImage: "bolt.badge.checkmark"
+                    )
+                }
+            } label: {
+                AgentFeedOverflowMenuLabel()
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("MobileAgentFeedPermissionMore")
+            .accessibilityLabel(String(
+                localized: "mobile.agentFeed.permission.moreOptions",
+                defaultValue: "More permission options",
+                bundle: .module
+            ))
+        }
+    }
+}
+
+/// Approve / Revise… / Deny for a pending exit-plan row. Approve sends the
+/// agent's preselected mode; the menu exposes every mode; Revise reveals an
+/// inline feedback field.
+private struct AgentFeedExitPlanControls: View {
+    let item: MobileAgentFeedItem
+    let isReplyPending: Bool
+    let actions: AgentFeedActions
+
+    private var approveMode: String { item.defaultExitPlanMode ?? "manual" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                AgentFeedActionButton(
+                    title: String(
+                        localized: "mobile.agentFeed.exitPlan.approve",
+                        defaultValue: "Approve",
+                        bundle: .module
+                    ),
+                    role: .primary
+                ) {
+                    actions.exitPlanReply(item, approveMode, nil)
+                }
+
+                AgentFeedActionButton(
+                    title: String(
+                        localized: "mobile.agentFeed.exitPlan.revise",
+                        defaultValue: "Revise…",
+                        bundle: .module
+                    ),
+                    role: .neutral
+                ) {
+                    actions.beginCompose(item, .planRevise)
+                }
+
+                AgentFeedActionButton(
+                    title: String(
+                        localized: "mobile.agentFeed.permission.deny",
+                        defaultValue: "Deny",
+                        bundle: .module
+                    ),
+                    role: .destructive
+                ) {
+                    actions.exitPlanReply(item, "deny", nil)
+                }
+
+                Menu {
+                    ForEach(AgentFeedExitPlanControls.approveModes, id: \.mode) { entry in
+                        Button {
+                            actions.exitPlanReply(item, entry.mode, nil)
+                        } label: {
+                            Text(entry.label)
+                        }
+                    }
+                } label: {
+                    AgentFeedOverflowMenuLabel()
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("MobileAgentFeedExitPlanMore")
+                .accessibilityLabel(String(
+                    localized: "mobile.agentFeed.exitPlan.moreModes",
+                    defaultValue: "More approval modes",
+                    bundle: .module
+                ))
+            }
+        }
+    }
+
+    static var approveModes: [(mode: String, label: String)] {
+        [
+            (
+                "manual",
+                String(
+                    localized: "mobile.agentFeed.exitPlan.mode.manual",
+                    defaultValue: "Approve (manual edits)",
+                    bundle: .module
+                )
+            ),
+            (
+                "autoAccept",
+                String(
+                    localized: "mobile.agentFeed.exitPlan.mode.autoAccept",
+                    defaultValue: "Approve, auto-accept edits",
+                    bundle: .module
+                )
+            ),
+            (
+                "bypassPermissions",
+                String(
+                    localized: "mobile.agentFeed.exitPlan.mode.bypassPermissions",
+                    defaultValue: "Approve, bypass permissions",
+                    bundle: .module
+                )
+            ),
+            (
+                "ultraplan",
+                String(
+                    localized: "mobile.agentFeed.exitPlan.mode.ultraplan",
+                    defaultValue: "Approve as ultraplan",
+                    bundle: .module
+                )
+            ),
+        ]
+    }
+}
+
+#endif

@@ -133,6 +133,25 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(data["workspace_id"] == .string(workspaceID.uuidString))
     }
 
+    @Test func workspaceCloseRequiresForceForActiveProcesses() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        context.closeResolution = .confirmationRequired
+
+        guard case .err(let code, let message, .object(let data)) = coordinator.handle(request(
+            "workspace.close",
+            ["workspace_id": .string(workspaceID.uuidString)]
+        )) else {
+            Issue.record("unexpected workspace.close result")
+            return
+        }
+
+        #expect(context.closeForce == false)
+        #expect(code == "confirmation_required")
+        #expect(message == "Workspace has a running process; retry with --force")
+        #expect(data["workspace_id"] == .string(workspaceID.uuidString))
+    }
+
     @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()
