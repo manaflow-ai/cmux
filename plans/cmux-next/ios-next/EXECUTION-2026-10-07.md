@@ -214,9 +214,11 @@ The local bakeoff records a DEV-only loopback decision. F2's first split slice n
 pinned descriptor, runs the shared connect/echo/flood/bulk workloads through `LinkSession`, and
 writes the regular report plus a checked manifest. The iOS DEV Link bench screen is implemented and
 provenance-safe; B5's V1/V2 signaling adapters now land behind the same split fixture, and the iOS
-runner accepts injected V1/V2 adapters. The CLI and accepting-side host reject those carriers pending
-HostDO signaling. The next implementation gate is real HostDO signaling and TURN credentials before a device
-manifest can be captured. No device JSON has been captured yet. The V3 direct roam measurement
+runner accepts injected V1/V2 adapters. `BenchAcceptingHost` now constructs the accepting V1/V2
+listeners when given a HostDO-backed router, ICE provider, host identities, and paired device keys,
+matching the production `MobileHostAssembly` composition. The CLI and standalone host still reject
+those carriers without those inputs. The next implementation gate is deployed HostDO signaling and
+TURN credentials before a device manifest can be captured. No device JSON has been captured yet. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
 before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 blocked-send

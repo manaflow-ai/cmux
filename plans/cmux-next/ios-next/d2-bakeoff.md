@@ -32,6 +32,13 @@ HostDO accepting-side signaling is wired; this does not claim that
 device-manifest capture, Cloudflare TURN, HostDO signaling, WAN paths, or phone power measurements
 have run.
 
+The accepting-side seam is now explicit in `BenchAcceptingHost`: given a HostDO-backed
+`SignalRouter`, ICE provider, host identities, and paired device keys, it constructs the same
+V1 `WebRTCAcceptor` or V2 `WireGuardOverWebRTCAcceptor` composition used by B5's
+`MobileHostAssembly`, sharing one router and refusing empty trust. This is deterministic
+composition evidence only. The standalone CLI still refuses V1/V2 because it cannot obtain a
+HostDO socket or TURN credentials; no device or WAN readiness is implied.
+
 ## 1. Decision
 
 - Default stream carrier: **V1 `webrtc`** for every rendezvous path (p2p and TURN). V2 `webrtc-wg` stays
@@ -356,9 +363,11 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
   typical after; rare outliers to 1.2 s at load 35, bound 2 s). Still open: confirm on device, tune
   the window for WAN RTTs (256 KiB caps one association at 40 Mbit/s at 50 ms), SCTP stats in `rtt`.
 - F2 (D2/D3): direct bench split mode and the iOS DEV "Link bench" screen are implemented. The
-  iOS runner accepts injected V1/V2 adapters; the CLI and standalone host reject those carriers
-  pending HostDO accepting-side signaling. Remaining work is production signaling and device manifests
-  so the same JSON comes from real carrier runs.
+  iOS runner accepts injected V1/V2 adapters, and `BenchAcceptingHost` now provides the accepting
+  V1/V2 composition when a HostDO router, ICE provider, identities, and paired keys are injected.
+  The CLI and standalone host still reject V1/V2 without those production inputs. Remaining work
+  is HostDO deployment, TURN credentials, and device manifests so the same JSON comes from real
+  carrier runs.
 - F3 (B2): steady-state `getStats` RTT sampling is wired into the bounded path event inbox
   (`a22b7f7327`), and reliable sends suspended on a full channel now have ID-keyed cancellation,
   pre-cancel registration guards and a post-wake cancellation check. Focused room-waiter tests are
