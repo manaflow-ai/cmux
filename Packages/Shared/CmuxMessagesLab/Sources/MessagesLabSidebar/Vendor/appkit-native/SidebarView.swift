@@ -628,10 +628,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
-        // The unread dot left of the avatar's top, outside the bubble (to verify).
+        // cmux: the unread dot on the tile's leading edge, below the unread bubble when one is
+        // shown, so a wide bubble never covers it (SidebarDraw.tileUnreadDot).
         l.dot.isHidden = !c.unread
-        let r = ar.width / 2
-        l.dot.frame = CGRect(x: ar.midX - r * 0.86 - 6, y: ar.midY - r * 0.5 - 6, width: 12, height: 12)
+        let shownBubble = c.unread && !c.typing ? SidebarDraw.tileBubble(c, metrics: metrics)?.rect : nil
+        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: shownBubble)
         l.dot.cornerRadius = 6
         l.dot.backgroundColor = palette.unread
         if c.typing {

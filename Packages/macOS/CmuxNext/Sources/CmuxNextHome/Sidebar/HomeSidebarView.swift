@@ -5,9 +5,12 @@ import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
-/// with no background of its own: the window's material or background image
-/// shows through, as behind the transcript. It owns no data: the page gives
-/// it the model after every change and handles the choices.
+/// over one translucent scrim of the window's background
+/// (`Palette.legibilityScrim`): the window's material or background image
+/// shows through, as behind the transcript, and the labels keep a calmer
+/// base over a light image. No vibrancy material (it drew a solid gray
+/// panel) and no opaque fill. It owns no data: the page gives it the model
+/// after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
@@ -24,15 +27,20 @@ public final class HomeSidebarView: NSView {
     public var composeMenu: () -> NSMenu? = { nil }
 
     let list = CmuxSidebarView()
+    /// The strip above the search field: a drag there moves the window, as
+    /// on Messages' sidebar toolbar.
+    let dragStrip = HomeWindowDragStrip()
     /// Messages' compose button, in the strip above the search field.
     let compose = HomeComposeButton()
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
+        addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
         compose.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: HomeConversationStrings.newMessage)
@@ -99,9 +107,11 @@ public final class HomeSidebarView: NSView {
         return String(words.prefix(2).compactMap(\.first)).uppercased()
     }
 
-    /// The unread dot uses the app's theme accent (sent bubbles alone are iMessage blue).
+    /// The unread dot uses the app's theme accent (sent bubbles alone are
+    /// iMessage blue); the column lays the theme's legibility scrim.
     func applyColors() {
         list.unreadColor = performWithTheme { Palette.accent }
+        layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -114,10 +124,14 @@ public final class HomeSidebarView: NSView {
         applyColors()
     }
 
+    /// MessagesLab's search field starts this far down.
+    static let stripHeight: CGFloat = 52
+
     public override func layout() {
         super.layout()
-        // MessagesLab's search field starts 52 pt down; the button sits centered in that strip.
+        // The search field starts `stripHeight` down; the button sits centered in that strip.
         let side: CGFloat = 28
+        dragStrip.frame = NSRect(x: 0, y: bounds.height - Self.stripHeight, width: bounds.width, height: Self.stripHeight)
         compose.frame = NSRect(x: bounds.width - side - 12, y: bounds.height - 26 - side / 2, width: side, height: side)
     }
 
@@ -129,4 +143,10 @@ final class HomeComposeButton: NSButton {
     weak var owner: HomeSidebarView?
 
     override func menu(for event: NSEvent) -> NSMenu? { owner?.composeMenu() }
+}
+
+/// Empty header space that drags the window (AppKit's own window drag).
+final class HomeWindowDragStrip: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
 }

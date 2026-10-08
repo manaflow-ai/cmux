@@ -75,8 +75,9 @@ fn a_viewer_without_the_right_secret_is_refused() {
     assert!(authorize(Some(&good), &hello(None)).is_err(), "no secret");
     assert!(authorize(Some(&good), &hello(Some(&format!("{good}00")))).is_err(), "longer secret");
     assert!(authorize(Some(&good), &RdControl::Stop).is_err(), "not a hello");
-    // A host started by hand (no lifeline secret) keeps the open dev behavior.
-    assert!(authorize(None, &hello(None)).is_ok());
+    // A host without a per-launch secret has no open mode.
+    assert!(authorize(None, &hello(None)).is_err(), "no host secret");
+    assert!(authorize(None, &hello(Some(&good))).is_err(), "no host secret, any token");
 }
 
 #[test]

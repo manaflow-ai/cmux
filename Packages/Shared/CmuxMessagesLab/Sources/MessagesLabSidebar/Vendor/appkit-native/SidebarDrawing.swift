@@ -358,6 +358,34 @@ enum SidebarDraw {
             for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: 13 + CGFloat(i) * 13 - 1, g) }
         }
     }
+
+    /// cmux: the newest-message bubble of an unread tile (tile coordinates, without the tail)
+    /// and its lines, where `SidebarController.configureTile` puts the bubble layer; nil in the
+    /// compact list. The unread dot is placed against it (`tileUnreadDot`).
+    static func tileBubble(_ c: ConversationSummary, metrics m: SidebarMetrics, text: CGColor = CGColor(gray: 0, alpha: 1))
+        -> (rect: CGRect, lines: [CTLine])? {
+        guard !m.compact else { return nil }
+        let keyWidth = tileBubbleKeyWidth(natural: tileNatural(c).bubble, tileWidth: m.tileWidth)
+        let lines = keyWidth > 0 ? wrapped(c.preview, bubbleFont, text, width: keyWidth - 16, lines: 2)
+                                 : [line(c.preview.replacingOccurrences(of: "\n", with: " "), bubbleFont, text)]
+        let bw = ((lines.map(width).max() ?? 0) + 16).rounded(.up)
+        let w = keyWidth > 0 ? min(keyWidth, bw) : bw
+        let bh = CGFloat(lines.count) * 13 + 9
+        let ar = tileAvatar(m)
+        let bottom = ar.minY + ar.height * 0.30
+        return (CGRect(x: ((m.tileWidth - w) / 2).rounded(), y: max(1, bottom - bh), width: w, height: bh), lines)
+    }
+
+    /// cmux: the 12 pt unread dot on the tile's leading edge, left of the avatar, and below the
+    /// bubble (`bubble`, nil: none) so a wide bubble never covers it.
+    static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
+        let d: CGFloat = 12
+        let ar = tileAvatar(m)
+        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
+        var cy = ar.midY - ar.height * 0.25
+        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
+        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
+    }
 }
 
 /// Messages' typing bubble: a grey capsule with three dots that pulse in turn, animated on

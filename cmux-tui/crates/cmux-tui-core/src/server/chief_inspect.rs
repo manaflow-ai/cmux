@@ -11,6 +11,9 @@
 //! refused (`origin.forbidden`) before anything is forwarded; the remote
 //! relay gate never admits the command. Read-only: the seven API paths,
 //! GET only (the tool's default), an answer cap.
+//!
+//! Every daemon advertises `chief-inspect-v1` (it speaks the command); one
+//! started without a tools socket answers the owner `chief.not_configured`.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -26,6 +29,8 @@ use crate::conversation_store::LOCAL_USER;
 use crate::request_origin::ORIGIN_FORBIDDEN;
 
 pub(super) const CAPABILITY: &str = "chief-inspect-v1";
+/// The `error_code` for the owner when this daemon has no tools socket.
+pub(super) const NOT_CONFIGURED: &str = "chief.not_configured";
 /// The brain host's tools socket, set by whoever starts the brain's daemon
 /// (the app for a local Chief, the server's brain install script).
 pub(super) const TOOLS_SOCKET_ENV: &str = "CMUX_TUI_CHIEF_TOOLS_SOCKET";
@@ -64,9 +69,23 @@ impl std::fmt::Display for NotOwner {
 
 impl std::error::Error for NotOwner {}
 
+#[derive(Debug)]
+struct NotConfigured;
+
+impl std::fmt::Display for NotConfigured {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no Chief tools socket on this daemon")
+    }
+}
+
+impl std::error::Error for NotConfigured {}
+
 /// The `error_code` of a refused `chief-inspect`.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    error.downcast_ref::<NotOwner>().map(|_| ORIGIN_FORBIDDEN.to_string())
+    if error.downcast_ref::<NotOwner>().is_some() {
+        return Some(ORIGIN_FORBIDDEN.to_string());
+    }
+    error.downcast_ref::<NotConfigured>().map(|_| NOT_CONFIGURED.to_string())
 }
 
 /// Reads `CMUX_TUI_CHIEF_TOOLS_SOCKET` and removes it from this process's
@@ -86,6 +105,7 @@ pub unsafe fn take_tools_socket_from_env() {
 }
 
 /// Whether this daemon can forward (the brain's tools socket is configured).
+#[cfg(test)]
 pub(super) fn configured() -> bool {
     tools_socket().is_some()
 }
@@ -136,9 +156,7 @@ pub(super) fn inspect_with(
     );
     let path = match socket {
         Some(path) => path.to_owned(),
-        None => {
-            tools_socket().ok_or_else(|| anyhow::anyhow!("no Chief tools socket on this daemon"))?
-        }
+        None => tools_socket().ok_or(NotConfigured)?,
     };
     let stream = checked(&path)?;
     stream.set_read_timeout(Some(TIMEOUT))?;

@@ -28,6 +28,7 @@ pub struct AnthropicModel {
     effort: Option<String>,
     max_tokens: u32,
     server_fallback: bool,
+    tools: Option<Value>,
 }
 
 impl AnthropicModel {
@@ -48,21 +49,31 @@ impl AnthropicModel {
             effort: config.effort.clone(),
             max_tokens: config.max_tokens,
             server_fallback: config.server_fallback,
+            tools: config.tools.clone(),
         }
     }
 
-    /// The request body. The context comes first, cut at the view's cache
-    /// marks (section 8: the last line end before 50k, 80k and 100k
-    /// characters), and each piece carries a breakpoint: consecutive calls
-    /// share the `<chat>` prefix up to where the view last changed, and a
-    /// read lands only where an earlier request wrote a breakpoint. The last
-    /// piece's breakpoint is what size-loop retries reread. At most 4
-    /// breakpoints; the step block has none. No tools (section 4.2). No
-    /// 1-hour entries: they cost twice the input to write (section 8).
+    /// The request body (spec 3.3 and 4, gist 3c190e0): the turns' system
+    /// prompt and tools (never called: `tool_choice` none), so a compaction
+    /// reads them from the turns' cache entry; then its view in blocks of 4
+    /// lines, one mark on the last whole block; then the task. The system
+    /// prompt carries a mark and the request's end another (the top-level
+    /// automatic `cache_control`), so size-loop retries read the call
+    /// before them. Three breakpoints of the four allowed. No 1-hour entries:
+    /// they cost twice the input to write.
     pub fn body(&self, request: &CompactRequest, followups: &[Followup]) -> Value {
-        let mut content: Vec<Value> = optchat_core::cache_pieces(&request.context)
+        let pieces = optchat_core::block_pieces(&request.context);
+        let whole = pieces.len() - 1;
+        let mut content: Vec<Value> = pieces
             .into_iter()
-            .map(|piece| json!({"type": "text", "text": piece, "cache_control": {"type": "ephemeral"}}))
+            .enumerate()
+            .map(|(k, piece)| {
+                if whole > 0 && k + 1 == whole {
+                    json!({"type": "text", "text": piece, "cache_control": {"type": "ephemeral"}})
+                } else {
+                    json!({"type": "text", "text": piece})
+                }
+            })
             .collect();
         content.push(json!({"type": "text", "text": request.step}));
         let mut messages = vec![json!({"role": "user", "content": content})];
@@ -77,9 +88,14 @@ impl AnthropicModel {
         let mut body = json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": request.system,
+            "system": [{"type": "text", "text": request.system, "cache_control": {"type": "ephemeral"}}],
             "messages": messages,
+            "cache_control": {"type": "ephemeral"},
         });
+        if let Some(tools) = &self.tools {
+            body["tools"] = tools.clone();
+            body["tool_choice"] = json!({"type": "none"});
+        }
         if let Some(effort) = &self.effort {
             body["output_config"] = json!({"effort": effort});
         }
@@ -182,26 +198,29 @@ mod tests {
             retry: "That line is 600 bytes".into(),
         }];
         let body = model.body(&request(), &followups);
-        assert_eq!(body["system"], "SYS");
+        assert_eq!(body["system"][0]["text"], "SYS");
+        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(body["cache_control"]["type"], "ephemeral");
         assert_eq!(body["model"], "claude-sonnet-5-5");
         assert_eq!(body["output_config"]["effort"], "medium");
         assert!(body.get("tools").is_none());
         let m = body["messages"].as_array().unwrap();
         assert_eq!(m.len(), 3);
-        assert_eq!(m[0]["content"][0]["cache_control"]["type"], "ephemeral");
+        // An empty view has no whole block: no mark in it.
+        assert!(m[0]["content"][0].get("cache_control").is_none());
         assert_eq!(m[0]["content"][1]["text"], "STEP");
         assert_eq!(m[1]["role"], "assistant");
         assert_eq!(m[1]["content"][0]["text"], "long");
         assert_eq!(m[2]["content"], "That line is 600 bytes");
     }
 
+    /// Spec 3.3 (gist 3c190e0): the view in blocks of 4 lines, one mark on
+    /// the last whole block; the turns' tools when configured, never called.
     #[test]
-    fn a_long_context_is_cut_at_the_marks_with_a_breakpoint_on_each_piece() {
-        // Audit round 1: one context block with one breakpoint at its end, so a
-        // call whose context differs only in its last line read nothing.
+    fn the_view_goes_in_four_line_blocks_with_one_mark_on_the_last_whole_one() {
         let line = format!("{}\n", "x".repeat(99));
         let mut context = String::from("<chat>\n");
-        for _ in 0..1_100 {
+        for _ in 0..30 {
             context.push_str(&line);
         }
         context.push_str("</chat>");
@@ -209,27 +228,26 @@ mod tests {
             context: context.clone(),
             ..request()
         };
-        let body = AnthropicModel::new(&Config::default()).body(&request, &[]);
+        let config = Config {
+            tools: Some(json!([{"name": "zoom"}])),
+            ..Config::default()
+        };
+        let body = AnthropicModel::new(&config).body(&request, &[]);
+        assert_eq!(body["tools"], json!([{"name": "zoom"}]));
+        assert_eq!(body["tool_choice"]["type"], "none");
         let blocks = body["messages"][0]["content"].as_array().unwrap().clone();
-        // Three marks (50k, 80k, 100k) cut four context pieces; the step is last.
-        assert_eq!(blocks.len(), 5);
-        let joined: String = blocks[..4]
+        // 7 whole blocks of 4 lines, the rest, the task.
+        assert_eq!(blocks.len(), 9);
+        let joined: String = blocks[..8]
             .iter()
             .map(|b| b["text"].as_str().unwrap())
             .collect();
         assert_eq!(joined, context);
-        for (piece, limit) in blocks[..3].iter().zip(optchat_core::MARKS) {
-            let text = piece["text"].as_str().unwrap();
-            assert!(text.ends_with('\n'));
-            assert!(text.chars().count() <= limit);
-        }
-        let breakpoints = blocks
-            .iter()
-            .filter(|b| b.get("cache_control").is_some())
-            .count();
-        assert_eq!(breakpoints, 4, "at most 4 per request");
-        assert!(blocks[4].get("cache_control").is_none());
-        assert_eq!(blocks[4]["text"], "STEP");
+        let marked: Vec<usize> = (0..blocks.len())
+            .filter(|k| blocks[*k].get("cache_control").is_some())
+            .collect();
+        assert_eq!(marked, vec![6]);
+        assert_eq!(blocks[8]["text"], "STEP");
     }
 
     /// Audit round 2: the key was the constant "subrouter", so any other
