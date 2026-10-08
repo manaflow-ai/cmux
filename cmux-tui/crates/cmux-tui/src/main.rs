@@ -27,6 +27,8 @@ mod config;
 mod headless;
 mod local_actor;
 mod private_mode;
+#[cfg(unix)]
+mod signal_sender;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -141,20 +143,6 @@ unsafe extern "C" {
     static mut environ: *mut *mut libc::c_char;
 }
 
-#[cfg(unix)]
-extern "C" fn handle_signal(_: libc::c_int) {
-    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
-    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
-    if writer >= 0 {
-        let byte = 1_u8;
-        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
-        // socket descriptor, and the one-byte source remains valid for the call.
-        unsafe {
-            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
-        }
-    }
-}
-
 pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
 }
@@ -179,7 +167,7 @@ fn install_signal_handlers() -> io::Result<()> {
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
+        action.sa_sigaction = signal_sender::handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
             SIGNAL_WAKE_READER.store(-1, Ordering::Release);
             SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
@@ -188,7 +176,8 @@ fn install_signal_handlers() -> io::Result<()> {
         // Termination must interrupt startup and teardown syscalls. In
         // particular, reopening `/dev/tty` can block forever after the host
         // PTY disappears if the handler is installed with SA_RESTART.
-        action.sa_flags = 0;
+        // SA_SIGINFO names the sender (cx-0tgl LA).
+        action.sa_flags = libc::SA_SIGINFO;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
                 SIGNAL_WAKE_READER.store(-1, Ordering::Release);
