@@ -127762,55 +127762,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+            "value": "%@ uses an older Cloud protocol. Refresh it to enable live sync and rename operations."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ は古い cmux-tui プロトコルを使用しています。更新してライブ同期と名前変更を有効にしてください。"
+            "value": "%@ は古い Cloud プロトコルを使用しています。更新してライブ同期と名前変更を有効にしてください。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 使用的是较旧的 cmux-tui 协议。请刷新它以启用实时同步与重命名操作。"
+            "value": "%@ 使用较旧的 Cloud 协议。请刷新以启用实时同步和重命名操作。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ verwendet ein älteres cmux-tui-Protokoll. Aktualisieren Sie es, um die Live-Synchronisierung und Umbenennungsoperationen zu aktivieren."
+            "value": "%@ verwendet ein älteres Cloud-Protokoll. Aktualisieren Sie es, um Live-Synchronisierung und Umbenennungen zu aktivieren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ utilise un protocole cmux-tui plus ancien. Actualisez-le pour activer la synchronisation en direct et les opérations de renommage."
+            "value": "%@ utilise un protocole Cloud plus ancien. Actualisez-le pour activer la synchronisation en direct et le renommage."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم %@ بروتوكول cmux-tui أقدم. يرجى تحديثه لتمكين المزامنة الحية وعمليات إعادة التسمية."
+            "value": "تستخدم %@ بروتوكول Cloud أقدم. حدّثها لتمكين المزامنة المباشرة وعمليات إعادة التسمية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ utiliza un protocolo cmux-tui más antiguo. Actualízalo para habilitar la sincronización en vivo y las operaciones de cambio de nombre."
+            "value": "%@ utiliza un protocolo de Cloud más antiguo. Actualízalo para habilitar la sincronización en vivo y los cambios de nombre."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 使用較舊的 cmux-tui 協定。請重新整理以啟用即時同步和重新命名作業。"
+            "value": "%@ 使用較舊的 Cloud 通訊協定。請重新整理以啟用即時同步和重新命名作業。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@은(는) 구버전 cmux-tui 프로토콜을 사용하고 있습니다. 실시간 동기화 및 이름 바꾸기 작업을 활성화하려면 새로 고치십시오."
+            "value": "%@은(는) 이전 Cloud 프로토콜을 사용합니다. 실시간 동기화 및 이름 변경을 활성화하려면 새로 고치세요."
           }
         }
       }
@@ -644054,61 +644054,473 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+            "value": "Could not create a workspace on this Cloud VM. Wake the machine or retry `cmux vm workspace new`."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der cmux-tui-Daemon der Maschine ist nicht verfügbar. Wecken Sie die Maschine auf oder versuchen Sie `cmux vm workspace new` erneut."
+            "value": "Der Arbeitsbereich auf dieser Cloud-VM konnte nicht erstellt werden. Wecken Sie die Maschine auf oder versuchen Sie `cmux vm workspace new` erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le daemon cmux-tui de la machine est indisponible. Réveillez la machine ou réessayez `cmux vm workspace new`."
+            "value": "Impossible de créer un espace de travail sur cette VM Cloud. Réveillez la machine ou réessayez `cmux vm workspace new`."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "برنامج cmux-tui الخفي على الجهاز غير متاح. أيقظ الجهاز أو أعد محاولة `cmux vm workspace new`."
+            "value": "تعذّر إنشاء مساحة عمل على Cloud VM هذه. أيقظ الجهاز أو أعد محاولة `cmux vm workspace new`."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El daemon cmux-tui de la máquina no está disponible. Activa la máquina o vuelve a intentar `cmux vm workspace new`."
+            "value": "No se pudo crear un espacio de trabajo en esta VM de Cloud. Activa la máquina o vuelve a intentar `cmux vm workspace new`."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "機器的 cmux-tui daemon 無法使用。喚醒機器，或重試 `cmux vm workspace new`。"
+            "value": "無法在此 Cloud VM 上建立工作區。請喚醒機器，或重試 `cmux vm workspace new`。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "机器的 cmux-tui 守护进程不可用。唤醒机器，或重试 `cmux vm workspace new`。"
+            "value": "无法在此 Cloud VM 上创建工作区。请唤醒机器，或重试 `cmux vm workspace new`。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "머신의 cmux-tui 데몬을 사용할 수 없습니다. 머신을 깨운 후 `cmux vm workspace new`를 다시 시도하세요."
+            "value": "이 Cloud VM에서 작업 공간을 만들 수 없습니다. 머신을 깨운 후 `cmux vm workspace new`를 다시 시도하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンの cmux-tui デーモンを利用できません。マシンを起動するか、`cmux vm workspace new` を再試行してください。"
+            "value": "この Cloud VM にワークスペースを作成できませんでした。マシンを起動するか、`cmux vm workspace new` を再試行してください。"
           }
         }
       }
     },
-
-      "featureFlags.macAccountDirectory.title": {
+    "cloud.link.clientMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud connection client is unavailable in this build. Set CMUX_TUI_CLIENT or use a build with Cloud support."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عميل اتصال Cloud غير متاح في هذا الإصدار. عيّن CMUX_TUI_CLIENT أو استخدم إصدارًا يدعم Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Verbindungsclient ist in diesem Build nicht verfügbar. Setzen Sie CMUX_TUI_CLIENT oder verwenden Sie einen Build mit Cloud-Unterstützung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El cliente de conexión de Cloud no está disponible en esta compilación. Configura CMUX_TUI_CLIENT o usa una compilación compatible con Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le client de connexion Cloud est indisponible dans cette version. Définissez CMUX_TUI_CLIENT ou utilisez une version compatible avec Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドでは Cloud 接続クライアントを利用できません。CMUX_TUI_CLIENT を設定するか、Cloud 対応ビルドを使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에서는 Cloud 연결 클라이언트를 사용할 수 없습니다. CMUX_TUI_CLIENT를 설정하거나 Cloud를 지원하는 빌드를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本无法使用 Cloud 连接客户端。请设置 CMUX_TUI_CLIENT，或使用支持 Cloud 的版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本無法使用 Cloud 連線用戶端。請設定 CMUX_TUI_CLIENT，或使用支援 Cloud 的版本。"
+          }
+        }
+      }
+    },
+    "cloud.link.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud connection did not report a socket within the connect timeout."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُبلغ اتصال Cloud عن مقبس خلال مهلة الاتصال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Verbindung hat innerhalb des Verbindungszeitlimits keinen Socket gemeldet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión de Cloud no informó de un socket dentro del tiempo de espera de conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion Cloud n’a pas signalé de socket dans le délai imparti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 接続が接続タイムアウトまでにソケットを報告しませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 연결이 연결 시간 제한 내에 소켓을 보고하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 连接未在连接超时前报告套接字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 連線未在連線逾時前回報 Socket。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.invalidSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service returned an unversioned or malformed session snapshot for %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعادت خدمة Cloud لقطة جلسة غير مُصدرة أو مشوهة لـ %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Dienst hat für %@ einen unversionierten oder fehlerhaften Sitzungssnapshot zurückgegeben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de Cloud devolvió una instantánea de sesión sin versión o malformada para %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service Cloud a renvoyé un instantané de session sans version ou malformé pour %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスが %@ に対してバージョンなし、または不正なセッションスナップショットを返しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 서비스가 %@에 대해 버전이 없거나 잘못된 세션 스냅샷을 반환했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服务为 %@ 返回了无版本或格式错误的会话快照。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服務為 %@ 傳回未標示版本或格式錯誤的工作階段快照。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.noWorkspaceOnMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no remote workspace yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي %@ على مساحة عمل بعيدة بعد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat noch keinen Remote-Arbeitsbereich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aún no tiene un espacio de trabajo remoto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas encore d’espace de travail distant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にはまだリモートワークスペースがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 아직 원격 작업 공간이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 尚无远程工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 尚未有遠端工作區。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.terminalNotCreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service did not report the new terminal: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُبلغ خدمة Cloud عن الطرفية الجديدة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Dienst hat das neue Terminal nicht gemeldet: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de Cloud no informó del nuevo terminal: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service Cloud n’a pas signalé le nouveau terminal : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスが新しいターミナルを報告しませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 서비스가 새 터미널을 보고하지 않았습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服务未报告新终端：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服務未回報新終端機：%@"
+          }
+        }
+      }
+    },
+    "cloud.link.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud connection exited with status %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى اتصال Cloud بالحالة %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Verbindung wurde mit Status %@ beendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión de Cloud terminó con el estado %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion Cloud s’est terminée avec le statut %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 接続がステータス %@ で終了しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 연결이 상태 %@로 종료되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 连接已以状态 %@ 退出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 連線已以狀態 %@ 結束"
+          }
+        }
+      }
+    },
+    "cloud.link.spawnFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud connection could not be started: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء اتصال Cloud: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Verbindung konnte nicht gestartet werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar la conexión de Cloud: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de démarrer la connexion Cloud : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 接続を開始できませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 연결을 시작할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动 Cloud 连接：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動 Cloud 連線：%@"
+          }
+        }
+      }
+    },
+    "featureFlags.macAccountDirectory.title": {
         "extractionState": "manual",
         "localizations": {
           "en": {
@@ -644167,8 +644579,7 @@
           }
         }
       },
-
-      "featureFlags.macAccountDirectory.description": {
+    "featureFlags.macAccountDirectory.description": {
         "extractionState": "manual",
         "localizations": {
           "en": {
@@ -644226,7 +644637,66 @@
             }
           }
         }
+      },
+    "socket.cloudVM.daemonUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud VM connection is unavailable. Wake the machine or retry the command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال Cloud VM غير متاح. أيقظ الجهاز أو أعد محاولة الأمر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zur Cloud-VM ist nicht verfügbar. Wecken Sie die Maschine auf oder versuchen Sie den Befehl erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con la VM de Cloud no está disponible. Activa la máquina o vuelve a intentar el comando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à la VM Cloud est indisponible. Réveillez la machine ou réessayez la commande."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 接続を利用できません。マシンを起動するか、コマンドを再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 연결을 사용할 수 없습니다. 머신을 깨운 후 명령을 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 连接不可用。请唤醒机器，或重试该命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 連線無法使用。請喚醒機器，或重試此指令。"
+          }
+        }
       }
+    }
   },
   "version": "1.0"
 }
