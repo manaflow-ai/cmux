@@ -59,8 +59,9 @@ pub fn discover_harnesses_from(
         // the local Claude Code against the metered Bedrock gateway. The
         // default Claude route (Lawrence 2026-10-08); `coderouter` is the
         // long name of the same CLI.
-        ("claude-cr", "cr"),
+        // `coderouter` first: another tool may be installed as `cr`.
         ("claude-cr", "coderouter"),
+        ("claude-cr", "cr"),
         // Claude through the subrouter account pool: `sr claude proxy`.
         // Only when a user asks for `claude-sr` by name; never a default.
         ("claude-sr", "sr"),
@@ -77,7 +78,7 @@ pub fn discover_harnesses_from(
         if agents.contains_key(name) && !reserved {
             continue;
         }
-        // `cr` and `coderouter` are one CLI: the first one found serves.
+        // `coderouter` and `cr` are one CLI: the first one found serves.
         if name == "claude-cr"
             && agents.get(name).is_some_and(|p: &HarnessProfile| p.kind == HarnessKind::ClaudeStdio)
         {

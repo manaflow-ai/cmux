@@ -472,6 +472,13 @@ fn the_default_coderouter_route_is_admitted_and_children_default_to_it() {
         optchat_chief::harness_gate::admit(&answer, optchat_chief::host::DEFAULT_HARNESS).unwrap();
     assert_eq!(admitted.profile, "claude-cr");
     assert_eq!(admitted.argv0, "/u/bin/cr");
+    // A CodeRouter launcher acpmux could not run is refused at the gate.
+    let down = json!({"harnesses": {
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "claude-david"],
+                      "unavailable": "`cr claude-david --version` failed: unknown command"},
+    }});
+    let refused = optchat_chief::harness_gate::admit(&down, "claude-cr").unwrap_err();
+    assert!(refused.contains("unavailable"), "{refused}");
     // The subrouter still answers when it is asked for by name.
     assert_eq!(
         optchat_chief::harness_gate::admit(&answer, "claude-sr")

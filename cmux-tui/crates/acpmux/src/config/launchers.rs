@@ -6,7 +6,8 @@ use super::*;
 /// Drop discovered launcher profiles whose binary cannot actually run the
 /// harness: an older subrouter without `claude proxy`, one whose proxy
 /// setup fails before Claude starts, or a CodeRouter CLI without the
-/// `claude-david` Bedrock route (or without the login it needs). Runs once at daemon start, so a
+/// `claude-david` Bedrock route. `--version` does not check the login; a
+/// missing Chatmux login fails the session with the CLI's own message. Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
     let servers =

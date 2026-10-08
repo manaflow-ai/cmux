@@ -735,7 +735,7 @@ in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist t
 so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
 discovered `claude-cr` or `claude-sr` launcher is checked at daemon start
 (`cr claude-david --version`, `sr claude proxy --version`) and dropped, with a log line, when
-the installed CLI cannot run it (no `claude-david` route, no Chatmux login, an old subrouter);
+the installed CLI cannot run it (no `claude-david` route, an old subrouter);
 `claude` then has no fallback instead of failing over into a launcher that dies at once. When a subrouter server is
 known, the launcher instead becomes a copy of `claude` routed through that server, but only when
 `claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never

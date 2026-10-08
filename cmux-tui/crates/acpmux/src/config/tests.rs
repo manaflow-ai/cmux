@@ -369,12 +369,15 @@ fn coderouter_is_the_default_claude_route_and_the_subrouter_is_only_an_explicit_
     // The subrouter stays available by its exact name, and nothing moves onto it.
     assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
     assert!(cfg.harnesses.values().all(|p| p.fallback.as_deref() != Some("claude-sr")));
-    // A `coderouter` binary (the long name) serves the same route.
+    // A `coderouter` binary (the long name) serves the same route, and wins
+    // over a `cr` that may be another tool.
     let found = discover_harnesses_from(None, &on_path(&["claude", "coderouter"]));
     assert_eq!(
         found["claude-cr"].argv,
         vec!["/u/bin/coderouter".to_owned(), "claude-david".into()]
     );
+    let found = discover_harnesses_from(None, &on_path(&["cr", "coderouter"]));
+    assert_eq!(found["claude-cr"].argv[0], "/u/bin/coderouter");
 }
 
 #[test]

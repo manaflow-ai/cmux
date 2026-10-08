@@ -62,6 +62,18 @@ pub use cmux_chief::policy::harness::TEAM_SUBROUTER_URLS;
 /// The profile `requested` runs on, from an `_acpmux/harnesses` answer, or
 /// why the Chief refuses it.
 pub fn admit(answer: &Value, requested: &str) -> Result<Admitted, String> {
+    // A profile asked for by name (the default `claude-cr`, say) whose
+    // launcher acpmux marked unavailable is refused here, as a route is,
+    // instead of failing at the first turn.
+    if !cmux_chief::policy::harness::is_route(requested)
+        && let Some(why) = answer
+            .get("harnesses")
+            .and_then(|h| h.get(requested))
+            .and_then(|p| p.get("unavailable"))
+            .and_then(Value::as_str)
+    {
+        return Err(format!("acpmux's {requested} is unavailable: {why}"));
+    }
     cmux_chief::policy::harness::admit(answer, requested).map(|a| admitted(requested, a))
 }
 
