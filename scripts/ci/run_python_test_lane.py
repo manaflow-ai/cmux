@@ -12,6 +12,7 @@ every failing file, and each test's output prints as one block when it ends.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 import signal
@@ -136,6 +137,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        raise SystemExit("--timeout must be a positive finite number")
 
     for lane in args.lane:
         if lane in NON_RUNNABLE_LANES:

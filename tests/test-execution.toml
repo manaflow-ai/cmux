@@ -140,6 +140,10 @@ path = "tests/test_cmux_cua_mcp_smoke.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_cua_compat_contract.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cmux_cua_build_cache_safety.py"
 lane = "macos-cli-no-socket"
 
@@ -1392,6 +1396,10 @@ path = "tests/test_nightly_publication_marker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_artifact_alias.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
@@ -1640,4 +1648,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_gh_merge_green_revert.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_notarization_recovery_manifest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reverse_test_impact_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_poll_notary_submission.py"
 lane = "linux-guard"

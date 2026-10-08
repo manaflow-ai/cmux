@@ -7,6 +7,7 @@ import {
   shouldReadVmResourceStatsDirectly,
 } from "./resourceUsage";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
 import * as Exit from "effect/Exit";
@@ -3755,6 +3756,28 @@ function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): n
   return Math.max(1, Math.min(Math.floor(limit), ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH));
 }
 
+/**
+ * How long after the requested exec timeout the route still waits for the
+ * provider. The Mac client's request budget is the timeout plus 5 s
+ * (VMClient+Exec.swift), so 3 s leaves room for the response to reach it.
+ * A guest-killed timeout normally answers within ~2 s of the timeout.
+ */
+export const EXEC_ANSWER_MARGIN_MS = 3_000;
+
+/** What remains of an exec request's answer budget after `elapsedMs` of it went to auth and lookup. */
+export function execAnswerBudgetMs(timeoutMs: number, elapsedMs: number): number {
+  return Math.max(0, timeoutMs + EXEC_ANSWER_MARGIN_MS - elapsedMs);
+}
+
+/** The command's timeout as an exec answer: exit 124, as a guest-killed timeout reads. */
+function execTimedOutResult(timeoutMs: number): ExecResult {
+  return {
+    exitCode: 124,
+    stdout: "",
+    stderr: `cmux: the command did not finish within ${Math.round(timeoutMs / 1000)}s; it may still be running on the machine.\n`,
+  };
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -3764,14 +3787,24 @@ export function execVm(input: {
   readonly maxActiveVms?: number | null;
   readonly command: string;
   readonly timeoutMs: number;
+  /**
+   * Milliseconds from now within which the caller must have an answer. The
+   * exec route derives it from the request's start (execAnswerBudgetMs) so
+   * the answer always lands inside the client's request budget; defaults to
+   * the timeout plus EXEC_ANSWER_MARGIN_MS.
+   */
+  readonly answerWithinMs?: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
+    const deadlineAtMs = (yield* Clock.currentTimeMillis) + (input.answerWithinMs ?? execAnswerBudgetMs(input.timeoutMs, 0));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // Lookup and resume are never cut short: interrupting a resume midway
+    // would strand its bookkeeping. The deadline governs only the command.
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -3780,10 +3813,31 @@ export function execVm(input: {
       "exec",
       { maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
+    const execStartedAtMs = yield* Clock.currentTimeMillis;
+    // A dispatched command always gets its own timeout window, so a slow
+    // resume can never turn into a 124 for a command that had no time to run;
+    // in the normal case the request deadline is the later of the two.
+    const answerWithinMs = Math.max(input.timeoutMs, deadlineAtMs - execStartedAtMs);
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
       providerMetadata: vm.providerMetadata,
-    });
+    }).pipe(
+      // A provider failure after the command's own timeout has elapsed says
+      // nothing about the machine: the command ran out of time, and that is
+      // the answer. Earlier failures stay provider errors.
+      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= input.timeoutMs
+        ? Effect.sync(() => {
+          // Kept for operators: the answer is the timeout, the cause is the provider's.
+          console.error(`[vm] exec failed after its command timeout for ${input.providerVmId}`, errorMessage("cause" in err ? err.cause : err));
+          return execTimedOutResult(input.timeoutMs);
+        })
+        : Effect.fail(err))),
+      Effect.timeoutTo({
+        duration: answerWithinMs,
+        onSuccess: (answer: ExecResult) => answer,
+        onTimeout: () => execTimedOutResult(input.timeoutMs),
+      }),
+    );
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,

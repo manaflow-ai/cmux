@@ -135,6 +135,8 @@ run_helper() {
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
   CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
+  CMUX_NOTARY_SUBMIT_ONLY="${TEST_NOTARY_SUBMIT_ONLY:-false}" \
+  GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
   CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
   ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
@@ -301,8 +303,53 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
-# A generic submit failure must retain its diagnostics without claiming that
-# the wait deadline was reached.
+# Published variants submit once and leave Apple's asynchronous processing to
+# the continuation workflow. The build lane must retain the exact state while
+# refusing to staple or publish before a later Accepted result.
+: > "$LOG"
+ASYNC_STATE="$TMP_DIR/cmux-nightly-async.state"
+ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-async.log"
+ASYNC_GITHUB_OUTPUT="$TMP_DIR/async.github-output"
+rm -f "$ASYNC_STATE" "$ASYNC_OUTPUT" "$ASYNC_GITHUB_OUTPUT" "$IMMUTABLE"
+if ! TEST_NOTARY_SUBMIT_ONLY=true \
+  CMUX_NOTARY_SUBMISSION_FILE="$ASYNC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$ASYNC_OUTPUT" \
+  GITHUB_OUTPUT="$ASYNC_GITHUB_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/async.err"; then
+  echo "FAIL: submit-only notarization failed before handing off the published path" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_id=fixture-id" "$ASYNC_STATE" \
+  || ! grep -Fxq "submission_pending=true" "$ASYNC_GITHUB_OUTPUT" \
+  || ! grep -q '^xcrun notarytool submit .*--output-format json$' "$LOG" \
+  || grep -q '^xcrun notarytool submit .*--wait' "$LOG" \
+  || grep -Fq 'xcrun stapler staple' "$LOG" \
+  || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: submit-only notarization did not preserve a pending ticket without stapling" >&2
+  cat "$LOG" "$ASYNC_STATE" >&2
+  exit 1
+fi
+
+FAILED_ASYNC_STATE="$TMP_DIR/cmux-nightly-submit-failed.state"
+FAILED_ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-submit-failed.log"
+rm -f "$FAILED_ASYNC_STATE" "$FAILED_ASYNC_OUTPUT"
+if TEST_NOTARY_SUBMIT_ONLY=true CMUX_TEST_NOTARY_TIMEOUT=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$FAILED_ASYNC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$FAILED_ASYNC_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/async-failed.err"; then
+  echo "FAIL: failed submit was reported as an asynchronous handoff" >&2
+  exit 1
+fi
+if ! grep -q "refusing continuation" "$TMP_DIR/async-failed.err" \
+  || ! grep -Fxq "submission_id=fixture-id" "$FAILED_ASYNC_STATE"; then
+  echo "FAIL: nonzero submit did not preserve evidence without claiming handoff" >&2
+  cat "$TMP_DIR/async-failed.err" "$FAILED_ASYNC_STATE" >&2
+  exit 1
+fi
+
+# The exact recovery artifact can be resumed without rebuilding or submitting
+# a second Apple request. The saved SHA and submission id gate all stapling and
+# publication work.
 : > "$LOG"
 GENERIC_STATE="$TMP_DIR/cmux-nightly-generic.state"
 GENERIC_OUTPUT="$TMP_DIR/cmux-nightly-generic.log"
