@@ -5,7 +5,7 @@ import { VmRepository, type VmRepositoryShape } from "../services/vms/repository
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { createVm, forkVm, openBaseVm, resetBaseVm, restoreVm, resumeVm } from "../services/vms/workflows";
-import { vmWorkflowErrorCause, VmProviderOperationError } from "../services/vms/errors";
+import { vmWorkflowErrorCause, vmWorkflowErrorFromCause, VmProviderOperationError } from "../services/vms/errors";
 
 test("create, fork, and restore reject a 64 GB machine on Pro before provisioning", async () => {
   let creates = 0;
@@ -106,7 +106,9 @@ test("Pro cannot bypass the memory gate with unknown snapshot or fork dimensions
     ownedSnapshotResourceReservation: () => Effect.succeed(null),
   } as unknown as VmRepositoryShape;
   const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo),
-    Layer.succeed(VmProviderGateway, {} as VmProviderGatewayShape), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
+    Layer.succeed(VmProviderGateway, {
+      getStats: () => Effect.succeed({ memoryTotalMb: 65536, cpus: 32, diskTotalMb: 131072 }),
+    } as unknown as VmProviderGatewayShape), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
   const caller = { userId: "u", billingCustomerType: "user" as const, billingTeamId: "u", billingPlanId: "pro", maxActiveVms: 5 };
   for (const program of [
     forkVm({ ...caller, providerVmId: "vm" }).pipe(Effect.asVoid),
@@ -147,4 +149,88 @@ test("access verbs refuse a machine larger than the caller's current plan", asyn
   // Machines inside the plan pass.
   expect(await run("pro", { memoryMb: 16384, vcpus: 8, diskMb: 65536 })).toBeNull();
   expect(await run("max", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBeNull();
+});
+
+test("paid access probes legacy rows without a reservation before allowing open or resume", async () => {
+  const row = {
+    id: "row",
+    userId: "u",
+    billingTeamId: "u",
+    ownerTeamId: "u",
+    coderouterPoolId: null,
+    status: "running" as const,
+    provider: "freestyle" as const,
+    providerVmId: "vm",
+    providerMetadata: {},
+  };
+  const repo = { findUserVm: () => Effect.succeed(row) } as unknown as VmRepositoryShape;
+  const providers = {
+    getStats: () => Effect.succeed({ memoryTotalMb: 24576, cpus: 12, diskTotalMb: 98304 }),
+  } as unknown as VmProviderGatewayShape;
+  const layer = Layer.mergeAll(
+    Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, providers),
+    Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+  );
+  const result = await Effect.runPromiseExit(
+    resumeVm({ userId: "u", billingTeamId: "u", providerVmId: "vm", maxActiveVms: 5, callerPlanId: "pro" })
+      .pipe(Effect.provide(layer)),
+  );
+  expect(result._tag).toBe("Failure");
+  expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
+});
+
+test("reopening an existing oversized Base cannot bypass the caller's Pro CPU ceiling", async () => {
+  const base = { id: "base", name: "default" };
+  const generation = { id: "generation", generation: 1 };
+  const caller = {
+    userId: "u",
+    billingCustomerType: "user" as const,
+    billingTeamId: "u",
+    billingPlanId: "pro",
+    maxActiveVms: 5,
+    provider: "freestyle" as const,
+    image: "snapshot",
+    baseName: "default",
+  };
+  for (const vcpus of [12, 16]) {
+    const existing = {
+      id: `vm-${vcpus}`,
+      userId: "u",
+      billingTeamId: "u",
+      ownerTeamId: "u",
+      coderouterPoolId: null,
+      status: "running" as const,
+      provider: "freestyle" as const,
+      providerVmId: `provider-vm-${vcpus}`,
+      providerMetadata: {
+        cmuxResourceReservation: {
+          vcpus,
+          memoryMb: vcpus * 2 * 1024,
+          diskMb: 128 * 1024,
+        },
+      },
+    };
+    const repo = {
+      beginBaseOpen: () => Effect.succeed({
+        kind: "existing" as const,
+        base,
+        generation,
+        vm: existing,
+      }),
+    } as unknown as VmRepositoryShape;
+    const providers = {
+      getStatus: () => Effect.succeed("running" as const),
+    } as unknown as VmProviderGatewayShape;
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, providers),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+    const result = await Effect.runPromiseExit(openBaseVm(caller).pipe(Effect.provide(layer)));
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
+    }
+  }
 });
