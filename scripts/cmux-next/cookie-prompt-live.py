@@ -29,6 +29,8 @@ parser.add_argument("--capture", action="store_true",
                     help="save screenshots through the agent capture helper's daemon (scripts/agent-capture-helper.sh start)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="cookie-prompt-live-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+parser.add_argument("--launch-backdrop", action="store_true",
+                    help="launch with a backdrop painting already set and capture the Did you know card first (nxdog76)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -168,7 +170,7 @@ def config(background=None):
     settle(2.0)
 
 
-write(CONFIG, "{}\n")
+write(CONFIG, (json.dumps({"appearance": {"background": "wheat-field-with-cypresses"}}) if opts.launch_backdrop else "{}") + "\n")
 EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
 write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
@@ -182,6 +184,14 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", 
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    if opts.launch_backdrop:
+        # The card first built over a painting set at launch drew empty (nxdog76).
+        for mode in ["dark", "light"]:
+            rpc("debug.appearance", {"mode": mode})
+            rpc("debug.updater", {"action": "tip"})
+            settle(2.0)
+            capture(f"tip-card-launch-backdrop-{mode}")
+        config(None)
     # A recovered-draft toast from an earlier run of this tag would hold the card back (and cover it).
     for draft in rpc("debug.filepages").get("drafts") or []:
         rpc("debug.filepages", {"restore": draft["id"]})
