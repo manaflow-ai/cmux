@@ -80,8 +80,33 @@ struct SurfaceSocketCommandTests {
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
-        #expect((error["message"] as? String)?.contains("cmux-tui daemon") == true)
+        #expect((error["message"] as? String)?.contains("cmux-tui") == false)
+        #expect((error["message"] as? String)?.contains("Could not create a workspace") == true)
         #expect((error["message"] as? String)?.contains("cmux vm workspace new") == true)
+    }
+
+    @Test func otherDaemonLinkFailuresUseTheSameStableCategory() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tui-daemon-timeout", timeoutSeconds: 5) {
+                throw CloudMachineLink.LinkError.timedOut
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
+    }
+
+    @Test func unrelatedLinkFailuresDoNotUseDaemonCategory() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tui-client-error", timeoutSeconds: 5) {
+                throw CloudMachineLink.LinkError.failureMessage("The remote workspace is unavailable; refresh and retry.")
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String != "vm_tui_daemon_unavailable")
+        #expect((error["message"] as? String)?.contains("cmux-tui") == false)
+        #expect((error["message"] as? String)?.contains("remote workspace is unavailable") == true)
     }
 
     @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
