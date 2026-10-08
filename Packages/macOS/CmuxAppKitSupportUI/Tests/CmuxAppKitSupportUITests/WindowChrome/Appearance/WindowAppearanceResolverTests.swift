@@ -253,9 +253,9 @@ import Testing
             #expect(abs(actual.1 - alpha) < 0.001)
         }
         expect(tint(.dark), "#393939", 0.72)
-        expect(tint(.light), "#F2F2F2", 0.72)
+        expect(tint(.light), "#D1D4D5", 0.88)
         expect(tint(.light, hex: "#FF0000"), "#FF0000", 0.72)
-        expect(tint(.light, opacity: 0.4), "#F2F2F2", 0.4)
+        expect(tint(.light, opacity: 0.4), "#D1D4D5", 0.4)
     }
 
     private func makeSettings(

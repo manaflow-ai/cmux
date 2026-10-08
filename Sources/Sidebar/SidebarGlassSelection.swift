@@ -8,8 +8,22 @@ import SwiftUI
 /// unselected row is the same patch, softer and without the edge
 /// (`sidebarRowHoverFillOpacity`, `sidebarRowHoverFillOpacityLight`).
 enum SidebarGlassSelection {
+    /// Light mode on the stock tint takes Aside's light look: a solid white
+    /// pill with a dark hairline, a faint white hover wash, and dark gray row
+    /// titles (black at 69%, ~#414141 on the ground) instead of near-black.
+    /// It owns its values: the opacity tuning keys below shape the
+    /// translucent patch, which it does not use.
+    /// A chosen tint, a light-mode tint or matching the terminal opts out.
+    static func usesStockLightLook(_ colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> Bool {
+        guard colorScheme == .light, defaults.string(forKey: "sidebarTintHexLight") == nil,
+              !(defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool ?? false) else { return false }
+        let stock = SidebarTintDefaults().hex
+        return (defaults.string(forKey: "sidebarTintHex") ?? stock).caseInsensitiveCompare(stock) == .orderedSame
+    }
+
     static func fill(for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> NSColor {
-        SidebarAppearanceColorResolver().resolvedColor(
+        if usesStockLightLook(colorScheme, defaults: defaults) { return .white }
+        return SidebarAppearanceColorResolver().resolvedColor(
             .labelColor,
             for: colorScheme,
             opacity: defaults.object(forKey: "sidebarGlassSelectionFillOpacity") as? Double
@@ -18,7 +32,8 @@ enum SidebarGlassSelection {
     }
 
     static func edge(for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> NSColor {
-        SidebarAppearanceColorResolver().resolvedColor(
+        if usesStockLightLook(colorScheme, defaults: defaults) { return NSColor.black.withAlphaComponent(0.25) }
+        return SidebarAppearanceColorResolver().resolvedColor(
             .labelColor,
             for: colorScheme,
             opacity: defaults.object(forKey: "sidebarGlassSelectionEdgeOpacity") as? Double
@@ -27,15 +42,34 @@ enum SidebarGlassSelection {
     }
 
     /// Fill for the row under the pointer. Separate dark and light keys, since
-    /// the same alpha reads much stronger as a black wash on light glass.
+    /// the same alpha reads much stronger as a black wash on light glass. In
+    /// the stock light look the light key is the strength of a white wash
+    /// between the gray ground and the white pill (default 62%); elsewhere it
+    /// is a black wash, capped so a white-wash value cannot turn heavy.
     static func hoverFill(for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> NSColor {
         let isDark = colorScheme == .dark
+        let stored = defaults.object(forKey: isDark ? "sidebarRowHoverFillOpacity" : "sidebarRowHoverFillOpacityLight") as? Double
+        if usesStockLightLook(colorScheme, defaults: defaults) {
+            return NSColor.white.withAlphaComponent(stored ?? 0.62)
+        }
         return SidebarAppearanceColorResolver().resolvedColor(
             .labelColor,
             for: colorScheme,
-            opacity: defaults.object(forKey: isDark ? "sidebarRowHoverFillOpacity" : "sidebarRowHoverFillOpacityLight") as? Double
-                ?? (isDark ? 0.05 : 0.035)
+            opacity: min(stored ?? (isDark ? 0.05 : 0.035), 0.2)
         )
+    }
+
+    /// The light look's white pill sits on a very soft 1 pt drop shadow.
+    /// Set through the view: AppKit owns a layer-backed view's layer shadow.
+    @MainActor
+    static func applySelectionShadow(to view: NSView, _ on: Bool) {
+        guard (view.shadow != nil) != on else { return }
+        guard on else { view.shadow = nil; return }
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.14)
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.shadowBlurRadius = 1.5
+        view.shadow = shadow
     }
 
     /// True while a reorder drag carries rows in the sidebar holding `view`.

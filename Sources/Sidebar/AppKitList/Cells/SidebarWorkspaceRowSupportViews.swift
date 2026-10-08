@@ -46,7 +46,7 @@ struct SidebarRowPalette {
     }
 
     var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : semantic(.labelColor)
+        model.isActive ? selectedForeground(1.0) : semantic(.labelColor, opacity: SidebarGlassSelection.usesStockLightLook(colorScheme) ? 0.69 : nil)
     }
 
     func secondary(

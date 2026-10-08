@@ -245,6 +245,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         } else {
             backgroundView.layer?.borderWidth = 0
         }
+        SidebarGlassSelection.applySelectionShadow(to: backgroundView, model.isActive && settings.selectionColorHex == nil && SidebarGlassSelection.usesStockLightLook(palette.colorScheme))
         updateHoverFill(colorScheme: palette.colorScheme)
     }
 
