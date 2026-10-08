@@ -1006,8 +1006,8 @@ fn process_name(pid: u32) -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_name(_pid: u32) -> Option<String> {
-    None
+fn process_name(pid: u32) -> Option<String> {
+    crate::windows_processes::image_path(pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -1073,13 +1073,13 @@ fn process_cwd(pid: u32) -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn foreground_process_group(_pid: u32) -> Option<u32> {
-    None
+fn foreground_process_group(pid: u32) -> Option<u32> {
+    crate::windows_processes::foreground(pid)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_cwd(_pid: u32) -> Option<String> {
-    None
+fn process_cwd(pid: u32) -> Option<String> {
+    crate::windows_processes::cwd(pid)
 }
 
 #[cfg(not(windows))]

@@ -264,7 +264,7 @@ fn target_tab(
     params: &Map<String, Value>,
     caller_terminal: Option<&str>,
 ) -> Result<Option<String>, Failure> {
-    if let Some(selector) = named_pane_tab(route, params) {
+    if let Some(selector) = named_pane_tab(reader, route, params)? {
         let tab = read(reader, ResourceOperation::TabGet, selector)?;
         return Ok(Some(string_field(&tab, "id", "tab")?));
     }
@@ -277,24 +277,56 @@ fn target_tab(
     Ok(None)
 }
 
-/// The `tab.get` selector for the shown tab of the pane the command names:
-/// the given parents, and `current` for each level below the deepest one.
-/// `None` when the command names no parent.
-pub(super) fn named_pane_tab(
+/// The `tab.get` selector for the shown tab of the pane the command names.
+/// The daemon resolves a `current` selector only under a full chain of
+/// parents, and a `current` parent of an exact id could be another one, so
+/// the named pane's screen and the named screen's workspace come from the
+/// daemon. `None` when the command names no parent.
+fn named_pane_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    params: &Map<String, Value>,
+) -> Result<Option<Map<String, Value>>, Failure> {
+    let Some(mut selector) = named_parents(route, params) else { return Ok(None) };
+    for (child, field, parent, operation) in [
+        ("pane", "screen_id", "screen", ResourceOperation::PaneGet),
+        ("screen", "workspace_id", "workspace", ResourceOperation::ScreenGet),
+    ] {
+        if selector.contains_key(parent) {
+            continue;
+        }
+        let Some(id) = selector.get(child).cloned() else { continue };
+        let mut lookup = route.clone();
+        lookup.insert(child.into(), id);
+        let snapshot = read(reader, operation, lookup)?;
+        selector.insert(parent.into(), json!(string_field(&snapshot, field, child)?));
+    }
+    Ok(Some(with_current_below(selector)))
+}
+
+/// The route and the parents the command names; `None` when it names none.
+pub(super) fn named_parents(
     route: &Map<String, Value>,
     params: &Map<String, Value>,
 ) -> Option<Map<String, Value>> {
-    let deepest = PARENTS.iter().rposition(|key| params.contains_key(*key))?;
+    PARENTS.iter().rposition(|key| params.contains_key(*key))?;
     let mut selector = route.clone();
-    for key in &PARENTS[..=deepest] {
-        if let Some(value) = params.get(*key) {
-            selector.insert((*key).into(), value.clone());
+    for key in PARENTS {
+        if let Some(value) = params.get(key) {
+            selector.insert(key.into(), value.clone());
         }
     }
-    for key in PARENTS[deepest + 1..].iter().chain(["tab"].iter()) {
+    Some(selector)
+}
+
+/// `selector` with `current` for each level below its deepest parent.
+pub(super) fn with_current_below(mut selector: Map<String, Value>) -> Map<String, Value> {
+    let deepest =
+        PARENTS.iter().rposition(|key| selector.contains_key(*key)).map_or(0, |at| at + 1);
+    for key in PARENTS[deepest..].iter().chain(["tab"].iter()) {
         selector.insert((*key).into(), json!("current"));
     }
-    Some(selector)
+    selector
 }
 
 /// The public id of the tab an `openBrowser` run created.

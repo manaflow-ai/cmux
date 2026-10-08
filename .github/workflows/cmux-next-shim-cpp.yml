@@ -16,6 +16,7 @@ on:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - scripts/cmux-next/test-shim-switches-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   push:
     branches:
@@ -25,6 +26,7 @@ on:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - scripts/cmux-next/test-shim-switches-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   workflow_dispatch:
 
@@ -50,3 +52,5 @@ jobs:
         run: ./scripts/cmux-next/test-shim-downloads-cpp.sh
       - name: Password reveal relay zeroes its copy
         run: ./scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - name: Feature-list switches merge with CEF's own lists
+        run: ./scripts/cmux-next/test-shim-switches-cpp.sh

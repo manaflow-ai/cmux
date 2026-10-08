@@ -22,6 +22,8 @@ export type NewTabScreenActions = {
   onOpenFolder?(path: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
+  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
+  onAddHarness?(): void;
 };
 
 type Props = NewTabScreenActions & {
@@ -236,6 +238,11 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+      {props.onAddHarness && (
+        <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
+          {t("newtab.addHarness")}
+        </button>
+      )}
       <ToolsSection tools={tools} onRunAction={props.onRunAction} />
     </div>
   );

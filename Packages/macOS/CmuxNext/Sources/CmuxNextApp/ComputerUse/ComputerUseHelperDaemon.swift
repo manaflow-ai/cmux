@@ -74,6 +74,8 @@ final class ComputerUseHelperDaemon {
     private let identity: CuaHelperIdentity
     private let candidates: @Sendable () -> [URL]
     private let launcher: any ComputerUseHelperLaunching
+    private let manifestReader: CuaHelperManifestReader
+    private let ownerPID: pid_t
     private let published = Mutex<[String: String]>([:])
     private var agentToken: String?
     private var hostToken: String?
@@ -83,11 +85,15 @@ final class ComputerUseHelperDaemon {
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
          launcher: any ComputerUseHelperLaunching = WorkspaceHelperLauncher(),
+         manifestReader: CuaHelperManifestReader = .shared,
+         ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
          stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory()) {
         self.identity = identity
         self.candidates = candidates
         self.launcher = launcher
+        self.manifestReader = manifestReader
+        self.ownerPID = ownerPID
         self.socketPath = socketPath
         self.stateDirectory = stateDirectory
     }
@@ -140,13 +146,19 @@ final class ComputerUseHelperDaemon {
             state = .unavailable
             return
         }
+        // The helper's parent is launchd (LaunchServices), so it outlives a
+        // crash of this app unless it watches this pid. Older helpers may
+        // reject an unknown flag: pass it only when the manifest lists it.
+        let capabilities = await manifestReader.capabilities(of: helper)
+        guard current == generation, !Task.isCancelled else { return }
+        let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
         guard prepareDirectories() else {
             state = .unavailable
             return
         }
         let agent = Self.makeToken()
         let host = Self.makeToken()
-        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath),
+        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
         guard current == generation else {
             if let pid { launcher.terminate(pid) }
@@ -181,8 +193,11 @@ final class ComputerUseHelperDaemon {
         stop()
     }
 
-    nonisolated static func arguments(socketPath: String) -> [String] {
+    /// `serve` argv: the socket path and this app's pid only, never a token
+    /// (argv is visible to every local user; tokens go in the environment).
+    nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
         ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "0"]
+            + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])
     }
 
     /// The helper's environment: no CMUX_CUA_SOCKET_AUTHORIZED_ROOT_* (agents

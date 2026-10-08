@@ -22,6 +22,7 @@
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
 #include "include/cef_jsdialog_handler.h"
+#include "include/cef_load_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_task.h"
 #include "include/views/cef_browser_view.h"
@@ -214,7 +215,8 @@ class Client : public CefClient,
                public CefDisplayHandler,
                public CefJSDialogHandler,
                public CefKeyboardHandler,
-               public CefLifeSpanHandler {
+               public CefLifeSpanHandler,
+               public CefLoadHandler {
  public:
   explicit Client(int request) : request_(request) {}
 
@@ -225,6 +227,7 @@ class Client : public CefClient,
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+  CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
 
   bool RunContextMenu(CefRefPtr<CefBrowser> browser,
                       CefRefPtr<CefFrame>,
@@ -319,6 +322,55 @@ class Client : public CefClient,
     }
   }
 
+  void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
+                            bool isLoading,
+                            bool canGoBack,
+                            bool canGoForward) override {
+    if (g_cb.on_loading_state) {
+      g_cb.on_loading_state(g_cb.context, browser->GetIdentifier(),
+                            isLoading ? 1 : 0, canGoBack ? 1 : 0,
+                            canGoForward ? 1 : 0);
+    }
+  }
+
+  // The viewer draws the cursor (rb.cursor); the headless window sets none.
+  bool OnCursorChange(CefRefPtr<CefBrowser> browser,
+                      CefCursorHandle,
+                      cef_cursor_type_t type,
+                      const CefCursorInfo&) override {
+    if (!g_cb.on_cursor) {
+      return false;
+    }
+    g_cb.on_cursor(g_cb.context, browser->GetIdentifier(),
+                   static_cast<int>(type));
+    return true;
+  }
+
+  // A new tab or window opens in the App as a remote tab of its own
+  // (rb.open_tab): the native popup is cancelled.
+  bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
+                     CefRefPtr<CefFrame>,
+                     int,
+                     const CefString& target_url,
+                     const CefString&,
+                     WindowOpenDisposition target_disposition,
+                     bool user_gesture,
+                     const CefPopupFeatures&,
+                     CefWindowInfo&,
+                     CefRefPtr<CefClient>&,
+                     CefBrowserSettings&,
+                     CefRefPtr<CefDictionaryValue>&,
+                     bool*) override {
+    if (!g_cb.on_open_tab) {
+      return false;
+    }
+    const std::string url = target_url.ToString();
+    g_cb.on_open_tab(g_cb.context, browser->GetIdentifier(), url.c_str(),
+                     static_cast<int>(target_disposition),
+                     user_gesture ? 1 : 0);
+    return true;
+  }
+
   bool OnKeyEvent(CefRefPtr<CefBrowser> browser,
                   const CefKeyEvent& event,
                   CefEventHandle) override {
@@ -333,6 +385,12 @@ class Client : public CefClient,
 
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     Browsers()[browser->GetIdentifier()] = browser;
+    // The tab's top-level window, so a screen change can resize it.
+    if (auto view = CefBrowserView::GetForBrowser(browser)) {
+      if (auto window = view->GetWindow()) {
+        Windows()[browser->GetIdentifier()] = window;
+      }
+    }
     if (g_cb.on_tab_created) {
       g_cb.on_tab_created(g_cb.context, request_, browser->GetIdentifier());
     }
@@ -520,6 +578,18 @@ int rb_shim_run(int argc,
       return 4;
     }
     CefRunMessageLoop();
+    // Menus and dialogs still open when the host quits (the viewer left with
+    // one showing) hold CEF callbacks: answer and drop them before
+    // CefShutdown, or their static maps release them during exit, after
+    // shutdown, which is a CEF fatal check.
+    for (auto& entry : MenuCallbacks()) {
+      entry.second->Cancel();
+    }
+    MenuCallbacks().clear();
+    for (auto& entry : DialogCallbacks()) {
+      entry.second.callback->Continue(false, CefString());
+    }
+    DialogCallbacks().clear();
     Browsers().clear();
     Windows().clear();
     CefShutdown();
@@ -559,7 +629,17 @@ void rb_shim_post_delayed(void (*fn)(void*), void* ctx, int64_t delay_ms) {
 }
 
 int rb_shim_set_screen(int width_dip, int height_dip, double scale) {
-  return g_rp.set_screen ? g_rp.set_screen(width_dip, height_dip, scale) : 0;
+  if (!g_rp.set_screen || !g_rp.set_screen(width_dip, height_dip, scale)) {
+    return 0;
+  }
+  // The virtual screen alone leaves the page at its window's first size:
+  // the viewport is the window's, so every tab window takes the new size.
+  if (width_dip > 0 && height_dip > 0) {
+    for (auto& entry : Windows()) {
+      entry.second->SetSize(CefSize(width_dip, height_dip));
+    }
+  }
+  return 1;
 }
 
 int rb_shim_open_tab(int request,
@@ -768,6 +848,56 @@ int rb_shim_context_menu_result(int64_t token, int command_id) {
   } else {
     callback->Continue(command_id, EVENTFLAG_NONE);
   }
+  return 1;
+}
+
+int rb_shim_load_url(int browser_id, const char* url_utf8) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  CefRefPtr<CefFrame> main = browser ? browser->GetMainFrame() : nullptr;
+  if (!main || !url_utf8) {
+    return 0;
+  }
+  main->LoadURL(url_utf8);
+  return 1;
+}
+
+int rb_shim_go_back(int browser_id) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  if (!browser) {
+    return 0;
+  }
+  browser->GoBack();
+  return 1;
+}
+
+int rb_shim_go_forward(int browser_id) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  if (!browser) {
+    return 0;
+  }
+  browser->GoForward();
+  return 1;
+}
+
+int rb_shim_reload(int browser_id, int ignore_cache) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  if (!browser) {
+    return 0;
+  }
+  if (ignore_cache) {
+    browser->ReloadIgnoreCache();
+  } else {
+    browser->Reload();
+  }
+  return 1;
+}
+
+int rb_shim_stop_load(int browser_id) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  if (!browser) {
+    return 0;
+  }
+  browser->StopLoad();
   return 1;
 }
 

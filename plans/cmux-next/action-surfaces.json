@@ -18563,6 +18563,32 @@
       "title_table" : "RemoteActions"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action remote-open-local-browser-tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.openLocalBrowserTab",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "title" : "Open Remote Browser Tab (Local Host)",
+      "title_key" : "action.remote.openLocalBrowserTab",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "settings reload-configuration",
       "context_menu" : "noObject",
