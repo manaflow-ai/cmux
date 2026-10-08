@@ -342,7 +342,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.setAccessibilityIdentifier("sidebarWorkspaceCloseButton")
         closeButton.setAccessibilityElement(false)
         closeButton.concealImmediately()
-        closeButton.highlightsOnHover = true
         contentContainer.addSubview(closeButton)
         contentContainer.addSubview(descriptionView)
         descriptionView.onOpenLink = { [weak self] url in
@@ -638,7 +637,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
             systemName: "xmark", pointSize: model.scaled(9), weight: .medium
         )
-        closeButton.contentTintColor = palette.secondary(0.7)
+        closeButton.contentTintColor = palette.semantic(.secondaryLabelColor)
+        closeButton.hoverFillColor = palette.semantic(.labelColor)
         let closeButtonTooltip = snapshot.isPinned
             ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
             : String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close workspace")

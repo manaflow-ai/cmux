@@ -249,6 +249,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             weight: .medium
         )
         plusButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+        plusButton.hoverFillColor = colorResolver.resolvedColor(.labelColor, for: colorScheme)
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"

@@ -36,6 +36,16 @@ final class SidebarHeaderGlyphButton: NSButton {
         didSet { if !highlightsOnHover { setHovering(false) } }
     }
 
+    /// The Aside-style hover instead (group header plus, row close): a
+    /// circle on the bounds in this colour, 15% on hover and 22% pressed,
+    /// with the glyph lifted to 65% of it. Owners pass the foreground of the
+    /// surface it sits on, so the circle reads on an active row too.
+    var hoverFillColor: NSColor? {
+        didSet { if isHovering { applyHoverAppearance() } }
+    }
+
+    private var hasHoverFeedback: Bool { highlightsOnHover || hoverFillColor != nil }
+
     var glyphImage: NSImage? {
         didSet { image = glyphImage }
     }
@@ -90,8 +100,12 @@ final class SidebarHeaderGlyphButton: NSButton {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        guard highlightsOnHover, isEnabled else { return }
+        guard hasHoverFeedback, isEnabled else { return }
         setHovering(true)
+    }
+
+    override var isHighlighted: Bool {
+        didSet { if hoverFillColor != nil, isHighlighted != oldValue { applyHoverAppearance() } }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -101,7 +115,7 @@ final class SidebarHeaderGlyphButton: NSButton {
 
     override func layout() {
         super.layout()
-        if highlightsOnHover {
+        if hasHoverFeedback {
             layer?.cornerRadius = min(bounds.width, bounds.height) / 2
         }
     }
@@ -115,6 +129,14 @@ final class SidebarHeaderGlyphButton: NSButton {
     private func applyHoverAppearance() {
         wantsLayer = true
         layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        if let hoverFillColor {
+            let alpha: CGFloat = isHovering ? (isHighlighted ? 0.22 : 0.15) : 0
+            layer?.backgroundColor = hoverFillColor.withAlphaComponent(alpha).cgColor
+            isApplyingHoverTint = true
+            contentTintColor = isHovering ? hoverFillColor.withAlphaComponent(0.65) : restingTintColor
+            isApplyingHoverTint = false
+            return
+        }
         // Dynamic colours resolve against the drawing appearance, so the
         // circle and glyph pick up the sidebar's own light/dark scheme.
         effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -147,5 +169,14 @@ final class SidebarHeaderGlyphButton: NSButton {
         isEnabled = revealed
         alphaValue = revealed ? 1 : 0
         isHidden = !revealed
+        // Hover follows the pointer, not the last enter/exit pair: a click
+        // that reflows rows, a drag, or a row scrolling under a still
+        // pointer can skip the exit, and every reveal or conceal settles it.
+        setHovering(revealed && hasHoverFeedback && pointerIsInside)
+    }
+
+    private var pointerIsInside: Bool {
+        guard let window else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 }
