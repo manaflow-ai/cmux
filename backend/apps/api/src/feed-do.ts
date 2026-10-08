@@ -75,6 +75,16 @@ export class FeedDO extends OwnerDO<FeedState> {
     return res
   }
 
+  /**
+   * A delivery from the feed owner's own UserDO (stream `user:<feed user>`) carries that user, so
+   * its security notices (text confirmation level, presence keys) post to this feed. Any other
+   * source stays a bare system principal, which may run only the internal ops.
+   */
+  protected override systemPrincipal(entity: string, source: string): Principal {
+    const base = super.systemPrincipal(entity, source)
+    return source === `user:${entity}` ? { ...base, user: entity } : base
+  }
+
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */
   protected override bind(entity: string) {
     const engine = super.bind(entity)

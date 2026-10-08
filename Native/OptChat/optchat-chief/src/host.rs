@@ -539,7 +539,7 @@ fn start(
     // The subagent preset: required, so a subagent never falls back to the
     // turn preset (whose system prompt is the Chief's view).
     let sub_preset_name = format!("optchat-sub-{}", crate::paths::home_id(home));
-    if uses_acpmux {
+    let sub_preset = |name: String, profile: &str, family: Family, text: &str| {
         let mut env = if isolate {
             session_dir::isolation_env(paths)
         } else {
@@ -548,22 +548,56 @@ fn start(
         env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
         // Subagents' cmux calls reach the same app daemon as the Chief's.
         env.extend(pinned.clone());
-        if sub_family == Family::Codex {
+        if family == Family::Codex {
             env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
         }
-        if sub_family == Family::Claude {
+        if family == Family::Claude {
             env.insert(
                 crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
                 codex_cache_key(home, "sub"),
             );
         }
-        required.push(Preset {
-            name: sub_preset_name.clone(),
-            harness: sub_profile.clone(),
+        Preset {
+            name,
+            harness: profile.to_owned(),
             env,
             args: Vec::new(),
-            system_prompt: (sub_family == Family::Claude).then(|| sub_text.clone()),
-        });
+            system_prompt: (family == Family::Claude).then(|| text.to_owned()),
+        }
+    };
+    if uses_acpmux {
+        required.push(sub_preset(
+            sub_preset_name.clone(),
+            &sub_profile,
+            sub_family,
+            &sub_text,
+        ));
+        // Subagents follow the turn's engine (engine.json) unless pinned:
+        // the other family's subagent preset, and its instructions.
+        let sub_other = if sub_family == Family::Codex {
+            Family::Claude
+        } else {
+            Family::Codex
+        };
+        if sub_set.is_none()
+            && let Some(name) = crate::subagents::family_preset(&sub_preset_name, sub_other)
+            && let Some(profile) =
+                first_of(sub_other).map(|h| profiles_by_name.get(&h).cloned().unwrap_or(h))
+        {
+            let other_tools = if sub_other == Family::Claude {
+                crate::prompt::Tools::Mcp
+            } else {
+                crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
+            };
+            let other_text =
+                crate::prompt::subagent_system_text(instructions.as_deref(), &other_tools);
+            if sub_other == Family::Codex
+                && let Err(e) = session_dir::write_subagent_agents_md(paths, &other_text)
+            {
+                log(format!("writing the subagent directory's AGENTS.md: {e}"));
+            }
+            required.push(sub_preset(name, &profile, sub_other, &other_text));
+        }
     }
     if let Some(other) = other_preset {
         required.push(other);
@@ -765,6 +799,7 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
+        .with_pinned_harness(sub_set.is_some())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
         Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
