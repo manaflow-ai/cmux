@@ -13,7 +13,8 @@ loads (the omnibar path) and Back returns (rb.history); hover reports a pointer 
 (rb.cursor); the wheel scrolls the page; right-click opens a native menu; a <select> near the
 bottom edge opens a native menu and the chosen item reaches the page; a date input opens a
 popup surface; a target=_blank link opens a second remote tab on its own host (rb.open_tab);
-closing a tab stops its host. Ends with quitEndSessions and the tag teardown.
+closing a tab stops its host; an <input list> shows its datalist suggestions as an autofill
+surface (CEF API 21) and a click on a suggestion fills the field. Ends with quitEndSessions and the tag teardown.
 """
 import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
 
@@ -54,12 +55,17 @@ a{display:block;margin:12px;font-size:20px} #sel{position:fixed;left:20px;bottom
 <script>addEventListener('scroll',()=>{document.title='rb scrolled '+Math.round(scrollY)})</script>
 </body></html>"""
 SIZE = "<!doctype html><html><head><title>rb size</title></head><body><script>document.title='rb size '+innerWidth+'x'+innerHeight+' @'+devicePixelRatio</script></body></html>"
+LIST = """<!doctype html><html><head><title>rb list</title></head><body style="margin:0;font:16px sans-serif">
+<input id="dl" list="fruits" autocomplete="off" style="position:fixed;left:40px;top:200px;width:240px;font-size:16px"
+ oninput="document.title='rb list '+this.value" onchange="document.title='rb list '+this.value">
+<datalist id="fruits"><option value="Apple"><option value="Apricot"><option value="Avocado"></datalist>
+</body></html>"""
 PAGE2 = "<!doctype html><html><head><title>rb two</title></head><body style='background:#dfe'>page two</body></html>"
 
 
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = (SIZE if self.path.startswith("/size") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
+        body = (SIZE if self.path.startswith("/size") else LIST if self.path.startswith("/list") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -297,6 +303,30 @@ try:
                                                   capture_output=True).returncode != 0, 30)
     step("closing a tab stops its host (stdin lifeline)", after is not None and exited,
          {"before": before, "after": after, "stopped": gone})
+
+    # <input list>: typing shows the datalist suggestions (an autofill surface, CEF API 21) and
+    # a click on the first suggestion fills the field.
+    tab1 = (session_where(lambda s: True) or {}).get("tab")
+    rb("navigate", tab=tab1, url=BASE + "/list")
+    wait(title_is("rb list"), 30)
+    rb("click", tab=tab1, x=120, y=210, button="left")
+    time.sleep(0.5)
+    rb("type", tab=tab1, text="a")
+
+    def autofill():
+        s = session_where(lambda s: s["tab"] == tab1)
+        return next((i for i in (s or {}).get("surface_info") or [] if i.get("kind") == "autofill"), None)
+    suggestions = wait(autofill, 15)
+    shot("datalist")
+    filled = None
+    if suggestions:
+        width = int(suggestions["frame"].split(" ")[1].split("x")[0])
+        rb("surface_click", tab=tab1, surface=suggestions["id"], x=max(10, width // 2), y=14)
+        filled = wait(lambda: session_where(lambda s: s["tab"] == tab1 and (s.get("title") or "") in (
+            "rb list Apple", "rb list Apricot", "rb list Avocado")), 15)
+        shot("datalist-filled")
+    step("an <input list> shows its suggestions (autofill surface) and a click fills the field",
+         suggestions and filled, {"surface": suggestions, "session": filled or session_where(lambda s: s["tab"] == tab1)})
 finally:
     report["final_state"] = rb("state")
     host_pids = [h["pid"] for h in (report["final_state"].get("local_hosts") or [])] \

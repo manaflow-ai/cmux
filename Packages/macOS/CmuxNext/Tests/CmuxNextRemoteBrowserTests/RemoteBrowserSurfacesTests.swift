@@ -60,6 +60,7 @@ struct RemoteBrowserSurfacesTests {
         #expect(view.superview === page)
         #expect(view.frame == CGRect(x: 8, y: 40, width: 180, height: 90))
         #expect(streams.requested == [4])
+        #expect(surfaces.kind(of: 11) == kind)
         surfaces.apply(.hide(surface: 11))
         #expect(surfaces.view(of: 11) == nil)
     }
