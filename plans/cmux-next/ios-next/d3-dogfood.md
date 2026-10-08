@@ -424,6 +424,31 @@ If the phone lands on login: `./scripts/mobile-dev-launch.sh --tag nxd3 --device
 RPC session established`. For API-backed dogfood start `cd web && CMUX_PORT=<printed> bun dev` and warm
 `/`, `/handler/sign-in`, `/handler/after-sign-in`.
 
+### 6.2.1 Exact-head receipt gate
+
+After the launch writes its readiness receipt, run the offline provenance gate below before quoting
+the run as a same-tag result. It reads only the receipt and the tagged Mac bundle Info.plist; it does
+not launch an app or contact a device. The gate requires the installed iOS bundle metadata, the
+launcher checkout, and the Mac bundle to all identify the expected commit and nxd3 tag, and it
+rejects legacy receipts whose installed-bundle provenance is unknown.
+
+    source scripts/lib/mobile-attach.sh
+    EXPECTED_SHA="$(git rev-parse HEAD)"
+    MAC_INFO_PLIST="$(cmux_attach_mac_app_path nxd3)/Contents/Info.plist"
+    RECEIPT="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}/nxd3-$(cmux_attach__slug 4A52829D-6427-599F-A166-4058881D2DF4).json"
+    python3 scripts/cmux-next/validate-dogfood-pair-receipt.py \
+      --receipt "$RECEIPT" \
+      --mac-info-plist "$MAC_INFO_PLIST" \
+      --expected-sha "$EXPECTED_SHA" \
+      --expected-tag nxd3 \
+      --expected-bundle-id dev.cmux.ios.nxd3
+
+This is a provenance and identity gate, not runtime evidence by itself: a passing result still needs
+the terminal, feed, onboarding, media, accessibility, and carrier steps below. If the Mac or iOS
+bundle was rebuilt at another commit, rerun the pair from a clean exact head rather than overriding
+the expected SHA. A Mac bundle without CMUXGitSHA or CMUXDevTag fails closed and is an explicit
+provenance blocker; do not replace those fields with a process or socket observation.
+
 ### 6.3 D1 terminal steps
 
 1. Mac: the tagged app runs with `CMUX_NEXT_MOBILE_LINK=1` (Debug default) and D1b's account seam;
