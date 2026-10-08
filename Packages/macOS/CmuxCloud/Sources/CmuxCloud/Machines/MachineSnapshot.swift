@@ -17,6 +17,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         freeAccess: FreeAccessState = .unrestricted,
         stats: VMStats? = nil,
         resourceReservation: CloudVMResourceReservation? = nil,
+        resourcePoolClaim: CloudVMResourceReservation? = nil,
         usesResourcePool: Bool = true,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
@@ -35,6 +36,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.freeAccess = freeAccess
         self.stats = stats
         self.resourceReservation = resourceReservation
+        self.resourcePoolClaim = resourcePoolClaim
         self.usesResourcePool = usesResourcePool
         self.usage = usage
         self.privateAddress = privateAddress
@@ -87,6 +89,10 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// The server-recorded compute share used for subscription pool decisions.
     /// Guest stats remain the display fallback while this value is unavailable.
     public var resourceReservation: CloudVMResourceReservation?
+    /// The pool claim charged to the plan's aggregate usage counters. Legacy
+    /// rows can claim the provider maximum until reconciliation; this is kept
+    /// separate from the live grow-only shape above.
+    public var resourcePoolClaim: CloudVMResourceReservation?
     /// Whether the list status says this machine currently draws from the
     /// shared pool. Paused/stopped machines must fit as a new allocation when
     /// a resize wakes them.

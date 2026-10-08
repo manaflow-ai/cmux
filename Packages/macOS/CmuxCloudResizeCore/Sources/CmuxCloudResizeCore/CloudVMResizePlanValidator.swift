@@ -141,14 +141,16 @@ public struct CloudVMResizePlanValidator: Sendable {
     ///
     /// - Parameters:
     ///   - target: Dimensions supplied by the caller; nil dimensions are unchanged.
-    ///   - current: The server reservation or the best available current shape.
+    ///   - current: The best available live machine shape for grow-only checks.
     ///   - usesResourcePool: Whether the machine currently contributes to `used*`.
+    ///   - reservation: The durable pool claim charged to `used*`, when present.
     ///   - limits: The caller's per-machine ceilings and optional shared pool.
     /// - Returns: `nil` when the target can be submitted, or a typed violation.
     public func violation(
         target: CloudVMResizeShape,
         current: CloudVMResizeShape?,
         usesResourcePool: Bool,
+        reservation: CloudVMResizeShape? = nil,
         limits: CloudVMResizeLimits
     ) -> CloudVMResizeViolation? {
         var hasGrowth = false
@@ -208,8 +210,14 @@ public struct CloudVMResizePlanValidator: Sendable {
         }
         let targetVcpus = target.vcpus ?? currentVcpus
         let targetMemoryMb = target.memoryMb ?? currentMemoryMb
-        let otherVcpus = usesResourcePool ? max(0, pool.usedVcpus - currentVcpus) : pool.usedVcpus
-        let otherMemoryMb = usesResourcePool ? max(0, pool.usedMemoryMb - currentMemoryMb) : pool.usedMemoryMb
+        // `used*` is charged against the server's pool claim. A legacy row may
+        // have a conservative provider-maximum claim while its live stats are
+        // smaller; subtract the claim when it is available, and fall back to
+        // the current shape for older responses that predate this distinction.
+        let claimedVcpus = reservation?.vcpus ?? currentVcpus
+        let claimedMemoryMb = reservation?.memoryMb ?? currentMemoryMb
+        let otherVcpus = usesResourcePool ? max(0, pool.usedVcpus - claimedVcpus) : pool.usedVcpus
+        let otherMemoryMb = usesResourcePool ? max(0, pool.usedMemoryMb - claimedMemoryMb) : pool.usedMemoryMb
         let freeVcpus = max(0, pool.poolVcpus - otherVcpus)
         let freeMemoryMb = max(0, pool.poolMemoryMb - otherMemoryMb)
         guard targetVcpus <= freeVcpus, targetMemoryMb <= freeMemoryMb else {

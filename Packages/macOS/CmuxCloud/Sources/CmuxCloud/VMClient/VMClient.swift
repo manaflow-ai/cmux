@@ -311,7 +311,8 @@ public struct VMSummary: Sendable {
         cmuxTuiContract: String? = nil,
         createdBy: VMCreator? = nil,
         agentUpdates: CloudAgentUpdates? = nil,
-        resourceReservation: CloudVMResourceReservation? = nil
+        resourceReservation: CloudVMResourceReservation? = nil,
+        resourcePoolClaim: CloudVMResourceReservation? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -330,6 +331,7 @@ public struct VMSummary: Sendable {
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
         self.resourceReservation = resourceReservation
+        self.resourcePoolClaim = resourcePoolClaim
     }
 
     public func withStatus(_ status: String) -> VMSummary {
@@ -350,7 +352,8 @@ public struct VMSummary: Sendable {
             cmuxTuiContract: cmuxTuiContract,
             createdBy: createdBy,
             agentUpdates: agentUpdates,
-            resourceReservation: resourceReservation
+            resourceReservation: resourceReservation,
+            resourcePoolClaim: resourcePoolClaim
         )
     }
 
@@ -389,6 +392,10 @@ public struct VMSummary: Sendable {
     /// The machine's server-recorded compute reservation for shared-pool math.
     /// This remains separate from live guest stats, which can be stale or absent.
     public var resourceReservation: CloudVMResourceReservation?
+    /// The pool claim charged to `limits.used*`. Legacy rows may claim the
+    /// provider maximum until reconciliation records a measured reservation.
+    /// It is never used as the live grow-only shape.
+    public var resourcePoolClaim: CloudVMResourceReservation?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -1546,8 +1553,8 @@ public actor VMClient {
         decodeIntArray([raw as Any]).first
     }
 
-    /// `vms[].resources` carries the server's reservation marker. Malformed
-    /// values are ignored so live stats remain the fallback for older APIs.
+    /// `vms[].resources` carries the server's pool claim. Malformed values are
+    /// ignored so live stats remain the fallback for older APIs.
     static func decodeResourceReservation(_ raw: Any?) -> CloudVMResourceReservation? {
         guard let object = raw as? [String: Any],
               let vcpus = decodePositiveInt(object["vcpus"]),

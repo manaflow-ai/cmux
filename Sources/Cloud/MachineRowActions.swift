@@ -26,9 +26,9 @@ struct MachineRowActions {
     var resizeCPUMaximum: Int = 8
     var resizeMemoryOptionsGiB: [Int] = [8, 16, 24, 32, 64]
     var resizeMemoryMaximumGiB: Int = 16
-    /// The current shared subscription pool. The menu uses the machine's
-    /// server reservation (or live shape) to determine whether a target would
-    /// fit after growth.
+    /// The current shared subscription pool. The menu compares the live shape
+    /// for grow-only checks and subtracts the machine's durable pool claim for
+    /// aggregate capacity.
     var resizeResourcePool: CloudVMResourcePool?
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.

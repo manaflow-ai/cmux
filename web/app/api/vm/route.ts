@@ -207,13 +207,12 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
-        // A persisted reservation is the machine's current compute shape.
-        // Legacy rows only have the conservative pool claim above; do not
-        // publish that claim as the machine's live size until reconciliation
-        // records an actual reservation marker.
-        ...(entry.resourceReservation
-          ? { resources: entry.resourceReservation }
-          : {}),
+        // `resources` remains the server-authoritative pool claim used by
+        // limits.used*. Legacy rows conservatively claim the provider
+        // maximum until reconciliation. The explicit marker is separate so
+        // clients can use the measured live shape for grow-only checks.
+        resources: poolShare(entry),
+        ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements

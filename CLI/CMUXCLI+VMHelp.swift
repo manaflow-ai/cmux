@@ -280,21 +280,41 @@ extension CMUXCLI {
         let machineID = (machine?["id"] as? String) ?? vmId
         let (resizeLimits, planID) = try Self.cloudVMResizeLimits(from: limits)
         let status = (machine?["status"] as? String)?.lowercased()
-        let resources = machine?["resources"] as? [String: Any]
+        let reservation = machine?["resourceReservation"] as? [String: Any]
+        let poolClaim = machine?["resources"] as? [String: Any]
         let current = CloudVMResizeShape(
-            vcpus: Self.cloudVMResizePositiveLimit(resources?["vcpus"]) ?? Self.cloudVMResizePositiveLimit(machine?["cpus"]),
-            memoryMb: Self.cloudVMResizePositiveLimit(resources?["memoryMb"])
+            vcpus: Self.cloudVMResizePositiveLimit(reservation?["vcpus"])
+                ?? Self.cloudVMResizePositiveLimit(machine?["cpus"]),
+            memoryMb: Self.cloudVMResizePositiveLimit(reservation?["memoryMb"])
                 ?? Self.cloudVMResizePositiveLimit(machine?["memory_total_mb"])
                 ?? Self.cloudVMResizePositiveLimit(machine?["memoryTotalMb"]),
-            diskMb: Self.cloudVMResizePositiveLimit(resources?["diskMb"])
+            diskMb: Self.cloudVMResizePositiveLimit(reservation?["diskMb"])
                 ?? Self.cloudVMResizePositiveLimit(machine?["disk_total_mb"])
                 ?? Self.cloudVMResizePositiveLimit(machine?["diskTotalMb"])
         )
+        let poolClaimShape: CloudVMResizeShape?
+        if let poolClaim {
+            guard let claimVcpus = Self.cloudVMResizePositiveLimit(poolClaim["vcpus"]),
+                  let claimMemoryMb = Self.cloudVMResizePositiveLimit(poolClaim["memoryMb"]) else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.resize.preflightIncomplete",
+                    defaultValue: "vm resize: the server returned incomplete machine capacity data; retry after refreshing your Cloud machines."
+                ))
+            }
+            poolClaimShape = CloudVMResizeShape(
+                vcpus: claimVcpus,
+                memoryMb: claimMemoryMb,
+                diskMb: Self.cloudVMResizePositiveLimit(poolClaim["diskMb"])
+            )
+        } else {
+            poolClaimShape = nil
+        }
         let target = CloudVMResizeShape(vcpus: cpu, memoryMb: memoryMb, diskMb: diskMb)
         if let failure = CloudVMResizePlanValidator().violation(
             target: target,
             current: current,
             usesResourcePool: status == "running" || status == "provisioning",
+            reservation: poolClaimShape,
             limits: resizeLimits
         ) {
             throw Self.cloudVMResizeFailureError(failure, planID: planID)

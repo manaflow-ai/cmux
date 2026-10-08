@@ -591,12 +591,11 @@ describe("VM REST auth", () => {
         maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },
       vms: [
-        { freeAccessExpiresAt: null },
-        { resources: { vcpus: 16, memoryMb: 32768 } },
-        { resources: { vcpus: 32, memoryMb: 65536 } },
+        { freeAccessExpiresAt: null, resources: { vcpus: 32, memoryMb: 65536 } },
+        { resources: { vcpus: 16, memoryMb: 32768 }, resourceReservation: { vcpus: 16, memoryMb: 32768 } },
+        { resources: { vcpus: 32, memoryMb: 65536 }, resourceReservation: { vcpus: 32, memoryMb: 65536 } },
       ],
     });
-    expect(body.vms[0]).not.toHaveProperty("resources");
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
     expect(listTeams).toHaveBeenCalledTimes(1);
   });

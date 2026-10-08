@@ -173,7 +173,14 @@ class VMResizeTests(unittest.TestCase):
                 self.assertEqual(server.requests, [])
 
     def test_failed_resize_exits_unsuccessfully_without_success_output(self) -> None:
-        with ResizeSocket(resize_error={"code": "resize_failed", "message": "Provider could not resize this VM"}) as server:
+        limits = {"planId": "max", "maxVcpus": 32, "maxMemoryMb": 64 * 1024, "maxDiskMb": 256 * 1024}
+        machines = [{"id": "existing-vm", "status": "running", "cpus": 4,
+                     "memory_total_mb": 4 * 1024, "disk_total_mb": 32 * 1024}]
+        with ResizeSocket(
+            limits=limits,
+            machines=machines,
+            resize_error={"code": "resize_failed", "message": "Provider could not resize this VM"},
+        ) as server:
             result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--disk", "64", "--json"])
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")

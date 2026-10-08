@@ -256,12 +256,40 @@ struct CloudTreeMachineMenuTests {
             return
         }
         machine.resourceReservation = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
+        machine.resourcePoolClaim = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
         var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
         actions.resizeResourcePool = CloudVMResourcePool(
             poolVcpus: 20,
             poolMemoryMb: 40 * 1024,
             usedVcpus: 16,
             usedMemoryMb: 32 * 1024
+        )
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+        #expect(cpu12.isEnabled)
+        #expect(memory24.isEnabled)
+    }
+
+    @Test("Resize menu separates a pool claim from the live reservation")
+    func machineMenuUsesPoolClaimForLegacyPoolMath() throws {
+        let node = Self.machineNode()
+        guard case .machine(var machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        machine.resourceReservation = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
+        machine.resourcePoolClaim = CloudVMResourceReservation(vcpus: 32, memoryMb: 64 * 1024)
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = CloudVMResourcePool(
+            poolVcpus: 32,
+            poolMemoryMb: 64 * 1024,
+            usedVcpus: 32,
+            usedMemoryMb: 64 * 1024
         )
 
         let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)

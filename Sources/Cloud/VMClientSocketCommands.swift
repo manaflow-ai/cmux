@@ -864,8 +864,15 @@ extension TerminalController {
         if let agentUpdates = vm.agentUpdates {
             payload["agentUpdates"] = agentUpdates.rawValue
         }
-        if let reservation = vm.resourceReservation {
+        if let claim = vm.resourcePoolClaim ?? vm.resourceReservation {
             payload["resources"] = [
+                "vcpus": claim.vcpus,
+                "memoryMb": claim.memoryMb,
+                "diskMb": claim.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
+        }
+        if let reservation = vm.resourceReservation {
+            payload["resourceReservation"] = [
                 "vcpus": reservation.vcpus,
                 "memoryMb": reservation.memoryMb,
                 "diskMb": reservation.diskMb.map { $0 as Any } ?? NSNull(),

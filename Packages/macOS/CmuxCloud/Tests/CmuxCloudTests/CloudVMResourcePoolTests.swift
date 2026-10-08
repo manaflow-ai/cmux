@@ -158,6 +158,35 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func resizeAdmissionUsesPoolClaimSeparatelyFromLiveShape() {
+        // A legacy machine can be measured at 2 vCPUs / 4 GiB while its
+        // conservative pool claim is 32 vCPUs / 64 GiB. The aggregate usage
+        // must subtract the claim, while grow-only compares against the live
+        // shape so a 16 vCPU / 32 GiB target remains admissible.
+        let pool = CloudVMResourcePool(poolVcpus: 40, poolMemoryMb: 80 * 1024, usedVcpus: 32, usedMemoryMb: 64 * 1024)
+        let limits = CloudVMResizeLimits(maxVcpus: 32, maxMemoryMb: 64 * 1024, maxDiskMb: 256 * 1024, resourcePool: pool)
+        let current = CloudVMResizeShape(vcpus: 2, memoryMb: 4 * 1024)
+        let claim = CloudVMResizeShape(vcpus: 32, memoryMb: 64 * 1024)
+
+        #expect(CloudVMResizePlanValidator().violation(
+            target: CloudVMResizeShape(vcpus: 16, memoryMb: 32 * 1024),
+            current: current,
+            usesResourcePool: true,
+            reservation: claim,
+            limits: limits
+        ) == nil)
+        #expect(CloudVMResizePlanValidator().violation(
+            target: CloudVMResizeShape(vcpus: 16, memoryMb: 32 * 1024),
+            current: current,
+            usesResourcePool: true,
+            limits: limits
+        ) == .poolLimit(
+            requestedVcpus: 16, requestedMemoryMb: 32 * 1024,
+            freeVcpus: 10, freeMemoryMb: 20 * 1024
+        ))
+    }
+
+    @Test
     func activeDiskOnlyResizeDoesNotNeedComputePoolCapacity() {
         let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 20, usedMemoryMb: 40 * 1024)
         let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)

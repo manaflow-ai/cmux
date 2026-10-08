@@ -51,6 +51,7 @@ public enum MachineSnapshotBuilder: Sendable {
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
             resourceReservation: summary.resourceReservation,
+            resourcePoolClaim: summary.resourcePoolClaim,
             usesResourcePool: ["running", "provisioning"].contains(summary.status.lowercased()),
             privateAddress: summary.preferredPrivateAddress
         )

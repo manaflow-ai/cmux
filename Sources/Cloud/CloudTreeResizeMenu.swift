@@ -13,6 +13,8 @@ struct CloudTreeResizeMenu {
         let currentMemoryMb = machine.resourceReservation?.memoryMb ?? machine.stats?.memoryTotalMb
         let currentDiskMb = machine.resourceReservation?.diskMb ?? machine.stats?.diskTotalMb
         let currentShape = CloudVMResizeShape(vcpus: currentCPUs, memoryMb: currentMemoryMb, diskMb: currentDiskMb)
+        let poolClaim = machine.resourcePoolClaim ?? machine.resourceReservation
+        let poolClaimShape = poolClaim.map { CloudVMResizeShape(vcpus: $0.vcpus, memoryMb: $0.memoryMb, diskMb: $0.diskMb) }
         let limits = CloudVMResizeLimits(
             maxVcpus: action.resizeCPUMaximum,
             maxMemoryMb: action.resizeMemoryMaximumGiB * 1024,
@@ -29,6 +31,7 @@ struct CloudTreeResizeMenu {
                     target: CloudVMResizeShape(diskMb: gib * 1024),
                     current: currentShape,
                     usesResourcePool: machine.usesResourcePool,
+                    reservation: poolClaimShape,
                     limits: limits
                 )
                 entry.isEnabled = failure == nil
@@ -46,6 +49,7 @@ struct CloudTreeResizeMenu {
                     target: CloudVMResizeShape(vcpus: cpu),
                     current: currentShape,
                     usesResourcePool: machine.usesResourcePool,
+                    reservation: poolClaimShape,
                     limits: limits
                 )
                 entry.isEnabled = failure == nil
@@ -63,6 +67,7 @@ struct CloudTreeResizeMenu {
                     target: CloudVMResizeShape(memoryMb: gib * 1024),
                     current: currentShape,
                     usesResourcePool: machine.usesResourcePool,
+                    reservation: poolClaimShape,
                     limits: limits
                 )
                 entry.isEnabled = failure == nil

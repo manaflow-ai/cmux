@@ -71,7 +71,13 @@ extension VMClient {
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.createdBy = VMCreator(vmResponse: dict)
                 summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
-                summary.resourceReservation = Self.decodeResourceReservation(dict["resources"])
+                // `resources` is the pool claim used by limits.used*. A
+                // legacy row may conservatively claim the provider maximum;
+                // only the explicit marker is safe as the live grow-only
+                // shape. Native menus use guest stats when that marker is
+                // absent, while the CLI fails closed until reconciliation.
+                summary.resourcePoolClaim = Self.decodeResourceReservation(dict["resources"])
+                summary.resourceReservation = Self.decodeResourceReservation(dict["resourceReservation"])
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
