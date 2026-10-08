@@ -21,10 +21,17 @@ export const PREVIOUS_EMAIL_WINDOW_MS = 14 * 86_400_000
 export const securityEmails = (state: UserState, now: number): ReadonlyArray<string> => {
   const current = state.user?.email_verified && state.user.email ? [state.user.email] : []
   const previous = (state.previous_emails ?? []).filter((p) => now < p.changed_at + PREVIOUS_EMAIL_WINDOW_MS).map((p) => p.email)
-  return [...new Set([...current, ...previous])]
+  // One email per mailbox: addresses that differ only in case or spaces are the same.
+  const seen = new Set<string>()
+  return [...current, ...previous].filter((e) => {
+    const k = e.trim().toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
 }
 
-export const confirmEnv = (state: UserState, appIdHash: string, now: number = Date.now()): homeUser.UserConfirmEnv => ({
+export const confirmEnv = (state: UserState, appIdHash: string, now: number): homeUser.UserConfirmEnv => ({
   user: state.user?.id ?? "",
   installActive: (id) => state.installs[id]?.revoked_at === null,
   installKind: (id) => state.installs[id]?.kind,

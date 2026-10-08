@@ -21,7 +21,7 @@ const LEVEL_KEY: Readonly<Record<ConfirmLevel, string>> = { strict: "level.stric
 
 /** Outbox target class of the security email: not an object; the owner's drain sends it through Resend. */
 export const SECURITY_MAIL_TARGET = "Mail"
-/** At most one "presence key added" feed item and email per user in this window. */
+/** At most one "presence key added" (or "email changed") feed item and email per address in this window. */
 export const KEY_ADDED_WINDOW_MS = 3_600_000
 
 export interface NoticeEnv {
@@ -82,9 +82,10 @@ export const emailChangedNotice = (env: NoticeEnv, at: number): ReadonlyArray<Ou
   const locale = env.locale ?? "en"
   const title = t("emailChanged.title", locale)
   const body = t("emailChanged.body", locale)
-  const key = `email_changed:${env.user}:${at}`
+  // Repeated changes collapse to one feed item and one email per address per hour.
+  const hourly = `email_changed:${env.user}:${Math.floor(at / KEY_ADDED_WINDOW_MS)}`
   return [
-    { kind: "feed.post", entity: `notice:${key}`, payload: { type: "notice", kind: "notice", title, body, priority: "high" }, target: { class: "FeedDO", name: env.user } },
-    ...securityMails(env, key, null, { template: "email_changed", locale, title, body, at })
+    { kind: "feed.post", entity: `notice:email_changed:${env.user}:${at}`, payload: { type: "notice", kind: "notice", title, body, priority: "high", dedupe_key: hourly }, target: { class: "FeedDO", name: env.user } },
+    ...securityMails(env, hourly, hourly, { template: "email_changed", locale, title, body, at })
   ]
 }

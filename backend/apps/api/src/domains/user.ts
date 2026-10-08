@@ -41,6 +41,13 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
 }
 
+/** At most this many previous addresses are kept (the earliest win: the owner's address is never evicted). */
+export const MAX_PREVIOUS_EMAILS = 5
+/** A claim of the address just replaced is ignored this long after a change (older access tokens). */
+export const EMAIL_REVERT_GUARD_MS = 15 * 60_000
+/** Addresses compare without case or surrounding spaces; mail goes to the address as stored. */
+export const sameEmail = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
+
 const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20)
 
 /** Stable public ids derived from the Stack identity, so routing needs no lookup. */
@@ -154,7 +161,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
     // A system principal is built only by server code (a DO, or the Worker for pairing's install.register_server, sent by DO RPC that only Worker code reaches); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
-      confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
+      confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash, Date.now())) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
@@ -168,7 +175,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
     switch (op) {
       case "user.ensure": {
         if (!p.user || !p.stack_user_id || !p.team) return reject("auth.forbidden", "user.ensure needs a Stack session")
-        const profile: UserProfile = {
+        const claimed: UserProfile = {
           id: p.user,
           stack_user_id: p.stack_user_id,
           email: p.email ?? null,
@@ -176,17 +183,30 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
           personal_team: p.team
         }
+        // A token minted before an email change still carries the old email until it expires
+        // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
+        // replaced keeps the current email, so devices with older tokens cannot flap it.
+        const latest = state.previous_emails?.at(-1)
+        const stale = state.user !== null && latest !== undefined && ctx.now < latest.changed_at + EMAIL_REVERT_GUARD_MS && sameEmail(claimed.email, latest.email)
+        const profile: UserProfile = stale && state.user ? { ...claimed, email: state.user.email, email_verified: state.user.email_verified } : claimed
         const same = JSON.stringify(state.user) === JSON.stringify(profile)
-        // A verified address that is replaced (or stops being verified) is told, and keeps getting
-        // security notices for 14 days (cx-44j.45). The new address is never told by this notice.
+        // A verified address that is replaced (or stops being verified) keeps getting security
+        // notices for 14 days (cx-44j.45); a replaced one is also told of the change (never the new
+        // address). Earliest entries are kept, so later changes cannot evict the owner's address.
         const oldVerified = state.user?.email_verified && state.user.email ? state.user.email : null
         const newVerified = profile.email_verified && profile.email ? profile.email : null
         let next: UserState = { ...state, user: profile }
         let notices: ReadonlyArray<OutboxItem> = []
-        if (oldVerified && oldVerified !== newVerified) {
-          const kept = (state.previous_emails ?? []).filter((e) => ctx.now < e.changed_at + PREVIOUS_EMAIL_WINDOW_MS && e.email !== oldVerified && e.email !== newVerified)
-          next = { ...next, previous_emails: [...kept, { email: oldVerified, changed_at: ctx.now }] }
-          notices = homeUser.emailChangedNotice({ user: profile.id, locale: "en", emails: [...kept.map((e) => e.email), oldVerified] }, ctx.now)
+        if (oldVerified && !sameEmail(oldVerified, newVerified)) {
+          const live = (state.previous_emails ?? []).filter((e) => ctx.now < e.changed_at + PREVIOUS_EMAIL_WINDOW_MS && !sameEmail(e.email, newVerified))
+          const kept = live.filter((e) => !sameEmail(e.email, oldVerified))
+          const prior = live.find((e) => sameEmail(e.email, oldVerified))
+          const entry = prior ?? { email: oldVerified, changed_at: ctx.now }
+          next = { ...next, previous_emails: [...kept, entry].sort((a, b) => a.changed_at - b.changed_at).slice(0, MAX_PREVIOUS_EMAILS) }
+          // The same mailbox in other letter case is no change of address: no notice.
+          if (!sameEmail(oldVerified, profile.email)) {
+            notices = homeUser.emailChangedNotice({ user: profile.id, locale: "en", emails: (next.previous_emails ?? []).map((e) => e.email) }, ctx.now)
+          }
         }
         return {
           ok: true,
