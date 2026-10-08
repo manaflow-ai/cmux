@@ -200,6 +200,10 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Replace the dashboard token now: the old link, `ws://` peers that
+        /// were given it and open dashboard connections stop working.
+        #[arg(long)]
+        rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
     #[command(subcommand, alias = "hosts")]

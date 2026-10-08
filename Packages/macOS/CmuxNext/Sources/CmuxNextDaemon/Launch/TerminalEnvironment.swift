@@ -121,18 +121,22 @@ public struct TerminalEnvironment: Sendable {
     /// a daemon that an older launch started still reach this app.
     /// `integration` (read per terminal, so a config reload applies to the
     /// next one) adds Ghostty's shell integration last, over the login
-    /// `PATH`, `SHELL` and data dirs.
+    /// `PATH`, `SHELL` and data dirs. `cli` (`BundledCLIEnvironment`) then
+    /// puts the bundled `cmux` first on `PATH` and wraps that integration so
+    /// it stays first after the user's startup files.
     public func shared(
         base: [String: String] = ProcessInfo.processInfo.environment,
         overrides: [String: String] = [:],
         login: (@Sendable () async -> [String: String]?)? = nil,
-        integration: @escaping @Sendable () async -> GhosttyShellIntegration? = { nil }
+        integration: @escaping @Sendable () async -> GhosttyShellIntegration? = { nil },
+        cli: BundledCLIEnvironment? = nil
     ) -> @Sendable () async -> [String: String] {
         {
             let captured = if let login { await login() } else { await LoginEnvironmentCache.shared.value() }
             var env = terminal(login: captured, base: base)
             for (key, value) in overrides { env[key] = value }
             if let integration = await integration() { env = integration.apply(to: env) }
+            if let cli { env = cli.apply(to: env) }
             return env
         }
     }

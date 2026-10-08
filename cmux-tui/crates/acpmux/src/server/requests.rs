@@ -326,6 +326,7 @@ async fn dispatch_request(
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
+        method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
             let requested: Vec<String> = params
                 .get("sessionIds")
