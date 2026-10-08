@@ -36,8 +36,15 @@ import Testing
         // The main thread works between the two runs (the symbolication
         // above; on a loaded host it takes longer than the threshold), then
         // the run loop idles: the clock did not move, nothing is recorded.
+        // A timer keeps the mode non-empty: an empty mode returns at once
+        // with no observer callouts, and this suite alone has nothing in it.
         spin(for: .milliseconds(60))
+        let idle = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
+        CFRunLoopAddTimer(CFRunLoopGetMain(), idle, .defaultMode)
+        defer { CFRunLoopTimerInvalidate(idle) }
+        let beat = watchdog.currentBeat
         CFRunLoopRunInMode(.defaultMode, 0.2, false)
+        #expect(watchdog.currentBeat != beat, "the idle run ran")
         #expect(watchdog.log.summary.count == 1)
     }
     #endif
