@@ -14,11 +14,15 @@ public nonisolated struct OnboardingStateFile: Sendable {
         self.url = url
     }
 
-    /// `~/Library/Application Support/cmux/onboarding.json`, or the path in
-    /// `CMUX_NEXT_ONBOARDING_STATE` (test launches).
-    public static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> OnboardingStateFile {
+    /// `~/Library/Application Support/cmux/onboarding.json` for every
+    /// `bundleID`, or the path in `CMUX_NEXT_ONBOARDING_STATE` (test launches).
+    public static func live(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleID: String?,
+        supportDirectory: URL? = nil
+    ) -> OnboardingStateFile {
         if let path = environment[environmentKey], !path.isEmpty { return OnboardingStateFile(url: URL(fileURLWithPath: path)) }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let support = supportDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support")
         return OnboardingStateFile(url: support.appending(path: "cmux/onboarding.json"))
     }

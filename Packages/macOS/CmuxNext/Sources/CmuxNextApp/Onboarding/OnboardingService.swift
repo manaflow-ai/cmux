@@ -18,7 +18,9 @@ final class OnboardingService {
     let state: OnboardingStateFile
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
-    private(set) var controller: OnboardingWindowController?
+    /// The one onboarding window (set up in `init`).
+    private var presenter: OnboardingWindowPresenter!
+    var controller: OnboardingWindowController? { presenter.controller }
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
@@ -36,17 +38,15 @@ final class OnboardingService {
     }
     private var computerUseConfigurationOverride: AgentActivitySocketSource.Configuration?
 
-    /// Whether an open window can show `step`: it already has that step (or
-    /// no step was asked for). Otherwise the window is rebuilt for the step.
+    /// Whether an open window can show `step` (`OnboardingWindowPresenter`).
     static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
-        guard let step else { return true }
-        return steps.contains(step)
+        OnboardingWindowPresenter.reusesWindow(showing: steps, for: step)
     }
 
     init(services: AppServices) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
-        state = OnboardingStateFile.live(environment: environment)
+        state = OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID)
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -76,6 +76,14 @@ final class OnboardingService {
             }.value
             guard let self else { return }
             projectFolders = folders
+        }
+        presenter = OnboardingWindowPresenter { [unowned self] start, resume in
+            OnboardingModel(services: AppOnboardingServices(owner: self), start: start, resumingFirstRunAt: resume)
+        }
+        presenter.onWindowClose = { [weak self] in
+            // The task's session stays in acpmux (the agent may still be working); only the page closes.
+            self?.firstTask?.view.close()
+            self?.firstTask = nil
         }
     }
 
@@ -141,35 +149,7 @@ final class OnboardingService {
 
     /// Opens onboarding at `step` (or brings the open one to that step).
     func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
-        var interrupted: OnboardingModel.Step?
-        if let controller {
-            if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
-                if let step { controller.model.go(to: step) }
-                controller.present()
-                return
-            }
-            // The open window was built without this step (for example the
-            // first run, or a helper that came up since): rebuild it. Closing
-            // leaves the first run unfinished (never skipped); it continues
-            // at its step when this window closes.
-            if controller.model.isFirstRun { interrupted = controller.model.step }
-            controller.closeForRebuild()
-            self.controller = nil
-        }
-        let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
-        let controller = OnboardingWindowController(model: model)
-        controller.onClose = { [weak self] in
-            self?.controller = nil
-            // The task's session stays in acpmux (the agent may still be working); only the page closes.
-            self?.firstTask?.view.close()
-            self?.firstTask = nil
-            // A first run this window interrupted continues where it was.
-            if let interrupted, !model.isFirstRun, let self {
-                self.show(resumingFirstRunAt: interrupted)
-            }
-        }
-        self.controller = controller
-        controller.present()
+        presenter.show(step: step, resumingFirstRunAt: resume)
     }
 
     /// The first run is at `step`: kept so a relaunch resumes it there.
