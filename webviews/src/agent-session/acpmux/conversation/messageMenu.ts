@@ -14,9 +14,7 @@ export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: num
 /// Whether a turn can be forked now: acpmux serves forks and the pane is connected (the turn
 /// footer's Fork shows on the same rule).
 export const canFork = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) &&
-  snapshot.connection !== "disconnected" &&
-  !snapshot.connection.startsWith("connecting");
+  Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
 
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
 /// `:fold`), or undefined for a row that is not a prompt or a reply.
@@ -48,7 +46,10 @@ function blocks(tokens: Token[]): string[] {
       case "list":
         return [
           (token.items as { tokens: Token[] }[])
-            .map((item, index) => `${token.ordered ? `${(Number(token.start) || 1) + index}.` : "-"} ${blocks(item.tokens).join("\n")}`)
+            .map(
+              (item, index) =>
+                `${token.ordered ? `${(Number(token.start) || 1) + index}.` : "-"} ${blocks(item.tokens).join("\n")}`,
+            )
             .join("\n"),
         ];
       case "blockquote":
