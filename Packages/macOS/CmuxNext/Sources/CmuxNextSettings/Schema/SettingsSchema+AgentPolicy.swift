@@ -47,7 +47,7 @@ extension SettingsSchema {
         "sidebar.minimalMode",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
-        "sidebar.spacesPosition",
+        "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",

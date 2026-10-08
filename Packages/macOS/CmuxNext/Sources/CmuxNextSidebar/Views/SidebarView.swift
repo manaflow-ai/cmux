@@ -67,6 +67,10 @@ public final class SidebarView: NSView {
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
     }
+    /// `sidebar.spacesVisibility` (cx-5k3r): on hover the strip fades with the other hover chrome.
+    public var spacesVisibility: SpacesVisibilityMode = .hover {
+        didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
+    }
     private var observation: Task<Void, Never>?
     private var lastState: RenderState?
     public init(model: SidebarModel) {
@@ -205,6 +209,7 @@ public final class SidebarView: NSView {
         addSubview(footer)
         installBackButton()
         footer.addSubview(profileBar)
+        profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
     }
 
