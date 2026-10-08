@@ -115,11 +115,11 @@ public struct TerminalSizingEngine: Sendable {
         // deferral only stops a phone from taking the grid by activity.
         if policy.mode == .smallest || policy.mode == .largest { return true }
         guard p.deviceKind.isHandheld, let user = p.userID else { return true }
-        // Defer only to a Mac or TUI of the same user that itself counts: a
+        // Defer only to a desktop of the same user that itself counts: a
         // viewer-only or viewport-less Mac leaves the phone in charge.
         return !entries.contains {
             let other = $0.participant
-            return other.userID == user && (other.deviceKind == .mac || other.deviceKind == .tui)
+            return other.userID == user && other.deviceKind.isDesktop
                 && other.viewport != nil && other.countsOverride != false
         }
     }

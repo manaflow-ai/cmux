@@ -72,6 +72,8 @@ public final class DaemonStore: StateResourceQueries {
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
+    /// Runs when the connection drops or the daemon shuts down (before any reconnect).
+    @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.

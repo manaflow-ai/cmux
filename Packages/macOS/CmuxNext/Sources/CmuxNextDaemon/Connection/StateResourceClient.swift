@@ -135,11 +135,12 @@ extension StateResourceClient {
         try await stateMutation(pinned ? "tab.pin" : "tab.unpin", ["tab": .string(tab.rawValue)])
     }
 
-    /// The tab record's zoom and a browser tab's back/forward lists (`tab.update`).
-    public func updateTabRecord(_ tab: ResourceID, zoom: FieldUpdate<Double> = .unchanged, back: [String]? = nil,
-                                forward: [String]? = nil) async throws {
+    /// The tab record's zoom, user icon and a browser tab's back/forward lists (`tab.update`).
+    public func updateTabRecord(_ tab: ResourceID, zoom: FieldUpdate<Double> = .unchanged, icon: FieldUpdate<String> = .unchanged,
+                                back: [String]? = nil, forward: [String]? = nil) async throws {
         var params: [String: JSONValue] = ["tab": .string(tab.rawValue)]
         Self.field(zoom, into: &params, "zoom") { .number($0) }
+        Self.field(icon, into: &params, "icon") { .string($0) }
         if let back { params["back"] = .array(back.suffix(20).map { .string($0) }) }
         if let forward { params["forward"] = .array(forward.prefix(20).map { .string($0) }) }
         try await stateMutation("tab.update", params)

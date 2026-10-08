@@ -70,10 +70,23 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(exit_code) => return exit_code,
         }
     }
+    // The caller's terminal belongs to the session its environment names; an
+    // explicit route targets that session's current workspace.
+    let caller_route = global.socket.is_none() && global.session.is_none();
+    // A browser tab in a session a cmux app owns is the app's to render.
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        &global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
+    }
     if !plan.resolve.is_empty() {
-        // The caller's terminal belongs to the session its environment
-        // names; an explicit route targets that session's current workspace.
-        let caller_route = global.socket.is_none() && global.session.is_none();
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
@@ -140,8 +153,8 @@ impl KeyReport {
         Self { key: key.map(str::to_owned), done: std::cell::Cell::new(false) }
     }
 
-    /// A successful mutation has nothing to retry.
-    fn succeeded(&self) {
+    /// Nothing to retry: the mutation succeeded, or the app never ran it.
+    pub(super) fn succeeded(&self) {
         self.done.set(true);
     }
 
@@ -439,13 +452,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    let result = plan.view.project(result);
-                    let shown = match global.output {
-                        OutputMode::Human => human_view(plan, &result),
-                        _ => std::borrow::Cow::Borrowed(&result),
-                    };
-                    let code = print_success(&shown, global.output);
-                    return if code == 0 { success_exit_code(plan, &result) } else { code };
+                    return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
@@ -564,6 +571,18 @@ pub(super) fn read_envelope(
             .map(Some)
             .map_err(|error| format!("protocol error: invalid JSON response: {error}"));
     }
+}
+
+/// Prints a request's successful result as the command shows it; returns
+/// the exit code.
+pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Value) -> i32 {
+    let result = plan.view.project(result);
+    let shown = match global.output {
+        OutputMode::Human => human_view(plan, &result),
+        _ => std::borrow::Cow::Borrowed(&result),
+    };
+    let code = print_success(&shown, global.output);
+    if code == 0 { success_exit_code(plan, &result) } else { code }
 }
 
 /// `terminal <id> screen wait` reports a timeout as a normal result with

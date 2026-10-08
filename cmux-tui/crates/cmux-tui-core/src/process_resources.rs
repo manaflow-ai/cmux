@@ -94,7 +94,8 @@ pub struct ProcessSample {
     pub name: String,
     /// Cumulative user plus system CPU time since the process started.
     pub cpu_ns: u64,
-    /// macOS physical footprint; Linux resident set size.
+    /// macOS physical footprint; Linux resident set size; Windows private
+    /// working set.
     pub memory_bytes: u64,
 }
 
@@ -438,7 +439,63 @@ mod imp {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// Windows: ToolHelp for the tree, and usage only of processes this daemon
+/// started (`windows_processes`: in a terminal job, our user, our session).
+#[cfg(windows)]
+mod imp {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
+    use super::{ChildIndex, ProcessSample};
+    use crate::windows_processes::{self as wp, Entry};
+
+    pub(super) fn monotonic_now_ns() -> u64 {
+        static EPOCH: OnceLock<Instant> = OnceLock::new();
+        let elapsed = EPOCH.get_or_init(Instant::now).elapsed().as_nanos();
+        u64::try_from(elapsed).unwrap_or(u64::MAX)
+    }
+
+    pub(super) struct Sampler {
+        processes: HashMap<u32, Entry>,
+        children: ChildIndex,
+    }
+
+    impl Sampler {
+        pub(super) fn new() -> Self {
+            let processes = wp::snapshot();
+            let ppids = processes.iter().map(|(pid, entry)| (*pid, entry.parent)).collect();
+            Self { children: ChildIndex::from_ppid_map(&ppids), processes }
+        }
+
+        /// Children born after their parent (a recorded parent pid can be a
+        /// reused one).
+        pub(super) fn children(&self, pid: u32) -> Vec<u32> {
+            let parent_created = wp::created(pid);
+            self.children
+                .children(pid)
+                .into_iter()
+                .filter(|child| wp::born_after(parent_created, wp::created(*child)))
+                .collect()
+        }
+
+        pub(super) fn parent(&self, pid: u32) -> Option<u32> {
+            self.processes.get(&pid).map(|entry| entry.parent)
+        }
+
+        pub(super) fn sample(&self, pid: u32) -> Option<ProcessSample> {
+            let (cpu_ns, memory_bytes) = wp::usage(pid)?;
+            let name = self.processes.get(&pid).map(|entry| entry.exe.clone()).unwrap_or_default();
+            Some(ProcessSample { name, cpu_ns, memory_bytes })
+        }
+
+        pub(super) fn runs_own_executable(&self, pid: u32) -> bool {
+            wp::runs_own_executable(pid)
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod imp {
     use std::sync::OnceLock;
     use std::time::Instant;
@@ -480,7 +537,7 @@ mod imp {
 
 /// Whether this platform reads process trees for `terminal-resources`.
 pub const fn reads_process_trees() -> bool {
-    cfg!(any(target_os = "linux", target_os = "macos"))
+    cfg!(any(target_os = "linux", target_os = "macos", windows))
 }
 
 #[cfg(test)]

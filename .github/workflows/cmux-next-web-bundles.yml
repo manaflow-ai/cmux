@@ -19,6 +19,10 @@ on:
       - "scripts/cmux-next/build-web-bundles.sh"
       - "scripts/cmux-next/web-bundle-key.py"
       - "Native/OptChat/optchat-chief/inspector/**"
+      # The strings tables are generated from every CmuxNext catalog.
+      - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
+      - "scripts/cmux-next/regenerate-web-bundles.sh"
+      - "scripts/cmux-next/tests/web-bundles-readonly-sources.test.sh"
       - ".github/workflows/cmux-next-web-bundles.yml"
 
 permissions:
@@ -56,11 +60,16 @@ jobs:
       # before it compiles. The bundles must build, the strings tables (still
       # committed) must be current, and the build must be deterministic: a second
       # build into another root gives the same bytes.
+      - name: A build on a stale committed generated file fails and writes no tracked file
+        run: bash scripts/cmux-next/tests/web-bundles-readonly-sources.test.sh
+
       - name: Build the web bundles twice and compare
         run: |
           set -euo pipefail
+          # Fails on a stale committed strings table or inspector page; never rewrites one.
           ./scripts/cmux-next/build-web-bundles.sh --force
-          git diff --exit-code -- ':(glob)webviews/src/**/generated/strings.json' || { echo "::error::generated strings tables are stale; run bun webviews/scripts/pages/gen-strings.mjs and commit them"; exit 1; }
+          dirty="$(git status --porcelain --untracked-files=no)"
+          [ -z "$dirty" ] || { echo "::error::the web bundle build modified tracked files"; echo "$dirty"; exit 1; }
           out="$RUNNER_TEMP/web-bundles"
           ./scripts/cmux-next/build-web-bundles.sh --out-root "$out"
           status=0
@@ -111,9 +120,11 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # One bun process per file, as ci-web.yml does: a single `bun test` was SIGKILLed
+      # (exit 137) or cascaded from one slow file into hundreds of failures.
       - name: bun test
         working-directory: webviews
-        run: bun test
+        run: ../scripts/ci/run-webviews-tests.sh
 
   # Interaction-latency scoreboard (plans/cmux-next/zero-latency.md): input-to-paint of every
   # page's named actions in headless Chromium and WebKit. A scoreboard only: it reports numbers in

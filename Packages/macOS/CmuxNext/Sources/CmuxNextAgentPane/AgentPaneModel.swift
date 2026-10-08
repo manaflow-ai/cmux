@@ -27,6 +27,8 @@ public final class AgentPaneModel {
     /// The new tab page this pane shows until it has a session, nil for a
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
+    /// Receives the current opening’s focused-field acknowledgement.
+    @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
@@ -40,7 +42,7 @@ public final class AgentPaneModel {
     /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
-    @ObservationIgnored public var onRunAction: ((String) -> Void)?
+    @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -178,12 +180,11 @@ public final class AgentPaneModel {
         guard sessionId == nil else { return }
         newTab = page
     }
-
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -226,6 +227,7 @@ public final class AgentPaneModel {
                    workspaceAgentHome?() != nil {
                     handshake.chooseFolder = true
                 }
+                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
@@ -270,21 +272,16 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
+        case .newTabInputReady(let token):
+            guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }
+            onNewTabInputReady?(token)
+            return AgentPaneReply.success()
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
-            // and the command palette's chats page ("Show all", decision K1). The New Tab page also
-            // runs Add Harness… ("Integrate a harness").
-            guard id == "newTab.page" || id == "agentPane.searchChats"
-                    || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil),
-                  let onRunAction else {
-                return Self.unsupported("action.run")
-            }
-            onRunAction(id)
-            return AgentPaneReply.success()
+            return runAction(id)
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
@@ -361,8 +358,8 @@ public final class AgentPaneModel {
             } catch {
                 return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
             }
-        case .invalidGit:
-            return Self.gitFailure(.invalidRequest)
+        case .invalidGit: return Self.gitFailure(.invalidRequest)
+        case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
         case .turnUndo(let undo): return await respondToTurnUndo(undo)
         case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:

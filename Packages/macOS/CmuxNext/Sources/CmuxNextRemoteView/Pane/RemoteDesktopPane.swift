@@ -50,6 +50,13 @@ public final class RemoteDesktopPane {
         set { view.capture.controller.releaseChord = newValue }
     }
 
+    /// Upstream media commands (the transport); nil when the source has none.
+    public var upstreamControl: (any RemoteUpstreamControl)?
+    /// The macOS permission prompts, asked only from a share button press.
+    public var upstreamPermissions: any RemoteUpstreamPermissions = SystemUpstreamPermissions()
+    /// A permission prompt in flight per kind (one at a time per kind).
+    private var permissionTasks: [RemoteUpstreamKind: Task<Void, Never>] = [:]
+
     public let presenterKind: RemotePresenterKind
     private let source: any RemoteViewStreamSource
     private let presenter: any RemoteFramePresenter
@@ -104,8 +111,10 @@ public final class RemoteDesktopPane {
         })
     }
 
-    /// Stops decoding and releases held input. The last frame stays.
+    /// Stops decoding, releases held input and revokes every upstream kind
+    /// (a hidden or closed tab never sends media). The last frame stays.
     public func stop() {
+        stopAllUpstreams()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         pipeline = nil
@@ -140,6 +149,8 @@ public final class RemoteDesktopPane {
         }
         view.toolbar.onSelectDisplay = { [weak self] in self?.handlers.selectDisplay($0) }
         view.toolbar.onStop = { [weak self] in self?.stopPressed() }
+        view.toolbar.onUpstream = { [weak self] in self?.upstreamPressed($0) }
+        view.upstreamIndicator.onStop = { [weak self] in self?.stopUpstream($0) }
         view.card.onCancel = { [weak self] in self?.stopPressed() }
         view.card.onReconnect = { [weak self] in
             self?.apply(.reconnect)
@@ -149,7 +160,43 @@ public final class RemoteDesktopPane {
         view.banner.onControlAnyway = { [weak self] in self?.apply(.controlAnyway) }
     }
 
+    /// A share button: the user's explicit action for `kind`. It asks macOS
+    /// for the permission, then the transport opens the stream (a denied
+    /// permission sends nothing). Pressing an active kind stops it.
+    func upstreamPressed(_ kind: RemoteUpstreamKind) {
+        let upstream = state.upstream
+        if upstream.active.contains(kind) || upstream.requested.contains(kind) {
+            stopUpstream(kind)
+            return
+        }
+        guard state.showsUpstreamButtons, permissionTasks[kind] == nil, let control = upstreamControl else { return }
+        let permissions = upstreamPermissions
+        permissionTasks[kind] = Task { [weak self] in
+            let granted = await permissions.request(kind)
+            guard let self else { return }
+            permissionTasks[kind] = nil
+            // The tab hid or the session ended while the prompt was open.
+            guard !Task.isCancelled, state.showsUpstreamButtons else { return }
+            control.requestUpstream(kind, permissionGranted: granted)
+        }
+    }
+
+    /// The indicator's Stop: hides the kind and revokes its consent at once.
+    func stopUpstream(_ kind: RemoteUpstreamKind) {
+        permissionTasks.removeValue(forKey: kind)?.cancel()
+        apply(.stopUpstream(kind))
+        upstreamControl?.stopUpstream(kind)
+    }
+
+    private func stopAllUpstreams() {
+        for task in permissionTasks.values { task.cancel() }
+        permissionTasks.removeAll()
+        apply(.stopAllUpstreams)
+        upstreamControl?.stopAllUpstreams()
+    }
+
     private func stopPressed() {
+        stopAllUpstreams()
         apply(.stop)
         view.capture.controller.releaseAll()
         handlers.stop()
