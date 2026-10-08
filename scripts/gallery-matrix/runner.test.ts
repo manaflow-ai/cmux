@@ -129,6 +129,8 @@ test("a case that never loads is recorded not ready, and the rest of the matrix 
     expect(String(results[0]!.error)).toContain("Timeout");
     expect(existsSync(join(dir, "fine-chromium.png"))).toBe(true);
     expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toHaveLength(2);
+    expect(existsSync(join(dir, "index.html"))).toBe(true);
+    expect(readFileSync(join(dir, "index.html"), "utf8")).toContain("cmux gallery matrix");
   } finally {
     process.exitCode = exitCode;
     rmSync(dir, { recursive: true, force: true });

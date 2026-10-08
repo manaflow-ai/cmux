@@ -160,6 +160,7 @@ jobs:
               find "$2.$shard" -maxdepth 1 -name '*.png' -exec mv -t "$2" {} +
             done
             jq -s 'add' "$2".*/results.json > "$2/results.json"
+            bun -e 'import { renderIndex } from "./runner"; const dir = Bun.argv.at(-1); if (!dir) throw new Error("missing matrix output directory"); const results = await Bun.file(`${dir}/results.json`).json(); await Bun.write(`${dir}/index.html`, renderIndex(results));' "$2"
           }
           if [ -d "$RUNNER_TEMP/gallery-base" ]; then render "$RUNNER_TEMP/gallery-base" "$RUNNER_TEMP/runs/base"; fi
           render "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/runs/head"
