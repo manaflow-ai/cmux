@@ -362,9 +362,13 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
     h.host.clipboard.notify_timer();
     assert_eq!(h.pty_reply(), REFUSED);
 
-    // The late answer is stale; the slot is free for the next read.
+    // The late answer is stale: once the host has handled it, the next PTY
+    // reply is the status report, not a second clipboard answer.
     reply(&mut owner, request.token, Some(b"hi"));
-    h.assert_pty_quiet();
+    round_trip(&mut owner);
+    h.output(b"\x1b[5n");
+    assert_eq!(h.pty_reply(), b"\x1b[0n", "the stale answer reached the PTY");
+    // The slot is free for the next read.
     h.output(OSC52_READ);
     let next = next_clipboard_request(&mut owner);
     assert_ne!(next.token, request.token);
@@ -416,11 +420,13 @@ fn a_read_takes_its_deadline_before_the_owner_can_see_it() {
     });
     clipboard.dispatch(&mut term.lock().unwrap(), &Mutex::new(()));
     assert_eq!(clipboard.open_token_for_test(), Some(1));
-    assert_eq!(
-        *clock.request_visible_at_read.lock().unwrap(),
-        [false],
-        "the host read its clock for the deadline after the owner could see the request"
+    let reads = clock.request_visible_at_read.lock().unwrap().clone();
+    assert!(
+        !reads.is_empty() && reads.iter().all(|visible| !visible),
+        "the host read its clock for the deadline after the owner could see the request: {reads:?}"
     );
+    let sent = clock.owner_inbox.lock().unwrap().try_recv().expect("the owner was asked");
+    assert_eq!(sent.kind, MessageKind::ClipboardReadRequest);
 }
 
 #[test]
