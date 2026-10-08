@@ -1178,6 +1178,33 @@ mod tests {
                             );
                             return Ok::<_, std::convert::Infallible>(response);
                         }
+                        if request.uri().path() == "/echo" {
+                            // What the dev server sees of the request: the
+                            // query, every Cookie value and the capability
+                            // header, one per line.
+                            let mut seen = format!(
+                                "query={}\n",
+                                request.uri().query().unwrap_or_default()
+                            );
+                            for value in request.headers().get_all(hyper::header::COOKIE) {
+                                seen.push_str(&format!(
+                                    "cookie={}\n",
+                                    value.to_str().unwrap_or_default()
+                                ));
+                            }
+                            for value in request.headers().get_all("x-chatmux-capability") {
+                                seen.push_str(&format!(
+                                    "header={}\n",
+                                    value.to_str().unwrap_or_default()
+                                ));
+                            }
+                            let mut response = hyper::Response::new(full_body(seen.into_bytes()));
+                            response.headers_mut().insert(
+                                hyper::header::CONTENT_TYPE,
+                                hyper::header::HeaderValue::from_static("text/plain"),
+                            );
+                            return Ok::<_, std::convert::Infallible>(response);
+                        }
                         let (body, content_type, opt_out) = match request.uri().path() {
                             "/body-only" => ("<body><p>hi</p></body>", "text/html", false),
                             "/plain" => ("no tags here", "text/plain", false),
@@ -1819,6 +1846,200 @@ mod tests {
         ws_handshake(proxy, "/__chatmux__/devtools", Some(&capability), &[])
             .await
             .expect("originless client");
+        registry.shutdown().await;
+    }
+
+    /// The full raw HTTP/1.1 response (head and body) of one request that
+    /// asks the proxy to close the connection.
+    async fn raw_exchange(port: u16, request: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect preview proxy");
+        stream.write_all(request.as_bytes()).await.expect("write raw request");
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response))
+            .await
+            .expect("raw exchange timeout")
+            .expect("read raw exchange");
+        String::from_utf8(response).expect("raw exchange utf8")
+    }
+
+    fn get_request(path: &str, host: &str, extra: &str) -> String {
+        format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n")
+    }
+
+    fn upgrade_request(path: &str, host: &str, extra: &str) -> String {
+        format!(
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n{extra}\r\n"
+        )
+    }
+
+    #[tokio::test]
+    async fn proxied_requests_and_upgrades_require_the_preview_capability() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
+        let host = format!("localhost:{proxy}");
+        let cookie = format!("__chatmux_preview_{proxy}");
+        let wrong = "0".repeat(capability.len());
+
+        // Missing and wrong capabilities: no byte of the dev server leaks.
+        for extra in [
+            String::new(),
+            format!("x-chatmux-capability: {wrong}\r\n"),
+            format!("Cookie: {cookie}={wrong}\r\n"),
+        ] {
+            let response = raw_exchange(proxy, &get_request("/", &host, &extra)).await;
+            assert!(response.starts_with("HTTP/1.1 401"), "{extra:?}: {response}");
+            assert!(!response.contains("<title>t</title>"), "{extra:?} leaked the page");
+        }
+        let response = raw_exchange(
+            proxy,
+            &get_request(&format!("/?__chatmux_capability={wrong}"), &host, ""),
+        )
+        .await;
+        assert!(response.starts_with("HTTP/1.1 401"), "wrong bootstrap: {response}");
+
+        // A valid header passes.
+        let response = raw_exchange(
+            proxy,
+            &get_request("/", &host, &format!("x-chatmux-capability: {capability}\r\n")),
+        )
+        .await;
+        assert!(response.starts_with("HTTP/1.1 200"), "header: {response}");
+        assert!(response.contains("<title>t</title>"));
+
+        // The navigation bootstrap trades the query capability for an
+        // HttpOnly cookie and drops it from the visible URL.
+        let response = raw_exchange(
+            proxy,
+            &get_request(&format!("/app?__chatmux_capability={capability}&x=1"), &host, ""),
+        )
+        .await;
+        let lower = response.to_ascii_lowercase();
+        assert!(lower.starts_with("http/1.1 302"), "bootstrap: {response}");
+        assert!(lower.contains("\r\nlocation: /app?x=1\r\n"), "bootstrap: {response}");
+        let set_cookie = lower
+            .lines()
+            .find(|line| line.starts_with("set-cookie:"))
+            .expect("bootstrap sets a cookie")
+            .to_owned();
+        assert!(set_cookie.contains(&format!("{cookie}={capability}")), "{set_cookie}");
+        assert!(set_cookie.contains("httponly"), "{set_cookie}");
+        assert!(set_cookie.contains("path=/"), "{set_cookie}");
+
+        // The cookie passes, and the dev server never sees the credential
+        // (other cookies of the app still reach it).
+        let response = raw_exchange(
+            proxy,
+            &get_request("/", &host, &format!("Cookie: {cookie}={capability}\r\n")),
+        )
+        .await;
+        assert!(response.starts_with("HTTP/1.1 200"), "cookie: {response}");
+        let response = raw_exchange(
+            proxy,
+            &get_request(
+                "/echo?a=1",
+                &host,
+                &format!(
+                    "Cookie: app=1; {cookie}={capability}; theme=dark\r\nx-chatmux-capability: {capability}\r\n"
+                ),
+            ),
+        )
+        .await;
+        assert!(response.starts_with("HTTP/1.1 200"), "echo: {response}");
+        assert!(!response.contains(&capability), "the dev server saw the capability: {response}");
+        assert!(response.contains("cookie=app=1; theme=dark"), "{response}");
+        assert!(response.contains("query=a=1"), "{response}");
+
+        // Upstream WebSocket upgrades (a dev server's HMR socket) need it too.
+        let upgrade_target = spawn_upgrade_target().await;
+        let (upgrade_proxy, upgrade_capability) =
+            open_proxy_credentials(&registry, upgrade_target).await;
+        let upgrade_host = format!("localhost:{upgrade_proxy}");
+        let upgrade_cookie = format!("__chatmux_preview_{upgrade_proxy}");
+        for extra in [String::new(), format!("Cookie: {upgrade_cookie}={wrong}\r\n")] {
+            let head =
+                raw_response_head(upgrade_proxy, &upgrade_request("/hmr", &upgrade_host, &extra))
+                    .await;
+            assert!(head.starts_with("http/1.1 401"), "upgrade {extra:?}: {head}");
+        }
+        let head = raw_response_head(
+            upgrade_proxy,
+            &upgrade_request(
+                "/hmr",
+                &upgrade_host,
+                &format!("Cookie: {upgrade_cookie}={upgrade_capability}\r\n"),
+            ),
+        )
+        .await;
+        assert!(head.starts_with("http/1.1 101"), "upgrade with cookie: {head}");
+        registry.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_rebinding_host_is_refused_on_every_path() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
+        let cookie = format!("__chatmux_preview_{proxy}");
+        let credential = format!("x-chatmux-capability: {capability}\r\n");
+        let rebinding = format!("rebind.example:{proxy}");
+
+        // A DNS-rebound page sends its own name as Host. Even a request that
+        // carries the capability (a cookie the browser would not send to
+        // that name anyway) is refused on proxied and control paths.
+        for path in ["/", "/plain", "/__chatmux__/status", "/__chatmux__/target.js"] {
+            let response = raw_exchange(proxy, &get_request(path, &rebinding, &credential)).await;
+            assert!(response.starts_with("HTTP/1.1 403"), "{path}: {response}");
+        }
+        for host in ["rebind.example", "localhost.rebind.example", "evil@localhost"] {
+            let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
+            assert!(response.starts_with("HTTP/1.1 403"), "{host}: {response}");
+        }
+        let response = raw_exchange(
+            proxy,
+            &format!("GET / HTTP/1.1\r\n{credential}Connection: close\r\n\r\n"),
+        )
+        .await;
+        assert!(!response.starts_with("HTTP/1.1 200"), "a request without Host: {response}");
+
+        // Rebinding on a WebSocket upgrade: the dev server's HMR socket and
+        // both control sockets (an originless handshake included).
+        let upgrade_target = spawn_upgrade_target().await;
+        let (upgrade_proxy, upgrade_capability) =
+            open_proxy_credentials(&registry, upgrade_target).await;
+        let head = raw_response_head(
+            upgrade_proxy,
+            &upgrade_request(
+                "/hmr",
+                &format!("rebind.example:{upgrade_proxy}"),
+                &format!("Cookie: __chatmux_preview_{upgrade_proxy}={upgrade_capability}\r\n"),
+            ),
+        )
+        .await;
+        assert!(head.starts_with("http/1.1 403"), "hmr upgrade: {head}");
+        for path in ["/__chatmux__/page", "/__chatmux__/devtools"] {
+            let outcome = ws_handshake(proxy, path, Some(&capability), &[("host", &rebinding)]).await;
+            assert!(refused_with_forbidden(outcome), "{path} accepted a rebinding Host");
+        }
+
+        // Loopback names and address literals stay allowed.
+        for host in [
+            format!("localhost:{proxy}"),
+            format!("app.localhost:{proxy}"),
+            format!("127.0.0.1:{proxy}"),
+            format!("[::1]:{proxy}"),
+            "localhost.".to_owned(),
+            format!("10.0.0.5:{proxy}"),
+        ] {
+            let response = raw_exchange(
+                proxy,
+                &get_request("/", &host, &format!("Cookie: {cookie}={capability}\r\n")),
+            )
+            .await;
+            assert!(response.starts_with("HTTP/1.1 200"), "{host}: {response}");
+        }
         registry.shutdown().await;
     }
 
