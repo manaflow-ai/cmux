@@ -58,6 +58,12 @@ path = "tests/test_cli_command_tree_snapshot.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
+# Reads docs/cli-command-tree.txt, which the snapshot test above ties to the
+# built CLI, so it shares that lane.
+[[test]]
+path = "tests/test_cli_config_completion_verbs.py"
+lane = "macos-cli-no-socket"
+
 [[test]]
 path = "tests/test_cli_dispatch_parity.py"
 lane = "macos-cli-no-socket"
