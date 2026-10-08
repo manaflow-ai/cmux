@@ -105,7 +105,7 @@ fn a_new_workspace_gets_a_personal_row_at_create() {
             .and_then(|row| row["index"].as_u64())
             .unwrap()
     };
-    assert_eq!(index(&b), index(&a) + 1, "new rows go last, in creation order");
+    assert_eq!(index(&b) + 1, index(&a), "a new row goes first (workspaces.newPlacement top)");
     // The row survives a restart (it is in the store, not synthesized).
     drop(mux);
     let mux = session.open();
@@ -138,5 +138,53 @@ fn a_group_slot_before_home_is_refused() {
         "work-second",
     );
     assert_eq!(after_home["top_index"], 1);
+    mux.shutdown();
+}
+
+/// `workspaces.newPlacement` defaults to `top` for every client: a workspace
+/// made by a plain `workspace.create` (what the TUI, the CLI, iOS and agents
+/// send; no app places it afterwards) gets the first row below Home in the
+/// commit that creates it, before a group placed right below Home, and keeps
+/// it across a restart.
+#[test]
+fn a_new_workspace_from_any_client_lands_at_the_top_by_default() {
+    let session = Session::new("new-top");
+    let mux = session.open();
+    let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
+        ["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let a = empty_workspace(&mux, "a");
+    let work = group(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "top_index": 1}),
+        "work-below-home",
+    );
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
+    let expected = [home.as_str(), c.as_str(), b.as_str(), a.as_str()];
+    assert_eq!(listed(&mux, Some("personal"), &ids), expected, "new workspaces not on top");
+    let placements = read(&mux, "workspace.placement.list", json!({}));
+    let index = |id: &str| {
+        placements
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace"]["workspace_id"] == id)
+            .and_then(|row| row["index"].as_u64())
+            .unwrap()
+    };
+    assert_eq!((index(&home), index(&c), index(&b)), (0, 1, 2));
+    // The group stays after the new loose rows, at its place before `a`'s row.
+    let groups = read(&mux, "workspace_group.list", json!({}));
+    assert_eq!(groups[0]["top_index"], 3, "the group slot did not move past the new rows");
+    drop(mux);
+    let mux = session.open();
+    assert_eq!(listed(&mux, Some("personal"), &ids), expected, "the top place is not stored");
     mux.shutdown();
 }
