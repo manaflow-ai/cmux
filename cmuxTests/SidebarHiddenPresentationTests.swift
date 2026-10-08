@@ -308,6 +308,22 @@ struct SidebarHiddenPresentationTests {
         )
         #expect(initialContainers.count == 1)
         let initialContainer = try #require(initialContainers.first)
+        // Cloud activation is process-wide and another app-host fixture may
+        // finish its marker notification while this window is mounting. Wait
+        // for the workspace list to settle before recording the baseline so a
+        // delayed external transition cannot look like a hidden-table update.
+        var lastTabCount = tabManager.tabs.count
+        var stableTabCountRounds = 0
+        for _ in 0..<20 where stableTabCountRounds < 3 {
+            await drainMainRunLoop(for: window, iterations: 5)
+            let currentTabCount = tabManager.tabs.count
+            if currentTabCount == lastTabCount {
+                stableTabCountRounds += 1
+            } else {
+                lastTabCount = currentTabCount
+                stableTabCountRounds = 0
+            }
+        }
         let initialRowCount = initialContainer.tableView.numberOfRows
         #expect(initialRowCount > 0)
         let focusedWorkspace = try #require(tabManager.selectedWorkspace)
