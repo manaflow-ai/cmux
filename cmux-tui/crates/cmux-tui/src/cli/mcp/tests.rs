@@ -404,7 +404,13 @@ fn json_rpc_lifecycle_and_errors() {
     let listed = server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"}));
     let tools = listed.unwrap()["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
-    for expected in ["workspace_list", "terminal_input_write", "window_list", "app_new_window"] {
+    for expected in [
+        "workspace_list",
+        "terminal_input_write",
+        "window_list",
+        "agents_snapshot",
+        "app_new_window",
+    ] {
         assert!(names.contains(expected), "missing {expected}");
     }
     for absent in ["machine_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
