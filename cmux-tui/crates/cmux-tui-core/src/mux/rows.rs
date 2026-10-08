@@ -231,7 +231,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::local("cmux-tui-row-heights"),
+                &WorkspaceMutation::daemon_local("cmux-tui-row-heights"),
                 ROW_HEIGHTS_OPERATION,
                 &fingerprint,
                 None,

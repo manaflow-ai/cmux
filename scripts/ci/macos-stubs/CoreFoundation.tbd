@@ -1,0 +1,63 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation'
+current-version: 5026.5.4
+compatibility-version: 150.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_CFArrayAppendValue',
+                       '_CFArrayCreate',
+                       '_CFArrayCreateMutable',
+                       '_CFArrayGetCount',
+                       '_CFArrayGetValueAtIndex',
+                       '_CFArrayInsertValueAtIndex',
+                       '_CFDataCreate',
+                       '_CFDataGetBytePtr',
+                       '_CFDataGetLength',
+                       '_CFDataGetTypeID',
+                       '_CFDateCreate',
+                       '_CFDictionaryCreate',
+                       '_CFDictionaryGetValue',
+                       '_CFDictionaryGetValueIfPresent',
+                       '_CFEqual',
+                       '_CFErrorCopyDescription',
+                       '_CFErrorGetCode',
+                       '_CFGetTypeID',
+                       '_CFNumberGetValue',
+                       '_CFPreferencesCopyValue',
+                       '_CFRelease',
+                       '_CFRetain',
+                       '_CFRunLoopGetCurrent',
+                       '_CFRunLoopIsWaiting',
+                       '_CFRunLoopRun',
+                       '_CFRunLoopStop',
+                       '_CFStringCreateWithBytes',
+                       '_CFStringCreateWithBytesNoCopy',
+                       '_CFStringCreateWithCString',
+                       '_CFStringGetBytes',
+                       '_CFStringGetCString',
+                       '_CFStringGetCStringPtr',
+                       '_CFStringGetLength',
+                       '_CFStringGetTypeID',
+                       '_CFURLCopyAbsoluteURL',
+                       '_CFURLCopyFileSystemPath',
+                       '_CFURLCopyLastPathComponent',
+                       '_CFURLCreateCopyAppendingPathComponent',
+                       '_CFURLCreateCopyDeletingLastPathComponent',
+                       '_CFURLCreateFilePathURL',
+                       '_CFURLCreateFileReferenceURL',
+                       '_CFURLCreateFromFileSystemRepresentation',
+                       '_CFURLResourceIsReachable',
+                       '_kCFAbsoluteTimeIntervalSince1970',
+                       '_kCFAllocatorDefault',
+                       '_kCFAllocatorNull',
+                       '_kCFPreferencesAnyApplication',
+                       '_kCFPreferencesAnyHost',
+                       '_kCFPreferencesCurrentUser',
+                       '_kCFRunLoopDefaultMode',
+                       '_kCFTypeArrayCallBacks',
+                       '_kCFTypeDictionaryKeyCallBacks',
+                       '_kCFTypeDictionaryValueCallBacks' ]
+...

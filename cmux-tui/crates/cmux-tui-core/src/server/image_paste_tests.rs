@@ -150,7 +150,7 @@ fn projected_image_paste_view(mux: &Arc<Mux>, source: &crate::Surface) -> Arc<cr
         usize::MAX,
         None,
         None,
-        &WorkspaceMutation::local("image-paste-projection"),
+        &WorkspaceMutation::daemon_local("image-paste-projection"),
     )
     .unwrap();
     mux.with_state(|state| {

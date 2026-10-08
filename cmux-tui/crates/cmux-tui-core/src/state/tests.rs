@@ -1091,7 +1091,7 @@ fn window_projection_migrates_to_unadopted_records_that_the_app_adopts() {
         "collapsed_groups": {},
     });
     mux.put_frontend_projection(
-        &WorkspaceMutation::new("seed-windows", "cmux-next").unwrap(),
+        &WorkspaceMutation::daemon("seed-windows", "cmux-next").unwrap(),
         "cmux-next",
         "personal",
         "windows",
@@ -1422,7 +1422,7 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
         },
         None,
         None,
-        &WorkspaceMutation::local("state-test"),
+        &WorkspaceMutation::daemon_local("state-test"),
     )
     .unwrap();
     assert!(changes_after(&mux, before).iter().any(|change| {
