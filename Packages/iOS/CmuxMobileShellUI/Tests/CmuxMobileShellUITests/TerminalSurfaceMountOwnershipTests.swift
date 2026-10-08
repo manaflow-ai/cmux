@@ -218,6 +218,15 @@ struct TerminalSurfaceMountOwnershipTests {
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
         #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+
+        coordinator.setTerminalPresentationActive(true)
+        #expect(await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        })
+        #expect(store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
     }
 
     @MainActor
