@@ -200,7 +200,18 @@ public struct AgentNotificationReconciler: Sendable {
             let identityKind = context?.notification?.category == "idle-reminder"
                 ? "idle-reminder"
                 : "completion"
-            let identity = Self.key([sessionKey, Self.key([identityKind, context?.turnIdentity ?? session.turn])])
+            let identity: String
+            if identityKind == "idle-reminder" {
+                identity = Self.key([sessionKey, Self.key([
+                    identityKind,
+                    context?.turnIdentity ?? session.turn,
+                    context?.requestIdentity ?? "",
+                ])])
+            } else {
+                // Preserve the completion receipt shape for generic idle
+                // observations and journal replay compatibility.
+                identity = Self.key([sessionKey, Self.key([identityKind, context?.turnIdentity ?? session.turn])])
+            }
             session.delivered[identity] = context?.notification?.correlationKey ?? identity
             if identityKind == "completion" {
                 session.completionIdentity = identity
