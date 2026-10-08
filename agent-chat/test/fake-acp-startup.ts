@@ -23,7 +23,10 @@ await readLines(Bun.stdin.stream(), (line) => {
     return;
   }
   const stage = request.method === "initialize" ? "initialize" : request.method === "session/new" ? "session" : "";
-  if (stage && mode === `hang-${stage}`) return;
+  if (stage && mode === `hang-${stage}`) {
+    writeFileSync(join(directory, `${stage}-ready`), "");
+    return;
+  }
   if (stage && mode === `reject-${stage}`) {
     console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id,
       error: { code: -32603, message: `fixture ${stage} rejected` } }));
