@@ -333,12 +333,7 @@
   gap: 2px;
   padding: 0 8px 6px;
   overflow-x: auto;
-  scrollbar-width: none;
   flex: none;
-}
-
-.icon-jump-bar::-webkit-scrollbar {
-  display: none;
 }
 
 .ui-toolbar-button.icon-jump {

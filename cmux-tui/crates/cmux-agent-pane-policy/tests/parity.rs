@@ -115,7 +115,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 28, "check.json: the full order's 28 cases");
+    assert_eq!(all.as_array().unwrap().len(), 41, "check.json: the full order's 41 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -126,9 +126,29 @@ fn full_check_order() {
             scope.add(session.as_str().unwrap());
         }
         let options = PermissionOptions::new();
+        // A question (state `questions`, crate only: Swift does not read it
+        // yet) is one pending request with its denies and the question mark.
+        let questions: BTreeSet<&str> = s["questions"]
+            .as_array()
+            .map(|a| a.iter().map(|q| q.as_str().unwrap()).collect())
+            .unwrap_or_default();
         for d in s["denies"].as_array().unwrap() {
+            if questions.contains(d[0].as_str().unwrap()) {
+                continue;
+            }
             let pending = serde_json::json!({"method": "_acpmux/permission_pending", "params": {
                 "permissionId": d[0], "request": {"options": [{"optionId": d[1], "kind": "reject_once"}]}}});
+            options.observe(pending.as_object().unwrap(), None);
+        }
+        for q in &questions {
+            let mut listed =
+                vec![serde_json::json!({"optionId": "allow_once", "kind": "allow_once"})];
+            for d in s["denies"].as_array().unwrap().iter().filter(|d| d[0] == *q) {
+                listed.push(serde_json::json!({"optionId": d[1], "kind": "reject_once"}));
+            }
+            let pending = serde_json::json!({"method": "_acpmux/permission_pending", "params": {
+                "permissionId": q, "request": {"options": listed,
+                    "toolCall": {"_meta": {"acpmux": {"question": {"items": []}}}}}}});
             options.observe(pending.as_object().unwrap(), None);
         }
         let state = FrameState {
@@ -442,4 +462,46 @@ fn the_built_in_policy_parses() {
         "every reply shape parsed"
     );
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
+}
+
+/// Which pending permissions are questions (crate only: the Swift host does
+/// not track it yet): `toolCall._meta.acpmux.question` an object, read from
+/// `_acpmux/permission_pending`, a recorded `permission_request` event and a
+/// history reply; a permission ever seen without it is not a question.
+#[test]
+fn question_permissions() {
+    let pending = |id: &str, question: Value| {
+        serde_json::json!({"method": "_acpmux/permission_pending", "params": {"permissionId": id,
+            "request": {"options": [], "toolCall": {"_meta": {"acpmux": {"question": question}}}}}})
+    };
+    let options = PermissionOptions::new();
+    options.observe(pending("q", serde_json::json!({"items": []})).as_object().unwrap(), None);
+    options.observe(pending("tool", Value::Null).as_object().unwrap(), None);
+    options.observe(pending("text", serde_json::json!("yes")).as_object().unwrap(), None);
+    options.observe(pending("both", serde_json::json!({})).as_object().unwrap(), None);
+    options.observe(pending("both", Value::Null).as_object().unwrap(), None);
+    let event = serde_json::json!({"method": "_acpmux/event", "params": {"kind": "permission_request",
+        "dir": "mux", "msg": {"permissionId": "ev", "request": {"options": [],
+            "toolCall": {"_meta": {"acpmux": {"question": {}}}}}}}});
+    options.observe(event.as_object().unwrap(), None);
+    let history = serde_json::json!({"result": {"events": [{"kind": "permission_request",
+        "dir": "mux", "msg": {"permissionId": "hist", "request": {
+            "toolCall": {"_meta": {"acpmux": {"question": {}}}}}}}]}});
+    options.observe(history.as_object().unwrap(), Some("_acpmux/events"));
+    let page = serde_json::json!({"result": {"events": [{"kind": "permission_request",
+        "dir": "page", "msg": {"permissionId": "forged", "request": {
+            "toolCall": {"_meta": {"acpmux": {"question": {}}}}}}}]}});
+    options.observe(page.as_object().unwrap(), Some("_acpmux/events"));
+    for (id, question) in [
+        ("q", true),
+        ("ev", true),
+        ("hist", true),
+        ("tool", false),
+        ("text", false),
+        ("both", false),
+        ("forged", false),
+        ("never", false),
+    ] {
+        assert_eq!(options.is_question(id), question, "{id}");
+    }
 }
