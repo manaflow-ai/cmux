@@ -413,7 +413,7 @@ class InstalledHelperRegression(unittest.TestCase):
 class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
-    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None):
+    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -432,6 +432,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
                 if a[:2] == ['pr', 'view']:
                     print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
+                elif a[:2] == ['pr', 'comment']:
+                    pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
@@ -451,7 +453,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     sys.exit(2)
                 """))
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
+            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
                 env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries)}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
@@ -475,6 +477,34 @@ class WorkflowPresenceRegression(unittest.TestCase):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
+
+    def test_no_ci_workflow_allows_explicit_advisory_neutral_or_skipped_checks(self):
+        result, merged, _ = self.run_case(
+            checks=[
+                {'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'success'},
+                {'id': 2, 'name': 'Vercel Agent Review', 'status': 'completed', 'conclusion': 'neutral'},
+                {'id': 3, 'name': 'cubic · AI code reviewer', 'status': 'completed', 'conclusion': 'skipped'},
+            ],
+            extra_args=(
+                '--override',
+                'Vercel Agent Review is advisory and completed neutral/skipped; all applicable exact-head checks pass.',
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        self.assertIn("waives advisory 'Vercel Agent Review'", result.stderr)
+
+    def test_no_ci_workflow_does_not_override_an_unknown_neutral_check(self):
+        result, merged, _ = self.run_case(
+            checks=[
+                {'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'success'},
+                {'id': 2, 'name': 'unknown-review', 'status': 'completed', 'conclusion': 'neutral'},
+            ],
+            extra_args=('--override', 'the named advisory result is safe to waive on this exact head'),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn('unknown-review', result.stderr)
 
     def test_workflow_probe_failure_is_not_absence(self):
         for code in (403, 500):

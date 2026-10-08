@@ -193,6 +193,22 @@ fi
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
+  # These integrations are advisory: an explicit override may waive only a
+  # completed neutral/skipped verdict from a known review service. Red,
+  # pending, and unknown checks still refuse the merge.
+  is_advisory_override() {
+    local name="$1" st="$2" co="$3"
+    [ -n "$override_reason" ] || return 1
+    [ "$st" = completed ] || return 1
+    case "$co" in
+      neutral|skipped) ;;
+      *) return 1 ;;
+    esac
+    case "$name" in
+      'Vercel Agent Review'|'cubic · AI code reviewer') return 0 ;;
+      *) return 1 ;;
+    esac
+  }
   if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
     refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
   fi
@@ -208,6 +224,10 @@ if [ "$has_ci" -eq 0 ]; then
     [ -n "$name" ] || continue
     reported=$((reported + 1))
     if [ "$st" != completed ] || [ "$co" != success ]; then
+      if is_advisory_override "$name" "$st" "$co"; then
+        printf "note: --override waives advisory '%s' (%s/%s) on %s\n" "$name" "$st" "$co" "$sha" >&2
+        continue
+      fi
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
         "wait for or repair '$name'; every reported exact-head check must succeed without the aggregate workflow"
