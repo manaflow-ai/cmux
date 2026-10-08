@@ -60,6 +60,18 @@ class PollNotarySubmissionTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertEqual(body["http_status"], 401)
 
+    def test_response_for_another_submission_fails_closed(self) -> None:
+        with patch.object(MODULE, "_token", return_value="fixture-token"), patch.object(
+            MODULE,
+            "_api",
+            return_value=(
+                200,
+                {"data": {"id": "other-id", "attributes": {"status": "Accepted"}}},
+            ),
+        ):
+            result = MODULE.main([str(self.state), "--output", str(self.output)])
+        self.assertEqual(result, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

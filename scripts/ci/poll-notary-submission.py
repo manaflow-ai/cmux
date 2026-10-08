@@ -125,7 +125,12 @@ def main(argv: list[str] | None = None) -> int:
     if not SUBMISSION_ID.fullmatch(submission_id):
         raise ValueError("invalid Apple submission id in state")
     status_code, body = _api(_token(), submission_id)
-    status = str(body.get("data", {}).get("attributes", {}).get("status", ""))
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, dict) or str(data.get("id", "")) != submission_id:
+        status = ""
+    else:
+        attributes = data.get("attributes")
+        status = str(attributes.get("status", "")) if isinstance(attributes, dict) else ""
     output = args.output or Path(f"{args.state_file}.api.log")
     output.write_text(
         json.dumps({"submission_id": submission_id, "http_status": status_code, "status": status, "body": body}, indent=2)
