@@ -1,10 +1,10 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` implementation baseline `3bd1e8e9020bec46432c1989f0873eba3b8681cf` (B1 session/epoch hardening,
+Status: parity refresh 2026-10-08 on `feat-cmux-next-ios` implementation baseline `166e9c49fa7073c53a8c688ff9bdd9623153f7c7` (B1 session/epoch hardening,
 B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
 Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive is available, but no simulator or device run is
-recorded: job `a9c4cefb950b6befe522ad06` produced tag `nxd3-e0391-ios-v1` for this exact head and
-artifact digest `bb8f54c780611ecafd3f5d5f0e89e3899f9ea90d645b1d91b8bcee8cfdcf9b19`. The matrix below
+recorded: job `58bffde107091f30ece9f383` produced tag `nxd3-166e-ios-v2` for this exact head and
+artifact digest `5e168f236e1f22003109730037daf7bc1ed8b1337f0465ede765f5a717d67233`. The matrix below
 separates implementation and compile evidence from the still-pending live-pair gate.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
@@ -131,8 +131,8 @@ Open implementation gaps, grouped by owner:
 - C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
   landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps
   loopback routing on the authenticated machine tunnel and requires an explicit direct backend for
-  non-loopback destinations. Package and route-focused tests pass; live device/reconnect evidence is
-  still required.
+  non-loopback destinations. HTTPS loopback tunnel URLs are rejected before the HTTP-only proxy.
+  Package and route-focused tests pass; live device/reconnect evidence is still required.
 - Mocked rows: Mac capabilities/version gate, Keep Mac Awake (onboarding and per-Mac power assertion),
   and StoreKit plans remain behind their DEV/mock owners.
 - Seam-only rows: Cloud machines in the workspace list, Cloud VM terminal/files attach, task composer

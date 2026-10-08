@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `f538410565` reports 85 of 98 parity rows done, with one
+The refreshed D3 matrix at implementation baseline `166e9c49fa` reports 85 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -90,13 +90,17 @@ The active wave is intentionally independent:
   compile failures. `743332da42` preserves verified upload ids for bounded composer intake,
   `61b549e59a`/`3bd1e8e902` add the credential-free Cloud VM attach preflight, and `d68a2dd488`
   adds the privacy-bounded analytics wire contract.
+- `fae1b61265` rejects unsupported HTTPS loopback tunnel URLs before they reach the HTTP-only proxy;
+  `bf44f8838d` restores bounded tmux pending control input after hydration with octal decoding and
+  split-sequence regressions; `166e9c49fa` surfaces a lost pairing registry path as an actionable
+  onboarding offline state.
 
-The dedicated build host was unavailable during the implementation wave (`cmux-lawrence-2` did not
-resolve), so native iOS package targets, tagged pair installs, visual evidence, and live SSH/browser
-paths remain explicitly unverified. A fleet archive proves the pre-follow-up iOS device and simulator
-targets compile: job `a9c4cefb950b6befe522ad06`, tag `nxd3-e0391-ios-v1`, exact head
-`e039144f38988cb5ad880d8eeb19773cd075f5e7`, artifact digest
-`bb8f54c780611ecafd3f5d5f0e89e3899f9ea90d645b1d91b8bcee8cfdcf9b19`. Current static checks pass;
+The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
+resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
+remain explicitly unverified. A fleet archive now proves the exact current iOS device and simulator
+targets compile: job `58bffde107091f30ece9f383`, tag `nxd3-166e-ios-v2`, exact head
+`166e9c49fa7073c53a8c688ff9bdd9623153f7c7`, artifact digest
+`5e168f236e1f22003109730037daf7bc1ed8b1337f0465ede765f5a717d67233`. Current static checks pass;
 the post-build C8/C12/C16 slices add static and focused contract evidence; the backend slice has 35
 focused Vitest tests and a clean TypeScript typecheck. The next gate is tagged Mac/iPhone pairing
 and D3 runtime evidence; no simulator, real-phone, or live SSH/browser result is claimed.
