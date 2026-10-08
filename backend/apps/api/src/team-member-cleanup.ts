@@ -40,7 +40,7 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
     const hosts: Array<string> = []
     let after: string | undefined
     for (;;) {
-      const page = deps.rows?.scanFrom<HostRecord>(TABLE_HOST, after, HOST_PAGE) ?? []
+      const page = deps.rows?.scanFrom?.<HostRecord>(TABLE_HOST, after, HOST_PAGE) ?? []
       for (const r of page) if (r.row.owner_user === user && !r.row.orphaned && r.row.enrolled_at <= at) hosts.push(r.row.id)
       if (page.length < HOST_PAGE) break
       after = page[page.length - 1]!.key
