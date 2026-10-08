@@ -195,6 +195,11 @@ impl Gate {
     /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
     /// it): why a response from `url` that came from `ip` is refused.
     pub(super) fn rebinding_refusal(&self, url: &str, ip: &str) -> Option<String> {
+        // Isolated: the egress listener checked the address before it dialed,
+        // and a response reports the listener's own address.
+        if self.grants.isolated.is_some() {
+            return None;
+        }
         let address = ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
         let parsed = url::Url::parse(url).ok()?;
         let reason = self.policy.lock().unwrap_or_else(PoisonError::into_inner).range_refusal(
