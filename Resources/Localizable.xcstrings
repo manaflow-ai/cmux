@@ -626930,6 +626930,54 @@
             "state": "translated",
             "value": "Add account"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un compte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة حساب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir cuenta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入帳戶"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加帐户"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 추가"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを追加"
+          }
         }
       }
     },
@@ -627589,6 +627637,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Click + in the Coderouter header, choose a provider and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klicke auf + in der Coderouter-Kopfzeile, wähle einen Anbieter und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez sur + dans l’en-tête Coderouter, choisissez un fournisseur et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر على + في رأس Coderouter، واختر موفرًا وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic en + en el encabezado de Coderouter, elige un proveedor e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點擊 Coderouter 標題中的 +，選擇提供者，並在開啟的終端機中登入。每個帳戶會顯示剩餘額度；將游標移到帳戶上並點擊 × 即可移除。當帳戶達到額度上限時，工作階段會轉移到其他帳戶。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击 Coderouter 标题中的 +，选择提供商，并在打开的终端中登录。每个账户会显示剩余额度；将鼠标悬停在账户上并点击 × 即可移除。当账户达到额度上限时，会话会转移到其他账户。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 헤더의 +를 클릭하고 제공업체를 선택한 다음 열리는 터미널에서 로그인하세요. 각 계정에는 남은 한도가 표시됩니다. 계정 위에 마우스를 올리고 ×를 클릭하면 제거할 수 있습니다. 한 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter ヘッダーの + をクリックしてプロバイダーを選び、開いたターミナルでサインインします。各アカウントには残りの上限が表示されます。アカウントにカーソルを合わせて × をクリックすると削除できます。上限に達するとセッションは別のアカウントに移動します。"
           }
         }
       }
