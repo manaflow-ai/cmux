@@ -87,8 +87,13 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-07): every file at 9ae05d5, the sidebar's included
-(9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
+that are wip checkpoints. Current pins (2026-10-08): every file at cc52c46, the sidebar's included
+(cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
+system text menu (Services) and media placeholders in a cross-bubble copy; long Markdown in tiles
+(MarkdownLong.swift) and the off-main streaming tail, both OFF unless `--long-markdown` /
+`--long-tail-off-main`; pinned sidebar tiles as separate layers; a copied attachment says
+[File: name] in every app language. MessagesLab's custom-row host fixes (4dbf4e3) are in its
+CustomRowsHost.swift, which this package does not vendor; 9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
 v1.1, strings from its own catalog in this package's bundle (`SidebarLocalization.bundle = .module`), optional menu actions, host menu items and search sections, injectable unread and
 selection colours, and the updateHover fix (Tests/MessagesLabSidebarTests). 40b9869: MessagesLab's own fill span (the visible transcript plus one height above and
 below, from the view's bounds; our fill-clamp patch is gone) and the Markdown colour fix

@@ -18,7 +18,8 @@ struct SidebarRenderContext {
 
 /// One bitmap's identity.
 struct SidebarBitmapKey: Hashable {
-    enum Kind: Hashable { case row, time, tile }
+    /// `tile`: a pinned tile's name; `tileBubble`: its newest-message bubble.
+    enum Kind: Hashable { case row, time, tile, tileBubble }
     var kind: Kind
     var id: ConversationID
     var version: Int
@@ -309,45 +310,52 @@ enum SidebarDraw {
         return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
     }
 
-    /// A pinned tile: the large avatar, the name under it, the unread dot, and for an unread
-    /// conversation the newest message in a bubble over the avatar's top.
-    static func tile(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, avatars: SidebarAvatarCache) -> CGImage {
-        let m = ctx.metrics, p = ctx.palette
-        let size = CGSize(width: m.tileWidth, height: m.tileHeight)
-        let ar = tileAvatar(m)
-        return bitmap(size: size, ctx: ctx) { g in
-            let av = avatars.image(c.avatar, diameter: ar.width, ctx: ctx)
-            g.saveGState(); g.translateBy(x: ar.minX, y: ar.maxY); g.scaleBy(x: 1, y: -1)
-            g.draw(av, in: CGRect(origin: .zero, size: ar.size)); g.restoreGState()
-            let color = emphasized ? p.selectedText : p.name
-            if !m.compact {
-                let first = c.isGroup ? c.title : String(c.title.split(separator: " ").first ?? Substring(c.title))
-                let nl = truncated(line(first, pinNameFont, color), size.width - 8, pinNameFont, color)
-                let nw = width(nl)
-                draw(nl, x: ((size.width - nw) / 2).rounded(), baseline: ar.maxY + SidebarMetrics.pinNameGap + 11, g)
-            }
-            // The newest unread message over the avatar's top (the typing bubble, a layer,
-            // takes its place while someone types).
-            if c.unread, !c.typing, !m.compact {
-                let maxW = size.width - 6
-                let lines = wrapped(c.preview, bubbleFont, p.bubbleText, width: maxW - 16, lines: 2)
-                let bw = min(maxW, (lines.map(width).max() ?? 0) + 16)
-                let bh = CGFloat(lines.count) * 13 + 9
-                let bottom = ar.minY + ar.height * 0.30
-                let br = CGRect(x: ((size.width - bw) / 2).rounded(), y: max(1, bottom - bh), width: bw.rounded(.up), height: bh)
-                let path = CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)
-                g.setFillColor(p.bubble); g.addPath(path); g.fillPath()
-                // The tail at the lower left, toward the avatar (as an incoming bubble's; to verify).
-                g.addPath(tailPath(bubbleBottomLeft: CGPoint(x: br.minX, y: br.maxY))); g.fillPath()
-                for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: br.minY + 13 + CGFloat(i) * 13 - 1, g) }
-            }
-            if c.unread {
-                // The dot left of the avatar's top, outside the bubble (to verify).
-                let r = ar.width / 2
-                let cx = ar.midX - r * 0.86, cy = ar.midY - r * 0.5
-                g.setFillColor(p.unread)
-                g.fillEllipse(in: CGRect(x: cx - 6, y: cy - 6, width: 12, height: 12))
-            }
+    /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
+    /// unread dot, the name and the newest-message bubble. The name and the bubble are drawn at
+    /// their natural width when they fit the tile and only move when the width changes; they
+    /// are redrawn for a width only when it truncates the name or wraps the bubble.
+    static func tileName(_ c: ConversationSummary) -> String {
+        c.isGroup ? c.title : String(c.title.split(separator: " ").first ?? Substring(c.title))
+    }
+    /// The natural widths of a tile's name and of its preview as one line (no bubble padding).
+    static func tileNatural(_ c: ConversationSummary) -> (name: CGFloat, bubble: CGFloat) {
+        let n = width(line(tileName(c), pinNameFont, CGColor(gray: 0, alpha: 1)))
+        let b = width(line(c.preview.replacingOccurrences(of: "\n", with: " "), bubbleFont, CGColor(gray: 0, alpha: 1)))
+        return (n, b)
+    }
+    /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
+    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
+        natural <= tileWidth - 8 ? 0 : (tileWidth - 8).rounded(.down)
+    }
+    /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
+    static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
+        natural + 16 <= tileWidth - 6 ? 0 : (tileWidth - 6).rounded(.down)
+    }
+    /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
+    static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage {
+        let p = ctx.palette
+        let color = emphasized ? p.selectedText : p.name
+        let full = line(tileName(c), pinNameFont, color)
+        let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
+        let w = max(1, width(l).rounded(.up))
+        return bitmap(size: CGSize(width: w, height: SidebarMetrics.pinNameHeight), ctx: ctx) { g in draw(l, x: 0, baseline: 11, g) }
+    }
+    /// The newest unread message in a bubble (2 lines at most) with its tail at the lower left;
+    /// the bitmap has 1 pt left and 5 pt below the bubble for the tail. `keyWidth` 0: one line.
+    static func tileBubbleImage(_ c: ConversationSummary, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage {
+        let p = ctx.palette
+        let lines = keyWidth > 0 ? wrapped(c.preview, bubbleFont, p.bubbleText, width: keyWidth - 16, lines: 2)
+                                 : [line(c.preview.replacingOccurrences(of: "\n", with: " "), bubbleFont, p.bubbleText)]
+        let bw = ((lines.map(width).max() ?? 0) + 16).rounded(.up)
+        let bw2 = keyWidth > 0 ? min(keyWidth, bw) : bw
+        let bh = CGFloat(lines.count) * 13 + 9
+        return bitmap(size: CGSize(width: bw2 + 1, height: bh + 5), ctx: ctx) { g in
+            let br = CGRect(x: 1, y: 0, width: bw2, height: bh)
+            g.setFillColor(p.bubble)
+            g.addPath(CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)); g.fillPath()
+            // The tail at the lower left, toward the avatar (as an incoming bubble's; to verify).
+            g.addPath(tailPath(bubbleBottomLeft: CGPoint(x: br.minX, y: br.maxY))); g.fillPath()
+            for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: 13 + CGFloat(i) * 13 - 1, g) }
         }
     }
 }
