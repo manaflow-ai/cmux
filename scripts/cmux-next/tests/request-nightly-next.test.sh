@@ -172,6 +172,35 @@ request --tree-ready "$nogate"
   || fail "--tree-ready must pass over a commit without the gate for an older gated one:" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
 
+# The --tree-ready search must finish inside its 5-minute job: it reads one
+# page of push runs and fetches the commits a shallow checkout lacks in one
+# call. Run 37779960297's request job paginated every cmux-next push run, then
+# fetched up to 30 commits one at a time, and hit the timeout, so nothing was
+# promoted after 12:46Z on 2026-10-08.
+runs 13 "$other" feat-cmux-next 12 "$app" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 13 completed success; jobs 12 completed success; jobs 11 completed success
+request --tree-ready "$head"
+runs_call=$(grep 'actions/workflows/cmux-next.yml/runs' "$TMP/gh.log" || true)
+[[ -n "$runs_call" && "$runs_call" != *--paginate* ]] || fail "the push runs must be read as one page:" "${runs_call:-no runs call}"
+git -C "$src" config uploadpack.allowAnySHA1InWant true
+shallow="$TMP/shallow"
+git_q clone -q --no-local --depth=1 "file://$src" "$shallow"
+real_git=$(command -v git)
+mkdir -p "$TMP/gitbin"
+cat > "$TMP/gitbin/git" <<STUB
+#!/usr/bin/env bash
+for arg in "\$@"; do [[ "\$arg" == fetch ]] && { printf '%s\n' "\$*" >> "$TMP/git.log"; break; }; done
+exec "$real_git" "\$@"
+STUB
+chmod +x "$TMP/gitbin/git"
+: > "$TMP/git.log"; : > "$TMP/gh.log"
+status=0
+out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/gitbin:$TMP/bin:$PATH" \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --tree-ready "$head" 2>&1) || status=$?
+[[ "$status" == 0 ]] && dispatched "$app" || fail "a shallow checkout must still promote the newest green commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+fetches=$(grep -c . "$TMP/git.log" || true)
+[[ "$fetches" -le 1 ]] || fail "the missing commits must be fetched in one call, got $fetches:" "$(cat "$TMP/git.log")"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"
