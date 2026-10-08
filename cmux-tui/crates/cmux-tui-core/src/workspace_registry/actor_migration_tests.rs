@@ -201,8 +201,7 @@ fn a_record_takes_the_actor_of_its_own_origins_row() {
         Actor::Peer { id: "websocket".into() },
     )
     .unwrap();
-    mutation_ledger::insert_resource_mutation(&tx, &theirs, "workspace.create", "{}", "{}", 1)
-        .unwrap();
+    insert_resource_mutation(&tx, &theirs, "workspace.create", "{}", "{}", 1).unwrap();
     let mine = WorkspaceMutation::new("shared-key", "cmux-tui", Actor::local_user()).unwrap();
     let ledger = mutation_ledger::KeyedLedger::Terminal;
     mutation_ledger::insert_keyed_mutation(&tx, ledger, &mine, "{}", "{}", 1).unwrap();
