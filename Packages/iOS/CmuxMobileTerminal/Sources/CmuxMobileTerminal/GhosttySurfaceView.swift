@@ -5925,8 +5925,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
         let naturalGridChanged = reportGrid != lastReportedSize
-        let shouldReportNaturalSize = naturalGridChanged ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+        let shouldReportNaturalSize = TerminalViewportReportPolicy(
+            naturalGridChanged: naturalGridChanged,
+            shouldReassertNaturalSize: shouldReassertNaturalSize,
+            effectiveMatchesNatural: effectiveMatchesNatural,
+            viewportReportPending: viewportReportPending
+        ).shouldReport
         let canPublishSettledKeyboardViewport =
             publishSettledKeyboardViewportImmediately
             && alternateScreenSizingEnabled
