@@ -5617,13 +5617,16 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
-    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
-        _ = NSApplication.shared
+    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
 
-        let surface = makeTrackedTerminalSurface()
-        let hostedView = surface.hostedView
-
-        let window = NSWindow(
+        let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -5631,8 +5634,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
             window.orderOut(nil)
         }
+
+        let panel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+        let surface = panel.surface
+        let hostedView = panel.hostedView
+        surfacesToRelease.append(surface)
 
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -5647,18 +5659,26 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        await AppKitTestEventPump().startSurface(surface)
+        XCTAssertTrue(surface.hasLiveSurface, "Key-up suppression must exercise a live terminal")
 
         let searchState = TerminalSurface.SearchState(needle: "")
         surface.searchState = searchState
         hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let mounted = await AppKitTestEventPump().waitUntil {
+            self.findEditableTextField(in: hostedView) != nil
+        }
+        XCTAssertTrue(mounted, "Expected mounted find text field")
 
         guard let searchField = findEditableTextField(in: hostedView) else {
             XCTFail("Expected mounted find text field")
             return
         }
-        window.makeFirstResponder(searchField)
+        XCTAssertTrue(window.makeFirstResponder(searchField))
+        let focused = await AppKitTestEventPump().waitUntil {
+            self.firstResponderOwnsTextField(window.firstResponder, textField: searchField)
+        }
+        XCTAssertTrue(focused, "Escape must start in the find field")
 
         var escapeKeyUpCount = 0
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -5694,9 +5714,9 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        NSApp.sendEvent(escapeKeyDown)
-        NSApp.sendEvent(escapeKeyUp)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.sendEvent(escapeKeyDown)
+        window.sendEvent(escapeKeyUp)
+        await AppKitTestEventPump().drain()
 
         XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
         XCTAssertEqual(

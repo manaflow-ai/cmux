@@ -5012,6 +5012,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         unexpectedReadinessAfterAcknowledgement.isInverted = true
 
         defer {
+            closeBridge.signal()
+            allowResizeResponse.signal()
             Darwin.close(listenerFD)
             Darwin.close(bridge.fd)
             unlink(socketPath)
@@ -5139,7 +5141,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
             bridgeReady.signal()
-            _ = closeBridge.wait(timeout: .now() + 5)
+            // The test owns EOF. A competing five-second timeout used to close
+            // the bridge while readiness was still retrying on a busy runner.
+            closeBridge.wait()
         }
 
         let process = Process()
@@ -5170,20 +5174,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
         XCTAssertEqual(
-            readinessAcknowledged.wait(timeout: .now() + 5),
-            .success,
-            "Expected a retry to acknowledge persistent PTY readiness"
-        )
-
-        XCTAssertEqual(
             resizeRequestReceived.wait(timeout: .now() + 5),
             .success,
             "Expected ssh-pty-attach to issue its initial resize RPC after bridge ready"
         )
+        // Let the resize RPC settle before waiting for the independent
+        // readiness retry loop. The two clients are concurrent, but holding a
+        // mock response open can starve the test host while it is under load.
+        allowResizeResponse.signal()
+        XCTAssertEqual(
+            readinessAcknowledged.wait(timeout: .now() + 15),
+            .success,
+            "Expected a retry to acknowledge persistent PTY readiness; requests: \(state.snapshot())"
+        )
 
         closeBridge.signal()
         wait(for: [bridgeHandled], timeout: 5)
-        allowResizeResponse.signal()
 
         XCTAssertEqual(waitForProcessExit(process, timeout: 5), .success)
 
