@@ -126,7 +126,7 @@ export function buildCmuxTraceSampler(
   });
 }
 
-const DEFAULT_BASE_SAMPLE_RATIO = 0.02;
+export const DEFAULT_BASE_SAMPLE_RATIO = 0.02;
 
 function baseSampleRatio(env: Record<string, string | undefined>): number {
   const raw = env.CMUX_OTEL_BASE_SAMPLE_RATIO?.trim();

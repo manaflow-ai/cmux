@@ -35,6 +35,16 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Upload unsigned nightly app$/ { in_upload=1; next }
+  in_upload && /^      - name:/ { in_upload=0 }
+  in_upload && /compression-level: 0/ { found=1 }
+  END { exit !found }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the precompressed unsigned app artifact must disable a second compression pass"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -418,6 +428,57 @@ if ! awk '
   END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
+  exit 1
+fi
+
+if ! python3 - "$WORKFLOW_FILE" <<'PY'
+import re
+import sys
+
+workflow = open(sys.argv[1], encoding="utf-8").read()
+
+def step(name):
+    match = re.search(
+        rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|^  [A-Za-z0-9_-]+:)",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match, f"missing workflow step: {name}"
+    return match.group(1)
+
+helper = step("Start Computer Use helper notarization")
+assert "if: needs.decide.outputs.fast_build != 'true'" in helper
+
+codesign = step("Codesign apps")
+assert 'if [ "$NIGHTLY_FAST_BUILD" = "true" ]' in codesign
+assert "sign_mode=all" in codesign
+assert "sign_mode=all-except-computer-use" in codesign
+
+smoke = step("Smoke launch signed app before notarization")
+cli_smoke = step("Smoke bundled CLI against the signed app")
+assert "if:" not in smoke and "if:" not in cli_smoke
+
+notarize = step("Notarize app ticket through final DMG")
+assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
+assert "id: notarize-nightly" in notarize
+
+recovery = step("Upload pending notarization recovery artifact")
+assert "failure() && needs.decide.outputs.fast_build != 'true' && steps.notarize-nightly.outcome == 'failure'" in recovery
+assert "NIGHTLY_DMG_RELEASE" in recovery
+assert ".notarization.state" in recovery
+assert ".notarization.log" in recovery
+assert "CHANNEL_APP_PATH" in recovery
+
+fast_package = step("Package signed fast dogfood DMG")
+assert "if: needs.decide.outputs.fast_build == 'true'" in fast_package
+assert 'CMUX_SKIP_NOTARIZATION: "true"' in fast_package
+assert "NIGHTLY_DMG_IMMUTABLE" in fast_package
+
+syspolicy = step("Gate distribution with syspolicy_check")
+assert "if: needs.decide.outputs.fast_build != 'true'" in syspolicy
+PY
+then
+  echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"
   exit 1
 fi
 

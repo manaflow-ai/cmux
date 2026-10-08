@@ -848,6 +848,151 @@ def test_checker_baseline_ratchet() -> None:
 
 
 
+TRIGGER_PATHS = [
+    "web/**",
+    ".github/workflows/web-complexity.yml",
+    ".github/workflows/web-complexity-trusted.yml",
+    "scripts/ci/scope-web-complexity.py",
+    "scripts/ci/web_complexity_scope.py",
+]
+
+
+def test_pull_request_target_queues_only_for_web_or_policy_changes() -> None:
+    """A pull request that touches no web/ source or complexity policy starts no run.
+
+    "Web complexity" is not a required check on main, so a path filter cannot
+    strand a pull request on an expected check. GitHub evaluates the filter on
+    the pull request's own diff (against the merge base), so a stale branch
+    that touches no web file is not queued because main changed web/.
+    """
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    events = document.get("on", document.get(True))
+    assert events["pull_request_target"].get("paths") == TRIGGER_PATHS, (
+        "pull_request_target must queue only for web/** and complexity policy changes"
+    )
+
+
+def _step_run(name: str) -> tuple[str, dict]:
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(step for step in document["jobs"]["complexity"]["steps"] if step.get("name") == name)
+    return step["run"], step.get("env", {})
+
+
+def _stale_branch_fixture(pr_change) -> tuple[Path, dict[str, str], tempfile.TemporaryDirectory[str]]:
+    """main advanced (web source and the baseline changed) after the PR branched.
+
+    Returns the workspace (trusted/ and candidate/ checkouts as the workflow
+    lays them out) and the step environment.
+    """
+    temp = tempfile.TemporaryDirectory()
+    root = Path(temp.name)
+    upstream = root / "upstream"
+    upstream.mkdir()
+    git(upstream, "init", "-q", "-b", "main")
+    git(upstream, "config", "user.email", "ci@example.com")
+    git(upstream, "config", "user.name", "CI")
+    git(upstream, "config", "commit.gpgsign", "false")
+    write(upstream, BASELINE, BASELINE_ENTRY)
+    write(upstream, "web/app/debt.ts", "export const debt = 1;\n")
+    write(upstream, "README.md", "base\n")
+    commit(upstream, "branch point")
+    git(upstream, "checkout", "-q", "-b", "pr")
+    pr_change(upstream)
+    head = commit(upstream, "pull request change")
+    git(upstream, "checkout", "-q", "main")
+    # Main moves on: a web source edit and a baseline cleanup the PR never saw.
+    write(upstream, "web/app/other.ts", "export const other = 2;\n")
+    write(upstream, BASELINE, "")
+    trusted_sha = commit(upstream, "main moves on")
+
+    workspace = root / "workspace"
+    workspace.mkdir()
+    run(["git", "clone", "-q", "--depth=1", "--branch", "pr", upstream.as_uri(), str(workspace / "candidate")])
+    # As on a runner: the shallow candidate holds main's tip but no history
+    # down to the merge base.
+    git(workspace / "candidate", "fetch", "-q", "--depth=1", upstream.as_uri(), "main")
+    run(["git", "clone", "-q", upstream.as_uri(), str(workspace / "trusted")])
+    git(workspace / "trusted", "checkout", "-q", trusted_sha)
+    scripts = workspace / "trusted" / "scripts" / "ci"
+    scripts.mkdir(parents=True, exist_ok=True)
+    shutil.copy(SCOPER, scripts / "scope-web-complexity.py")
+    output = root / "github-output.txt"
+    output.write_text("", encoding="utf-8")
+    env = {
+        "PATH": __import__("os").environ["PATH"],
+        "HOME": str(root),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GITHUB_WORKSPACE": str(workspace),
+        "GITHUB_OUTPUT": str(output),
+        "RUNNER_TEMP": str(root),
+        "TRUSTED_SHA": trusted_sha,
+        "CANDIDATE_SHA": head,
+        "UPSTREAM_REPOSITORY": "fixture/unused",
+        "UPSTREAM_URL": upstream.as_uri(),
+    }
+    return workspace, env, temp
+
+
+def _outputs(env: dict[str, str]) -> dict[str, str]:
+    outputs: dict[str, str] = {}
+    for line in Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8").splitlines():
+        key, value = line.split("=", 1)
+        outputs[key] = value
+    return outputs
+
+
+def _run_step(name: str, workspace: Path, env: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
+    script, step_env = _step_run(name)
+    full_env = dict(env)
+    for key, value in step_env.items():
+        if "${{" not in str(value):
+            full_env[key] = str(value)
+    if "steps.scope.outputs.diff_base" in str(step_env.get("DIFF_BASE", "")):
+        full_env["DIFF_BASE"] = _outputs(env).get("diff_base", "")
+    return run(["bash", "-e", "-c", script], cwd=workspace, env=full_env, check=False)
+
+
+def test_stale_branch_without_web_changes_skips_the_scan() -> None:
+    """The pull request's own changes decide the scope, not main's later commits.
+
+    2026-10-06 20:00Z: the compare API hit the installation rate limit, the
+    local fallback diffed main's tip against a stale head (two-dot), counted
+    155 of main's own web changes as the PR's, and the full scan of the stale
+    head failed 357 runs on code main had already fixed.
+    """
+    workspace, env, temp = _stale_branch_fixture(
+        lambda repo: write(repo, "Sources/App.swift", "let answer = 42\n"))
+    try:
+        result = _run_step("Select complexity work before installing Bun", workspace, env)
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+        assert _outputs(env).get("run") == "false", (
+            _outputs(env), result.stdout.decode("utf-8", errors="replace"))
+    finally:
+        temp.cleanup()
+
+
+def test_stale_branch_web_change_scans_only_its_own_files() -> None:
+    """A stale branch that edits one web file scans that file, not a full scan.
+
+    Main's baseline cleanup after the branch point is not the pull request's
+    policy change, so it must not force the conservative full scan of the
+    stale head.
+    """
+    workspace, env, temp = _stale_branch_fixture(
+        lambda repo: write(repo, "web/app/page.tsx", "export const value = 2;\n"))
+    try:
+        result = _run_step("Select complexity work before installing Bun", workspace, env)
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+        assert _outputs(env).get("run") == "true", _outputs(env)
+        result = _run_step("Determine pull-request complexity scope", workspace, env)
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+        outputs = _outputs(env)
+        assert outputs.get("mode") == "changed", (outputs, result.stdout.decode("utf-8", errors="replace"))
+        assert outputs.get("selected_count") == "1", outputs
+    finally:
+        temp.cleanup()
+
+
 
 def main() -> int:
     """Validate the trusted web-complexity workflow security contract."""
@@ -925,6 +1070,9 @@ def main() -> int:
     test_checker_judges_trusted_files_in_the_merge()
     test_merge_step_merges_only_when_rebase_merging_is_off()
     test_checker_baseline_ratchet()
+    test_pull_request_target_queues_only_for_web_or_policy_changes()
+    test_stale_branch_without_web_changes_skips_the_scan()
+    test_stale_branch_web_change_scans_only_its_own_files()
     print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
 

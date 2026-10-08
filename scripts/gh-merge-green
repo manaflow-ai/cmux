@@ -1,5 +1,6 @@
 #!/bin/bash
 # gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
 set -Eeuo pipefail
@@ -100,6 +101,11 @@ maybe_update_checkout() {
 }
 
 maybe_update_checkout "$ref" "$@"
+
+# --revert: one-command rollback. The revert PR lands through this same tool.
+if [ "$ref" = --revert ]; then
+  exec python3 "$script_dir/ci/revert_pr.py" "$@"
+fi
 
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
@@ -232,10 +238,12 @@ if workflow_on_base ci-macos.yml; then
   if reports_ci_status; then has_ci=1; fi
 fi
 must=()
+excuse_runs=()
+red_lanes=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
-# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
-# Require it only if it was scheduled or the diff touches app code.
+# Use a conservative path fallback until the exact-head CI routing is available.
+needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
@@ -244,7 +252,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       'restore GitHub API access, then retry the exact-head check'
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
-    must+=("macos / macOS compile admission")
+    needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
@@ -263,6 +271,23 @@ if ! runs=$(jq -r '
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
+fi
+
+# CI's package graph can exclude iOS-only Swift changes that the path fallback
+# includes. Accept an explicit skip only from GitHub Actions in the same suite
+# as the latest successful ci-status. Missing or unrelated routing stays closed.
+# A reported compile-admission check is still required below, even with a skip.
+if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
+  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+   | group_by(.name) | map(last)) as $latest
+  | ($latest[] | select(.name == "ci-status")) as $ci
+  | $ci.status == "completed" and $ci.conclusion == "success"
+    and $ci.app.slug == "github-actions" and $ci.check_suite.id != null
+    and any($latest[];
+      .name == "macos" and .status == "completed" and .conclusion == "skipped"
+      and .app.slug == "github-actions" and .check_suite.id == $ci.check_suite.id)
+' <<<"$check_runs_json" >/dev/null 2>&1; then
+  must+=("macos / macOS compile admission")
 fi
 
 # God-file, localization and concurrency lint fail only on the change itself, so
@@ -405,10 +430,10 @@ for name in open(sys.argv[2]).read().split():
     case "$verdict" in
       *" is success") ;;
       *" is failure")
+        # Judged below: a failure the base branch also has is excused.
         if [ -z "$override_reason" ]; then
-          refuse \
-            "not green: cmux-next run $verdict on $sha" \
-            "fix the failing cmux-next lane, or pass --override with the base-red evidence"
+          excuse_runs+=(--run "${verdict%% *}")
+          red_lanes+=("cmux-next run $verdict")
         fi
         ;;
       *)
@@ -497,14 +522,26 @@ for name in "${must[@]+"${must[@]}"}"; do
       ;;
   esac
 done
-if [ "${#bad_required[@]}" -gt 0 ] && [ -z "$override_reason" ]; then
-  for name in "${bad_required[@]}"; do
-    fix="repair '$name' on the exact head, then retry"
-    if [ "$name" = ci-status ]; then
-      fix='repair CI for the pull request head, then retry the exact-head check'
-    fi
-    refuse "not green: '$name' is not successful on $sha" "$fix"
+# A red lane that fails the same way on the base branch's latest completed run
+# (same failed steps, test names and error lines) is excused and named; any
+# failure the base does not have, and any runner refusal, still blocks.
+if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excuse_runs[@]}" -gt 0 ]; }; then
+  excuse_args=("${excuse_runs[@]+"${excuse_runs[@]}"}")
+  for name in "${bad_required[@]+"${bad_required[@]}"}"; do
+    excuse_args+=(--check "$name")
+    red_lanes+=("'$name'")
   done
+  excuse_errors=$(mktemp)
+  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+      "${excuse_args[@]}" 2>"$excuse_errors"); then
+    why=$(cat "$excuse_errors")
+    rm -f "$excuse_errors"
+    refuse \
+      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (${why:-the base comparison failed})" \
+      "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
+  fi
+  rm -f "$excuse_errors"
+  printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
 if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi

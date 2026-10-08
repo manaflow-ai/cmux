@@ -476,6 +476,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a later send to that row succeeds.
     public internal(set) var agentFeedFailedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
     var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
+    @ObservationIgnored var agentFeedStopReasonCache = AgentFeedStopReasonCache()
     var agentFeedKnownRevisionsByMac: [String: Int] = [:]
     /// Free-text terminal replies this device sent, keyed by the replied row,
     /// so the row keeps showing what was said across snapshot refreshes.

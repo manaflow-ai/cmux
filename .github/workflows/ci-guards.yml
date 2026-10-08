@@ -146,6 +146,14 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate gh-merge-green --revert
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green_revert.py
+
+      - name: Validate base-red excusal for gh-merge-green
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_base_red_excuse.py
+
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -188,7 +196,7 @@ jobs:
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: python3 tests/test_lint_feature_flags_scope.py
+        run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_cloud_upgrade_rollout_retirement.py
 
       - name: Validate feature flag review lead-time report
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -501,13 +509,17 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_keepalive_busy.sh
 
-      - name: Test the Testbox approval helper against fake gh and blacksmith
+      - name: The retired Testbox approve helper approves nothing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_approve.sh
 
+      - name: The Testbox demo stops its box and cancels its run on every failure
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_demo_cleanup.sh
+
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -1139,6 +1151,10 @@ jobs:
       - name: Validate nightly notarization behavior
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_nightly_dmg.sh
+
+      - name: Validate automatic nightly notarization recovery
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_nightly_notarization_recovery.sh
 
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}

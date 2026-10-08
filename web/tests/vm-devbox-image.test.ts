@@ -21,6 +21,9 @@ import {
   AGENT_PIN_ARGS,
   DEVBOX_SOURCE_SCHEMA,
   DEVBOX_TEMPLATE_FILES,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
   agentPinDrift,
   devboxAgentPins,
   devboxCuaDriverVersion,
@@ -121,6 +124,7 @@ describe("devbox image template", () => {
       "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "cmux-tui-state-mount",
       "codex-managed.toml",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
@@ -139,6 +143,7 @@ describe("devbox image template", () => {
       "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "cmux-tui-state-mount",
       "codex-managed.toml",
       "seed-history",
     ]);
@@ -186,10 +191,37 @@ describe("devbox image template", () => {
       const result = await runChild("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
-    for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
+    for (const name of ["cmux-devbox-boot", "cmux-tui-state-mount", "cmux-motd"]) {
       const result = await runChild("sh", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
+  });
+
+  test("reserves an isolated, preallocated cmux-tui state filesystem without resizing the VM", () => {
+    const mount = read("cmux-tui-state-mount");
+    const freestyle = readScript("build-devbox-freestyle.ts");
+    expect(mount).toContain(`STATE_SIZE_BYTES=${CMUX_TUI_STATE_RESERVATION_BYTES}`);
+    expect(mount).toContain("fallocate -l \"$STATE_SIZE_BYTES\"");
+    expect(mount).toContain("mkfs.ext4 -F -m 0");
+    expect(mount).toContain("mount -o loop");
+    expect(mount).toContain("[ -f \"$STATE_IMAGE\" ] || return 0");
+    expect(read("cmux-devbox-boot")).toContain("cmux-tui state reservation is unavailable");
+    expect(read("cmux-devbox-boot")).toContain(`STATE_RESERVATION_MARKER=${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}`);
+    expect(read("cmux-devbox-boot")).toContain("[ ! -x \"$STATE_MOUNT\" ] || [ ! -f \"$STATE_IMAGE\" ]");
+    expect(freestyle).toContain(`await put("cmux-tui-state-mount", "${CMUX_TUI_STATE_MOUNT_HELPER_PATH}", 0o755);`);
+    expect(freestyle).toContain('"cmux-tui-state-reservation"');
+    expect(freestyle).toContain("stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH}");
+    expect(freestyle).toContain("printf 'cmux-tui-state-v1");
+    expect(freestyle).toContain("> ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}");
+    expect(mount).toContain('if [ -d "$state" ]; then');
+    expect(mount).toContain('cp -a "$state/." "$seed/"');
+    expect(mount).toContain('cp -a "$seed/." "$state/"');
+    expect(mount).not.toContain('cp -a "$state/." "$seed/" 2>/dev/null || true');
+    expect(mount).not.toContain('cp -a "$seed/." "$state/" 2>/dev/null || true');
+    // The resource ladder remains the source of the VM's provisioned disk;
+    // this fix must not smuggle in a larger storageMb or a new image size.
+    expect(freestyle).not.toContain("storageMb: 65536");
+    expect(freestyle).not.toContain("CMUX_VM_DISK_MB");
   });
 
   test("the login banner is cmux's, offline, and installed everywhere the base motd was", () => {
@@ -541,6 +573,9 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('BIN="$CMUX_TUI_BIN"');
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
+    expect(dockerfile).toContain("COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount");
+    expect(dockerfile).toContain("    e2fsprogs \\");
+    expect(readScript("build-devbox-freestyle.ts")).toContain('await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);');
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
     // identity on the platform instance id and holds the daemon on the
     // builder. A fork or checkpoint of a running machine carries its parent's
@@ -731,7 +766,7 @@ describe("devbox image template", () => {
     expect(dockerfile).toContain("    bubblewrap \\");
     expect(dockerfile).toContain("bwrap --version");
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux bubblewrap");
+    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
     expect(bake).toContain("bwrap --version");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.

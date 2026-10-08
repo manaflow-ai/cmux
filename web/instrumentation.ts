@@ -3,7 +3,7 @@ import { DependencySpanProcessor } from "./services/observability/dependencies";
 import { buildCmuxTraceSampler } from "./services/observability/sampler";
 import {
   scrubSentryEvent,
-  shouldSendCoderouterSentryEvent,
+  shouldSendSentryEvent,
 } from "./services/sentry";
 import { preconnectFreestyle } from "./services/vms/drivers/freestyleWarmup";
 
@@ -62,8 +62,9 @@ export async function register() {
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
       release: process.env.VERCEL_GIT_COMMIT_SHA,
       sendDefaultPii: false,
-      // Vercel OpenTelemetry owns tracing. This project is intentionally only
-      // for coderouter errors, not every request served by the shared cmux app.
+      // Vercel OpenTelemetry owns tracing. This project takes deliberately
+      // reported cmux errors and coderouter errors, not every request error
+      // served by the shared app (see shouldSendSentryEvent).
       tracesSampleRate: 0,
       // Sentry's NodeFetch integration instruments undici on the global OTel
       // provider and emitted a bare "GET"/"POST" client span next to every
@@ -72,7 +73,7 @@ export async function register() {
       // no consumer. Postgres and the rest of the defaults stay.
       integrations: (defaults) => defaults.filter((integration) => integration.name !== "NodeFetch"),
       beforeSend: (event) =>
-        shouldSendCoderouterSentryEvent(event) ? scrubSentryEvent(event) : null,
+        shouldSendSentryEvent(event) ? scrubSentryEvent(event) : null,
     });
   }
 }
