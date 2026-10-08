@@ -240,10 +240,10 @@ WebSocket is opt-in and can run alongside either the local TUI or `--headless`:
 
 ```text
 cmux --ws 127.0.0.1:7681
-cmux --headless --ws 127.0.0.1:7681
+cmux --headless --ws 127.0.0.1:7681 --ws-token <secret>
 ```
 
-A headless daemon has no TUI to approve a pairing, so give it `--ws-token`, or approve from the verified cmux app. On unsigned DEV builds the app's install-key prover is a same-user file, so a same-user process can pass as the app; the approval rule holds against agents only on signed builds (identity.md threat model).
+A headless daemon has no TUI to approve a pairing, so `--headless --ws` without `--ws-token` (or `server.ws_token`) refuses to start (fail closed). The rule that only a human surface approves a pairing holds against same-user agents on signed builds only: on an unsigned DEV build the app's install-key prover is a same-user file, so a same-user process can pass as the app (identity.md threat model).
 
 The equivalent config is:
 
