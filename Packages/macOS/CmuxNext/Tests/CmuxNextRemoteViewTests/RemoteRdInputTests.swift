@@ -70,3 +70,24 @@ struct RemoteRdInputTests {
         #expect(input.nextDeadlineMicros != nil)
     }
 }
+
+/// Service events (rd change C2, tag 0x80): opaque bytes of the session's
+/// service, for example one rb/1 input event as JSON.
+struct RemoteRdServiceInputTests {
+    @Test func aServiceEventBecomesTag0x80WithFlagsAndLength() throws {
+        let input = try #require(RemoteRdInput(carrier: .datagram))
+        #expect(try input.sendService(Data("{}".utf8), mustDeliver: true) == 1)
+        let packets = try input.packets(nowMicros: 0)
+        try #require(packets.count == 1)
+        // u32 first_seq 1, u8 count 1, tag 0x80, flags MUST_DELIVER, u16 len 2, bytes.
+        #expect(Array([UInt8](packets[0])[16...]) == [1, 0, 0, 0, 1, 0x80, 1, 2, 0, 0x7B, 0x7D])
+    }
+
+    @Test func emptyOrOversizedServiceBytesAreRefused() throws {
+        let input = try #require(RemoteRdInput(carrier: .datagram))
+        #expect(throws: RemoteRdCoreError.self) { try input.sendService(Data(), mustDeliver: false) }
+        let tooLong = Data(repeating: 0x20, count: RemoteRdInput.maxServiceBytes + 1)
+        #expect(throws: RemoteRdCoreError.self) { try input.sendService(tooLong, mustDeliver: false) }
+        #expect(try input.sendService(Data(repeating: 0x20, count: RemoteRdInput.maxServiceBytes), mustDeliver: false) == 1)
+    }
+}

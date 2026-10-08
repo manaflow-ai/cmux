@@ -23,25 +23,36 @@ public protocol PageSurface: AnyObject {
 /// snapshot.
 @MainActor
 public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
-    public let descriptor: PageDescriptor
+    public internal(set) var descriptor: PageDescriptor
     /// The engine options the page was made with (``PageEngineOptions``).
     public let engineOptions: PageEngineOptions
     public let router: PageRouter
-    let webView: WKWebView
+    let webView: PageWKWebView
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
     /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
-    private let bridge: any PageHostBridge
-    private(set) var loaded = false
+    let bridge: any PageHostBridge
+    var loaded = false
+    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var shouldFocusOnAttach = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
-    private let dynamicResources: (any PageDynamicResourceSource)?
+    var dynamicResources: (any PageDynamicResourceSource)?
+    /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
+    public let isPooled: Bool
+    var pooledOwner: PagePooledOwner?
+    /// Whether a pooled host has received real user input (a key or mouse event) since its claim.
+    /// Page messages do not count: a parked page mounts when it is shown, so every claim starts
+    /// with its own subscriptions and reads; the parking reset drops those and clears storage.
+    public internal(set) var touched = false
+    /// Prepared page activity does not count as user activity while the view is parked.
+    public internal(set) var countsTouches = true
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
@@ -70,7 +81,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
-    private var crashReloads = PageCrashReloads()
+    var crashReloads = PageCrashReloads()
+    let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
 
@@ -80,8 +92,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
-        self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes,
-                  options: options, surface: surface, dynamicResources: dynamicResources)
+        let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
+        let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options)
+        self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
+                  routes: routes, route: route, options: options, surface: surface,
+                  dynamicResources: dynamicResources, pooled: false, load: true)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -133,33 +148,29 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `surface` is the initial ``themeSurface`` (the diff page passes `.diff`, so
     /// `appearance.surfaces.diff` reaches `--cmux-surface-background`); `dynamicResources` answers
     /// the descriptor's dynamic prefixes (a 404 without one).
-    public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
-                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+    public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+                             documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
+        let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
+                                                                       dynamicSource: dynamicResources),
+                                          documentAttributes: documentAttributes, options: options)
+        self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
+                  routes: routes, route: route, options: options, surface: surface,
+                  dynamicResources: dynamicResources, pooled: false, load: true)
+    }
+
+    init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
+         inputReadiness: PageInputReadiness, routes: [PageRoute], route: String?, options: PageEngineOptions,
+         surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool) {
         self.descriptor = descriptor
         engineOptions = options
+        isPooled = pooled
+        pooledOwner = nil
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        if options.fullFrameRate {
-            WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
-        }
-        configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources),
-                                          forURLScheme: PageDescriptor.scheme)
-        configuration.userContentController.addUserScript(
-            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        // The scroller style is set before the page's code runs too (the theme refreshes it), so a
-        // page with its own scrollers starts in the right mode.
-        var startAttributes = documentAttributes
-        if startAttributes["scrollers"] == nil { startAttributes["scrollers"] = SystemScrollers.pageValue }
-        if let script = Self.attributesScript(startAttributes) {
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        }
-        inputReadiness = PageInputReadiness(configuration: configuration)
+        self.inputReadiness = inputReadiness
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
         bridge = WebKitPageHostBridge(webView: webView)
@@ -179,6 +190,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.isInspectable = true
         #endif
         webView.navigationDelegate = self
+        webView.onUserEvent = { [weak self] in self?.noteTouch() }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
@@ -201,7 +213,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             await self?.receive(message)
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
-        webView.load(URLRequest(url: descriptor.url(route: route)))
+        installDocumentStartTheme()
+        if load { webView.load(URLRequest(url: descriptor.url(route: route))) }
     }
 
     @available(*, unavailable)
@@ -226,6 +239,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.pageZoom = Double(DesignSettings.shared.uiScale)
     }
 
+    /// Marks a claimed pooled host as used by real input.
+    func noteTouch() {
+        if countsTouches { touched = true }
+    }
+
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
     func performTitleBarDoubleClick() {
@@ -246,7 +264,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
     /// by itself (its own links and history).
-    public private(set) var route: String?
+    public internal(set) var route: String?
 
     /// Shows `route` (the URL fragment) in the page.
     public func open(route: String) {
@@ -281,13 +299,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         window?.makeFirstResponder(webView)
     }
 
-    /// The tab closed: cancels subscriptions and stops the bridge.
-    public func close() {
-        router.close()
-        bridge.uninstall()
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
-    }
-
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
     public private(set) var paintedUptime: TimeInterval?
@@ -318,6 +329,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         applyTheme()
         windowDidChangeChrome()
+        if shouldFocusOnAttach, window != nil {
+            shouldFocusOnAttach = false
+            focusPage()
+        }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -360,6 +375,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()
+        _ = claimState.end()
+        loaded = false
         paintedUptime = nil
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
@@ -370,24 +387,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         applyUIScale()
         applyTheme(force: true)
         applyLiveDocumentAttributes()
+        resumeLoadWaiters()
     }
 
-    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        loaded = false
-        router.reset()
-        let reloading = crashReloads.shouldReload(at: now())
-        if reloading {
-            webView.reload()
-        } else {
-            logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
-        }
-        onCrash?(self, reloading)
-    }
-
-    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
-    /// notice's Reload button).
-    public func reloadAfterCrashes() {
-        crashReloads = PageCrashReloads()
-        webView.reload()
-    }
 }

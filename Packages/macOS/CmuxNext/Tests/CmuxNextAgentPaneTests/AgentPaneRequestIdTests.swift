@@ -116,4 +116,18 @@ import Testing
         #expect(AcpmuxPaneMethods.breaksParamsRule(frame(["cmuxGesture": "t", "claudeCode": [:]]), modeFields: nil))
         #expect(AcpmuxPaneMethods.breaksParamsRule(frame(["cmuxGesture": "t", "acpmux": [:]]), modeFields: nil))
     }
+
+    /// A question card answers with `answers` (plans/cmux-next/agent-questions.md): the params rule
+    /// lets it through and, as an allow, it still needs a fresh user gesture.
+    @Test func aQuestionAnswerPassesTheParamsRuleAndNeedsAGesture() {
+        let frame: [String: Any] = ["method": "_acpmux/permission_respond", "params": [
+            "sessionId": "s", "permissionId": "p1", "optionId": "allow_once", "answers": ["Which one?": "B"],
+        ]]
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(frame, modeFields: []))
+        #expect(AcpmuxPaneMethods.needsGesture(frame, options: AcpmuxPermissionOptions()))
+        let extra: [String: Any] = ["method": "_acpmux/permission_respond", "params": [
+            "sessionId": "s", "permissionId": "p1", "optionId": "allow_once", "updatedInput": ["x": 1],
+        ]]
+        #expect(AcpmuxPaneMethods.breaksParamsRule(extra, modeFields: []))
+    }
 }

@@ -39,8 +39,34 @@ struct GlobalHotKeyServiceTests {
         var runs = 0
         if bound { registry.bind("showHideAllWindows") { runs += 1 } }
         let registrar = FakeRegistrar()
-        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi }, showHideEnabled: { true })
         return (registry, registrar, service, { runs })
+    }
+
+    /// `app.globalHotKey` is off by default: Show/Hide All Windows takes no
+    /// system-wide key until the user turns it on; turning it off releases it.
+    @Test func showHideAllWindowsWaitsForAppGlobalHotKey() {
+        let registry = ActionRegistry.standard()
+        registry.bind("showHideAllWindows") {}
+        let registrar = FakeRegistrar()
+        let hotKey = CarbonHotKey(keyCode: UInt32(kVK_ANSI_Period), modifiers: controlOptionCommand)
+
+        let byDefault = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        byDefault.start()
+        #expect(!registrar.held.values.contains(hotKey))
+        byDefault.stop()
+
+        var enabled = false
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi }, showHideEnabled: { enabled })
+        service.start()
+        defer { service.stop() }
+        #expect(!registrar.held.values.contains(hotKey))
+        enabled = true
+        service.apply()
+        #expect(registrar.held.values.contains(hotKey))
+        enabled = false
+        service.apply()
+        #expect(!registrar.held.values.contains(hotKey))
     }
 
     @Test func showHideAllWindowsRegistersItsDefaultSystemWide() {

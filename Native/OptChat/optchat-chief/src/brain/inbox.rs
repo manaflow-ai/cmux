@@ -3,9 +3,9 @@
 //! (re)connect, and the cursor itself, which moves only past messages that
 //! are in the OptChat log, so a restart never loses or repeats one.
 //!
-//! Deviation: mux/host answers every conversation `agent_mux` joins. OptChat
-//! is one chat with one user (section 1), so this Chief reads only its own
-//! conversation; mentions in other conversations are not answered.
+//! Other conversations (G9): the main conversation's stream is the only one
+//! the brain subscribes to. Another conversation is read only when the
+//! chief's wake queue names it (`side.rs`), and answered there.
 
 use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
 
@@ -42,14 +42,14 @@ impl Brain {
                         ));
                         self.handled = cursor;
                         self.state.logged_seq = cursor;
-                        self.state
-                            .outbox
-                            .retain(|e| e.conversation == conversation.id);
+                        // Side conversations' replies stay.
+                        self.state.outbox.retain(|e| e.conversation != old);
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
                 }
                 self.summary = Some(conversation);
+                self.prune_floors();
                 self.post_notices();
                 self.flush_outbox();
                 self.catch_up();
@@ -82,6 +82,7 @@ impl Brain {
                 (self.log)(&why);
                 self.fatal = Some(why);
             }
+            DaemonEvent::MuxWake(wakes) => self.on_mux_wake(wakes),
         }
     }
 
@@ -178,8 +179,8 @@ impl Brain {
             // answers, is logged, and is not a new message (it neither
             // queues nor interrupts the turn).
             match crate::approval::Answer::parse(&text) {
-                Some(answer) if !self.approvals.is_empty() => {
-                    self.answer_approval(answer, &message);
+                Some(answer) if self.has_approval(None) => {
+                    self.answer_approval(answer, &message, None);
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
                         (self.log)(&format!("logging an approval failed: {e}"));
                     }
@@ -202,6 +203,7 @@ impl Brain {
                         images,
                         Source::Message {
                             seq: message.seq,
+                            id: message.id.clone(),
                             remote,
                         },
                     );
@@ -209,14 +211,11 @@ impl Brain {
                 }
             }
         }
-        if !self
-            .queue
-            .iter()
-            .any(|q| matches!(q.source, Source::Message { .. }))
-        {
+        if !self.queued_messages_of(None) {
             self.state.logged_seq = self.handled;
             self.save();
             self.set_cursor(self.handled);
+            self.settle_acks();
         }
     }
 

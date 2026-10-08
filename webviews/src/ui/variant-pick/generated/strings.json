@@ -1,0 +1,212 @@
+{
+  "en": {
+    "error": "Could not confirm your pick. Check the tracker before retrying.",
+    "group": "Choose a variant",
+    "note": "Note (optional)",
+    "pending": "Saving…",
+    "pick": "Pick",
+    "pickLabel": "Pick %@",
+    "picked": "Picked",
+    "recommended": "Recommended"
+  },
+  "ar": {
+    "error": "تعذر تأكيد اختيارك. تحقق من المتتبع قبل المحاولة مجددًا.",
+    "group": "اختر خيارًا",
+    "note": "ملاحظة (اختيارية)",
+    "pending": "جارٍ الحفظ…",
+    "pick": "اختيار",
+    "pickLabel": "اختيار %@",
+    "picked": "تم الاختيار",
+    "recommended": "موصى به"
+  },
+  "bs": {
+    "error": "Nije moguće potvrditi odabir. Provjerite evidenciju zadataka prije ponovnog pokušaja.",
+    "group": "Odaberite varijantu",
+    "note": "Napomena (opcionalno)",
+    "pending": "Spremanje…",
+    "pick": "Odaberi",
+    "pickLabel": "Odaberi %@",
+    "picked": "Odabrano",
+    "recommended": "Preporučeno"
+  },
+  "da": {
+    "error": "Dit valg kunne ikke bekræftes. Tjek opgavestyringen, før du prøver igen.",
+    "group": "Vælg en variant",
+    "note": "Note (valgfri)",
+    "pending": "Gemmer…",
+    "pick": "Vælg",
+    "pickLabel": "Vælg %@",
+    "picked": "Valgt",
+    "recommended": "Anbefalet"
+  },
+  "de": {
+    "error": "Deine Auswahl konnte nicht bestätigt werden. Prüfe den Tracker vor einem erneuten Versuch.",
+    "group": "Variante auswählen",
+    "note": "Notiz (optional)",
+    "pending": "Wird gespeichert…",
+    "pick": "Auswählen",
+    "pickLabel": "%@ auswählen",
+    "picked": "Ausgewählt",
+    "recommended": "Empfohlen"
+  },
+  "es": {
+    "error": "No se pudo confirmar tu elección. Revisa el registro de tareas antes de volver a intentarlo.",
+    "group": "Elige una variante",
+    "note": "Nota (opcional)",
+    "pending": "Guardando…",
+    "pick": "Elegir",
+    "pickLabel": "Elegir %@",
+    "picked": "Elegido",
+    "recommended": "Recomendado"
+  },
+  "fr": {
+    "error": "Impossible de confirmer votre choix. Vérifiez le suivi des tâches avant de réessayer.",
+    "group": "Choisir une variante",
+    "note": "Note (facultative)",
+    "pending": "Enregistrement…",
+    "pick": "Choisir",
+    "pickLabel": "Choisir %@",
+    "picked": "Choisi",
+    "recommended": "Recommandé"
+  },
+  "it": {
+    "error": "Impossibile confermare la scelta. Controlla il registro delle attività prima di riprovare.",
+    "group": "Scegli una variante",
+    "note": "Nota (facoltativa)",
+    "pending": "Salvataggio…",
+    "pick": "Scegli",
+    "pickLabel": "Scegli %@",
+    "picked": "Scelto",
+    "recommended": "Consigliato"
+  },
+  "ja": {
+    "error": "選択を確認できませんでした。再試行する前にトラッカーを確認してください。",
+    "group": "バリエーションを選択",
+    "note": "メモ（任意）",
+    "pending": "保存中…",
+    "pick": "選択",
+    "pickLabel": "%@を選択",
+    "picked": "選択済み",
+    "recommended": "推奨"
+  },
+  "km": {
+    "error": "មិនអាចបញ្ជាក់ជម្រើសរបស់អ្នកបានទេ។ ពិនិត្យកម្មវិធីតាមដានមុនពេលព្យាយាមម្តងទៀត។",
+    "group": "ជ្រើសរើសជម្រើសមួយ",
+    "note": "កំណត់ចំណាំ (ស្រេចចិត្ត)",
+    "pending": "កំពុងរក្សាទុក…",
+    "pick": "ជ្រើសរើស",
+    "pickLabel": "ជ្រើសរើស %@",
+    "picked": "បានជ្រើសរើស",
+    "recommended": "បានណែនាំ"
+  },
+  "ko": {
+    "error": "선택을 확인할 수 없습니다. 다시 시도하기 전에 트래커를 확인하세요.",
+    "group": "변형 선택",
+    "note": "메모 (선택 사항)",
+    "pending": "저장 중…",
+    "pick": "선택",
+    "pickLabel": "%@ 선택",
+    "picked": "선택됨",
+    "recommended": "추천"
+  },
+  "nb": {
+    "error": "Kunne ikke bekrefte valget ditt. Sjekk oppgavesporingen før du prøver igjen.",
+    "group": "Velg en variant",
+    "note": "Merknad (valgfritt)",
+    "pending": "Lagrer…",
+    "pick": "Velg",
+    "pickLabel": "Velg %@",
+    "picked": "Valgt",
+    "recommended": "Anbefalt"
+  },
+  "pl": {
+    "error": "Nie można potwierdzić wyboru. Sprawdź rejestr zadań przed ponowną próbą.",
+    "group": "Wybierz wariant",
+    "note": "Notatka (opcjonalnie)",
+    "pending": "Zapisywanie…",
+    "pick": "Wybierz",
+    "pickLabel": "Wybierz %@",
+    "picked": "Wybrano",
+    "recommended": "Zalecane"
+  },
+  "pt-BR": {
+    "error": "Não foi possível confirmar sua escolha. Confira o rastreador antes de tentar novamente.",
+    "group": "Escolha uma variante",
+    "note": "Nota (opcional)",
+    "pending": "Salvando…",
+    "pick": "Escolher",
+    "pickLabel": "Escolher %@",
+    "picked": "Escolhido",
+    "recommended": "Recomendado"
+  },
+  "ru": {
+    "error": "Не удалось подтвердить выбор. Проверьте трекер перед повторной попыткой.",
+    "group": "Выберите вариант",
+    "note": "Примечание (необязательно)",
+    "pending": "Сохранение…",
+    "pick": "Выбрать",
+    "pickLabel": "Выбрать %@",
+    "picked": "Выбрано",
+    "recommended": "Рекомендуется"
+  },
+  "th": {
+    "error": "ไม่สามารถยืนยันตัวเลือกของคุณได้ ตรวจสอบตัวติดตามก่อนลองอีกครั้ง",
+    "group": "เลือกตัวเลือก",
+    "note": "หมายเหตุ (ไม่บังคับ)",
+    "pending": "กำลังบันทึก…",
+    "pick": "เลือก",
+    "pickLabel": "เลือก %@",
+    "picked": "เลือกแล้ว",
+    "recommended": "แนะนำ"
+  },
+  "tr": {
+    "error": "Seçiminiz doğrulanamadı. Tekrar denemeden önce görev izleyicisini kontrol edin.",
+    "group": "Bir varyant seçin",
+    "note": "Not (isteğe bağlı)",
+    "pending": "Kaydediliyor…",
+    "pick": "Seç",
+    "pickLabel": "%@ seç",
+    "picked": "Seçildi",
+    "recommended": "Önerilen"
+  },
+  "uk": {
+    "error": "Не вдалося підтвердити вибір. Перевірте трекер перед повторною спробою.",
+    "group": "Виберіть варіант",
+    "note": "Примітка (необов’язково)",
+    "pending": "Збереження…",
+    "pick": "Вибрати",
+    "pickLabel": "Вибрати %@",
+    "picked": "Вибрано",
+    "recommended": "Рекомендовано"
+  },
+  "vi": {
+    "error": "Không thể xác nhận lựa chọn. Hãy kiểm tra trình theo dõi trước khi thử lại.",
+    "group": "Chọn một biến thể",
+    "note": "Ghi chú (tùy chọn)",
+    "pending": "Đang lưu…",
+    "pick": "Chọn",
+    "pickLabel": "Chọn %@",
+    "picked": "Đã chọn",
+    "recommended": "Được đề xuất"
+  },
+  "zh-Hans": {
+    "error": "无法确认你的选择。请先检查任务跟踪器，然后再重试。",
+    "group": "选择一个变体",
+    "note": "备注（可选）",
+    "pending": "正在保存…",
+    "pick": "选择",
+    "pickLabel": "选择%@",
+    "picked": "已选择",
+    "recommended": "推荐"
+  },
+  "zh-Hant": {
+    "error": "無法確認你的選擇。請先檢查任務追蹤器，然後再重試。",
+    "group": "選擇一個變體",
+    "note": "備註（選填）",
+    "pending": "正在儲存…",
+    "pick": "選擇",
+    "pickLabel": "選擇%@",
+    "picked": "已選擇",
+    "recommended": "推薦"
+  }
+}

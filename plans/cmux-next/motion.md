@@ -70,7 +70,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
-| `selection` | 0.15 / 0.90 | 142 ms | 200 ms | sidebar selection pill |
+| `selection` | 0.15 / 0.90 | 142 ms | 200 ms | page info toggle (the sidebar selection does not animate, SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) |
 | `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |
 
 | Fade token | Duration | Used by |
@@ -151,7 +151,7 @@ rest).
 | Tab group editor panel | window fade 0.12 s | `fadeIn` | 120 ms | 120 ms | - |
 | Sidebar show / hide | width constraint animator with a SwiftUI spring(duration 0.30, bounce 0), which constraint animators ignore: it ran AppKit's 0.25 s default (measured 263-272 ms at every speed) | `appear` / `disappear` as timed equivalents (constraint animators take only timed curves) | 250-270 ms measured | 175 / 142 ms | 174 ms show, 150 ms hide |
 | Sidebar row reorder, insert, remove; workspace group collapse | SwiftUI spring(0.32, bounce 0.12) for all rows | moves `move`, inserts `appear`, removals `disappear` | 275 / 458 ms | 192 / 175 / 142 ms visible | move 341 ms, insert 114 ms (AppKit completion) |
-| Sidebar selection pill | CASpring(perceptual 0.26, bounce 0.08); fade 0.16 s | `selection`, `fadeIn` / `fadeOut` | 258 / 342 ms | 142 / 200 ms | 199-211 ms |
+| Sidebar selection | none: the selected row or item paints selectionFill in place, at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) | - | - | 0 ms | - |
 | Sidebar drag gap | CASpring(0.32, bounce 0.12) | `move` | 275 / 458 ms | 192 / 250 ms | - |
 | Sidebar drag lift / drop | shadow group 0.22 s ease-out; drop spring(0.28, bounce 0.18); refused dim spring 0.26 | `lift`, `settle`, `hover` | 220 / 308 / 258 ms | 120 / 175 / 80 ms | - |
 | Sidebar hover buttons, resize line | 0.14 s ease-out | `hover` | 140 ms | 80 ms | - |

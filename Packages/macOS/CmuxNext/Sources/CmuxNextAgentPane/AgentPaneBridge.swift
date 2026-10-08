@@ -66,6 +66,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyTheme()
             view.applyShortcuts()
             view.applyPreviewFeatures()
+            view.applyEditedFiles()
             view.replayCustomization()
         }
         return view.model

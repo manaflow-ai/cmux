@@ -140,6 +140,18 @@ public nonisolated struct BookmarkTree: Sendable, Equatable {
         return result
     }
 
+    /// `id` and its subtree as drafts (title, URL, created date, order), to
+    /// put a folder back as it was (undo of an import that replaced it).
+    public func draft(of id: String) -> BookmarkDraft? {
+        guard let node = nodes[id] else { return nil }
+        return draft(node, depth: 0)
+    }
+
+    private func draft(_ node: BookmarkNode, depth: Int) -> BookmarkDraft {
+        let children = node.isFolder && depth < 64 ? self.children(of: node.id).map { draft($0, depth: depth + 1) } : []
+        return BookmarkDraft(kind: node.kind, title: node.title, url: node.url, created: node.created, children: children)
+    }
+
     /// The folder created by an import of `sourceKey`, if any.
     public func folder(sourceKey: String) -> BookmarkNode? {
         ordered.first { $0.isFolder && $0.sourceKey == sourceKey }

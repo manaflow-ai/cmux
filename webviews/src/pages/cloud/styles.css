@@ -563,20 +563,14 @@ select {
 }
 
 .cloud-sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: grid;
-  place-items: start center;
-  padding: 48px 16px;
   background: color-mix(in srgb, CanvasText 12%, transparent);
-  overflow-y: auto;
 }
 
-/* A non-modal <dialog open> inside the backdrop; reset the UA dialog box. */
+/* The shared Sheet owns the backdrop, focus trap and Escape. Keep this page's compact card. */
 .cloud-create-sheet {
-  position: static;
-  margin: 0;
+  inset-block-start: 48px;
+  inset-block-end: auto;
+  margin-inline: auto;
   color: inherit;
   width: min(460px, 100%);
   padding: 18px;

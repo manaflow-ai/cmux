@@ -78,7 +78,11 @@ cleanup() {
   fi
   if [[ -n "$APP_PID" ]]; then
     # The app leaves its cmux-tui daemon running by design; this run started it.
-    pkill -f "$APP_PATH/Contents/Resources/bin/cmux-tui" 2>/dev/null || true
+    # Stop it by its socket, never by pattern: a pattern on the bundle path
+    # also kills every terminal host, and with it the shells.
+    # shellcheck source=SCRIPTDIR/lib/stop-cmux-tui-owners.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/lib/stop-cmux-tui-owners.sh"
+    cmux_stop_cmux_tui_owners "$APP_PATH/Contents/Resources/bin"
   fi
   if [[ $status -ne 0 ]]; then
     echo "error: CLI smoke failed during step: $STEP" >&2

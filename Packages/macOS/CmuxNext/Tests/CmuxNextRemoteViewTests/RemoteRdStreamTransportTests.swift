@@ -175,3 +175,93 @@ struct RemoteRdStreamTransportTests {
         #expect(RemoteRdLoopbackEndpoint(port: 4103) != nil)
     }
 }
+
+/// The service half of the transport: an rb/1 session's control bodies and
+/// input events (rd changes B3.2 and C2).
+@Suite(.serialized)
+struct RemoteRdServiceTransportTests {
+    private static func welcome(_ caps: String) -> String {
+        #"{"t":"welcome","encoder":"t","width":64,"height":64,"max_datagram":1152,"carrier":"stream","service":"rb/1","caps":\#(caps)}"#
+    }
+
+    @Test func serviceBodiesReachTheServiceStreamAndGoBackOut() async throws {
+        let host = try FakeRdHost()
+        defer { host.stop() }
+        let port = try await host.start()
+        let endpoint = try #require(RemoteRdLoopbackEndpoint(port: port))
+        let transport = try #require(RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: "u", install: "i"))
+        var hostFrames = host.frames.makeAsyncIterator()
+        transport.connect()
+        let helloFrame = await hostFrames.next()
+        let hello = try RemoteRdControlTests.object(try #require(helloFrame).1)
+        #expect(hello["service"] as? String == "rb/1")
+        #expect(hello["caps"] as? [String] == ["input.service"])
+        _ = await hostFrames.next() // start
+        host.sendControl(Self.welcome(#"["input.service"]"#))
+        host.sendControl(#"{"t":"started","session":1}"#)
+        var bodies = transport.serviceMessages().makeAsyncIterator()
+        host.sendControl(#"{"t":"service","service":"rb/1","body":{"t":"rb.opened","session":1,"main_stream":0}}"#)
+        // Another service's body never reaches this session's handler.
+        host.sendControl(#"{"t":"service","service":"desktop","body":{"t":"x"}}"#)
+        host.sendControl(#"{"t":"service","service":"rb/1","body":{"t":"rb.page","url":"u","title":"","loading":false,"can_go_back":false,"can_go_forward":false}}"#)
+        #expect(await bodies.next() == .object(["t": .string("rb.opened"), "session": .int(1), "main_stream": .int(0)]))
+        guard case let .object(page)? = await bodies.next() else { Issue.record("no rb.page body"); return }
+        #expect(page["t"] == .string("rb.page"))
+
+        transport.sendService(.object(["t": .string("rb.navigate"), "url": .string("https://example.com/")]))
+        while let frame = await hostFrames.next() {
+            guard frame.0 == 1, let control = try? RemoteRdControl.parse(frame.1) else { continue }
+            #expect(control == .service(service: "rb/1", body: .object(["t": .string("rb.navigate"), "url": .string("https://example.com/")])))
+            break
+        }
+        transport.stop()
+    }
+
+    @Test func serviceInputGoesOutOnlyWhenTheHostListsTheCap() async throws {
+        let host = try FakeRdHost()
+        defer { host.stop() }
+        let port = try await host.start()
+        let endpoint = try #require(RemoteRdLoopbackEndpoint(port: port))
+        let transport = try #require(RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: "u", install: "i"))
+        var hostFrames = host.frames.makeAsyncIterator()
+        transport.connect()
+        let helloFrame = await hostFrames.next()
+        let hello = try RemoteRdControlTests.object(try #require(helloFrame).1)
+        #expect(hello["service"] as? String == "rb/1")
+        #expect(hello["caps"] as? [String] == ["input.service"])
+        _ = await hostFrames.next() // start
+        host.sendControl(Self.welcome(#"["input.service"]"#))
+        host.sendControl(#"{"t":"started","session":1}"#)
+        let statuses = transport.statusUpdates()
+        for await status in statuses where status.state == .streaming { break }
+        let seq = try #require(transport.sendServiceInput(Data(#"{"e":"ime_cancel","surface":0}"#.utf8), mustDeliver: true))
+        #expect(seq == 1)
+        var sawService = false
+        while let frame = await hostFrames.next() {
+            let bytes = [UInt8](frame.1)
+            if frame.0 == 2, bytes.count > 21, bytes[1] == 4, bytes[21] == 0x80 { sawService = true; break }
+        }
+        #expect(sawService)
+        transport.stop()
+    }
+
+    @Test func serviceInputIsRefusedWithoutTheCap() async throws {
+        let host = try FakeRdHost()
+        defer { host.stop() }
+        let port = try await host.start()
+        let endpoint = try #require(RemoteRdLoopbackEndpoint(port: port))
+        let transport = try #require(RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: "u", install: "i"))
+        var hostFrames = host.frames.makeAsyncIterator()
+        transport.connect()
+        let helloFrame = await hostFrames.next()
+        let hello = try RemoteRdControlTests.object(try #require(helloFrame).1)
+        #expect(hello["service"] as? String == "rb/1")
+        #expect(hello["caps"] as? [String] == ["input.service"])
+        _ = await hostFrames.next() // start
+        host.sendControl(Self.welcome("[]"))
+        host.sendControl(#"{"t":"started","session":1}"#)
+        for await status in transport.statusUpdates() where status.state == .streaming { break }
+        #expect(transport.sendServiceInput(Data("{}".utf8), mustDeliver: false) == nil)
+        transport.stop()
+    }
+}

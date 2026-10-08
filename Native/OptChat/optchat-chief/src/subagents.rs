@@ -11,7 +11,13 @@
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
 //!   ids at once. Each subagent also gets a cmux workspace whose tab is its
-//!   chat (workspaces.rs), so the user can watch and join it.
+//!   chat (workspaces.rs), so the user can watch and join it, when this host
+//!   has somewhere to make one. The answer says, per subagent, which
+//!   workspace it got and where, or that it got none and why: the Chief
+//!   repeats it to the user, so it must never claim more than happened.
+//! - `spawn` takes an optional working directory (`~` is this host's home).
+//!   A directory that does not exist here is reported and the default
+//!   subagent directory is used.
 //! - Its tools are zoom and date (its own MCP server says `--role
 //!   subagent`), not spawn. Its tool calls stay in its own session.
 //! - The brain (brain/spawns.rs) watches the sessions: when all of one
@@ -23,7 +29,7 @@
 //! tool calls.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -54,6 +60,29 @@ pub const PROMPT_PREFIX: &str = "optchat-";
 pub struct SpawnPlan {
     pub spawn: String,
     pub ids: Vec<String>,
+    /// The engine of the turn that called spawn (engine.json); None before
+    /// any turn.
+    pub engine: Option<SpawnEngine>,
+}
+
+/// The engine a spawn's subagents run on: the calling turn's harness and
+/// model (2026-10-08: the turns ran on codex, the subagents on claude-sr).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpawnEngine {
+    pub harness: String,
+    pub model: Option<String>,
+    /// Its family when it is not the default harness's: the subagents then
+    /// take that family's preset, `<subagent preset>-<family>`.
+    pub other_family: Option<crate::acpmux::Family>,
+}
+
+/// The subagent preset of `family` beside the default one `preset`.
+pub fn family_preset(preset: &str, family: crate::acpmux::Family) -> Option<String> {
+    match family {
+        crate::acpmux::Family::Claude => Some(format!("{preset}-claude")),
+        crate::acpmux::Family::Codex => Some(format!("{preset}-codex")),
+        crate::acpmux::Family::Other => None,
+    }
 }
 
 /// How subagent sessions start.
@@ -93,6 +122,12 @@ pub struct Spawner {
     tx: Mutex<Sender<Input>>,
     trace: Trace,
     workspaces: Option<Arc<dyn Workspaces>>,
+    /// Why there are no workspaces, said in each answer when `workspaces`
+    /// is None.
+    no_workspace_reason: String,
+    /// OPTCHAT_SUBAGENT_HARNESS pins the subagent harness: a spawn never
+    /// follows the turn's engine.
+    pinned: bool,
     log: crate::brain::Log,
 }
 
@@ -111,6 +146,8 @@ impl Spawner {
             tx: Mutex::new(tx),
             trace: Trace::off(),
             workspaces: None,
+            no_workspace_reason: "this Chief host has nowhere to make cmux workspaces".to_owned(),
+            pinned: false,
             log,
         }
     }
@@ -125,6 +162,55 @@ impl Spawner {
         self
     }
 
+    /// The subagent harness is pinned (OPTCHAT_SUBAGENT_HARNESS): spawns
+    /// never follow the turn's engine.
+    pub fn with_pinned_harness(mut self, pinned: bool) -> Spawner {
+        self.pinned = pinned;
+        self
+    }
+
+    /// The settings of one spawn's subagents: the calling turn's harness
+    /// and model with its family's preset, unless the harness is pinned.
+    /// A family without a subagent preset stays on the default, and says so.
+    fn engine_settings(&self, engine: Option<&SpawnEngine>) -> SubagentSettings {
+        let mut s = self.settings.clone();
+        let Some(e) = engine.filter(|_| !self.pinned) else {
+            return s;
+        };
+        if e.harness == s.harness {
+            s.model = s.model.or_else(|| e.model.clone());
+            return s;
+        }
+        let preset = match e.other_family {
+            None => s.preset.clone(),
+            Some(family) => match s.preset.as_deref().and_then(|p| family_preset(p, family)) {
+                Some(preset) => Some(preset),
+                None => {
+                    (self.log)(&format!(
+                        "the turn runs on {}, which has no subagent preset; subagents run on {}",
+                        e.harness, s.harness
+                    ));
+                    return s;
+                }
+            },
+        };
+        if e.other_family.is_some() {
+            // The family preset carries its own instructions (a Claude
+            // preset's system prompt, AGENTS.md for codex).
+            s.claude_md = None;
+        }
+        s.harness = e.harness.clone();
+        s.model = e.model.clone();
+        s.preset = preset;
+        s
+    }
+
+    /// Why there are no workspaces (said in each spawn answer without them).
+    pub fn with_no_workspace_reason(mut self, reason: impl Into<String>) -> Spawner {
+        self.no_workspace_reason = reason.into();
+        self
+    }
+
     fn send(&self, input: Input) -> Result<(), String> {
         self.tx
             .lock()
@@ -133,7 +219,9 @@ impl Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())
     }
 
-    /// Starts subagent `id`'s session and first prompt, then its workspace.
+    /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
+    /// workspace; answers what the user can see of it: its workspace and
+    /// where it lives, or that it has none and why.
     fn start_one(
         &self,
         spawn: &str,
@@ -141,15 +229,21 @@ impl Spawner {
         task: &str,
         view: &str,
         floor: Option<&str>,
-    ) -> Result<(), String> {
+        s: &SubagentSettings,
+    ) -> Result<String, String> {
         let began = Instant::now();
-        let s = &self.settings;
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
         let admitted =
             crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // The workspace key is chosen first, so the session starts knowing
+        // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
+        let key = self
+            .workspaces
+            .as_ref()
+            .map(|_| crate::workspaces::new_key());
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
@@ -169,6 +263,10 @@ impl Spawner {
                 }
                 t
             },
+            env: key
+                .iter()
+                .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
+                .collect(),
         };
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
@@ -198,30 +296,77 @@ impl Spawner {
         );
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
-        if let Some(workspaces) = &self.workspaces {
-            let name = crate::workspaces::name(id, task);
-            match workspaces.open(&session, &name, &s.cwd) {
-                Ok(key) => {
-                    self.trace.emit(
-                        "subagent.workspace",
-                        json!({"id": id, "spawn": spawn, "workspace": key, "name": name}),
-                    );
-                    let _ = self.send(Input::SubagentWorkspace {
-                        id: id.to_owned(),
-                        key,
-                        name,
-                    });
-                }
-                Err(e) => {
-                    (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
-                    self.trace.emit(
-                        "subagent.workspace",
-                        json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
-                    );
-                }
+        let Some(workspaces) = &self.workspaces else {
+            self.trace.emit(
+                "subagent.workspace",
+                json!({"id": id, "spawn": spawn, "error": self.trace.text(&self.no_workspace_reason)}),
+            );
+            return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
+        };
+        let name = crate::workspaces::name(id, task);
+        let key = key.unwrap_or_else(crate::workspaces::new_key);
+        match workspaces.open(&key, &session, &name, &s.cwd) {
+            Ok(key) => {
+                let place = workspaces.place();
+                self.trace.emit(
+                    "subagent.workspace",
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "place": place}),
+                );
+                let note = format!("workspace \"{name}\" in {place}");
+                let _ = self.send(Input::SubagentWorkspace {
+                    id: id.to_owned(),
+                    key,
+                    name,
+                });
+                Ok(note)
+            }
+            Err(e) => {
+                (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
+                self.trace.emit(
+                    "subagent.workspace",
+                    json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
+                );
+                Ok(format!("no cmux workspace (opening it failed: {e})"))
             }
         }
-        Ok(())
+    }
+
+    /// The directory subagents run in: `asked` when it exists on this host
+    /// and the subagent instructions reach it, else the default with the
+    /// reason.
+    fn run_dir(&self, asked: Option<&str>, s: &SubagentSettings) -> (PathBuf, Option<String>) {
+        let default = s.cwd.clone();
+        let Some(asked) = asked else {
+            return (default, None);
+        };
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        match resolve_cwd(asked, &home) {
+            Err(e) => (
+                default.clone(),
+                Some(format!("{e}, so they run in {}", default.display())),
+            ),
+            // Without a preset system prompt the subagent instructions live
+            // only in the default directory's CLAUDE.md.
+            Ok(dir)
+                if s.claude_md.is_some()
+                    && !s
+                        .preset
+                        .as_deref()
+                        .is_some_and(|p| self.agents.system_prompt(p)) =>
+            {
+                (
+                    default.clone(),
+                    Some(format!(
+                        "this harness takes its instructions only from {}, so they run there, not in {}",
+                        default.display(),
+                        dir.display()
+                    )),
+                )
+            }
+            Ok(dir) => (dir, None),
+        }
     }
 
     /// `Some("ask")` under the spawn floor (`Brain::spawn_policy`); `ask`
@@ -260,8 +405,28 @@ impl Spawner {
     }
 }
 
+/// `asked` as a directory on this host: `~` and `~/...` are `home`; it must
+/// be absolute and exist.
+pub fn resolve_cwd(asked: &str, home: &Path) -> Result<PathBuf, String> {
+    let asked = asked.trim();
+    let dir = if asked == "~" {
+        home.to_owned()
+    } else if let Some(rest) = asked.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        PathBuf::from(asked)
+    };
+    if !dir.is_absolute() {
+        return Err(format!("{asked} is not an absolute directory"));
+    }
+    if !dir.is_dir() {
+        return Err(format!("{} does not exist on this host", dir.display()));
+    }
+    Ok(dir)
+}
+
 impl Orchestrator for Spawner {
-    fn spawn(&self, tasks: Vec<String>) -> Result<String, String> {
+    fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
         if tasks.len() > MAX_TASKS {
             return Err(format!(
                 "spawn takes at most {MAX_TASKS} tasks; split the work"
@@ -283,6 +448,7 @@ impl Orchestrator for Spawner {
         let plan = answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
+        let run = self.engine_settings(plan.engine.as_ref());
         self.trace.emit(
             "spawn",
             json!({
@@ -291,12 +457,12 @@ impl Orchestrator for Spawner {
                 "tasks": tasks.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 "settle_ms": began.elapsed().as_millis() as u64,
                 "view": {"bytes": view.len(), "hash": crate::trace::hash(&view)},
-                "harness": self.settings.harness,
+                "harness": run.harness,
             }),
         );
-        if let (Some(text), Some(preset)) = (&self.settings.claude_md, &self.settings.preset) {
+        if let (Some(text), Some(preset)) = (&run.claude_md, &run.preset) {
             let file = (!self.agents.system_prompt(preset)).then_some(text.as_str());
-            if let Err(e) = crate::session_dir::set_claude_md(&self.settings.cwd, file) {
+            if let Err(e) = crate::session_dir::set_claude_md(&run.cwd, file) {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
             }
         }
@@ -304,23 +470,41 @@ impl Orchestrator for Spawner {
         // ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
+        let (dir, dir_note) = self.run_dir(cwd.as_deref(), &run);
+        // The run's settings in the directory they start in.
+        let launch = SubagentSettings {
+            cwd: dir.clone(),
+            ..run.clone()
+        };
         let mut started = Vec::new();
+        let mut lines = Vec::new();
         for (id, task) in plan.ids.iter().zip(&tasks) {
-            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref()) {
-                Ok(()) => started.push(id.clone()),
+            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref(), &launch) {
+                Ok(note) => {
+                    started.push(id.clone());
+                    lines.push(format!("- {id}: {note}"));
+                }
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));
                     let _ = self.send(Input::SubagentFailed {
                         id: id.clone(),
                         error: e.clone(),
                     });
-                    started.push(format!("{id} (did not start: {e})"));
+                    lines.push(format!("- {id}: did not start ({e})"));
                 }
             }
         }
+        let head = if started.is_empty() {
+            "No subagent started.".to_owned()
+        } else {
+            format!("Started {} in {}.", started.join(", "), dir.display())
+        };
+        let dir_note = dir_note
+            .map(|n| format!("\nDirectory: {n}."))
+            .unwrap_or_default();
         Ok(format!(
-            "Started {}, each in its own cmux workspace. When all of them finish, their reports reach you as one message, \"[id] report\" each; never wait or poll for them. tell(id, message) sends one more instructions.",
-            started.join(", ")
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When all of them finish, their reports reach you as one message, \"[id] report\" each; never wait or poll for them. tell(id, message) sends one more instructions.",
+            lines.join("\n")
         ))
     }
 

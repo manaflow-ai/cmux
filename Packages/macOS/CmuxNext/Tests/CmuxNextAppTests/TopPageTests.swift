@@ -28,7 +28,7 @@ struct TopPageTests {
     @Test func otherItemsOpenNoPage() {
         #expect(TopPageRoute(.builtIn(.settings), in: .bottom) == nil)
         #expect(TopPageRoute(.app("cmux/app-store"), in: .middle) == nil)
-        #expect(TopPageRoute(.builtIn(.newWorkspace), in: .top) == nil)
+        #expect(TopPageRoute(.builtIn(.newTerminal), in: .top) == nil)
         #expect(TopPageRoute(.workspace("s:ws_1"), in: .top) == nil)
     }
 

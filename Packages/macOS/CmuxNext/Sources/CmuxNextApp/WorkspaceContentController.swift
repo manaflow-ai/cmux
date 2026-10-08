@@ -73,8 +73,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             return try await fallbackCreate(key)
         }
         emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() },
-            onImportAndSync: { [weak services] in services?.onboarding.show(step: .projects) }
+            onNew: { [weak self] in self?.newFromEmptyState() }
         )
         themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
@@ -112,7 +111,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
         }
         // A first terminal or a close that starts or ends while the
-        // workspace is empty decides whether it offers its actions.
+        // workspace is empty decides whether it shows its title.
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
             for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
@@ -150,11 +149,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
     }
 
-    /// A workspace with no pane shows actions; an explicit New creates the
-    /// first terminal and focuses it when the daemon reports the surface.
-    /// One that is settling (its first terminal on the way, or closing)
-    /// shows nothing: its actions would flash for a frame before the tab
-    /// strip and terminal land, or before it closes.
+    /// A workspace with no pane shows its title; Return creates the first
+    /// terminal and focuses it when the daemon reports the surface. One that
+    /// is settling (its first terminal on the way, or closing) shows nothing
+    /// so the title does not flash before the tab strip and terminal land, or
+    /// before the workspace closes.
     private func updateEmptyState() {
         let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
         let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
@@ -220,6 +219,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if panes.count == 1, services.settingsWindow.isWaiting {
             let settings = services.settingsWindow
             Task { settings.windowDidShowContent() }
+        }
+        // So does the App Store (S22: never a window of its own).
+        if panes.count == 1, services.apps.isStoreWaiting {
+            let apps = services.apps
+            Task { apps.windowDidShowContent() }
         }
         return controller.view
     }

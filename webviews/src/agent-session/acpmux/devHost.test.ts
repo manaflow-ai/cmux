@@ -19,14 +19,11 @@ test("a fragment without a token, a remote host or another scheme names no daemo
   expect(devHostParams("#endpoint=nonsense&token=abc")).toBeUndefined();
 });
 
-test("ready hands the page the daemon; native-only requests are refused", () => {
+test("ready hands the page the daemon; safe native fallbacks stay local", () => {
   const host = { endpoint: "ws://127.0.0.1:47901/", token: "abc", sessionId: "s1" };
   expect(devHostReply(host, { id: "1", method: "ready" })).toMatchObject({
     ok: true,
     value: { transport: "acpmux-websocket", endpoint: host.endpoint, token: "abc", sessionId: "s1" },
   });
-  expect(devHostReply(host, { id: "2", method: "git.status" })).toMatchObject({
-    ok: false,
-    error: { code: "native.unsupported" },
-  });
+  expect(devHostReply(host, { id: "2", method: "git.status" })).toMatchObject({ ok: true, value: { branch: "dev" } });
 });

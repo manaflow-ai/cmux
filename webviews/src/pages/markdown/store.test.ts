@@ -11,6 +11,7 @@ class FakeHost implements PageClient {
   saves: Array<{ text: string; baseHash: string | null }> = [];
   edits: Array<{ path: string; text: string; baseHash: string | null }> = [];
   readOnly = false;
+  recoveredText: string | undefined;
   private onChange: ((change: MarkdownChange, seq: number) => void) | null = null;
   constructor(text: string) {
     this.text = text;
@@ -18,7 +19,13 @@ class FakeHost implements PageClient {
   }
   async call<R>(op: string, params: unknown): Promise<R> {
     if (op === "cmux.markdown.config") {
-      return { path: "/w/a.md", text: this.text, hash: this.hash, readOnly: this.readOnly } as R;
+      return {
+        path: "/w/a.md",
+        text: this.text,
+        hash: this.hash,
+        readOnly: this.readOnly,
+        recoveredText: this.recoveredText,
+      } as R;
     }
     if (op === "cmux.markdown.save") {
       const { text, baseHash } = params as { text: string; baseHash: string | null };
@@ -192,6 +199,33 @@ describe("MarkdownStore", () => {
     editor.text = "# B\n";
     store.edited();
     expect(host.edits).toEqual([{ path: "/w/a.md", text: "# B\n", baseHash: "h:# A\n" }]);
+  });
+
+  test("a recovered draft loads as an unsaved edit and reports itself; opening never saves", async () => {
+    const { host, store, editor, timers } = setup();
+    host.recoveredText = "# Draft\n";
+    await store.start();
+    expect(editor.text).toBe("# Draft\n");
+    expect(store.getState().source).toBe("# Draft\n");
+    expect(store.getState().status).toBe("edited");
+    expect(host.edits[0]).toEqual({ path: "/w/a.md", text: "# Draft\n", baseHash: "h:# A\n" });
+    expect(host.saves).toEqual([]);
+    // The draft saves like any edit (the editor page's rule), on the file's current hash.
+    for (const run of timers.splice(0)) run();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(host.saves).toEqual([{ text: "# Draft\n", baseHash: "h:# A\n" }]);
+  });
+
+  test("a recovered draft equal to the file, or of a read only file, is not an edit", async () => {
+    for (const readOnly of [false, true]) {
+      const { host, store, editor } = setup();
+      host.readOnly = readOnly;
+      host.recoveredText = readOnly ? "# Draft\n" : "# A\n";
+      await store.start();
+      expect(editor.text).toBe("# A\n");
+      expect(store.getState().status).toBe("saved");
+      expect(host.edits).toEqual([]);
+    }
   });
 
   test("the host's flush saves pending edits and says what is left", async () => {

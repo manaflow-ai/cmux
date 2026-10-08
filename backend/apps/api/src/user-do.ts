@@ -132,8 +132,7 @@ export class UserDO extends OwnerDO<UserState> {
     }
   }
 
-  /** Retry time of a socket close that failed (socket-registry.ts); memory only. */
-  private closeRetryAt: number | null = null
+  private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
   /** Closes a revoked install's sockets on every other owner (instant revocation). */
   private async flushCloses(now: number): Promise<void> {
@@ -375,14 +374,12 @@ export class UserDO extends OwnerDO<UserState> {
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }
-    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
-    const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
-    if (!revoked) return
-    this.closeSockets((p) => p.install === revoked, "install revoked")
-    // Every other owner with a socket of this install closes it now; failures retry from the alarm.
-    if (markInstallClosing(this.ctx.storage.sql, revoked, Date.now()) > 0) {
-      this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
-    }
+    if (op !== "install.revoke" && op !== "install.revoke_by_team" && op !== "user.team_left") return
+    const v = result && result.t === "result" ? (result.value as { id?: string; revoked?: Array<string> }) : undefined
+    // One install, or every install bound to a team the user left (cx-44j.47). Other owners' sockets close too; failures retry from the alarm.
+    let marked = 0
+    for (const revoked of v?.revoked ?? (v?.id ? [v.id] : [])) [this.closeSockets((p) => p.install === revoked, "install revoked"), (marked += markInstallClosing(this.ctx.storage.sql, revoked, Date.now()))]
+    if (marked > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
   }
 
   /**
@@ -444,6 +441,7 @@ export class UserDO extends OwnerDO<UserState> {
     this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
+  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }> {
     const engine = this.existing()

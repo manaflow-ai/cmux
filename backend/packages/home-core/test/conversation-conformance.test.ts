@@ -38,7 +38,8 @@ const LOCAL_OPS: ReadonlyArray<OpKind> = [
   "reaction.remove",
   "read_cursor.set",
   "participants.add",
-  "title.set"
+  "title.set",
+  "question.answer"
 ]
 
 describe.each([
