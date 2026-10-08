@@ -18,7 +18,7 @@
 //! commands and the v2 operations).
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
 use crate::workspace_registry::personal_store::personal_revision;
@@ -26,7 +26,7 @@ use crate::workspace_registry::resource_store::{prune_resource_mutations, resour
 use crate::workspace_registry::session_journal::append_resource_journal_record;
 use crate::workspace_registry::{
     ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry, canonical_json,
-    transaction_resource_revision, validate_identifier,
+    insert_resource_mutation, transaction_resource_revision, validate_identifier,
 };
 
 const SAVED_GROUPS_MIGRATED_META_KEY: &str = "personal_saved_tab_groups_v1";
@@ -251,18 +251,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                canonical_json(&result)?,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &canonical_json(&result)?,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,

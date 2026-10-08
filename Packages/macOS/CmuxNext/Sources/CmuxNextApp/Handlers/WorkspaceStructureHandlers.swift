@@ -24,22 +24,23 @@ enum WorkspaceStructureHandlers {
             // picker opens and its pick takes the same path.
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
-                return try setIcon(.set(icon), invocation, context)
+                return try changeIcon(to: icon, invocation, context)
             }
             // The target is fixed now: a pick applies to it even if focus moves meanwhile.
-            let (workspace, key) = try context.workspace(invocation)
+            let workspace = try context.workspace(invocation).model
             guard let anchor = context.services.iconPicker.anchor(workspace: workspace.id) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
             }
             context.services.iconPicker.pick(current: workspace.icon, target: "workspace:\(workspace.id)", at: anchor) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon): try? setIcon(.set(icon), workspace: workspace, key: key, context)
-                case .clear: try? setIcon(.clear, workspace: workspace, key: key, context)
+                case .set(let icon) where WorkspaceIconValue.isValid(icon):
+                    try? IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: icon, origin: .user)
+                case .clear: try? IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: nil, origin: .user)
                 case .set, .cancel: break
                 }
             }
         })
-        registry.bind("workspace.clearIcon", run: { try setIcon(.clear, $0, context) })
+        registry.bind("workspace.clearIcon", run: { try changeIcon(to: nil, $0, context) })
         registry.bind("workspace.mergeInto", run: { try merge(context, $0) })
         registry.bind("pane.moveToNewWorkspace", run: { try movePane(context, $0) })
     }
@@ -98,12 +99,13 @@ enum WorkspaceStructureHandlers {
 
     // MARK: Icon
 
-    private static func setIcon(_ update: FieldUpdate<String>, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        let (workspace, key) = try context.workspace(invocation)
-        try setIcon(update, workspace: workspace, key: key, context)
+    /// Sets (nil removes) the target's icon; a user's change offers an undo toast.
+    private static func changeIcon(to icon: String?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        let workspace = try context.workspace(invocation).model
+        try IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: icon, origin: invocation.origin)
     }
 
-    private static func setIcon(_ update: FieldUpdate<String>, workspace: WorkspaceModel, key: WorkspaceKey,
+    static func setIcon(_ update: FieldUpdate<String>, workspace: WorkspaceModel, key: WorkspaceKey,
                                 _ context: AppActionContext) throws {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
