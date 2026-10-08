@@ -352,6 +352,10 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         super.layout()
+        // Auto Layout may defer the address bar's frame until its subtree is
+        // laid out. Follow the card only after that frame reflects this pass.
+        addressBar.layoutSubtreeIfNeeded()
+        addressBar.followLayout()
         updateOcclusion()
         if pageAreaTop != reportedHeader {
             reportedHeader = pageAreaTop
