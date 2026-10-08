@@ -710,6 +710,13 @@ jobs:
           fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
 
+      # The manual-dispatch guard reads this step from the completed `changes`
+      # job. Keeping the marker here avoids a second Linux runner while
+      # retaining a concrete, status-bearing coverage signal.
+      - name: Mark full-suite coverage
+        if: ${{ steps.suite.outputs.full_suite == 'true' }}
+        run: echo "full-suite coverage selected"
+
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -1114,18 +1121,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # A requested manual dispatch may only be suppressed by a PR run that has
-  # selected the equivalent full suite. The guard watcher reads this cheap
-  # marker from the run's jobs rather than inferring coverage from its SHA.
-  full-suite-coverage:
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.full_suite == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 1
-    permissions: {}
-    steps:
-      - run: echo "full-suite coverage selected"
-
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
@@ -1306,7 +1301,6 @@ jobs:
     name: macOS admission gate
     needs:
       - changes
-      - full-suite-coverage
       - static-preflight
       - suite-coverage
       - ghosttykit-release-check
