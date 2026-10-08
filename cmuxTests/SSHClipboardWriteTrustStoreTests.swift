@@ -13,6 +13,20 @@ import Testing
 
 @Suite(.serialized)
 struct SSHClipboardWriteTrustStoreTests {
+    @Test("Dock trust propagation resolves transferred terminal ownership")
+    @MainActor
+    func dockClipboardMachineUsesDockOwnershipFallback() throws {
+        let machine = SurfaceMachineID.ssh("dock-ssh-machine")
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let panel = TerminalPanel(workspaceId: dock.workspaceId)
+        panel.retainTransferredSurfaceMachine(machine)
+        dock.panels[panel.id] = panel
+
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(projections: [], pendingRestores: [])
+        #expect(GhosttyNSView.sshClipboardMachine(for: panel, dock: dock, ownership: ownership) == machine)
+    }
+
     @Test("generic manual mirrors do not inherit workspace SSH trust")
     @MainActor
     func genericManualMirrorRemainsDenied() throws {

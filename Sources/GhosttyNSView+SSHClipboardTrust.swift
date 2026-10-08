@@ -62,12 +62,22 @@ extension GhosttyNSView {
             for panel in dock.panels.values.compactMap({ $0 as? TerminalPanel })
             // Reuse the batch ownership index, then preserve Dock's detached
             // transfer fallback without rescanning the catalog per panel.
-            where (ownership.machine(for: panel.id)
-                ?? panel.transferredSurfaceMachine
-                ?? dock.detachedSurfaceTransfersByPanelId[panel.id]?.surfaceMachine) == machine {
+            where Self.sshClipboardMachine(for: panel, dock: dock, ownership: ownership) == machine {
                 panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }
         }
+    }
+
+    /// Resolves a Dock terminal through the same ownership path used by
+    /// propagation. The catalog index handles projected and pending panels;
+    /// the Dock resolver handles detached, transferred, and restored panels
+    /// that are live before a projection exists.
+    static func sshClipboardMachine(
+        for panel: TerminalPanel,
+        dock: DockSplitStore,
+        ownership: SSHClipboardWriteSurfaceOwnershipIndex
+    ) -> SurfaceMachineID? {
+        ownership.machine(for: panel.id) ?? dock.machineOwningSurface(panel.id)
     }
 
     private var currentSSHClipboardMachine: SurfaceMachineID? {
@@ -84,7 +94,10 @@ extension GhosttyNSView {
             guard let panelID = dock.panelID(forTerminalLinkSourceID: surfaceID) else {
                 return nil
             }
-            return dock.machineOwningSurface(panelID)
+            guard let panel = dock.panels[panelID] as? TerminalPanel else {
+                return nil
+            }
+            return Self.sshClipboardMachine(for: panel, dock: dock, ownership: ownership)
         }.first
         guard let machine, machine.isSSH else {
             return nil
