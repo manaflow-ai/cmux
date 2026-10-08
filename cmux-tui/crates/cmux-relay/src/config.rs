@@ -598,12 +598,28 @@ fn parse_next_string(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Relay;
 
     #[test]
     fn non_loopback_open_relay_requires_an_explicit_override() {
         let config =
             RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
         assert!(config.validate().is_err());
+    }
+
+    /// Open mode admits any non-empty provider ticket, so a local process
+    /// could register or connect to any slot. A relay without a ticket
+    /// secret starts only with an explicit `--allow-open`, also on loopback.
+    #[test]
+    fn a_loopback_relay_without_a_secret_refuses_to_start() {
+        assert!(RelayConfig::default().validate().is_err());
+        assert!(Relay::new(RelayConfig::default()).is_err());
+        let serve = ["--bind", "127.0.0.1:9000"].map(OsString::from);
+        assert!(RelayCommand::parse(RelayConfig::default(), serve.clone()).is_err());
+        let open = ["--bind", "127.0.0.1:9000", "--allow-open"].map(OsString::from);
+        assert!(RelayCommand::parse(RelayConfig::default(), open).is_ok());
+        let signed = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
+        assert!(RelayCommand::parse(signed, serve).is_ok());
     }
 
     #[test]
