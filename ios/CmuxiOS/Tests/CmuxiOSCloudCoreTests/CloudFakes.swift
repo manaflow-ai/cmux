@@ -72,6 +72,9 @@ actor FakeCloudAPI: CloudAPIClient {
     private var holdNext = false
     private var held: CheckedContinuation<Void, Never>?
     private var heldWaiter: CheckedContinuation<Void, Never>?
+    private var holdNextRead = false
+    private var heldRead: CheckedContinuation<Void, Never>?
+    private var heldReadWaiter: CheckedContinuation<Void, Never>?
 
     func set(machines: [JSONValue], revision: Int) {
         self.machines = machines
@@ -95,10 +98,30 @@ actor FakeCloudAPI: CloudAPIClient {
         held = nil
     }
 
+    func holdNextRead() { holdNextRead = true }
+
+    func waitForHeldRead() async {
+        if heldRead != nil { return }
+        await withCheckedContinuation { heldReadWaiter = $0 }
+    }
+
+    func releaseRead() {
+        heldRead?.resume()
+        heldRead = nil
+    }
+
     func count(_ op: String) -> Int { calls.filter { $0.op == op }.count }
 
     func read(_ op: String, params: [String: JSONValue]) async throws -> JSONValue {
         calls.append(Call(op: op, key: nil, principal: nil, params: params))
+        if holdNextRead {
+            holdNextRead = false
+            await withCheckedContinuation { continuation in
+                heldRead = continuation
+                heldReadWaiter?.resume()
+                heldReadWaiter = nil
+            }
+        }
         switch op {
         case "cloud.machine.list":
             return .object(["machines": .array(machines), "next_cursor": .null, "revision": .string(String(listRevision))])

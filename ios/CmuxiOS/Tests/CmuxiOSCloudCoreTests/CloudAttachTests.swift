@@ -153,6 +153,85 @@ struct CloudAttachTests {
         }
     }
 
+    @Test func attachSessionRejectsAGrantWithExtraServices() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [.committed(value: CloudJSON.linkToken(services: ["daemon", "ssh"]), revision: 0)])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        await #expect(throws: CloudAttachSessionError.invalidGrant) {
+            _ = try await session.mintHelloToken()
+        }
+    }
+
+    @Test func attachSessionRequiresReconnectResetAfterIssuingGrant() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [.committed(value: CloudJSON.linkToken(), revision: 0)])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        _ = try await session.mintHelloToken()
+        await #expect(throws: CloudAttachSessionError.credentialAlreadyIssued) {
+            _ = try await session.prepare(hostID: host, service: .ssh)
+        }
+        #expect(await api.count("cloud.machine.connect_info") == 1)
+    }
+
+    @Test func concurrentMintsReserveTheSingleHelloGrant() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [.committed(value: CloudJSON.linkToken(), revision: 0)])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        await api.holdNextMutation()
+        let first = Task { try await session.mintHelloToken() }
+        await api.waitForHeld()
+        let second = Task { try await session.mintHelloToken() }
+        await #expect(throws: CloudAttachSessionError.operationInProgress) {
+            _ = try await second.value
+        }
+        await api.release()
+        _ = try await first.value
+        #expect(await api.count("cloud.machine.link_token") == 1)
+    }
+
+    @Test func concurrentPreparesDoNotReplaceTheInFlightPlan() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.holdNextRead()
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        let first = Task { try await session.prepare(hostID: host, service: .daemon) }
+        await api.waitForHeldRead()
+        let second = Task { try await session.prepare(hostID: host, service: .ssh) }
+        await #expect(throws: CloudAttachSessionError.operationInProgress) {
+            _ = try await second.value
+        }
+        await api.releaseRead()
+        guard case .ready(let plan) = try await first.value else {
+            Issue.record("first prepare should complete")
+            return
+        }
+        #expect(plan.service == .daemon)
+        #expect(await api.count("cloud.machine.connect_info") == 1)
+    }
+
+    @Test func prepareCannotOverwriteAPlanWhileItsGrantIsMinting() async throws {
+        let api = FakeCloudAPI()
+        await api.setConnectInfo(connectInfo())
+        await api.set(replies: [.committed(value: CloudJSON.linkToken(), revision: 0)])
+        let session = CloudAttachSession(api: api, now: { Date(timeIntervalSince1970: 1_000) })
+        _ = try await session.prepare(hostID: host, service: .daemon)
+        await api.holdNextMutation()
+        let mint = Task { try await session.mintHelloToken() }
+        await api.waitForHeld()
+        await #expect(throws: CloudAttachSessionError.operationInProgress) {
+            _ = try await session.prepare(hostID: host, service: .ssh)
+        }
+        await api.release()
+        _ = try await mint.value
+        #expect(await api.count("cloud.machine.connect_info") == 1)
+    }
+
     @Test func linkTokenDecoderAcceptsDecimalExpiryAndRejectsMissingSecret() throws {
         let decoder = CloudWireDecoder()
         let value = CloudJSON.linkToken(expiresAt: 2_000_000_000_000)
