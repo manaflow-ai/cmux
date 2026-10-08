@@ -261,7 +261,9 @@ impl Mux {
             .context("created screen disappeared")?;
         drop(_creation_handoff);
         #[cfg(test)]
-        if let Some(hook) = self.screen_created_hook.lock().unwrap().take() {
+        if let Some(hook) =
+            self.screen_created_hook.lock().unwrap_or_else(PoisonError::into_inner).take()
+        {
             hook(surface.id);
         }
         Ok((surface, screen))

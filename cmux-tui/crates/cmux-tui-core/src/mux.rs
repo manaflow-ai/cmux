@@ -7253,7 +7253,8 @@ impl Mux {
         &self,
         hook: impl FnOnce(SurfaceId) + Send + 'static,
     ) {
-        *self.screen_created_hook.lock().unwrap() = Some(Box::new(hook));
+        *self.screen_created_hook.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(Box::new(hook));
     }
 
     #[cfg(test)]
