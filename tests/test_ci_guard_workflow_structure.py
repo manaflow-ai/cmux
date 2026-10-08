@@ -79,7 +79,7 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
         "Type-check agent-chat",
         "Run agent-chat unit tests",
     ]
-    assert all(step["if"] == "${{ matrix.group == 'preflight' }}" for step in chat_steps)
+    assert all(step["if"] == "${{ matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
     assert chat_steps[0]["run"].splitlines() == [
         "bun install --frozen-lockfile",
         "./node_modules/.bin/tsc --noEmit",

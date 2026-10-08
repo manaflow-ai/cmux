@@ -6,10 +6,13 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -140,6 +143,54 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual([e["id"] for e in result["evidence"]["executions"]], ["xcstrings"])
             self.assertEqual(result["outcome"]["status"], "passed")
             self.assertEqual(verify.receipt.check(result, "tests")["status"], "skipped")
+
+    def test_jobs_overlaps_independent_checks_and_keeps_receipt_order(self):
+        with repo_fixture() as repo:
+            active = 0
+            maximum = 0
+            lock = threading.Lock()
+
+            def fake_execute(_repo, item, _timeout):
+                nonlocal active, maximum
+                with lock:
+                    active += 1
+                    maximum = max(maximum, active)
+                time.sleep(0.05)
+                with lock:
+                    active -= 1
+                return ({"id": item[0], "phase": item[1], "argv": item[3],
+                         "status": "passed", "executed": True, "exit_code": 0,
+                         "output_sha256": "fixture", "tests": None, "cancelled": False,
+                         "elapsed_seconds": 0.05}, "")
+
+            with patch.object(verify, "execute", side_effect=fake_execute):
+                result = verify.run(repo, ["xcstrings", "localization"], 5, io.StringIO(), jobs=2)
+            self.assertEqual(maximum, 2)
+            self.assertEqual([item["id"] for item in result["evidence"]["executions"]],
+                             ["xcstrings", "localization"])
+            self.assertEqual(result["recipe"]["argv"][-2:], ["--jobs", "2"])
+
+    def test_parallel_interrupt_settles_all_child_checks(self):
+        with repo_fixture() as repo:
+            for name in ("lint-xcstrings.py", "localization_catalog.py"):
+                (repo / "scripts" / name).write_text("import time; time.sleep(10)\n")
+            child = subprocess.Popen(
+                ["python3", str(repo / "scripts/verify-local.py"), "--repo", str(repo),
+                 "--only", "xcstrings", "--only", "localization", "--jobs", "2"],
+                cwd=repo.parent, start_new_session=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                time.sleep(0.2)
+                os.killpg(child.pid, signal.SIGINT)
+                output, errors = child.communicate(timeout=5)
+            finally:
+                if child.poll() is None:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.wait()
+            self.assertNotEqual(child.returncode, 0)
+            self.assertIn("INTERRUPTED xcstrings", output + errors)
+            self.assertIn("INTERRUPTED localization", output + errors)
 
     def test_ctrl_c_skips_remaining_checks(self):
         with repo_fixture() as repo:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run CMUX's fast CI static checks locally, before a native build or push."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import fnmatch
 import hashlib
 import json
@@ -14,6 +15,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # Discovery must not create new inputs in an otherwise clean checkout.
@@ -170,6 +172,18 @@ def stop_process(proc):
         proc.wait()
 
 
+_ACTIVE_PROCESSES = set()
+_ACTIVE_PROCESSES_LOCK = threading.Lock()
+
+
+def stop_active_processes():
+    """Settle every concurrently running check after an interrupt."""
+    with _ACTIVE_PROCESSES_LOCK:
+        active = tuple(_ACTIVE_PROCESSES)
+    for proc in active:
+        stop_process(proc)
+
+
 def execute(repo, item, timeout):
     name, phase, label, argv = item
     started = time.monotonic()
@@ -181,9 +195,12 @@ def execute(repo, item, timeout):
     # Child output never fills a pipe or the public receipt. Retain a bounded
     # diagnostic tail for this local invocation; the temporary raw log is removed.
     with tempfile.TemporaryFile() as log:
+        proc = None
         try:
             proc = subprocess.Popen(argv, cwd=repo, stdout=log, stderr=subprocess.STDOUT,
                                     start_new_session=True)
+            with _ACTIVE_PROCESSES_LOCK:
+                _ACTIVE_PROCESSES.add(proc)
             result["executed"] = True
             try:
                 code = proc.wait(timeout=timeout)
@@ -212,6 +229,10 @@ def execute(repo, item, timeout):
                     output += "\nNo usable nonzero unittest execution summary; tests claim failed.\n"
         except OSError as error:
             output = str(error)
+        finally:
+            if proc is not None:
+                with _ACTIVE_PROCESSES_LOCK:
+                    _ACTIVE_PROCESSES.discard(proc)
     result["elapsed_seconds"] = round(time.monotonic() - started, 3)
     return result, output
 
@@ -280,7 +301,10 @@ def stdin_swift_files(data):
     return [os.fsdecode(p) for p in data.split(b"\0") if p.endswith(b".swift")]
 
 
-def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None, affected=None):
+def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None,
+        affected=None, jobs=1):
+    if not isinstance(jobs, int) or jobs < 1:
+        raise ValueError("jobs must be a positive integer")
     before = receipt.observe(repo)
     affected_selection = None
     if affected is not None:
@@ -315,6 +339,8 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
         result["recipe"]["argv"] += ["--swift-changed", swift_changed]
     elif swift_stdin0 is not None:
         result["recipe"]["argv"] += ["--swift-stdin0"]
+    if jobs != 1:
+        result["recipe"]["argv"] += ["--jobs", str(jobs)]
     result["source"]["repository"] = "cmux (caller-supplied checkout)"
     result["source"].update(before=before, head_sha=before["commit"], checkout_sha=before["commit"],
                              tree=before.get("tree"))
@@ -350,12 +376,7 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                 pass  # The parser command still determines this check's result.
     if not items:
         raise ValueError("at least one known check must be selected")
-    for item in items:
-        if cancelled:
-            executions.append({"id": item[0], "phase": item[1], "argv": item[3],
-                               "status": "skipped", "executed": False, "tests": None})
-            continue
-        print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
+    def run_item(item):
         if item[0] == "swift-syntax" and not paths:
             execution = {"id": item[0], "phase": item[1], "argv": [], "tests": None,
                          "status": "skipped", "reason": "no_swift_inputs", "executed": False,
@@ -368,8 +389,9 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             output = "swiftc is unavailable; select an installed Swift toolchain and retry."
         else:
             execution, output = execute(repo, item, timeout)
-        executions.append(execution)
-        cancelled = execution["cancelled"]
+        return execution, output
+
+    def report(item, execution, output):
         count = execution["tests"]
         details = f'; {count["executed"]} tests executed, {count["skipped"]} skipped' if count and count["executed"] is not None else ""
         print(f'{execution["status"].upper()} {item[0]} ({execution["elapsed_seconds"]:.2f}s{details})', file=stream)
@@ -380,6 +402,57 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             if item[0] == "swift-syntax":
                 rerun += ["--swift"] + [str(p.relative_to(repo.resolve())) for p in paths]
             print(f"Rerun from this checkout: {shlex.join(rerun)}", file=stream)
+
+    # CI can overlap independent static recipes on one runner. Keep the local
+    # default serial so callers retain the historical output and Ctrl-C
+    # behavior, while an explicit jobs value makes the speed tradeoff visible.
+    if jobs == 1:
+        for item in items:
+            if cancelled:
+                executions.append({"id": item[0], "phase": item[1], "argv": item[3],
+                                   "status": "skipped", "executed": False, "tests": None})
+                continue
+            print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
+            execution, output = run_item(item)
+            executions.append(execution)
+            cancelled = execution["cancelled"]
+            report(item, execution, output)
+    else:
+        if cancelled:
+            executions = [{"id": item[0], "phase": item[1], "argv": item[3],
+                           "status": "skipped", "executed": False, "tests": None}
+                          for item in items]
+        else:
+            for item in items:
+                print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
+            pool = ThreadPoolExecutor(max_workers=min(jobs, len(items)))
+            futures = [pool.submit(run_item, item) for item in items]
+            try:
+                results = [future.result() for future in futures]
+            except KeyboardInterrupt:
+                stop_active_processes()
+                for future in futures:
+                    future.cancel()
+                # A worker may have crossed Popen between the first snapshot
+                # and future cancellation. Take one more snapshot before
+                # waiting for every worker to settle.
+                stop_active_processes()
+                pool.shutdown(wait=True, cancel_futures=True)
+                interrupted = ({"status": "interrupted", "executed": False,
+                                "exit_code": None, "output_sha256": None, "tests": None,
+                                "cancelled": True, "elapsed_seconds": 0})
+                results = [
+                    (interrupted | {"id": item[0], "phase": item[1], "argv": item[3]},
+                     "Interrupted before this check completed.")
+                    if future.cancelled() else future.result()
+                    for item, future in zip(items, futures)
+                ]
+                cancelled = True
+            else:
+                pool.shutdown(wait=True)
+            for item, (execution, output) in zip(items, results):
+                executions.append(execution)
+                report(item, execution, output)
     result["source"]["after"] = receipt.observe(repo)
     result["evidence"] = {"kind": "local_static_preflight", "executions": executions}
     if affected_selection is not None:
@@ -479,6 +552,8 @@ Details and examples: docs/verification-receipts.md""")
     execution.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1],
                            help="Trusted target checkout; its scripts execute locally (default: this checkout)")
     execution.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
+    execution.add_argument("--jobs", type=int, default=1,
+                           help="Run independent checks concurrently (default 1; CI may use a bounded value)")
     args = parser.parse_args()
     if args.all and (args.affected is not None or args.only):
         parser.error("--all, --affected and --only are alternatives")
@@ -526,13 +601,16 @@ Details and examples: docs/verification-receipts.md""")
         return 0
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a finite positive number")
+    if args.jobs < 1:
+        parser.error("--jobs must be a positive integer")
     selected = args.only or [c[0] for c in CHECKS]
     json_stdout = args.receipt == Path("-")
     try:
         result = run(args.repo.resolve(), selected, args.timeout,
                      stream=sys.stderr if json_stdout else sys.stdout, swift_files=args.swift,
                      swift_changed=args.swift_changed, affected=args.affected,
-                     swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None)
+                     swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None,
+                     jobs=args.jobs)
     except ValueError as error:
         parser.error(str(error))
     if automatic is not None:

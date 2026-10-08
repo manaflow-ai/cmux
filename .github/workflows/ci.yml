@@ -934,9 +934,9 @@ jobs:
                 fi
 
                 if [ "$release_only" = true ]; then
-                  echo 'linux_guard_test_groups=["preflight","ci","release-ios","release-notary","release-tooling"]'
+                  echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","release-ios","release-notary","release-tooling"]'
                 else
-                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-watchdog","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","app-host-execution","app-host-watchdog","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
                 fi
               else
                 echo 'linux_guard_test_groups=["ci"]'
@@ -1142,7 +1142,10 @@ jobs:
           persist-credentials: false
 
       - name: Run the contributor static preflight
-        run: python3 scripts/verify-local.py
+        # The recipe is read-only and each check owns its temporary state, so
+        # bounded overlap cuts the Linux gate's wall time without changing
+        # which checks run. Keep verify-local's local default serial.
+        run: python3 scripts/verify-local.py --jobs 4
 
       - name: Check agent hook docs against the catalog
         run: python3 scripts/check-agent-hook-docs.py

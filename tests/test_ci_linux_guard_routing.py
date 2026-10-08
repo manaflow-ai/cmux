@@ -254,6 +254,10 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             frozenset({"release-ios"}),
         )
         self.assertEqual(step_owners(extended)["Validate a brand-new guard"], "release-ios")
+        self.assertEqual(
+            groups_for_path("agent-chat/test/claude-environment.test.ts"),
+            ("preflight-agent-chat",),
+        )
 
     def test_route_inputs_come_from_the_guard_workflow(self):
         # WORKFLOW_TEST_INPUTS, CLI_INPUTS, and HISTORY_INPUTS used to be three

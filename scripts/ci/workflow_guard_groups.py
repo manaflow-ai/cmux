@@ -34,6 +34,7 @@ JOB_HEADER = re.compile(r"  ([A-Za-z0-9_-]+):\s*$")
 
 GROUPS = (
     "preflight",
+    "preflight-agent-chat",
     "ci",
     "app-host-execution",
     "app-host-watchdog",
@@ -78,7 +79,7 @@ PATH_OWNERS = {
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
-    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
+    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight-agent-chat",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
@@ -412,7 +413,10 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
     owners = set(PATH_OWNERS.get(path, ()))
     owners.update(derived.get(path, ()))
     if _python_syntax_scan(path):
-        owners.add("preflight")
+        # Syntax compilation is a cheap, deterministic check. Keep it out of
+        # the serial preflight bucket, whose other steps install and exercise
+        # unrelated tooling such as release and repository contract tests.
+        owners.add("quality-determinism")
     if _determinism_scan(path):
         owners.add("quality-determinism")
 
