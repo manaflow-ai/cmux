@@ -144,7 +144,13 @@ def clean_git_env() -> dict[str, str]:
     return env
 
 
-def run_cli_args(cli_path: str, args: list[str], *, cwd: str | None = None) -> ProbeResult:
+def run_cli_args(
+    cli_path: str,
+    args: list[str],
+    *,
+    cwd: str | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> ProbeResult:
     env = clean_git_env()
     for key in [
         "CMUX_SOCKET_PASSWORD",
@@ -156,6 +162,8 @@ def run_cli_args(cli_path: str, args: list[str], *, cwd: str | None = None) -> P
         env.pop(key, None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    if extra_env:
+        env.update(extra_env)
 
     with tempfile.TemporaryDirectory(prefix="cmux-no-socket-") as tmpdir:
         no_socket = os.path.join(tmpdir, f"socket-{uuid.uuid4().hex}.sock")
@@ -190,6 +198,7 @@ def main() -> int:
 
     failures: list[str] = []
     failures.extend(check_guide_contract(cli_path))
+    failures.extend(check_welcome_contract(cli_path))
     failures.extend(check_task_help_contract(cli_path))
     failures.extend(check_review_ledger_contract(cli_path))
     for probe in probes:
@@ -683,6 +692,85 @@ def check_guide_contract(cli_path: str) -> list[str]:
                         raise ValueError(f"invalid arguments must fail before socket access: {result}")
             except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
                 failures.append(f"{label}: {exc}")
+    return failures
+
+
+# The welcome screen lists cmux's default shortcuts. Each row is the shared
+# display name and the default key from the CmuxSettings table, rendered the
+# way Settings > Keyboard Shortcuts renders it (Control, Option, Shift, Command).
+WELCOME_DEFAULT_ROWS = [
+    ("⌘N", "New Workspace"),
+    ("⌘T", "New Surface"),
+    ("⌘P", "Go to Workspace…"),
+    ("⌘B", "Toggle Left Sidebar"),
+    ("⌥⌘B", "Toggle Right Sidebar"),
+    ("⌘D", "Split Right"),
+    ("⇧⌘D", "Split Down"),
+    ("⇧⌘P", "Command Palette…"),
+    ("⇧⌘R", "Rename Workspace"),
+    ("⇧⌘L", "Open Browser"),
+    ("⇧⌘U", "Jump to Latest Unread"),
+    ("⌥⌘U", "Toggle Unread"),
+]
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def welcome_rows(stdout: str) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for line in ANSI_ESCAPE_RE.sub("", stdout).splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in {key for key, _ in WELCOME_DEFAULT_ROWS}:
+            rows.append((parts[0], " ".join(parts[1:])))
+    return rows
+
+
+def check_welcome_contract(cli_path: str) -> list[str]:
+    """`cmux welcome` lists the default shortcuts, whatever the user rebound.
+
+    The second run points HOME at a cmux.json that rebinds and unbinds rows
+    from the list. The output must stay the defaults: welcome documents what a
+    fresh install does, and `cmux shortcuts` is where current bindings live.
+    """
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="cmux-welcome-") as home:
+        config_dir = Path(home) / ".config" / "cmux"
+        config_dir.mkdir(parents=True)
+        (config_dir / "cmux.json").write_text(
+            json.dumps({
+                "shortcuts": {
+                    "bindings": {"newTab": "cmd+shift+k", "splitRight": None},
+                    "commandPalette": "ctrl+alt+p",
+                },
+            }),
+            encoding="utf-8",
+        )
+        runs = {
+            "defaults": None,
+            "rebound cmux.json": {"HOME": home, "CFFIXED_USER_HOME": home},
+        }
+        for label, extra_env in runs.items():
+            try:
+                result = run_cli_args(cli_path, ["welcome"], extra_env=extra_env)
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                failures.append(f"cmux welcome ({label}): {exc}")
+                continue
+            if result.returncode != 0:
+                failures.append(f"cmux welcome ({label}): exit {result.returncode}: {result.stderr!r}")
+                continue
+            rows = welcome_rows(result.stdout)
+            if rows != WELCOME_DEFAULT_ROWS:
+                failures.append(
+                    f"cmux welcome ({label}): expected default shortcut rows {WELCOME_DEFAULT_ROWS!r}, "
+                    f"got {rows!r}\nstdout={result.stdout!r}"
+                )
+            plain = ANSI_ESCAPE_RE.sub("", result.stdout)
+            for needle in ("cmux shortcuts", "Settings > Keyboard Shortcuts", "Command Palette"):
+                if needle not in plain:
+                    failures.append(f"cmux welcome ({label}): missing {needle!r}\nstdout={result.stdout!r}")
+            for rebound in ("⇧⌘K", "⌃⌥P"):
+                if rebound in plain:
+                    failures.append(f"cmux welcome ({label}): shows the user's binding {rebound!r}")
     return failures
 
 

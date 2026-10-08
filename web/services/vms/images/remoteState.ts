@@ -34,6 +34,30 @@ export function devboxStrandedRemoteSessionRepairCommand(homes: readonly string[
   );
 }
 
+/** The systemd unit that runs the boot supervisor (cmux-devbox-boot) on a Freestyle image. */
+const DEVBOX_SUPERVISOR_UNIT = "cmux-tui-daemon.service";
+
+/**
+ * Starts the supervisor unit when it is not running. A memory snapshot
+ * resumes the source's processes and never re-runs boot, so a snapshot taken
+ * while the owner had stopped the unit resumes with no supervisor: nothing
+ * binds the clone or starts its daemon. The unit is enabled in every image,
+ * so starting it does what a boot of that machine would have done. On a
+ * running supervisor this is one `is-active` call.
+ */
+function devboxStartSupervisorCommand(): string {
+  return (
+    `command -v systemctl >/dev/null 2>&1 && { systemctl is-active --quiet ${DEVBOX_SUPERVISOR_UNIT} >/dev/null 2>&1` +
+    ` || systemctl start --no-block ${DEVBOX_SUPERVISOR_UNIT} >/dev/null 2>&1; };`
+  );
+}
+
+function devboxForkDaemonTimeoutReport(timeoutSeconds: number, boundInstanceFile: string): string {
+  void timeoutSeconds;
+  void boundInstanceFile;
+  return 'echo "cmux fork daemon did not become ready" >&2; exit 1';
+}
+
 /**
  * Repairs a clone's stranded session and waits until THIS machine's daemon
  * listens on port 1337.
@@ -46,7 +70,8 @@ export function devboxStrandedRemoteSessionRepairCommand(homes: readonly string[
  * loop first waits for daemon-instance-id to name this machine's metadata
  * instance id. From then on any listener belongs to a daemon started on this
  * machine. The repair runs on every pass because the supervisor deletes
- * auth/, the step that strands the session, only inside that branch.
+ * auth/, the step that strands the session, only inside that branch. Every
+ * pass also starts a stopped supervisor (devboxStartSupervisorCommand).
  */
 /** `homes` and `boundInstanceFile` exist for tests. */
 export interface DevboxForkDaemonReadyOptions {
@@ -59,11 +84,12 @@ export function devboxForkDaemonReadyCommand(timeoutSeconds: number, options: De
   return (
     'cmux_id=""; ' +
     `for cmux_try in $(seq 1 ${timeoutSeconds * 2}); do` +
+    ` ${devboxStartSupervisorCommand()}` +
     ` [ -n "$cmux_id" ] || cmux_id=$(${DEVBOX_METADATA_INSTANCE_ID_COMMAND} 2>/dev/null) || cmux_id="";` +
     ` if [ -n "$cmux_id" ] && [ "$cmux_id" = "$(cat "${boundInstanceFile}" 2>/dev/null)" ]; then` +
     ` ${devboxStrandedRemoteSessionRepairCommand(options.homes)};` +
     " if ss -Hltn 2>/dev/null | grep -q ':1337 '; then exit 0; fi;" +
     " fi; sleep 0.5;" +
-    ` done; echo "cmux-tui daemon for this machine did not listen on port 1337 within ${timeoutSeconds}s" >&2; exit 1`
+    ` done; ${devboxForkDaemonTimeoutReport(timeoutSeconds, boundInstanceFile)}`
   );
 }

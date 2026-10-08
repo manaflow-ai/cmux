@@ -2123,6 +2123,7 @@ extension Workspace {
                         stablePanelID: snapshot.id,
                         restorableAgent: restorableAgent,
                         resumeBinding: resumeBinding,
+                        tmuxStartCommand: localTmuxStartCommand,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         workingDirectory: workingDirectory,
@@ -2546,7 +2547,7 @@ extension Workspace {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool? {
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
         ) {
@@ -2590,7 +2591,6 @@ extension Workspace {
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
                 binding: resumeBinding,
-                fallingBackTo: panelShellActivityStates[panelId],
                 confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                 currentProcessIdentity: currentAgentProcessIdentity,
                 processPresence: agentProcessPresence
@@ -2613,8 +2613,18 @@ extension Workspace {
             panelId: panelId,
             currentProcessIdentity: currentAgentProcessIdentity
         )
+        if restorableAgent.resumeCommand == nil,
+           panelShellActivityStates[panelId] == .commandRunning {
+            // A non-resumable agent snapshot is retired once the restored shell
+            // accepts a new command. Generic shell activity still never proves
+            // that a resumable agent is alive.
+            return false
+        }
         return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: panelShellActivityStates[panelId],
+            // Shell activity is not proof that the restored agent is alive.
+            // The shell can be executing a stale restore scaffold after the
+            // owner has exited; require agent-specific process evidence.
+            fallingBackTo: panelShellActivityStates[panelId] == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
@@ -6922,8 +6932,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         syncRemoteRelayIDAliasesToController()
     }
+
+    /// Set on the "Sign in to <host>" workspace cmux opens by itself when a remote-tmux
+    /// reconnect cannot authenticate.
+    ///
+    /// It exists to run one `ssh` and is meaningless afterwards: a restored terminal is a
+    /// fresh shell, so a restored copy cannot authenticate anything. Worse, a restored copy
+    /// is invisible to the per-host "one login at a time" rule, which tracks the workspace
+    /// it created — so the next outage adds another, once per relaunch.
+    var isRemoteTmuxAuthLogin: Bool = false
+
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
+        if isRemoteTmuxAuthLogin { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
@@ -13642,6 +13663,7 @@ extension Workspace: BonsplitDelegate {
     private func confirmClosePanel(
         for tabId: TabID,
         nameOverride: String? = nil,
+        agentName: String? = nil,
         dontAskAgain: CloseWarningKinds
     ) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -13663,7 +13685,13 @@ extension Workspace: BonsplitDelegate {
         }()
 
         let message: String
-        if let panelName {
+        if let agentName {
+            let format = String(
+                localized: "dialog.closeTab.agentWorking",
+                defaultValue: "%@ is still working. This will close the current tab."
+            )
+            message = String(format: format, locale: .current, agentName)
+        } else if let panelName {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
@@ -14367,9 +14395,11 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+        let agentWarning = activeAgentCloseWarningInfo(panelId: panelId)
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || agentWarning != nil,
+            source: confirmationSource,
+            isAgentSession: agentWarning != nil
         )
         if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -14398,14 +14428,22 @@ extension Workspace: BonsplitDelegate {
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmClosePanel(for: tabId, dontAskAgain: warningKinds)
+                    let confirmed = await self.confirmClosePanel(
+                        for: tabId,
+                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId),
+                        dontAskAgain: warningKinds
+                    )
                     guard confirmed else {
                         self.clearCloseHistoryEligibility(tabId: tabId)
                         return
                     }
 
                     self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    if !self.bonsplitController.closeTab(tabId) {
+                        // didCloseTab never runs for a rejected close, so drop the
+                        // bypass here or the next close would skip the warning.
+                        self.forceCloseTabIds.remove(tabId)
+                    }
                 }
             }
             return false

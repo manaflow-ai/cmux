@@ -24,6 +24,23 @@ ISSUE = "✘ Test fragmentNavigation() recorded an issue at NavigationEdgeTests.
 SUMMARY = "✘ Test run with 15 tests in 2 suites failed after 5.731 seconds with 1 issue."
 
 
+CMUX_NEXT_WORKFLOW = """name: cmux-next
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/macOS/CmuxNext/**
+      - 'scripts/cmux-next/bundle-*.sh'
+      - docs/mdm/**
+      - "!docs/mdm/*.md"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - docs/**
+jobs: {}
+"""
+
+
 def test_log(issue=ISSUE):
     return "\n".join(f"cmux-next swift test\t{TEST_STEP}\t2026-10-02T19:10:10Z {line}" for line in (issue, SUMMARY))
 
@@ -283,7 +300,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=()):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -291,6 +308,15 @@ class InstalledHelperRegression(unittest.TestCase):
             for index, (name, status, conclusion) in enumerate(extra_checks)
         )
         check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
+        runs_payload = shlex.quote(json.dumps({"total_count": len(cmux_next_runs), "workflow_runs": [
+            {"id": 900 + index, "status": status, "conclusion": conclusion, "run_attempt": attempt, "head_sha": HEAD, "event": "pull_request"}
+            for index, (status, conclusion, attempt) in enumerate(cmux_next_runs)]}))
+        if cmux_next_workflow is None:
+            cmux_next_workflow = CMUX_NEXT_WORKFLOW
+        workflow_route = (
+            "printf '%s' " + shlex.quote(cmux_next_workflow) + "; exit 0"
+            if cmux_next_workflow else "exit 1"
+        )
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
@@ -299,6 +325,12 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
             "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'workflows/cmux-next.yml/runs'; then "
+            "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
+            + workflow_route + "; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
+            "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -352,6 +384,108 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(validator_marker.exists())
             self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
+    def test_a_cmux_next_run_still_running_refuses_even_with_override(self):
+        """ci-status and the reported checks were green while the cmux-next run's
+        native jobs were still queued (#17602) or rerunning after a runner loss
+        (#17625): those heads merged with Mac tests that never ran."""
+        cases = {
+            "native jobs not created yet": [("in_progress", None, 1)],
+            "rerun queued after a runner loss": [("completed", "cancelled", 1), ("queued", None, 2)],
+            "rerun waiting": [("waiting", None, 2)],
+        }
+        for label, runs in cases.items():
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(label=label, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=runs, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+                    self.assertIn("still", result.stderr)
+
+    def test_a_cmux_next_run_that_did_not_succeed_refuses_even_with_override(self):
+        """A cancelled cmux-next run is completed, so the pending-run guard let
+        #17653, #18079, #18080 and #18083 merge in the seconds between cancelling
+        stale queued runs and rerunning them: swift test, generated files and
+        Release compile never ran. Routing skips happen inside a successful run,
+        so only a run that concluded success shows the native lanes ran or were
+        not needed."""
+        cases = {
+            "cancelled before the rerun started": [("completed", "cancelled", 1)],
+            "skipped run": [("completed", "skipped", 1)],
+            "timed out": [("completed", "timed_out", 1)],
+            "startup failure": [("completed", "startup_failure", 1)],
+            "newest run cancelled after an older success": [("completed", "success", 1), ("completed", "cancelled", 1)],
+        }
+        for label, runs in cases.items():
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(label=label, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=runs, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+
+    def test_a_pull_request_outside_the_cmux_next_paths_filter_merges(self):
+        """cmux-next.yml filters pull_request by paths, so a docs or CI change has
+        no cmux-next run; ci-status on the exact head still gates it."""
+        for files in (["docs/README.md"], ["scripts/cmux-next/sub/bundle-x.sh", "README.md"], ["docs/mdm/README.md", "docs/mdm/keep.md"]):
+            with self.subTest(files=files), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, cmux_next_runs=[], changed_files=files)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+
+    def test_no_cmux_next_run_for_a_covered_change_refuses_even_with_override(self):
+        """#18100 merged seconds after a push, before GitHub had created the
+        cmux-next run for its head: no run and a green ci-status passed. A change
+        the workflow's paths filter covers gets a run, so its absence means the
+        run does not exist yet."""
+        for files in (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"], ["docs/README.md", "scripts/cmux-next/bundle-acpmux.sh"]):
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(files=files, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=[], changed_files=files, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+
+    def test_no_cmux_next_run_with_an_unreadable_workflow_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[], cmux_next_workflow="")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_an_older_cancelled_cmux_next_run_behind_a_success_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "cancelled", 1), ("completed", "success", 1)])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_failed_cmux_next_run_needs_an_override(self):
+        """A red native lane on the base stays waivable, as its check run is."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "failure", 1)])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("cmux-next run", result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "failure", 1)],
+                                     extra_args=("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_finished_cmux_next_run_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "success", 1)])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_ci_status_is_required_on_the_exact_head(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -410,6 +544,56 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
+
+    def test_override_cannot_bypass_god_file_l10n_or_concurrency_lint(self):
+        reason = "the swift test lane is a known base failure unrelated to this change"
+        for name in (
+            "cmux-next checks (god files, concurrency, crash safety, l10n)",
+            "cmux-next god files",
+            "cmux-next l10n",
+            "concurrency lint",
+        ):
+            for status, conclusion in (("completed", "failure"), ("in_progress", "")):
+                with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    events = Path(directory) / "events"
+                    result = self.run_helper(
+                        directory,
+                        marker,
+                        check_conclusion="failure",
+                        extra_checks=[(name, status, conclusion)],
+                        extra_args=("--override", reason),
+                        event_log=events,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertFalse(events.exists(), "the override reason was posted before refusing")
+                    self.assertIn(name, result.stderr)
+                    self.assertIn("--override cannot bypass", result.stderr)
+
+    def test_red_lint_check_refuses_without_override(self):
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, extra_checks=[(name, "completed", "failure")])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn(name, result.stderr)
+
+    def test_override_still_merges_when_lint_checks_are_green(self):
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        reason = "the swift test lane is a known base failure unrelated to this change"
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                check_conclusion="failure",
+                extra_checks=[(name, "completed", "success")],
+                extra_args=("--override", reason),
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_override_requires_eight_words(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -502,7 +686,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None):
+                 raw_content=None, app_workflow_body=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -522,6 +706,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
                 if a[:2] == ['pr', 'view']:
                     print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
+                elif a[:2] == ['pr', 'comment']:
+                    pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
@@ -547,7 +733,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     sys.exit(2)
                 """))
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
+            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
                 env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries), 'GH_MERGE_GREEN_NO_AUTO_UPDATE': '1'}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
@@ -576,6 +762,18 @@ class WorkflowPresenceRegression(unittest.TestCase):
 
     def test_no_ci_workflow_refuses_pending_status_context(self):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
+    def test_vercel_override_waives_only_the_named_external_status(self):
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
@@ -629,6 +827,69 @@ class WorkflowPresenceRegression(unittest.TestCase):
         result, merged, _ = self.run_case(workflow=True, files=['Sources/App.swift'], checks=[{'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success'}])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(merged)
+
+    def macos_routing_checks(self):
+        return [
+            {'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+            {'id': 2, 'name': 'macos', 'status': 'completed', 'conclusion': 'skipped',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+        ]
+
+    def run_ios_routing_case(self, checks):
+        return self.run_case(workflow=True, app_workflow=True,
+                             files=['Packages/iOS/CmuxMobileShellUI/Sources/MobileDisplaySettings.swift'],
+                             checks=checks)
+
+    def test_ios_only_diff_accepts_explicit_macos_skip_from_successful_ci_suite(self):
+        result, merged, _ = self.run_ios_routing_case(self.macos_routing_checks())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+
+    def test_macos_skip_requires_current_successful_github_actions_suite(self):
+        invalid_skips = [
+            {'status': 'in_progress', 'conclusion': None},
+            {'conclusion': 'failure'},
+            {'conclusion': 'success'},
+            {'conclusion': 'neutral'},
+            {'check_suite': {'id': 99}},
+            {'check_suite': {}},
+            {'app': {'slug': 'other-app'}},
+        ]
+        for invalid_skip in invalid_skips:
+            with self.subTest(invalid_skip=invalid_skip):
+                checks = self.macos_routing_checks()
+                checks[-1].update(invalid_skip)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
+        for replacement in ({'name': 'unrelated'}, {'conclusion': 'skipped'},
+                            {'app': {'slug': 'other-app'}}, {'check_suite': {}}):
+            with self.subTest(ci_status=replacement):
+                checks = self.macos_routing_checks()
+                checks[0].update(replacement)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+
+    def test_macos_skip_does_not_hide_newer_route_or_scheduled_compile(self):
+        for conclusion in ('failure', 'success'):
+            with self.subTest(newer_route=conclusion):
+                checks = self.macos_routing_checks()
+                checks.append({**checks[-1], 'id': 3, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+        for status, conclusion in (('in_progress', None), ('completed', 'failure')):
+            with self.subTest(compile=(status, conclusion)):
+                checks = self.macos_routing_checks()
+                checks.append({'id': 3, 'name': 'macos / macOS compile admission',
+                               'status': status, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
 
 
 class HelperCheckoutUpdateRegression(unittest.TestCase):

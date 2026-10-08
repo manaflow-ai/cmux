@@ -252,6 +252,36 @@ print("named", ready.wait(2.0))
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
   });
 
+  test("prompt sync never polls faster after a failure than after a success", async () => {
+    // Every success waits 30 s. A refused credential used to retry every 8 s
+    // forever, so a machine whose credential stopped working polled almost
+    // four times as often as a healthy one.
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const result = await runChild("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, io, sys, urllib.error
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+def run(error, count):
+    delay, delays = None, []
+    for _ in range(count):
+        delay = module.retry_delay(delay, error)
+        delays.append(delay)
+    return delays
+refused = urllib.error.HTTPError("https://reflection.cmux.internal/name", 401, "Unauthorized", {}, io.BytesIO())
+print("refused", run(refused, 11))
+print("transport", run(urllib.error.URLError("timed out"), 8))
+`, script]);
+    expect(result.stderr).toBe("");
+    // Boot still retries fast while the edge activates (~20-30 s), then a
+    // refusal backs off to 5 minutes and a transport failure to the 30 s cadence.
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "refused [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300]",
+      "transport [1, 2, 4, 8, 16, 30, 30, 30]",
+    ]);
+  });
+
   test("prompt sync creates the first workspace only after the daemon answers with no terminal", async () => {
     // A warm clone's daemon is still adopting the template terminal when the
     // prompt sync starts. An unanswered list must not fall through to a

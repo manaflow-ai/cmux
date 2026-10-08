@@ -22,6 +22,7 @@ import Testing
             "remote.tmux.attach",
             "remote.tmux.detach",
             "remote.tmux.state",
+            "remote.tmux.attach_progress",
             "remote.tmux.mirror",
             "remote.tmux.window",
         ].allSatisfy { advertisedMethods.contains($0) })

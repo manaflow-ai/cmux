@@ -319,6 +319,19 @@ supervisor and waits for a driver install.
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
+The bake also fully allocates a 1 GiB ext4 image at
+`/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
+`~/.local/state/cmux-tui` directory before the daemon starts. This gives the
+SQLite registry and journal a bounded filesystem even when general-purpose
+files fill the root filesystem. The image consumes space from the existing
+root disk; it does not change the Freestyle VM size or the image ladder. The
+bake writes a reservation marker only after the image is fully created and
+seeded. The boot supervisor reads that marker and requires the marker, helper,
+image, and mount after a snapshot resume before starting cmux-tui. If any of
+those checks fail, startup is deferred instead of falling back to the root
+filesystem. Older images without the marker continue using their existing
+state layout until they are replaced.
+
 ## Sizes: one bake, one snapshot per size
 
 A Freestyle VM boots at its snapshot's size and resize is grow-only, so the
