@@ -18,7 +18,7 @@ jobs:
     # Background lane: dispatch-only and off the PR critical path, so it runs
     # on free GitHub-hosted capacity instead of the shared paid macOS pool.
     # See docs/ci-runners.md "Background lane".
-    runs-on: ${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash

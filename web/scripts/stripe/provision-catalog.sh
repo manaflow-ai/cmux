@@ -401,9 +401,11 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
 
-# Retired annual offers remain valid for existing subscribers; never advertise
-# them as checkout or portal switch targets.
-ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly (Legacy \$480)"
+# Pro is the only plan sold yearly (20% off the monthly price).
+ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
+
+# Retired annual offer; valid for existing subscribers only, never advertised
+# as a checkout or portal switch target.
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
 
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"

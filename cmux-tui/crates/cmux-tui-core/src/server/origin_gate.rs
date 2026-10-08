@@ -7,6 +7,7 @@
 //! in `crate::request_origin`.
 
 use super::*;
+use crate::Actor;
 use crate::request_origin::{
     CONFIRMATION_TTL_MS, HelloRole, RequestOrigin, forbidden, mint_token, needs_user,
     valid_sha256_hex,
@@ -33,21 +34,19 @@ pub(super) fn handle_resource_line(
     };
     let (id, operation) = (envelope.id.clone(), envelope.operation);
     let admitted = check(mux, client, &envelope)
-        .and_then(|_| crate::resource_router::validate_resource_envelope(envelope));
+        .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
+        .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
         Err(error) => send_resource_response(writer, id, operation, Err(error)),
     }
 }
 
-/// The origin of `envelope` on `client`, or why it is refused. A client
+/// The actor of `envelope` on `client` once its origin passes, or why it is
+/// refused. A client
 /// with no registry record (a connection detached while its reader still
 /// held a line) has no known role, so it is refused (fail closed).
-fn check(
-    mux: &Mux,
-    client: u64,
-    envelope: &RequestEnvelope,
-) -> Result<RequestOrigin, ResourceError> {
+fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, ResourceError> {
     let now_ms = mux.control_clients.origin_clock.monotonic_ms();
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -67,7 +66,80 @@ fn check(
         &envelope.params,
         envelope.origin.as_ref(),
         now_ms,
-    )
+    )?;
+    let (transport, local) = (record.transport, record.origin.actor());
+    drop(state);
+    Ok(peer_or_local(mux, client, transport, local))
+}
+
+/// Refusal text when a connection that is not a human surface approves a
+/// WebSocket pairing.
+pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
+    "only the cmux app or the TUI that runs this daemon can approve a pairing";
+
+/// Whether `client` may APPROVE a WebSocket pairing (cx-ehrq). Approval
+/// admits a browser to the whole daemon, so it must come from a human
+/// surface: the in-process TUI (which calls `Mux::respond_pairing` and never
+/// reaches this check) or the verified cmux app, the `frontend` actor. Any
+/// other local connection (an agent in a pane, a script, the CLI) is the
+/// plain local user to the daemon and may only deny.
+pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
+    matches!(connection_actor(mux, client), Actor::Frontend { .. })
+}
+
+/// The v2 form of [`may_approve_pairing`]: `pairing_request.resolve` with
+/// `decision: accept` needs the `frontend` actor. A connection that is not a
+/// local Unix one is left to the trusted-local refusal.
+fn check_pairing_accept(
+    mux: &Mux,
+    client: u64,
+    envelope: &RequestEnvelope,
+    actor: &Actor,
+) -> Result<(), ResourceError> {
+    let accept = envelope.operation == ResourceOperation::PairingRequestResolve
+        && envelope.params.get("decision").and_then(Value::as_str) == Some("accept");
+    if !accept || !mux.control_clients.is_unix(client) || matches!(actor, Actor::Frontend { .. }) {
+        return Ok(());
+    }
+    let derived = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
+    };
+    Err(forbidden(
+        PAIRING_APPROVAL_NEEDS_HUMAN,
+        json!({"derived": derived.wire_name(), "required": "user", "reason": "pairing_approval_needs_human"}),
+    ))
+}
+
+/// The actor of a durable mutation that `client` asks for on the legacy
+/// control protocol. A client with no record is never the local user.
+pub(super) fn connection_actor(mux: &Mux, client: u64) -> Actor {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(record) = state.clients.get(&client) else {
+        return Actor::Peer { id: "unregistered".to_string() };
+    };
+    let (transport, local) = (record.transport, record.origin.actor());
+    drop(state);
+    peer_or_local(mux, client, transport, local)
+}
+
+/// A link peer (`peer:link:<install>`), any other WebSocket or remote-entry
+/// connection (`peer:websocket`, `peer:remote`), else the local connection's
+/// own actor. Read after the clients lock is released: the peers lock is
+/// never taken under it.
+fn peer_or_local(mux: &Mux, client: u64, transport: ClientTransport, local: Actor) -> Actor {
+    match mux.remote_relay().peer_checked(client) {
+        Ok(Some(peer)) => return Actor::Peer { id: format!("link:{}", peer.install) },
+        // A poisoned peers lock cannot say the client is local: fail closed.
+        Err(_) => return Actor::Peer { id: "remote".to_string() },
+        Ok(None) => {}
+    }
+    match transport {
+        ClientTransport::Unix => local,
+        ClientTransport::WebSocket => Actor::Peer { id: "websocket".to_string() },
+        ClientTransport::Remote => Actor::Peer { id: "remote".to_string() },
+    }
 }
 
 #[cfg(unix)]
@@ -114,7 +186,7 @@ pub(super) fn set_hello(
 /// verified app. Its `peer_key` stays the audit-token key, so its page
 /// relay (same process, same token) still matches it. False when the client
 /// is gone or is not role main.
-pub(super) fn set_install_proved(mux: &Mux, client: u64) -> bool {
+pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bool {
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(record) = state.clients.get_mut(&client) else { return false };
@@ -122,6 +194,7 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64) -> bool {
         return false;
     }
     record.origin.verified_app = true;
+    record.origin.install_id = Some(install_id.to_string());
     true
 }
 
@@ -279,3 +352,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]
 mod page_access_tests;
+
+#[cfg(all(test, unix))]
+#[path = "pairing_gate_tests.rs"]
+mod pairing_gate_tests;

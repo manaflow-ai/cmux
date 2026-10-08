@@ -9,10 +9,13 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+            + ChatSettingsSchema().descriptors + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + AgentPaneEditedFilesSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }
@@ -29,7 +32,8 @@ public nonisolated enum SettingsSchema {
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
     public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
+        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
+        TerminalFontSetting().sizePath,
     ]
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
@@ -47,7 +51,7 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .general: ["palette.welcomeChecklist", "onboarding.continueSetup", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
@@ -126,10 +130,20 @@ public nonisolated enum SettingsSchema {
                 default: .string(TitlebarButtonsSetting.fallback.rawValue),
                 keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.globalHotKeyPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
+                help: SettingsText.keyed("settings.app.globalHotKey.help",
+                                        "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
+                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
+            ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
+            TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
         ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,

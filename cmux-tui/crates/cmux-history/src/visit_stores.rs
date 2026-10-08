@@ -16,6 +16,16 @@ const EXTENSION: &str = ".sqlite";
 /// (Swift `HistoryService.entries`).
 const DEFAULT_PAGE_LIMIT: usize = 500;
 
+/// What a removal did: how many visits went, and the id that restores them
+/// (`None` when nothing was removed). RECOVERABLE-BY-DEFAULT: every removal
+/// keeps a backup until it is restored, purged by the person, or its visits
+/// pass the retention.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Removal {
+    pub removed: usize,
+    pub restore_id: Option<String>,
+}
+
 /// The visit logs of every profile, opened on first use and kept open (one
 /// connection per profile).
 pub struct VisitStores {
@@ -116,14 +126,15 @@ impl VisitStores {
 
     /// Removes the page visits named by entry ids (`page:<profile>:<id>`);
     /// other ids are ignored. Returns how many visits went.
-    pub fn remove_ids<S: AsRef<str>>(&mut self, ids: &[S]) -> Result<usize, HistoryError> {
+    pub fn remove_ids<S: AsRef<str>>(&mut self, ids: &[S]) -> Result<Removal, HistoryError> {
+        let backup = new_restore_id()?;
         let mut removed = 0;
         for id in ids {
             if let Some((profile, visit)) = parse_page_id(id.as_ref()) {
-                removed += self.store(profile)?.remove_visit(visit)?;
+                removed += self.store(profile)?.remove_visit(visit, &backup)?;
             }
         }
-        Ok(removed)
+        Ok(removal(removed, backup))
     }
 
     /// Removes every visit of `host` and its subdomains, in `profile` or
@@ -132,12 +143,13 @@ impl VisitStores {
         &mut self,
         host: &str,
         profile: Option<&str>,
-    ) -> Result<usize, HistoryError> {
+    ) -> Result<Removal, HistoryError> {
+        let backup = new_restore_id()?;
         let mut removed = 0;
         for profile in self.targets(profile)? {
-            removed += self.store(&profile)?.remove_host(host)?;
+            removed += self.store(&profile)?.remove_host(host, &backup)?;
         }
-        Ok(removed)
+        Ok(removal(removed, backup))
     }
 
     /// Removes visits at or after `since_ms` (`None`: all), in `profile` or
@@ -146,12 +158,32 @@ impl VisitStores {
         &mut self,
         since_ms: Option<i64>,
         profile: Option<&str>,
-    ) -> Result<usize, HistoryError> {
+    ) -> Result<Removal, HistoryError> {
+        let backup = new_restore_id()?;
         let mut removed = 0;
         for profile in self.targets(profile)? {
-            removed += self.store(&profile)?.remove_since(since_ms)?;
+            removed += self.store(&profile)?.remove_since(since_ms, &backup)?;
         }
-        Ok(removed)
+        Ok(removal(removed, backup))
+    }
+
+    /// Restores a removal in every profile; returns how many visits came back.
+    pub fn restore(&mut self, restore_id: &str) -> Result<usize, HistoryError> {
+        let mut restored = 0;
+        for profile in self.profiles()? {
+            restored += self.store(&profile)?.restore(restore_id)?;
+        }
+        Ok(restored)
+    }
+
+    /// Deletes a removal's backup for good (a user-origin op); returns how
+    /// many visits it held.
+    pub fn purge(&mut self, restore_id: &str) -> Result<usize, HistoryError> {
+        let mut purged = 0;
+        for profile in self.profiles()? {
+            purged += self.store(&profile)?.purge(restore_id)?;
+        }
+        Ok(purged)
     }
 
     /// Prunes every profile to 90 days and 100,000 visits.
@@ -169,6 +201,20 @@ impl VisitStores {
             None => self.profiles(),
         }
     }
+}
+
+fn removal(removed: usize, backup: String) -> Removal {
+    Removal { removed, restore_id: (removed > 0).then_some(backup) }
+}
+
+/// A fresh restore id, `history:<32 hex>`: 128 bits from the OS random
+/// source. An id is a capability to bring data back, so it is never
+/// derived from another one.
+fn new_restore_id() -> Result<String, HistoryError> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| HistoryError::Io(std::io::Error::other(error.to_string())))?;
+    Ok(format!("history:{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()))
 }
 
 /// `page:<profile>:<visit id>`; the profile may contain colons.

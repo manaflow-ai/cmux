@@ -39,7 +39,6 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   root.dataset.theme = theme.isDark ? "dark" : "light";
   applyAgentDocumentMetadata();
   root.classList.toggle("dark", theme.isDark);
-  root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
   // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
@@ -76,12 +75,7 @@ export function applyAgentDocumentMetadata(): void {
     return;
   }
   const root = document.documentElement;
-  root.dataset.agentWindowType = "electron";
-  root.dataset.windowType = "electron";
   root.dataset.agentOs = agentOs();
-  if (document.body) {
-    document.body.dataset.agentWindowType = "electron";
-  }
 }
 
 function agentOs(): string {

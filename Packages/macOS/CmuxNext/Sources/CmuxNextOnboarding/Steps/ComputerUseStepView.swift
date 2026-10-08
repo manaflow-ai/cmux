@@ -10,6 +10,18 @@ final class ComputerUseStepView: NSView {
     private var panel: HelperDragPanel?
     private var panelPane: ComputerUsePermissionPane?
     private var loop: RenderLoop?
+    /// Shown after Allow when this build has no signed helper.
+    private let unavailableLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperUnavailable,
+                                                        font: OnboardingMetrics.captionFont,
+                                                        color: Palette.textSecondary, lines: 2)
+    /// Shown while Computer Use is off: Allow turns it on.
+    private let offLabel = OnboardingLabel.make(OnboardingStrings.computerUseOff,
+                                                font: OnboardingMetrics.captionFont,
+                                                color: Palette.textSecondary, lines: 2)
+    /// Shown while the helper does not speak this build's protocol.
+    private let mismatchLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperVersionMismatch,
+                                                     font: OnboardingMetrics.captionFont,
+                                                     color: Palette.textSecondary, lines: 2)
 
     init(model: ComputerUseStepModel) {
         self.model = model
@@ -29,6 +41,15 @@ final class ComputerUseStepView: NSView {
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
+        offLabel.isHidden = true
+        stack.addArrangedSubview(offLabel)
+        offLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        unavailableLabel.isHidden = true
+        stack.addArrangedSubview(unavailableLabel)
+        unavailableLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        mismatchLabel.isHidden = true
+        stack.addArrangedSubview(mismatchLabel)
+        mismatchLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
@@ -54,6 +75,9 @@ final class ComputerUseStepView: NSView {
 
     private func render() {
         for (pane, row) in rows { row.update(granted: model.permissions.granted(pane)) }
+        offLabel.isHidden = !model.permissions.isOff || model.unavailable
+        unavailableLabel.isHidden = !model.unavailable
+        mismatchLabel.isHidden = !model.permissions.helperVersionMismatch
         let helping = model.helping
         guard helping != panelPane else { return }
         panelPane = helping

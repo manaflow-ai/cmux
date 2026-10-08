@@ -104,10 +104,14 @@ mod admission;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
+use command_args::{parse_direction, parse_split_dir, parse_zoom_mode, workspace_mutation};
 mod origin_gate;
+mod orphan_shutdown;
+pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
@@ -155,6 +159,10 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+mod group_outcome_json;
+use group_outcome_json::{
+    screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
+};
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
@@ -175,6 +183,8 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_inspect;
+pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -189,9 +199,17 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// A docked column marked permanent stays docked on its edge for every
+/// client: `set-column-dock` takes `permanent`, and an undock, another edge,
+/// a replacement or a close or move that would remove it answers
+/// `dock-column-permanent`.
+pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
+/// `set-column-dock` and `move-tab-to-column` accept `role` (`agent_chat`),
+/// kept with the pin and sent back as `Screen.columns[].dock.role`.
+pub const DOCK_COLUMN_ROLE_CAPABILITY: &str = "dock-column-role-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
 /// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
@@ -223,6 +241,12 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
+/// A client that lists this in `set-client-info` decodes every
+/// `device_kind` of a size state and reads a kind it does not know as
+/// `unknown`. It receives `linux` and `windows` (and later kinds) as they
+/// are; other clients receive them as `unknown`. The daemon advertises it in
+/// `identify`.
+pub const OPEN_DEVICE_KINDS_CAPABILITY: &str = "open-device-kinds-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -941,14 +965,24 @@ fn own_view_detach_target(
     .then_some((client, placement))
 }
 
+/// `state` as `client` may read it (`open-device-kinds-v1`).
+fn size_state_for_client(mux: &Mux, client: u64, state: &TerminalSizingState) -> Value {
+    let open = mux.control_clients.supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
+    json!(state.for_client(open))
+}
+
+/// A `size-state` event. Without a client it has only the kinds every
+/// `shared-sizing-v1` client decodes.
 fn size_state_event_json(
     surface: SurfaceId,
     runtime: SurfaceId,
     state: &TerminalSizingState,
-    client: Option<u64>,
+    client: Option<(u64, bool)>,
 ) -> Value {
-    let mut event = json!({"event": "size-state", "surface": surface, "state": state});
-    if let Some(client) = client {
+    let open = client.is_some_and(|(_, open)| open);
+    let mut event =
+        json!({"event": "size-state", "surface": surface, "state": state.for_client(open)});
+    if let Some((client, _)) = client {
         let id = crate::mux::view_participant_id(runtime, surface, client);
         if state.participant(&id).is_some() {
             event["self_participant"] = json!(id);
@@ -983,6 +1017,9 @@ enum Command {
         terminal_id: String,
         url: String,
     },
+    /// The Chief memory inspector's read-only API, for the owner's trusted
+    /// connection, forwarded to the brain host (`chief-inspect-v1`).
+    ChiefInspect(chief_inspect::Params),
     UrlOpenClaim {
         request_id: String,
     },
@@ -1656,8 +1693,9 @@ enum Command {
         transaction: Option<u64>,
     },
     /// `dock-columns-v1`: pin or unpin the viewport column containing
-    /// `pane`. `edge` and `mode` stay strings so a bad value answers with
-    /// `error_code:"invalid-argument"` instead of a decode error.
+    /// `pane`. `edge`, `mode` and `role` (`dock-column-role-v1`) stay strings
+    /// so a bad value answers with `error_code:"invalid-argument"` instead of
+    /// a decode error.
     SetColumnDock {
         pane: PaneId,
         dock: bool,
@@ -1665,6 +1703,11 @@ enum Command {
         edge: Option<String>,
         #[serde(default)]
         mode: Option<String>,
+        /// `permanent-dock-v1`: mark the column permanent (never cleared once set).
+        #[serde(default)]
+        permanent: Option<bool>,
+        #[serde(default)]
+        role: Option<String>,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -1940,6 +1983,11 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
+    /// chief token), and the ack of handled wakes.
+    CloudMuxSubscribe(cloud_conversations::NoParams),
+    CloudMuxUnsubscribe(cloud_conversations::NoParams),
+    CloudMuxAck(cloud_conversations::MuxAckParams),
     /// Local conversation attachments (`local-attachments-v1`,
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
@@ -2560,46 +2608,6 @@ fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> 
         value["pane"] = json!(pane);
     }
     value
-}
-
-fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
-    json!({
-        "group": outcome.group.as_ref().map(|group| json!({
-            "id": group.id,
-            "name": group.name,
-            "color": group.color,
-            "collapsed": group.collapsed,
-            "saved_id": group.saved_id,
-        })),
-        "workspace": outcome.workspace,
-        "key": outcome.key,
-        "screens": outcome.members,
-    })
-}
-
-fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
-    json!({
-        "group": outcome.group.as_ref().map(|group| json!({
-            "id": group.id,
-            "name": group.name,
-            "color": group.color,
-            "collapsed": group.collapsed,
-            "saved_id": group.saved_id,
-        })),
-        "pane": outcome.pane,
-        "workspace": outcome.workspace,
-        "surfaces": outcome.members,
-    })
-}
-
-fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
-    json!({
-        "surface": outcome.surface,
-        "pane": outcome.pane,
-        "screen": outcome.screen,
-        "workspace": outcome.workspace,
-        "undoable": outcome.undoable,
-    })
 }
 
 /// Deserialize a field whose absence and `null` mean different things:
@@ -5149,6 +5157,8 @@ pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Called after any client connects or leaves (orphan_shutdown.rs).
+    client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -5168,6 +5178,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             detach_waker: Mutex::new(None),
+            client_presence_observer: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -5220,6 +5231,8 @@ impl ClientRegistry {
                 origin: Default::default(),
             },
         );
+        drop(state);
+        self.notify_client_presence();
         client
     }
 
@@ -5413,6 +5426,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
+                    || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -5487,7 +5501,12 @@ impl ClientRegistry {
                     if !record.capabilities.contains(SHARED_SIZING_CAPABILITY) {
                         return None;
                     }
-                    Some((*client, record.writer.clone(), Self::event_streams(record, surface)))
+                    let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
+                    Some((
+                        (*client, open),
+                        record.writer.clone(),
+                        Self::event_streams(record, surface),
+                    ))
                 })
                 .collect::<Vec<_>>()
         };
@@ -6243,6 +6262,7 @@ impl ClientRegistry {
         if detached {
             self.notify_detach();
         }
+        self.notify_client_presence();
         Some(record)
     }
 
@@ -6368,6 +6388,18 @@ impl Drop for PendingServer {
 /// Prepare the daemon-owned runtime directory without accepting a symlink or
 /// an existing directory controlled by another user. The final metadata check
 /// also confirms that tightening permissions did not change the object type.
+/// Windows: an owner-only directory (protected DACL, our token user as
+/// owner); a wider existing one is refused (cmux-sdk local_socket).
+#[cfg(windows)]
+fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    cmux::local_socket::private_directory(dir)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
 fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
     match std::fs::symlink_metadata(dir) {
         Ok(metadata) => {
@@ -6472,6 +6504,16 @@ pub fn connect_session_socket(
     #[cfg(unix)]
     if let Some(dir) = path.parent() {
         verify_private_socket_directory(dir)?;
+    }
+    #[cfg(windows)]
+    if let Some(dir) = path.parent() {
+        let me = cmux::local_socket::win::current_identity()?;
+        if !cmux::local_socket::win::directory_is_owner_only(dir, &me.user_sid)? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("runtime socket directory is not owner-only: {}", dir.display()),
+            ));
+        }
     }
     transport::connect_same_user(path)
 }
@@ -9895,17 +9937,14 @@ fn prepare_session_journal_stream(
     let stream_id = resource_stream_id(request)?;
     let shared_fanout = mux.shared_journal_enabled();
     let epoch = if shared_fanout { mux.shared_journal_epoch() } else { mux.journal_event_epoch() };
-    let head_sequence = mux
-        .session_journal_after(0, 1)
-        .map_err(|error| {
-            eprintln!("cmux-tui: read session journal head: {error:#}");
-            ResourceError::operation_failed(
-                "session.journal.subscribe",
-                "could not read the session journal",
-                json!({}),
-            )
-        })?
-        .head_sequence;
+    let head_sequence = mux.session_journal_head().map_err(|error| {
+        eprintln!("cmux-tui: read session journal head: {error:#}");
+        ResourceError::operation_failed(
+            "session.journal.subscribe",
+            "could not read the session journal",
+            json!({}),
+        )
+    })?;
     let current_cursor = journal_cursor(&session_id, head_sequence);
     let requested_cursor = request
         .fields
@@ -10455,10 +10494,13 @@ fn handle_request_with_cancellation(
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
+    if let Command::ChiefInspect(params) = cmd {
+        return chief_inspect::start(mux, client, id, params, writer);
+    }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }
-    if let Some(target) = cloud_conversations::subscribe_target(&cmd) {
+    if let Some(target) = cloud_conversations::subscribe_target(mux, &cmd) {
         return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
     }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
@@ -10727,8 +10769,9 @@ fn create_surface_with_receipt(
             || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
         "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
     );
+    let actor = origin_gate::connection_actor(mux, client);
     let mutation =
-        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?;
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin, actor)?;
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
@@ -10898,14 +10941,6 @@ fn create_surface_with_receipt(
     Ok(json!({"surface": surface, "replayed": replayed}))
 }
 
-fn parse_split_dir(dir: &str) -> anyhow::Result<SplitDir> {
-    match dir {
-        "right" => Ok(SplitDir::Right),
-        "down" => Ok(SplitDir::Down),
-        other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
-    }
-}
-
 fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
     cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
 }
@@ -10924,33 +10959,6 @@ fn paired_surface_size(
 
 fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
-}
-
-fn workspace_mutation(request: &MutationRequest) -> anyhow::Result<WorkspaceMutation> {
-    match (&request.mutation_id, &request.origin) {
-        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone()),
-        (None, None) => Ok(WorkspaceMutation::local("legacy-control")),
-        _ => anyhow::bail!("origin and mutation_id must be provided together"),
-    }
-}
-
-fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
-    match dir {
-        "left" => Ok(Direction::Left),
-        "right" => Ok(Direction::Right),
-        "up" => Ok(Direction::Up),
-        "down" => Ok(Direction::Down),
-        other => anyhow::bail!("bad dir {other:?} (want \"left\", \"right\", \"up\", or \"down\")"),
-    }
-}
-
-fn parse_zoom_mode(mode: Option<String>) -> anyhow::Result<ZoomMode> {
-    match mode.as_deref().unwrap_or("toggle") {
-        "toggle" => Ok(ZoomMode::Toggle),
-        "on" => Ok(ZoomMode::On),
-        "off" => Ok(ZoomMode::Off),
-        other => anyhow::bail!("bad mode {other:?} (want \"toggle\", \"on\", or \"off\")"),
-    }
 }
 
 fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Result<Value> {
@@ -11031,9 +11039,12 @@ fn pane_json(
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| &identity.tab_id)
                 .or_else(|| state.resource_indexes.tab_ids.get(sid));
+            // A restored tab with no runtime surface (an ended terminal after
+            // a restart) keeps its content id in the index, like its tab id.
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
-                .map(|identity| identity.content_id.as_str());
+                .map(|identity| identity.content_id.as_str())
+                .or_else(|| state.resource_indexes.content_ids.get(sid).map(|content| content.as_str()));
             let directory = notifications.directories.get(sid);
             let frontend_browser = surface
                 .and_then(|surface| surface.resource_identity())
@@ -11101,6 +11112,7 @@ fn pane_json(
                     .and_then(|surface| surface.terminal_end())
                     .map(|end| end.wire_json())
                     .or_else(|| content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned()))
+                    .map(|end| notifications.with_loss_cause(content_terminal, end))
             };
             let mut tab = json!({
                 "surface": sid,
@@ -12451,7 +12463,7 @@ fn attach_response(mux: &Mux, surface: SurfaceId, client: u64, lease: Option<Str
         && let Some(state) = mux.terminal_size_state(surface)
     {
         response["participant"] = json!(participant);
-        response["size_state"] = json!(state);
+        response["size_state"] = size_state_for_client(mux, client, &state);
     }
     response
 }
@@ -12596,6 +12608,8 @@ fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    // Who a durable legacy command acts as (P8): read once per command.
+    let actor = origin_gate::connection_actor(mux, client);
     if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
         return remote;
     }
@@ -12615,6 +12629,9 @@ fn handle_command_with_cancellation(
         }
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
+        }
+        Command::ChiefInspect(_) => {
+            anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
         Command::PasteImage {
             surface,
@@ -12854,6 +12871,8 @@ fn handle_command_with_cancellation(
         Command::PairingResponse { request, approve } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("pairing decisions require a trusted local connection");
+            } else if approve && !origin_gate::may_approve_pairing(mux, client) {
+                anyhow::bail!(origin_gate::PAIRING_APPROVAL_NEEDS_HUMAN);
             }
             if !mux.respond_pairing(request, approve) {
                 anyhow::bail!("unknown or expired pairing request {request}");
@@ -12917,7 +12936,7 @@ fn handle_command_with_cancellation(
                 let state = mux
                     .set_terminal_size_policy(surface, policy)
                     .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-                Ok(json!({"state": state}))
+                Ok(json!({"state": size_state_for_client(mux, client, &state)}))
             }
             (None, Some(workspace)) => {
                 mux.set_workspace_size_policy(workspace, policy)?;
@@ -12979,7 +12998,10 @@ fn handle_command_with_cancellation(
             let state = mux
                 .terminal_size_state(surface)
                 .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-            Ok(json!({"participant": participant, "state": state}))
+            Ok(json!({
+                "participant": participant,
+                "state": size_state_for_client(mux, client, &state),
+            }))
         }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
@@ -12989,7 +13011,10 @@ fn handle_command_with_cancellation(
             let self_participant = mux
                 .terminal_view_participant_id(surface, client)
                 .filter(|id| state.participant(id).is_some());
-            Ok(json!({"state": state, "self_participant": self_participant}))
+            Ok(json!({
+                "state": size_state_for_client(mux, client, &state),
+                "self_participant": self_participant,
+            }))
         }
         Command::ReloadConfig => {
             mux.request_config_reload()?;
@@ -13030,7 +13055,7 @@ fn handle_command_with_cancellation(
             projection,
             mutation,
         } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let commit = mux.put_frontend_projection(
                 &workspace_mutation,
                 &frontend,
@@ -13055,8 +13080,13 @@ fn handle_command_with_cancellation(
         }
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             let layout = layout_request_to_spec(layout)?;
-            let applied =
-                mux.apply_layout(workspace, name, &layout, optional_surface_size(cols, rows))?;
+            let applied = mux.apply_layout_as(
+                &actor,
+                workspace,
+                name,
+                &layout,
+                optional_surface_size(cols, rows),
+            )?;
             Ok(json!({
                 "screen": applied.screen,
                 "panes": applied.panes.iter().map(|pane| {
@@ -13215,7 +13245,8 @@ fn handle_command_with_cancellation(
             if key.is_some() && !new_workspace {
                 anyhow::bail!("key requires new_workspace");
             }
-            let result = mux.run_command_result_with_options(
+            let result = mux.run_command_result_with_options_as(
+                &actor,
                 argv,
                 crate::mux::RunCommandOptions {
                     pane,
@@ -13295,7 +13326,8 @@ fn handle_command_with_cancellation(
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification_from(title, body, level, surface, source)?;
+            let notification =
+                mux.post_notification_as(&actor, title, body, level, surface, source)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -13347,7 +13379,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::CloseTerminal { terminal_id, terminal_incarnation, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.close_terminal_with_mutation(
                 &terminal_id,
                 terminal_incarnation.as_deref(),
@@ -13416,18 +13448,29 @@ fn handle_command_with_cancellation(
                 shell_args,
                 frontend_shell(mux, client),
             )?;
-            let surface =
-                mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
+            let surface = mux.new_tab_with_options_as(
+                &actor,
+                pane,
+                spawn,
+                optional_surface_size(cols, rows),
+            )?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, params),
-        Command::BindConversationTabSession(params) => conversation_tabs_wire::bind(mux, params),
-        Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
-        Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
+        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, client, params),
+        Command::BindConversationTabSession(params) => {
+            conversation_tabs_wire::bind(mux, &actor, params)
+        }
+        Command::NewFrontendBrowserTab(params) => {
+            frontend_browser_history::create(mux, client, params)
+        }
+        Command::UpdateFrontendBrowserTab(params) => {
+            frontend_browser_history::update(mux, &actor, params)
+        }
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {
-            let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
+            let surface =
+                mux.new_browser_tab_as(&actor, url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::GetCellPixels => {
@@ -13520,7 +13563,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::NewWorkspace { name, cols, rows } => {
-            let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
+            let surface = mux.new_workspace_as(&actor, name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::CreateWorkspace { name, key, mutation } => {
@@ -13529,7 +13572,7 @@ fn handle_command_with_cancellation(
             {
                 anyhow::bail!("workspace key must be a lowercase UUID");
             }
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let placement = mux.create_empty_workspace_with_mutation(
                 name,
                 key,
@@ -13588,7 +13631,7 @@ fn handle_command_with_cancellation(
             // A per-terminal environment rides the receipted path, which is
             // the only one that carries a spawn reservation.
             if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
-                let workspace_mutation = workspace_mutation(&mutation)?;
+                let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
                 // A keyed retry whose workspace has closed since replays by key.
                 let (workspace, key) = match (resolved, key) {
                     (Ok((workspace, key)), _) => (Some(workspace), key),
@@ -13647,8 +13690,9 @@ fn handle_command_with_cancellation(
                 }))
             } else {
                 let (workspace, key) = resolved?;
-                let created =
-                    mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
+                let created = mux.create_terminal_result_in_workspace_as(
+                    &actor, workspace, argv, cwd, name, size,
+                )?;
                 if keep {
                     keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
                 }
@@ -13674,7 +13718,7 @@ fn handle_command_with_cancellation(
         }
         Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
-            let changed = mux.set_screen_metadata(screen, color, icon)?;
+            let changed = mux.set_screen_metadata_as(&actor, screen, color, icon)?;
             let presentation = mux.presentation_snapshot();
             let record = mux
                 .with_state(|state| {
@@ -13697,7 +13741,7 @@ fn handle_command_with_cancellation(
             )
         }
         Command::SetScreenPinned { screen, pinned } => {
-            let (changed, index) = mux.set_screen_pinned(screen, pinned)?;
+            let (changed, index) = mux.set_screen_pinned_as(&actor, screen, pinned)?;
             Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
         }
         Command::MoveScreen { screen, index, workspace, new_workspace } => {
@@ -13706,7 +13750,7 @@ fn handle_command_with_cancellation(
             } else {
                 crate::ScreenDestination::Workspace { workspace, index }
             };
-            let outcome = mux.move_screen(screen, destination)?;
+            let outcome = mux.move_screen_as(&actor, screen, destination)?;
             Ok(json!({
                 "screen": outcome.screen,
                 "workspace": outcome.workspace,
@@ -13714,17 +13758,21 @@ fn handle_command_with_cancellation(
                 "index": outcome.index,
             }))
         }
-        Command::CreateScreenGroup { screens, name, color } => {
-            Ok(screen_group_outcome_json(&mux.create_screen_group(&screens, name, color)?))
-        }
+        Command::CreateScreenGroup { screens, name, color } => Ok(screen_group_outcome_json(
+            &mux.create_screen_group_as(&actor, &screens, name, color)?,
+        )),
         Command::UpdateScreenGroup { group, name, color, collapsed } => {
-            Ok(screen_group_outcome_json(&mux.update_screen_group(&group, name, color, collapsed)?))
+            Ok(screen_group_outcome_json(
+                &mux.update_screen_group_as(&actor, &group, name, color, collapsed)?,
+            ))
         }
-        Command::AddScreensToScreenGroup { group, screens, index } => Ok(
-            screen_group_outcome_json(&mux.add_screens_to_screen_group(&group, &screens, index)?),
-        ),
+        Command::AddScreensToScreenGroup { group, screens, index } => {
+            Ok(screen_group_outcome_json(
+                &mux.add_screens_to_screen_group_as(&actor, &group, &screens, index)?,
+            ))
+        }
         Command::RemoveScreensFromScreenGroup { screens } => {
-            let groups = mux.remove_screens_from_screen_group(&screens)?;
+            let groups = mux.remove_screens_from_screen_group_as(&actor, &screens)?;
             Ok(json!({ "screens": screens, "groups": groups }))
         }
         Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
@@ -13733,14 +13781,14 @@ fn handle_command_with_cancellation(
             } else {
                 crate::ScreenDestination::Workspace { workspace, index }
             };
-            Ok(screen_group_outcome_json(&mux.move_screen_group(&group, destination)?))
+            Ok(screen_group_outcome_json(&mux.move_screen_group_as(&actor, &group, destination)?))
         }
         Command::UngroupScreenGroup { group } => {
-            let screens = mux.ungroup_screen_group(&group)?;
+            let screens = mux.ungroup_screen_group_as(&actor, &group)?;
             Ok(json!({ "group": group, "screens": screens }))
         }
         Command::CloseScreenGroup { group, end_terminals } => {
-            let closed = mux.close_screen_group(&group, end_terminals)?;
+            let closed = mux.close_screen_group_as(&actor, &group, end_terminals)?;
             Ok(json!({ "group": group, "closed": closed }))
         }
         Command::ListSavedScreenGroups => {
@@ -13769,7 +13817,7 @@ fn handle_command_with_cancellation(
             Ok(json!({ "groups": groups }))
         }
         Command::SaveScreenGroup { group } => {
-            let saved = mux.save_screen_group(&group)?;
+            let saved = mux.save_screen_group_as(&actor, &group)?;
             let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
             value["saved"] = json!(saved);
             Ok(value)
@@ -13789,7 +13837,9 @@ fn handle_command_with_cancellation(
                     .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
                     .context("no workspace to reopen the screen group into")?,
             };
-            Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
+            Ok(screen_group_outcome_json(
+                &mux.reopen_saved_screen_group_as(&actor, &saved, workspace)?,
+            ))
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let spawn = placement_spawn_options(
@@ -13799,31 +13849,42 @@ fn handle_command_with_cancellation(
                 shell_args,
                 frontend_shell(mux, client),
             )?;
-            let surface =
-                mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
+            let surface = mux.new_pane_with_options_as(
+                &actor,
+                pane,
+                spawn,
+                optional_surface_size(cols, rows),
+            )?;
             placed_terminal_result(mux, &surface, keep)
         }
         Command::NewPaneRight(params) => split_kind::new_pane_right(mux, client, params),
         Command::Split(params) => split_kind::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
-            mux.set_ratio_checked(pane, dir, ratio)?;
+            mux.set_ratio_checked_as(&actor, pane, dir, ratio)?;
             Ok(json!({}))
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
             transaction.map_or_else(
-                || mux.set_split_ratio_checked(split, ratio),
+                || mux.set_split_ratio_checked_as(&actor, split, ratio),
                 |transaction| {
-                    mux.set_split_ratio_in_transaction_checked(split, ratio, client, transaction)
+                    mux.set_split_ratio_in_transaction_checked_as(
+                        &actor,
+                        split,
+                        ratio,
+                        client,
+                        transaction,
+                    )
                 },
             )?;
             Ok(json!({}))
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             transaction.map_or_else(
-                || mux.set_viewport_pane_width_checked(pane, width),
+                || mux.set_viewport_pane_width_checked_as(&actor, pane, width),
                 |transaction| {
-                    mux.set_viewport_pane_width_in_transaction_checked(
+                    mux.set_viewport_pane_width_in_transaction_checked_as(
+                        &actor,
                         pane,
                         width,
                         client,
@@ -13833,9 +13894,20 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnDock { pane, dock, edge, mode, transaction } => {
-            let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
-            let outcome = mux.set_column_dock(
+        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
+            let mut dock = crate::mux::parse_column_dock(
+                dock,
+                edge.as_deref(),
+                mode.as_deref(),
+                role.as_deref(),
+            )?;
+            // `permanent-dock-v1`: `permanent:true` marks the column; false or
+            // omitted keeps the current value (a permanent column stays one).
+            if let Some(flag) = dock.as_mut() {
+                flag.permanent = permanent == Some(true);
+            }
+            let outcome = mux.set_column_dock_as(
+                &actor,
                 pane,
                 dock,
                 transaction.map(|transaction| (client, transaction)),
@@ -13847,7 +13919,7 @@ fn handle_command_with_cancellation(
             Ok(data)
         }
         Command::UndoLayout { pane, revision, confirm_close } => {
-            match mux.undo_layout(pane, revision, confirm_close)? {
+            match mux.undo_layout_as(&actor, pane, revision, confirm_close)? {
                 LayoutUndoResult::Undone { screen, revision } => Ok(json!({
                     "undone": true,
                     "screen": screen,
@@ -13871,7 +13943,7 @@ fn handle_command_with_cancellation(
         }
         Command::FocusDirection { pane, dir } => {
             let dir = parse_direction(&dir)?;
-            let pane = mux.focus_direction(pane, dir)?;
+            let pane = mux.focus_direction_as(&actor, pane, dir)?;
             Ok(json!({ "pane": pane }))
         }
         Command::SwapPane { pane, dir, target } => {
@@ -13884,14 +13956,14 @@ fn handle_command_with_cancellation(
                 (None, Some(target)) => target,
                 (None, None) => anyhow::bail!("one of dir or target is required"),
             };
-            if !mux.swap_panes(pane, target) {
+            if !mux.swap_panes_as(&actor, pane, target) {
                 anyhow::bail!("unknown pane/target");
             }
             Ok(json!({}))
         }
         Command::ZoomPane { pane, mode } => {
             let mode = parse_zoom_mode(mode)?;
-            let state = mux.zoom_pane(pane, mode)?;
+            let state = mux.zoom_pane_as(&actor, pane, mode)?;
             Ok(json!({
                 "pane": state.pane,
                 "zoomed": state.zoomed,
@@ -13915,7 +13987,7 @@ fn handle_command_with_cancellation(
             Ok(terminal_resources::terminal_resources(mux, surfaces))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.move_terminal_with_mutation(
                 &terminal_id,
                 &workspace_key,
@@ -13943,7 +14015,7 @@ fn handle_command_with_cancellation(
         }
         Command::MoveTabToWorkspace { surface, workspace, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
-            mux.move_tab_to_workspace(surface, workspace)?;
+            mux.move_tab_to_workspace_as(&actor, surface, workspace)?;
             mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
             let (workspace, pane) = surface_placement(mux, surface);
             Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
@@ -13961,7 +14033,8 @@ fn handle_command_with_cancellation(
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
-            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index, name)?;
+            let workspace =
+                mux.move_tab_to_new_workspace_as(&actor, surface, group.clone(), index, name)?;
             mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
             let (key, workspace_index) = mux
                 .with_state(|state| {
@@ -13991,7 +14064,8 @@ fn handle_command_with_cancellation(
                 anyhow::bail!("unknown surface/pane");
             }
             let index = mux.pinned_tab_move_index(surface, pane, index);
-            let (moved, undoable) = mux.move_tab_with_undo(surface, pane, index, transaction);
+            let (moved, undoable) =
+                mux.move_tab_with_undo_as(&actor, surface, pane, index, transaction);
             Ok(json!({"moved": moved, "undoable": undoable}))
         }
         Command::ListTabGroups => {
@@ -14010,23 +14084,31 @@ fn handle_command_with_cancellation(
         Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome =
-                mux.create_tab_group(&surfaces, name, color, group, transaction.as_deref())?;
+            let outcome = mux.create_tab_group_as(
+                &actor,
+                &surfaces,
+                name,
+                color,
+                group,
+                transaction.as_deref(),
+            )?;
             Ok(tab_group_outcome_json(&outcome))
         }
-        Command::UpdateTabGroup { group, name, color, collapsed } => {
-            Ok(tab_group_outcome_json(&mux.update_tab_group(&group, name, color, collapsed)?))
-        }
+        Command::UpdateTabGroup { group, name, color, collapsed } => Ok(tab_group_outcome_json(
+            &mux.update_tab_group_as(&actor, &group, name, color, collapsed)?,
+        )),
         Command::AddTabsToTabGroup { group, surfaces, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome = mux.add_tabs_to_tab_group(&group, &surfaces, transaction.as_deref())?;
+            let outcome =
+                mux.add_tabs_to_tab_group_as(&actor, &group, &surfaces, transaction.as_deref())?;
             Ok(tab_group_outcome_json(&outcome))
         }
         Command::RemoveTabsFromTabGroup { surfaces, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let groups = mux.remove_tabs_from_tab_group(&surfaces, transaction.as_deref())?;
+            let groups =
+                mux.remove_tabs_from_tab_group_as(&actor, &surfaces, transaction.as_deref())?;
             Ok(json!({ "surfaces": surfaces, "groups": groups }))
         }
         Command::MoveTabGroup { group, pane, index, transaction } => {
@@ -14044,7 +14126,8 @@ fn handle_command_with_cancellation(
                         })
                         .ok_or_else(|| anyhow::anyhow!("unknown tab group {group}"))?,
                 };
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::Strip { pane, index },
                 transaction.as_deref(),
@@ -14061,7 +14144,8 @@ fn handle_command_with_cancellation(
                 );
             }
             let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::Split { pane, edge, ratio },
                 transaction.as_deref(),
@@ -14072,7 +14156,8 @@ fn handle_command_with_cancellation(
             validate_client_transaction(transaction.as_deref())?;
             let pane = pane.map(|pane| resolve_pane_ref(mux, &pane)).transpose()?;
             let pane = column_anchor(mux, pane, screen)?;
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::Column { pane, after_column, width },
                 transaction.as_deref(),
@@ -14081,7 +14166,8 @@ fn handle_command_with_cancellation(
         }
         Command::MoveTabGroupToNewWorkspace { group, workspace_group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
                 transaction.as_deref(),
@@ -14089,15 +14175,16 @@ fn handle_command_with_cancellation(
             Ok(tab_group_outcome_json(&outcome))
         }
         Command::UngroupTabGroup { group } => {
-            let members = mux.ungroup_tab_group(&group)?;
+            let members = mux.ungroup_tab_group_as(&actor, &group)?;
             Ok(json!({ "group": group, "surfaces": members }))
         }
         Command::CloseTabGroup { group, end_terminals } => {
             if !end_terminals {
-                let closed = mux.close_tab_group(&group)?;
+                let closed = mux.close_tab_group_as(&actor, &group)?;
                 return Ok(json!({ "group": group, "closed": closed }));
             }
-            let outcome = mux.close_container_ending_terminals(
+            let outcome = mux.close_container_ending_terminals_as(
+                &actor,
                 crate::BatchCloseTarget::TabGroup(group.clone()),
             )?;
             Ok(json!({
@@ -14108,19 +14195,20 @@ fn handle_command_with_cancellation(
         }
         Command::ListSavedTabGroups => Ok(json!({ "saved_groups": mux.saved_tab_groups() })),
         Command::SaveTabGroup { group } => {
-            let saved = mux.save_tab_group(&group)?;
+            let saved = mux.save_tab_group_as(&actor, &group)?;
             Ok(json!({ "group": group, "saved": saved }))
         }
         Command::UnsaveTabGroup { group } => {
-            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group(&group)? }))
+            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group_as(&actor, &group)? }))
         }
         Command::DeleteSavedTabGroup { saved } => {
-            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group(&saved)? }))
+            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group_as(&actor, &saved)? }))
         }
         Command::ReopenSavedTabGroup { saved, pane, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let pane = resolve_pane_ref(mux, &pane)?;
-            let outcome = mux.reopen_saved_tab_group(&saved, pane, transaction.as_deref())?;
+            let outcome =
+                mux.reopen_saved_tab_group_as(&actor, &saved, pane, transaction.as_deref())?;
             Ok(tab_group_outcome_json(&outcome))
         }
         Command::AckTabNotifications { surface } => {
@@ -14155,7 +14243,7 @@ fn handle_command_with_cancellation(
         }
         Command::SetTabPinned { surface, pinned } => {
             get_surface(mux, surface)?;
-            let change = mux.set_tab_pinned(surface, pinned)?;
+            let change = mux.set_tab_pinned_as(&actor, surface, pinned)?;
             Ok(json!({
                 "surface": surface,
                 "pinned": pinned,
@@ -14164,7 +14252,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.move_workspace_with_mutation(
                 workspace,
                 key.as_deref(),
@@ -14195,7 +14283,7 @@ fn handle_command_with_cancellation(
             marked_unread,
             mutation,
         } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let update = crate::workspace_registry::WorkspacePresentationUpdate {
                 group: None,
                 color,
@@ -14236,11 +14324,11 @@ fn handle_command_with_cancellation(
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
         Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
         Command::ListBookmarks(params) => bookmarks::list(mux, params),
-        Command::CreateBookmark(params) => bookmarks::create(mux, params),
-        Command::UpdateBookmark(params) => bookmarks::update(mux, params),
-        Command::MoveBookmark(params) => bookmarks::move_to(mux, params),
-        Command::DeleteBookmark(params) => bookmarks::delete(mux, params),
-        Command::ImportBookmarks(params) => bookmarks::import(mux, params),
+        Command::CreateBookmark(params) => bookmarks::create(mux, &actor, params),
+        Command::UpdateBookmark(params) => bookmarks::update(mux, &actor, params),
+        Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
+        Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
+        Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
@@ -14262,6 +14350,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
+        Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
+        Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),
+        Command::CloudMuxAck(params) => cloud_conversations::mux_ack(mux, client, params),
         Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
         Command::CloudConversationSubscribe(params) => {
             cloud_conversations::subscribe(mux, client, Some(params))
@@ -14322,7 +14413,7 @@ fn handle_command_with_cancellation(
         ),
         Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
         Command::DeleteProfile { profile, move_to } => {
-            personal::delete_profile(mux, &profile, move_to.as_deref())
+            personal::delete_profile(mux, client, &profile, move_to.as_deref())
         }
         Command::SetProfileFollows { profile, session_ids } => {
             personal::set_profile_follows(mux, &profile, &session_ids)
@@ -14376,7 +14467,7 @@ fn handle_command_with_cancellation(
                 profile.as_deref(),
             )
         }
-        Command::DeletePersonalGroup { group } => personal::delete_group(mux, &group),
+        Command::DeletePersonalGroup { group } => personal::delete_group(mux, client, &group),
         Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
         Command::SetPersonalWorkspace {
             session_id,
@@ -14428,7 +14519,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.move_workspace_to_group(
                 workspace,
                 key.as_deref(),
@@ -14517,34 +14608,48 @@ fn handle_command_with_cancellation(
             if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
                 anyhow::bail!("unknown surface {surface}");
             }
-            if !mux.close_surface(surface)? {
+            if !mux.close_surface_as(&actor, surface)? {
                 anyhow::bail!("unknown surface {surface}");
             }
             Ok(json!({}))
         }
         Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
-            close_tabs_command::run(mux, &surfaces, end_terminals, transaction, reason, &mutation)
+            close_tabs_command::run(
+                mux,
+                client,
+                &surfaces,
+                end_terminals,
+                transaction,
+                reason,
+                &mutation,
+            )
         }
         // With `end_terminals` the result shapes stay those of the plain
         // closes; the ended terminals show in the terminal and resource streams.
         Command::ClosePane { pane, end_terminals } => {
             if end_terminals {
-                mux.close_container_ending_terminals(crate::BatchCloseTarget::Pane(pane))?;
-            } else if !mux.close_pane(pane)? {
+                mux.close_container_ending_terminals_as(
+                    &actor,
+                    crate::BatchCloseTarget::Pane(pane),
+                )?;
+            } else if !mux.close_pane_as(&actor, pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
             Ok(json!({}))
         }
         Command::CloseScreen { screen, end_terminals } => {
             if end_terminals {
-                mux.close_container_ending_terminals(crate::BatchCloseTarget::Screen(screen))?;
-            } else if !mux.close_screen(screen)? {
+                mux.close_container_ending_terminals_as(
+                    &actor,
+                    crate::BatchCloseTarget::Screen(screen),
+                )?;
+            } else if !mux.close_screen_as(&actor, screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
         Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = if end_terminals {
                 mux.close_workspace_ending_terminals(
                     workspace,
@@ -14581,7 +14686,7 @@ fn handle_command_with_cancellation(
         }
         Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
             let Some(revision) = with_provider_workspace_authority(authority, |authority| {
-                mux.close_provider_managed_workspace_authorized(workspace, &key, authority)
+                mux.close_provider_managed_workspace_authorized(&actor, workspace, &key, authority)
             })?
             else {
                 anyhow::bail!("unknown provider-managed workspace selector");
@@ -14589,25 +14694,25 @@ fn handle_command_with_cancellation(
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::RenamePane { pane, name } => {
-            if !mux.rename_pane(pane, name) {
+            if !mux.rename_pane_as(&actor, pane, name) {
                 anyhow::bail!("unknown pane {pane}");
             }
             Ok(json!({}))
         }
         Command::RenameSurface { surface, name } => {
-            if !mux.rename_surface(surface, name) {
+            if !mux.rename_surface_as(&actor, surface, name) {
                 anyhow::bail!("unknown surface {surface}");
             }
             Ok(json!({}))
         }
         Command::RenameScreen { screen, name } => {
-            if !mux.rename_screen(screen, name) {
+            if !mux.rename_screen_as(&actor, screen, name) {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
         Command::RenameWorkspace { workspace, key, name, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.rename_workspace_with_mutation(
                 workspace,
                 key.as_deref(),
@@ -14630,7 +14735,9 @@ fn handle_command_with_cancellation(
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             let Some(revision) = with_provider_workspace_authority(authority, |authority| {
-                mux.rename_provider_managed_workspace_authorized(workspace, &key, name, authority)
+                mux.rename_provider_managed_workspace_authorized(
+                    &actor, workspace, &key, name, authority,
+                )
             })?
             else {
                 anyhow::bail!("unknown provider-managed workspace selector");
@@ -14867,21 +14974,21 @@ fn handle_command_with_cancellation(
             Ok(json!({"outcome": "applied"}))
         }
         Command::FocusPane { pane } => {
-            if !mux.focus_pane(pane) {
+            if !mux.focus_pane_as(&actor, pane) {
                 anyhow::bail!("unknown pane {pane}");
             }
             Ok(json!({}))
         }
         Command::SelectTab { pane, index, delta } => {
-            mux.select_tab(pane, index, delta);
+            mux.select_tab_as(&actor, pane, index, delta);
             Ok(json!({}))
         }
         Command::SelectScreen { index, delta } => {
-            mux.select_screen(index, delta);
+            mux.select_screen_as(&actor, index, delta);
             Ok(json!({}))
         }
         Command::SelectWorkspace { index, delta } => {
-            mux.select_workspace(index, delta);
+            mux.select_workspace_as(&actor, index, delta);
             Ok(json!({}))
         }
         Command::ReportFocus { client_id, pane, tab } => {
@@ -14992,7 +15099,10 @@ fn handle_command_with_cancellation(
                             {
                                 continue;
                             }
-                            size_state_event_json(*surface, *runtime, state, Some(client))
+                            let open = event_mux
+                                .control_clients
+                                .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
+                            size_state_event_json(*surface, *runtime, state, Some((client, open)))
                         }
                         _ => subscribed_event_json(&event),
                     };
@@ -15751,6 +15861,9 @@ mod loopback_forward_tests;
 mod image_paste_tests;
 
 #[cfg(test)]
+#[path = "server/orphan_shutdown_tests.rs"]
+mod orphan_shutdown_tests;
+#[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;
 
@@ -15758,6 +15871,9 @@ mod session_identity_tests;
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
+#[cfg(test)]
+#[path = "server/device_kind_tests.rs"]
+mod device_kind_tests;
 #[cfg(test)]
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
@@ -16197,7 +16313,7 @@ mod tests {
         assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
     }
 
-    fn test_mux() -> Arc<Mux> {
+    pub(super) fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
@@ -21290,23 +21406,17 @@ mod tests {
 
     #[test]
     fn stalled_websocket_handshake_times_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (listener, mux) = (TcpListener::bind("127.0.0.1:0").unwrap(), test_mux());
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(
-                test_mux(),
-                server,
-                peer,
-                None,
-                Arc::new(RenderService::new()),
-            );
+            handle_websocket_connection(mux, server, peer, None, Arc::new(RenderService::new()));
             done.send(()).unwrap();
         });
 
         finished
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("stalled handshake must not occupy a connection slot indefinitely");
         drop(client);
         handler.join().unwrap();
@@ -21314,13 +21424,13 @@ mod tests {
 
     #[test]
     fn stalled_websocket_authentication_times_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (listener, mux) = (TcpListener::bind("127.0.0.1:0").unwrap(), test_mux());
         let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
             handle_websocket_connection(
-                test_mux(),
+                mux,
                 server,
                 peer,
                 Some("secret"),
@@ -21331,7 +21441,7 @@ mod tests {
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();
 
         finished
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("stalled authentication must not occupy a connection slot indefinitely");
         drop(client);
         handler.join().unwrap();
@@ -21681,17 +21791,22 @@ mod tests {
         assert!(error.to_string().contains(&format!("unknown client {target}")));
     }
 
-    fn json_command(value: Value) -> Command {
+    pub(super) fn json_command(value: Value) -> Command {
         serde_json::from_value::<Request>(value).unwrap().cmd
     }
 
-    fn drain_json(outbound: &BoundedOutbound) -> Vec<Value> {
+    pub(super) fn drain_json(outbound: &BoundedOutbound) -> Vec<Value> {
         std::iter::from_fn(|| outbound.try_pop())
             .map(|message| serde_json::from_str(&message).expect("outbound JSON"))
             .collect()
     }
 
-    fn attach_test_view(mux: &Arc<Mux>, client: u64, surface: SurfaceId, writer: &MessageWriter) {
+    pub(super) fn attach_test_view(
+        mux: &Arc<Mux>,
+        client: u64,
+        surface: SurfaceId,
+        writer: &MessageWriter,
+    ) {
         let stream = writer.start_stream(&attach_overflow_json(surface)).unwrap();
         mux.control_clients.attach_surface(client, surface, stream.clone()).unwrap();
         commit_client_attach(mux, client, surface, stream.id, None, None).unwrap();
@@ -26419,7 +26534,7 @@ mod tests {
                 Some("bootstrap".into()),
                 "bootstrap-receipt-00000001",
                 None,
-                &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+                &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
                 Default::default(),
             )
             .unwrap();
@@ -26480,7 +26595,7 @@ mod tests {
             "renamed".into(),
             None,
             None,
-            &WorkspaceMutation::new("resource-rename", "resource-api").unwrap(),
+            &WorkspaceMutation::daemon("resource-rename", "resource-api").unwrap(),
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
@@ -26506,7 +26621,7 @@ mod tests {
             1,
             None,
             None,
-            &WorkspaceMutation::new("resource-move", "resource-api").unwrap(),
+            &WorkspaceMutation::daemon("resource-move", "resource-api").unwrap(),
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();

@@ -37,6 +37,11 @@ extension AgentPaneModel {
     }
 
     /// Why shell mode's command did not run, or was lost.
+    /// `shell.complete` ran past its deadline (`shell.timed_out`).
+    static var shellCompletionTimedOutMessage: String {
+        String(localized: "agentPane.shell.completionTimedOut", defaultValue: "Completion timed out", bundle: .module)
+    }
+
     static func shellFailureMessage(_ error: any Error) -> String {
         switch error as? AgentPaneShell.Failure {
         case .tooMany:
@@ -141,5 +146,12 @@ extension AgentPaneDictation {
         case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
             String(localized: "agentPane.dictation.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .module)
         }
+    }
+}
+
+extension AgentPaneLoadingView {
+    /// The pane's loading state, read by VoiceOver while the page loads and acpmux starts.
+    static var label: String {
+        String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .module)
     }
 }

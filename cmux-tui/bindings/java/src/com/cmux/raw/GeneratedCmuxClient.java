@@ -113,6 +113,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
+        Object result = execute(Commands.CHIEF_INSPECT, request.toWire());
+        return ChiefInspectResult.fromWire(result);
+    }
+
     public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);
@@ -210,6 +215,21 @@ public abstract class GeneratedCmuxClient {
 
     public final Object cloudInboxUnsubscribe() throws CmuxException {
         Object result = execute(Commands.CLOUD_INBOX_UNSUBSCRIBE, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudMuxAck(CloudMuxAckRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_MUX_ACK, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudMuxSubscribe() throws CmuxException {
+        Object result = execute(Commands.CLOUD_MUX_SUBSCRIBE, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudMuxUnsubscribe() throws CmuxException {
+        Object result = execute(Commands.CLOUD_MUX_UNSUBSCRIBE, Map.of());
         return Wire.immutableJson(result);
     }
 

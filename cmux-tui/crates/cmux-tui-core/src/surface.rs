@@ -16,7 +16,17 @@ pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
 #[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]
+mod hosted_callbacks;
+#[cfg(unix)]
+use hosted_callbacks::hosted_terminal_callbacks;
+#[cfg(all(test, unix))]
+mod journal_failure_tests;
+#[cfg(unix)]
+mod journal_reconnect;
+#[cfg(unix)]
 mod prelaunch;
+#[cfg(unix)]
+mod rehost;
 use directory::PublishedDirectory;
 
 use std::borrow::Cow;
@@ -65,7 +75,6 @@ use crate::terminal_host_protocol::PROTOCOL_VERSION;
 use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
 };
-use cmux_tui_cdp::BrowserMode;
 
 /// Ghostty's default maximum retained scrollback backing storage.
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
@@ -167,22 +176,8 @@ pub struct SurfaceOptions {
     pub extra_env: Vec<(String, String)>,
     /// The `claude` shim directory, kept first on every child's PATH.
     pub claude_shim_dir: Option<String>,
-    /// Optional Chrome/Chromium binary for browser surfaces.
-    pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
     pub cdp_url: Option<String>,
-    /// Whether browser panes should probe local debuggable Chrome ports.
-    pub browser_discover: bool,
-    /// Local ports to probe for /json/version when discovery is enabled.
-    pub browser_discover_ports: Vec<u16>,
-    /// Optional Chrome user data directory for launched browser runtime.
-    pub browser_user_data_dir: Option<String>,
-    /// Whether launched Chrome should show a visible window or run headless.
-    pub browser_mode: BrowserMode,
-    /// Session component for the default launched Chrome profile path.
-    pub browser_session_name: String,
-    /// Use a temporary launched Chrome profile and delete it on shutdown.
-    pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
     pub browser_max_capture_megapixels: f64,
     /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
@@ -248,14 +243,7 @@ impl Default for SurfaceOptions {
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             claude_shim_dir: None,
-            chrome_binary: None,
             cdp_url: None,
-            browser_discover: false,
-            browser_discover_ports: vec![9222],
-            browser_user_data_dir: None,
-            browser_mode: BrowserMode::Headful,
-            browser_session_name: "default".to_string(),
-            browser_ephemeral: false,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
             terminal_host_root: None,
@@ -1896,30 +1884,6 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
 }
 
 #[cfg(unix)]
-fn hosted_terminal_callbacks(
-    id: SurfaceId,
-    mux: Weak<Mux>,
-    title_changed: Arc<AtomicBool>,
-) -> Callbacks {
-    Callbacks {
-        // The terminal-host parser is authoritative and already writes query
-        // responses (DA/DSR, Kitty graphics, OSC colors, ...) to the PTY. A
-        // hosted Surface is only a mirror: answering here would inject one
-        // duplicate reply per server/frontend mirror into the child input.
-        on_pty_write: None,
-        on_title_changed: Some(Box::new(move || {
-            title_changed.store(true, Ordering::Relaxed);
-        })),
-        on_bell: Some(Box::new(move || {
-            if let Some(mux) = mux.upgrade() {
-                mux.emit_terminal_bell(id);
-            }
-        })),
-        on_clipboard_read: None,
-    }
-}
-
-#[cfg(unix)]
 fn mark_hosted_runtime_exited(
     pty: &PtySurface,
     identity: &crate::terminal_host_runtime::TerminalHostIdentity,
@@ -2083,7 +2047,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
@@ -2100,7 +2064,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2113,13 +2077,14 @@ impl Surface {
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         cell_pixels: (u16, u16),
+        seed: &[u8],
     ) -> anyhow::Result<Arc<Surface>> {
         let identity = Some(TabResourceIdentity::terminal(None)?);
         Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
             id,
             opts,
             mux,
-            terminal_id,
+            (terminal_id, seed),
             identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2139,7 +2104,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2215,11 +2180,14 @@ impl Surface {
         )
     }
 
+    /// `launch` is the reserved terminal id, and the VT replay its host
+    /// applies before the child's first byte (a hosted launch with an id
+    /// only; empty: none).
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
+        (terminal_id, seed): (Option<crate::terminal_host::TerminalId>, &[u8]),
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
@@ -2236,16 +2204,14 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let attachment = match terminal_id {
-                Some(terminal_id) => {
-                    crate::terminal_host_runtime::launch_terminal_host_with_identity(
-                        &opts,
-                        &root,
-                        default_colors,
-                        cell_pixels,
-                        initial_kitty_limits,
-                        terminal_id,
-                    )?
-                }
+                Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
+                    &opts,
+                    &root,
+                    (default_colors, cell_pixels, initial_kitty_limits),
+                    terminal_id,
+                    None,
+                    seed,
+                )?,
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
                     &root,
@@ -2270,7 +2236,7 @@ impl Surface {
                 },
             );
         }
-        let _ = terminal_id;
+        let _ = (terminal_id, seed);
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
@@ -2539,9 +2505,10 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
-        let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+        let records = terminal_metadata.program_status();
+        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone(), records);
+        let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         anyhow::ensure!(
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
             "terminal host returned invalid OSC progress metadata"
@@ -2727,6 +2694,7 @@ impl Surface {
                 let mut connected_at: Option<Instant> = None;
                 'connection: loop {
                     let pty = surface.as_pty().expect("host reader owns a PTY surface");
+                    rehost::request_custody(&surface);
                     let mut stager = HostedFrameStager::new_for_version(
                         sequence_boundary,
                         protocol_version,
@@ -2996,10 +2964,12 @@ impl Surface {
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
                                     .unwrap_or_default();
+                                let records = pty.program_status_records();
                                 let callbacks = hosted_terminal_callbacks(
                                     id,
                                     mux.clone(),
                                     title_changed.clone(),
+                                    records,
                                 );
                                 let Ok(mut replacement) =
                                     Terminal::new(cols, rows, scrollback, callbacks)
@@ -3174,47 +3144,23 @@ impl Surface {
                             }
                         };
                         let Some((record, record_path)) = discovery else { return };
-                        match crate::terminal_host_runtime::terminal_host_record_liveness(
+                        let replaced = match crate::terminal_host_runtime::terminal_host_record_liveness(
                             &record_path,
                             &record,
                         ) {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
-                                // A durable sidecar is the host's record of the
-                                // child's end; without one the host died with an
-                                // unknown outcome (invariant 3: its tabs stay).
-                                let exit = crate::terminal_host_runtime::terminal_host_exit_record(
-                                    &record_path,
-                                )
-                                .ok()
-                                .flatten()
-                                .filter(|(_, exit)| {
-                                    exit.terminal_id == identity.terminal_id
-                                        && exit.incarnation == identity.incarnation
-                                })
-                                .map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit))
-                                .unwrap_or_else(|| {
-                                    TerminalEnd::host_lost(
-                                        "terminal host ended without a durable exit sidecar",
-                                    )
-                                });
-                                *pty.exit.lock().unwrap() = Some(exit);
-                                mark_hosted_runtime_exited(pty, &identity);
-                                pty.host_connection_state.store(
-                                    TerminalHostConnectionState::Exited as u8,
-                                    Ordering::Release,
-                                );
-                                pty.stream_progress.notify();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.surface_exited(surface.id);
+                                match rehost::after_host_death(&surface, &mux, &identity, &record, &record_path, scrollback) {
+                                    rehost::DeadHost::Replaced(attachment) => Some(*attachment),
+                                    rehost::DeadHost::Retry if retry.wait_or_fail(pty) => continue,
+                                    rehost::DeadHost::Retry | rehost::DeadHost::Stop => return,
                                 }
-                                return;
                             }
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Live)
                             | Ok(
                                 crate::terminal_host_runtime::TerminalHostLiveness::Indeterminate,
                             )
-                            | Err(_) => {}
-                        }
+                            | Err(_) => None,
+                        };
 
                         let Some(reconnect_mux) = mux.upgrade() else { return };
                         let Ok(kitty_limits) =
@@ -3222,11 +3168,11 @@ impl Surface {
                         else {
                             return;
                         };
-                        let replacement = match crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
+                        let replacement = match replaced.map_or_else(|| crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
                             record,
                             record_path,
                             kitty_limits,
-                        ) {
+                        ), Ok) {
                             Ok(replacement) if replacement.identity() == identity => replacement,
                             Ok(_) | Err(_) => {
                                 if !retry.wait_or_fail(pty) {
@@ -3238,7 +3184,6 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3309,8 +3254,13 @@ impl Surface {
                             cell_width: replacement_snapshot.cell_pixels.0,
                             cell_height: replacement_snapshot.cell_pixels.1,
                         };
-                        let callbacks =
-                            hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+                        let records = pty.program_status_records();
+                        let callbacks = hosted_terminal_callbacks(
+                            id,
+                            mux.clone(),
+                            title_changed.clone(),
+                            records.clone(),
+                        );
                         let Ok(mut replacement_term) = Terminal::new(
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
@@ -3365,7 +3315,9 @@ impl Surface {
                             replacement_term.vt_write(&color_delta);
                         }
                         let mut replacement_metadata =
-                            crate::terminal_metadata::TerminalMetadata::default();
+                            crate::terminal_metadata::TerminalMetadata::with_program_status(
+                                records,
+                            );
                         if !replacement_metadata
                             .set_osc_progress(&replacement_snapshot.osc_progress)
                         {
@@ -3431,47 +3383,10 @@ impl Surface {
                             }
                             continue;
                         }
-                        if reconnect_mux.terminal_journal_enabled()
-                            && pty.journal_capture_supported
-                        {
-                            let checkpoint_key = format!(
-                                "host-reconnect:{}:{}:{}",
-                                identity.terminal_id,
-                                identity.incarnation,
-                                replacement_sequence_boundary
-                            );
-                            // The checkpoint is a journal-replay optimization:
-                            // failing to capture one only means the next replay
-                            // starts from an older boundary. Capture races with
-                            // every other terminal's concurrent reconnect
-                            // appends, so retry it in place a few times - and
-                            // never tear down the freshly reconnected, healthy
-                            // host over it. The old path disconnected and re-ran
-                            // the full reconnect up to 16 times per terminal,
-                            // each attempt's journal writes re-poisoning the
-                            // other terminals' captures.
-                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
-                                "terminal_host_reconnect",
-                                &checkpoint_key,
-                            );
-                            for attempt in 1u32..4 {
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(25 << attempt));
-                                checkpoint = reconnect_mux.create_journal_checkpoint(
-                                    "terminal_host_reconnect",
-                                    &checkpoint_key,
-                                );
-                            }
-                            match checkpoint {
-                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
-                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
-                                    &identity.terminal_id,
-                                    &error,
-                                ),
-                            }
-                        }
+                        // Bytes the host wrote while no daemon tap existed are
+                        // not in the journal: record that gap before any new
+                        // output (surface/journal_reconnect.rs).
+                        pty.journal_host_reconnect_gap(&reconnect_mux);
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,
@@ -3712,7 +3627,9 @@ impl Surface {
         let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
+        let terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+        let records = terminal_metadata.program_status();
+        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed, records);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -3760,7 +3677,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
-                terminal_metadata: Mutex::new(Default::default()),
+                terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
@@ -6240,29 +6157,26 @@ impl PtySurface {
                         pending,
                     ) {
                         Ok(retry) => retry,
-                        Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
-                            eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                            );
-                            return;
-                        }
+                        Err(error) => return self.stop_journal_capture(&error),
                     };
                     let Some((retry, space_epoch)) = retry else { break };
                     pending = retry;
                     space_epoch
                 };
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
-                    eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                    );
-                    return;
+                    return self.stop_journal_capture(&error);
                 }
             }
         }
+    }
+
+    /// A failed journal writer stops this terminal's capture; the terminal
+    /// and the daemon keep running. The failure is involuntary, so it must
+    /// not take the user shutdown path (`request_daemon_shutdown` marks a
+    /// session shutdown, which records signal deaths as session_shutdown).
+    fn stop_journal_capture(&self, error: &str) {
+        self.journal_capture_open.store(false, Ordering::Release);
+        eprintln!("cmux-tui: terminal journal capture stopped: {error}");
     }
 
     fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -7412,8 +7326,12 @@ mod tests {
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
         let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
-        let callbacks =
-            hosted_terminal_callbacks(1, Arc::downgrade(&mux), Arc::new(AtomicBool::new(false)));
+        let callbacks = hosted_terminal_callbacks(
+            1,
+            Arc::downgrade(&mux),
+            Arc::new(AtomicBool::new(false)),
+            Default::default(),
+        );
 
         assert!(
             callbacks.on_pty_write.is_none(),

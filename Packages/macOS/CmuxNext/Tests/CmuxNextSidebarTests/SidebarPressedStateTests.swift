@@ -24,14 +24,26 @@ import Testing
         return view
     }
 
-    @Test func itemRowStepsFromHoverToPressedAndBack() {
+    /// Hosts `view` in a window so the hover owner can read an injected
+    /// pointer (`PointerHover`, cx-3wu5).
+    private func host(_ view: NSView) -> NSWindow {
+        let window = SidebarHoverOwnerTests.window()
+        window.contentView!.addSubview(view)
+        return window
+    }
+
+    private func leave(_ window: NSWindow) { PointerHover.setDebugPointer(nil, in: window) }
+
+    @Test func itemRowStepsFromHoverToPressedAndBack() throws {
         let view = row()
+        let window = host(view)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         var presses = 0
         view.onPress = { presses += 1 }
         let center = NSPoint(x: 80, y: 14)
         let hover = view.performWithTheme { Palette.hoverFill }, pressed = view.performWithTheme { Palette.pressedFill }
         #expect(view.fill == nil)
-        view.mouseEntered(with: event(.mouseEntered, at: center))
+        try SidebarHoverOwnerTests.rest(on: view, at: center)
         #expect(view.fill == hover)
         view.mouseDown(with: event(.leftMouseDown, at: center))
         #expect(view.fill == pressed)
@@ -40,7 +52,7 @@ import Testing
         #expect(view.fill == hover)
         #expect(presses == 1)
         view.mouseDown(with: event(.leftMouseDown, at: center))
-        view.mouseExited(with: event(.mouseExited, at: center))
+        leave(window)
         #expect(view.fill == nil, "leaving mid-press clears the pressed fill")
     }
 
@@ -62,24 +74,26 @@ import Testing
         #expect(presses == 0, "released outside the item: no action")
     }
 
-    /// SIDEBAR-SELECTION-ONE-MODEL: an active list item draws no fill of its
-    /// own (the sidebar's one highlight sits under it); a resting tile keeps
-    /// its raised fill.
-    @Test func activeItemLeavesItsSelectionToTheHighlightAndTilesRest() {
+    /// SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION: an active list item paints the
+    /// selection fill itself, in place (no shared pill travels under it); a
+    /// resting tile keeps its raised fill.
+    @Test func activeItemPaintsItsOwnSelectionAndTilesRest() {
         let active = row(active: true), tile = row(style: .tile)
-        #expect(active.fill == nil)
+        #expect(active.fill == active.performWithTheme { Palette.selectionFill })
         #expect(tile.fill == tile.performWithTheme { Palette.hoverFill })
     }
 
-    @Test func iconButtonFillsBehindItsGlyphOnHover() {
+    @Test func iconButtonFillsBehindItsGlyphOnHover() throws {
         let button = SidebarIconButton(symbol: "plus", label: "New")
         button.frame = NSRect(x: 0, y: 0, width: 24, height: 24)
+        let window = host(button)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         #expect(button.hover.drawsBehindContent)
-        button.mouseEntered(with: event(.mouseEntered, at: NSPoint(x: 12, y: 12)))
+        try SidebarHoverOwnerTests.rest(on: button, at: NSPoint(x: 12, y: 12))
         #expect(button.hover.state.hovering)
         button.updateLayer()
         #expect((button.hover.shownFill?.alpha ?? 0) > 0)
-        button.mouseExited(with: event(.mouseExited, at: NSPoint(x: 40, y: 40)))
+        leave(window)
         button.updateLayer()
         #expect(button.hover.state == ChromeHover.State())
         #expect((button.hover.shownFill?.alpha ?? 0) == 0)

@@ -20,6 +20,14 @@ extension AgentPaneView {
             // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
             _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "switch") }
         }
+        // A folder harness profile: the user reads acpmux's prompt and enables it natively.
+        model.onConfirmHarness = { [weak self] prompt, answer in
+            guard let self, self.window != nil else { return answer(false) }
+            _ = CmuxDialogCenter.shared.present(Self.harnessEnableSpec(prompt), in: .tab(self)) { reply in
+                answer(reply.button == "enable")
+            }
+        }
+        installReplyLinks()
         // The host owns the acpmux socket; its frames reach the page in display-frame batches.
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer

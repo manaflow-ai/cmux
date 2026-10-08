@@ -53,23 +53,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// The sidebar toggle, Back, Forward and the glass patch: hidden until the
-    /// top row or the sidebar is hovered (`window.titlebarButtons`).
+    /// Back, Forward and the glass patch: hidden until the top row or the
+    /// sidebar is hovered (`window.titlebarButtons`). The sidebar toggle
+    /// always shows.
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
     /// Held while the pointer is over the sidebar (its chrome reveal).
     var sidebarHoverHold: HoverReveal.Hold?
-    /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
-    /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
-    let cornerRegion = PassThroughView(frame: .zero)
-    private(set) lazy var cornerReveal = HoverReveal(region: cornerRegion)
     /// The sidebar is hidden (WindowController follows the sidebar model).
+    /// The traffic lights and the toggle stay shown either way, so the
+    /// toggle is one fixed target (Leo, T3 Code ref); its glyph follows.
     var sidebarHidden = false {
-        didSet { if oldValue != sidebarHidden { applyCornerReveal() } }
+        didSet { toolbarBand.showSidebarState(hidden: sidebarHidden) }
     }
-    /// The traffic lights and band are collapsed: strips under them keep no room.
-    var windowControlsCollapsed = false
-    /// Called when `windowControlsCollapsed` changes (strips relay out, animated).
-    var onWindowControlsChange: ((Bool) -> Void)?
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -96,7 +91,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
-        addSubview(cornerRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
@@ -113,12 +107,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebarSide = DesignSettings.shared.sidebarSide
         sidebar.side = sidebarSide
         sidebar.sidebarView.spacesPosition = DesignSettings.shared.spacesPosition
+        sidebar.sidebarView.spacesVisibility = DesignSettings.shared.spacesVisibility
         sidePins = Self.sidePins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
-        setUpCornerReveal()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
@@ -182,6 +176,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let toggle = toolbarBand.sidebarToggle
         return toggle.convert(toggle.bounds, to: nil)
     }
+    /// The window's close, minimize and zoom buttons.
+    var trafficLightButtons: [NSView] {
+        [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window?.standardWindowButton($0) }
+    }
     /// A click on the toggle (tests).
     func pressSidebarToggle() { toolbarBand.toggle() }
     /// A history button's frame in window coordinates (R69).
@@ -236,7 +234,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
         layoutTitlebarReveal(rowHeight: rowHeight)
-        layoutCornerReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }
@@ -244,6 +241,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         badge.frame = CGRect(x: toolbarBand.frame.maxX + Metrics.space2, y: (midY - size.height / 2).rounded(),
                              width: size.width, height: size.height)
     }
+
+    /// Called after `show(_:)` swaps the content (a top page or a workspace).
+    var onContentChange: (() -> Void)?
 
     /// Replaces the workspace layout view.
     func show(_ view: NSView) {
@@ -255,6 +255,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         content = view
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
+        onContentChange?()
     }
 
     /// Paints only this view. The window's opacity and background are set by

@@ -22,10 +22,12 @@ struct DiffSidecarProcessTests {
 
     static let fast = DiffSidecarProcess.Limits(startup: .seconds(5), request: .seconds(10), grace: .milliseconds(100))
 
-    @Test func writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() async throws {
+    @Test(.timeLimit(.minutes(1))) func writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() async throws {
         let sidecar = try Self.script("\(Self.marker)\ncat > \"$DIR/request\"\nprintf '{\"id\":\"1\",\"result\":{\"type\":\"sessionClosed\"}}'")
+        // Assert the pipe handshake and bytes, independent of scheduling delays
+        // in parallel app tests. The deadline tests below use the real clock.
         let reply = try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data(#"{"method":"x"}"#.utf8),
-                                                     limits: Self.fast)
+                                                     limits: Self.fast, clock: ManualClock())
         #expect(String(decoding: reply, as: UTF8.self) == #"{"id":"1","result":{"type":"sessionClosed"}}"#)
         let request = try Data(contentsOf: sidecar.deletingLastPathComponent().appending(path: "request"))
         #expect(String(decoding: request, as: UTF8.self) == #"{"method":"x"}"#)
@@ -54,6 +56,17 @@ struct DiffSidecarProcessTests {
         let pidText = try String(contentsOf: sidecar.deletingLastPathComponent().appending(path: "child"), encoding: .utf8)
         let pid = try #require(Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)))
         #expect(await Self.becomesTrue { kill(pid, 0) != 0 }, "the child survived")
+    }
+
+    /// The request deadline runs from the ready marker: a slow start is the
+    /// startup limit's to judge. Run 37509955149 timed out a child that had
+    /// not yet run its first line, because the request deadline began at launch.
+    @Test func theRequestDeadlineStartsAtTheReadyMarker() async throws {
+        let sidecar = try Self.script("sleep 1.5\n\(Self.marker)\ncat > /dev/null\nprintf 'ok'")
+        var limits = Self.fast
+        limits.request = .seconds(1)
+        let reply = try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: limits)
+        #expect(String(decoding: reply, as: UTF8.self) == "ok")
     }
 
     @Test func aNonZeroExitIsAFailure() async throws {

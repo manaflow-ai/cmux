@@ -4,21 +4,28 @@ import type { AcpmuxSnapshot } from "./model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
+  url: "https://cmux.test/agent-pane",
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  localStorage: dom.window.localStorage,
   // The prompt is a Milkdown (ProseMirror) editor.
   Node: dom.window.Node,
   getSelection: dom.window.getSelection.bind(dom.window),
   MutationObserver: dom.window.MutationObserver,
+  // ProseMirror's pasteText makes a paste event; jsdom has no ClipboardEvent.
+  ClipboardEvent: (dom.window as unknown as { ClipboardEvent?: unknown }).ClipboardEvent ?? dom.window.Event,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -26,8 +33,10 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
+const { readPersistedDraft, writePersistedDraft } = await import("./composerDraft");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
+const { webKitPress } = await import("./popoverTriggerTesting");
 const promptField = () => fieldIn(dom.window.document);
 
 /// Milkdown makes its editor a task after the composer mounts.
@@ -55,6 +64,7 @@ describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
   let sentAttachments: { name: string; kind: string }[][];
+  let imported: string[];
   const textarea = () => promptField();
   const rows = () =>
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
@@ -98,6 +108,9 @@ describe("acpmux composer slash menu", () => {
             sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
           },
           onStop: () => {},
+          onImportFile: (file: File) => {
+            imported.push(file.name);
+          },
         }),
       ),
     );
@@ -107,6 +120,7 @@ describe("acpmux composer slash menu", () => {
   beforeEach(() => {
     sent = [];
     sentAttachments = [];
+    imported = [];
     root = createRoot(dom.window.document.getElementById("root")!);
   });
   afterEach(async () => {
@@ -127,6 +141,19 @@ describe("acpmux composer slash menu", () => {
     expect(menu()).toBeNull();
     await type("say /com");
     expect(menu()).toBeNull();
+  });
+
+  test("a cmux-owned /import opens the transcript picker instead of sending to the agent", async () => {
+    await render(snapshot([{ name: "import", description: "Import a chat", hint: "JSONL file", source: "cmux" }]));
+    await type("/import");
+    await key("Enter");
+    expect(sent).toEqual([]);
+    expect(textarea().value).toBe("");
+    const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-import-input")!;
+    const file = new dom.window.File(["{}"], "chat.jsonl", { type: "application/json" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    expect(imported).toEqual(["chat.jsonl"]);
   });
 
   test("arrows move the selection and Enter writes the command without sending", async () => {
@@ -244,7 +271,20 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual([]);
   });
 
-  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+  test("pressing + while its menu is open closes it, as WebKit delivers the press", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: () => {}, onStop: () => {} }),
+      ),
+    );
+    await ready();
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("true");
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the + menu holds no permission modes (the access chip owns them); Plan stays a toggle there", async () => {
     const modes = {
       currentModeId: "ask",
       availableModes: [
@@ -266,18 +306,18 @@ describe("acpmux composer slash menu", () => {
       ),
     );
     await ready();
-    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
     expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
     await act(async () => plusButton().click());
     expect(
       [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
-    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    ).toEqual(["Mention a file or folder@", "Plan"]);
+    expect(dom.window.document.querySelector(".acpmux-composer-plus [role=group][aria-label=Mode]")).toBeNull();
     await act(async () =>
       dom.window.document
-        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="plan:plan"]')!
         .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
     );
-    expect(modeCalls).toEqual(["bypassPermissions"]);
+    expect(modeCalls).toEqual(["plan"]);
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
@@ -297,6 +337,77 @@ describe("acpmux composer slash menu", () => {
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
     await key("Enter");
     expect(textarea().value).toBe("/compact main");
+  });
+
+  test("the agent gets the characters the user typed, not the field's markdown escapes", async () => {
+    const submit = async () =>
+      act(async () => {
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      });
+    await render(snapshot(commands));
+    const typed = String.raw`See [notes](./notes.md) and http://127.0.0.1:47931/preview.html, a\b "q" *x* #1 <b>`;
+    await act(async () => textarea().handle.insertTyped(typed));
+    await settle();
+    // The field keeps escapes so its own markdown reads back as text; the agent must not see them.
+    expect(textarea().value).not.toBe(typed);
+    await submit();
+    expect(sent).toEqual([typed]);
+    // Formatting the field made from typed syntax goes out as that syntax.
+    await type("Make it **bold** and `code`");
+    await submit();
+    expect(sent[1]).toBe("Make it **bold** and `code`");
+  });
+
+  test("typed backslashes, code, markdown-like text, links, lines and emoji reach the agent as typed", async () => {
+    const submit = async () =>
+      act(async () => {
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      });
+    await render(snapshot(commands));
+    const typedCases = [
+      String.raw`C:\path\to\file and \n as text, one \\ two`,
+      "*not bold* and # not a heading mid-line",
+      "1. at a line start",
+      "- not a list either",
+      "héllo 日本語 👋🏽 café",
+    ];
+    for (const typed of typedCases) {
+      await act(async () => textarea().handle.insertTyped(typed));
+      await settle();
+      await submit();
+      expect(sent.at(-1)).toBe(typed);
+    }
+    // Code passes byte for byte: nothing inside a code span or a fence is escaped or unescaped.
+    const code = ["Run `a\\*b [x](y) \\\\` now", '```sh\necho "a\\*b" \\\n  [x](y) http://x/y.html\n```'];
+    for (const markdown of code) {
+      await type(markdown);
+      await submit();
+      expect(sent.at(-1)).toBe(markdown);
+    }
+    // A pasted link stays its URL; pasted lines and a blank line between them stay. The paste
+    // carries its text as a clipboard does, so the editor's own paste handling reads it.
+    const paste = (text: string) => {
+      const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+      const types = ["text/plain"];
+      Object.defineProperty(event, "clipboardData", {
+        value: { types, files: [], items: [], getData: (type: string) => (type === "text/plain" ? text : "") },
+      });
+      textarea().element.dispatchEvent(event);
+    };
+    const pasted = ["https://example.com/a_b/c?d=e&f=g#h", "line one\nline two\n\nline four"];
+    for (const text of pasted) {
+      await act(async () => {
+        textarea().handle.focus();
+        paste(text);
+      });
+      await settle();
+      await submit();
+      expect(sent.at(-1)).toBe(text);
+    }
   });
 
   test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {
@@ -466,15 +577,16 @@ describe("acpmux composer slash menu", () => {
 
 describe("acpmux composer draft", () => {
   test("an inherited draft fills an empty prompt once and is not sent", async () => {
-    const root = createRoot(dom.window.document.getElementById("root")!);
+    let root = createRoot(dom.window.document.getElementById("root")!);
     const sent: string[] = [];
-    const render = async (draft?: string) => {
+    const render = async (draft?: string, sessionId?: string) => {
       await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: snapshot(),
             chips: () => null,
             draft,
+            sessionId,
             onSend: (text: string) => {
               sent.push(text);
             },
@@ -496,6 +608,43 @@ describe("acpmux composer draft", () => {
     await act(async () => typeInto(prompt, "mine"));
     await render("another");
     expect(prompt.value).toBe("mine");
+    await act(async () => root.unmount());
+  });
+
+  test("restores an unsent prompt for the same agent session after the page remounts", async () => {
+    const sessionId = "session-with-a-draft";
+    writePersistedDraft(sessionId, "");
+    let root = createRoot(dom.window.document.getElementById("root")!);
+    const sent: string[] = [];
+    const render = async () => {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: (text: string) => {
+              sent.push(text);
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+    };
+
+    await render();
+    await act(async () => typeInto(promptField(), "keep this across relaunch"));
+    await act(async () => root.render(null));
+    await render();
+    expect(promptField().value).toBe("keep this across relaunch");
+    await act(async () => {
+      promptField().element.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(sent).toEqual(["keep this across relaunch"]);
+    expect(readPersistedDraft(sessionId)).toBeUndefined();
     await act(async () => root.unmount());
   });
 });

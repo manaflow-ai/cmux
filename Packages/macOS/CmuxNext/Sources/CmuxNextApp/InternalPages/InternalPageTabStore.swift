@@ -4,27 +4,30 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextIcons
 import CmuxNextTabs
+import Observation
 
 /// Which internal page tabs each pane lists, and their views
 /// (``InternalPage``). Where the pane's daemon holds page tabs
 /// (`page-tabs-v1`) a page opens as a store tab with a page source and
 /// moves, splits and closes like any other tab; else it is an app-only tab
-/// (`LocalPageTab`) this app session keeps.
-@MainActor
+/// (`LocalPageTab`) this app session keeps. Observable for `tabsByPane`
+/// only: the control snapshot lists app-only page tabs and republishes
+/// when one opens or closes (bd cx-5xsi).
+@Observable @MainActor
 final class InternalPageTabStore {
-    private var providers: [InternalPageID: any InternalPageProvider] = [:]
+    @ObservationIgnored private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private var tabsByPane: [String: [String]] = [:]
-    private var views: [String: InternalPageView] = [:]
+    @ObservationIgnored private var views: [String: InternalPageView] = [:]
     /// The main window each tab opened in, for its provider's theme scope.
-    private var windows: [String: WindowController] = [:]
+    @ObservationIgnored private var windows: [String: WindowController] = [:]
     /// The daemon tree each pane with page tabs belongs to; watched so the
     /// tabs of a pane closed out of sight close once the tree drops it.
-    private var paneStores: [String: DaemonStore] = [:]
-    private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    @ObservationIgnored private var paneStores: [String: DaemonStore] = [:]
+    @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) in a pane:
     /// the created tab and the event sequence its reply follows. Sends it on
     /// the pane's daemon; tests hold it.
-    var createStoreTab: @MainActor (PaneID, DaemonService, String, ClientTransactionID) async throws
+    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, ClientTransactionID) async throws
         -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, transaction in
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let request = NewConversationTabRequest(page: page, pane: pane, origin: InternalPageTabStore.createOrigin,
@@ -37,11 +40,11 @@ final class InternalPageTabStore {
     }
     /// Store page tabs: each store (or provisional) tab id and the provider
     /// key its view and state live under.
-    private var storeKeys: [String: String] = [:]
+    @ObservationIgnored private var storeKeys: [String: String] = [:]
     /// The daemon tree each store page tab belongs to.
-    private var storeTabStores: [String: DaemonStore] = [:]
+    @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
-    private var seenLive: Set<String> = []
+    @ObservationIgnored private var seenLive: Set<String> = []
 
     /// The `origin` of the app's `new-conversation-tab` requests for page tabs.
     static let createOrigin = "cmux-next-page-tab"

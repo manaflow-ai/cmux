@@ -12184,137 +12184,6 @@
         }
       }
     },
-    "onboarding.chats.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Claude Code and Codex chats, newest first. Each one you check reopens in its project, where it left off."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Chats aus Claude Code und Codex, die neuesten zuerst. Jeder markierte Chat öffnet sich in seinem Projekt dort, wo er aufgehört hat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vos discussions Claude Code et Codex, les plus récentes d’abord. Chaque discussion cochée se rouvre dans son projet, là où elle s’était arrêtée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "محادثاتك في Claude Code وCodex، الأحدث أولاً. كل محادثة تحددها تُفتح من جديد في مشروعها من حيث توقفت."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tus chats de Claude Code y Codex, los más recientes primero. Cada uno que marques se reabre en su proyecto, donde lo dejaste."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的 Claude Code 與 Codex 對話，最新的在前。勾選的對話會在其專案中從上次中斷處重新開啟。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的 Claude Code 和 Codex 对话，最新的在前。勾选的对话会在其项目中从上次中断处重新打开。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code와 Codex 대화를 최신순으로 보여 줍니다. 선택한 대화는 해당 프로젝트에서 멈춘 곳부터 다시 열립니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code と Codex のチャットを新しい順に表示します。チェックしたチャットは、そのプロジェクトで中断したところから再開します。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vaši razgovori iz Claude Codea i Codexa, najnoviji prvi. Svaki koji označite ponovo se otvara u svom projektu, tamo gdje je stao."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dine chats fra Claude Code og Codex, de nyeste først. Hver chat, du markerer, åbner igen i sit projekt, hvor den slap."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le tue chat di Claude Code e Codex, dalla più recente. Ogni chat selezionata si riapre nel suo progetto, da dove era rimasta."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែក Claude Code និង Codex របស់អ្នក ថ្មីបំផុតមុនគេ។ ការជជែកនីមួយៗដែលអ្នកធីក នឹងបើកឡើងវិញក្នុងគម្រោងរបស់វា ពីកន្លែងដែលវាបានឈប់។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chattene dine fra Claude Code og Codex, nyeste først. Hver chat du huker av, åpnes igjen i prosjektet sitt der den slapp."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Twoje czaty z Claude Code i Codex, od najnowszych. Każdy zaznaczony czat otworzy się ponownie w swoim projekcie, tam gdzie skończył."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Seus chats do Claude Code e do Codex, do mais recente ao mais antigo. Cada um que você marcar reabre no projeto dele, de onde parou."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваши чаты Claude Code и Codex, сначала новые. Каждый отмеченный чат снова откроется в своём проекте с того места, где он остановился."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชท Claude Code และ Codex ของคุณ เรียงจากล่าสุด แชทที่คุณเลือกจะเปิดอีกครั้งในโปรเจกต์ของมัน ต่อจากจุดที่ค้างไว้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code ve Codex sohbetlerin, en yenisi önce. İşaretlediğin her sohbet kendi projesinde kaldığı yerden yeniden açılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваші чати Claude Code і Codex, спершу нові. Кожен позначений чат знову відкриється у своєму проєкті з того місця, де зупинився."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các cuộc trò chuyện Claude Code và Codex của bạn, mới nhất trước. Mỗi cuộc bạn chọn sẽ mở lại trong dự án của nó, ngay chỗ đã dừng."
-          }
-        }
-      }
-    },
     "onboarding.chats.scanning": {
       "extractionState": "manual",
       "localizations": {
@@ -13101,137 +12970,6 @@
         }
       }
     },
-    "onboarding.classicSessions.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Namen, Ordner, Tabs und Teilungen aus dem klassischen cmux importieren. Gespeicherte Befehle werden nie ausgeführt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importez noms, dossiers, onglets et dispositions de classic cmux. Les commandes enregistrées ne sont jamais exécutées."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استورد الأسماء والمجلدات وعلامات التبويب والتخطيطات من cmux الكلاسيكي. لا تُنفذ الأوامر المحفوظة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importa nombres, carpetas, pestañas y diseños divididos de cmux clásico. Los comandos guardados nunca se ejecutan."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從經典 cmux 匯入名稱、資料夾、分頁和分割配置。不會執行已儲存的命令。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从经典 cmux 导入名称、文件夹、标签页和分割布局。不会执行已保存的命令。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "클래식 cmux에서 이름, 폴더, 탭 및 분할 레이아웃을 가져옵니다. 저장된 명령은 실행되지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラシック cmux から名前、フォルダ、タブ、分割レイアウトを取り込みます。保存されたコマンドは実行しません。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        }
-      }
-    },
     "onboarding.classicSessions.scanning": {
       "extractionState": "manual",
       "localizations": {
@@ -13883,6 +13621,792 @@
           "stringUnit": {
             "state": "translated",
             "value": "匯入 · %@"
+          }
+        }
+      }
+    },
+    "onboarding.computerUse.helper.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الكمبيوتر غير متاح في إصدار التطوير هذا. ثبّت cmux NIGHTLY لاستخدامه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use nije dostupan u ovoj razvojnoj verziji. Instalirajte cmux NIGHTLY da biste ga koristili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er ikke tilgængelig i denne udviklerversion. Installer cmux NIGHTLY for at bruge det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ist in diesem Dev-Build nicht verfügbar. Installiere cmux NIGHTLY, um es zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use no está disponible en esta compilación de desarrollo. Instala cmux NIGHTLY para usarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use n’est pas disponible dans cette version de développement. Installez cmux NIGHTLY pour l’utiliser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use non è disponibile in questa build di sviluppo. Installa cmux NIGHTLY per usarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このdevビルドではComputer Useを使用できません。使用するにはcmux NIGHTLYをインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use មិនមានក្នុង dev build នេះទេ។ ដំឡើង cmux NIGHTLY ដើម្បីប្រើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 개발 빌드에서는 Computer Use를 사용할 수 없습니다. 사용하려면 cmux NIGHTLY를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er ikke tilgjengelig i denne utviklerversjonen. Installer cmux NIGHTLY for å bruke det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use jest niedostępne w tej wersji deweloperskiej. Zainstaluj cmux NIGHTLY, aby z niego korzystać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Computer Use não está disponível nesta build de desenvolvimento. Instale o cmux NIGHTLY para usá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use недоступен в этой dev-сборке. Установите cmux NIGHTLY, чтобы им пользоваться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ใช้ไม่ได้ใน dev build นี้ ติดตั้ง cmux NIGHTLY เพื่อใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use bu geliştirici derlemesinde kullanılamaz. Kullanmak için cmux NIGHTLY’yi yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use недоступний у цій dev-збірці. Установіть cmux NIGHTLY, щоб ним користуватися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use không khả dụng trong bản dev này. Hãy cài cmux NIGHTLY để sử dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此开发版本无法使用 Computer Use。请安装 cmux NIGHTLY 后使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此開發版本無法使用 Computer Use。請安裝 cmux NIGHTLY 後使用。"
+          }
+        }
+      }
+    },
+    "onboarding.computerUse.helper.versionMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use helper version mismatch. Update cmux NIGHTLY and this build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار مساعد استخدام الكمبيوتر غير متطابق. حدّث cmux NIGHTLY وهذا الإصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verzija Computer Use pomoćnika se ne podudara. Ažurirajte cmux NIGHTLY i ovu verziju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Versionen af Computer Use-hjælperen passer ikke. Opdater cmux NIGHTLY og denne version."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version des Computer-Use-Helfers passt nicht. Aktualisiere cmux NIGHTLY und diesen Build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La versión del asistente de Computer Use no coincide. Actualiza cmux NIGHTLY y esta compilación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La version de l’assistant Computer Use ne correspond pas. Mettez à jour cmux NIGHTLY et cette version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La versione dell’helper di Computer Use non corrisponde. Aggiorna cmux NIGHTLY e questa build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Useヘルパーのバージョンが一致しません。cmux NIGHTLYとこのビルドを更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែកម្មវិធីជំនួយ Computer Use មិនត្រូវគ្នា។ ធ្វើបច្ចុប្បន្នភាព cmux NIGHTLY និង build នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 도우미 버전이 일치하지 않습니다. cmux NIGHTLY와 이 빌드를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Versjonen av Computer Use-hjelperen stemmer ikke. Oppdater cmux NIGHTLY og denne versjonen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wersja pomocnika Computer Use nie pasuje. Zaktualizuj cmux NIGHTLY i tę wersję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A versão do auxiliar do Computer Use não corresponde. Atualize o cmux NIGHTLY e esta build."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Версия помощника Computer Use не совпадает. Обновите cmux NIGHTLY и эту сборку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวอร์ชันของตัวช่วย Computer Use ไม่ตรงกัน อัปเดต cmux NIGHTLY และ build นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use yardımcısının sürümü uyuşmuyor. cmux NIGHTLY’yi ve bu derlemeyi güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Версія помічника Computer Use не збігається. Оновіть cmux NIGHTLY і цю збірку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên bản trình trợ giúp Computer Use không khớp. Hãy cập nhật cmux NIGHTLY và bản dựng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 辅助程序版本不匹配。请更新 cmux NIGHTLY 和此版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 輔助程式版本不符。請更新 cmux NIGHTLY 和此版本。"
+          }
+        }
+      }
+    },
+    "onboarding.passwords.firefoxOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يطلب الاستيراد تأكيدًا باستخدام Touch ID أو كلمة المرور. يحتفظ Firefox بمفتاحه داخل الملف الشخصي، لذا لا يطلب macOS أي عنصر من سلسلة المفاتيح. إذا كان لملف Firefox الشخصي كلمة مرور رئيسية، فسيطلبها cmux مرة واحدة ولن يحتفظ بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvoz traži potvrdu putem Touch ID-a ili lozinke. Firefox čuva svoj ključ u profilu, pa macOS ne traži nijednu stavku iz Keychaina. Ako Firefox profil ima glavnu lozinku, cmux će je zatražiti jednom i neće je zadržati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Import beder dig bekræfte med Touch ID eller din adgangskode. Firefox gemmer sin nøgle i profilen, så macOS beder ikke om noget nøgleringselement. Hvis en Firefox-profil har en primær adgangskode, beder cmux om den én gang og gemmer den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Import fordert eine Bestätigung mit Touch ID oder deinem Passwort an. Firefox bewahrt seinen Schlüssel im Profil auf, daher fragt macOS nach keinem Schlüsselbundeintrag. Hat ein Firefox-Profil ein Hauptpasswort, fragt cmux einmal danach und speichert es nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import asks you to confirm with Touch ID or your password. Firefox keeps its key in the profile, so macOS asks for no Keychain item. If a Firefox profile has a primary password, cmux asks for it once and does not keep it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La importación te pide confirmar con Touch ID o tu contraseña. Firefox guarda su clave en el perfil, así que macOS no pide ningún elemento del llavero. Si un perfil de Firefox tiene una contraseña principal, cmux la pide una vez y no la guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’importation vous demande de confirmer avec Touch ID ou votre mot de passe. Firefox conserve sa clé dans le profil, donc macOS ne demande aucun élément du trousseau. Si un profil Firefox a un mot de passe principal, cmux le demande une fois et ne le conserve pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’importazione ti chiede di confermare con Touch ID o con la password. Firefox conserva la sua chiave nel profilo, quindi macOS non chiede alcun elemento del portachiavi. Se un profilo Firefox ha una password principale, cmux la chiede una volta e non la conserva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み時に Touch ID またはパスワードでの確認を求めます。Firefox は鍵をプロファイル内に保存するため、macOS はキーチェーン項目を求めません。Firefox プロファイルにプライマリパスワードがある場合、cmux は一度だけそれを尋ね、保存しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការនាំចូលស្នើឱ្យអ្នកបញ្ជាក់ដោយ Touch ID ឬពាក្យសម្ងាត់របស់អ្នក។ Firefox រក្សាសោរបស់វានៅក្នុងប្រវត្តិរូប ដូច្នេះ macOS មិនស្នើរកធាតុ Keychain ទេ។ ប្រសិនបើប្រវត្តិរូប Firefox មានពាក្យសម្ងាត់មេ cmux នឹងសួររកវាម្តង ហើយមិនរក្សាទុកវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "가져오기 시 Touch ID 또는 암호로 확인을 요청합니다. Firefox는 키를 프로필에 보관하므로 macOS는 키체인 항목을 요청하지 않습니다. Firefox 프로필에 기본 비밀번호가 있으면 cmux가 한 번 요청하며 보관하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importen ber deg bekrefte med Touch ID eller passordet ditt. Firefox lagrer nøkkelen sin i profilen, så macOS ber ikke om noe nøkkelringelement. Hvis en Firefox-profil har et hovedpassord, ber cmux om det én gang og beholder det ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Import poprosi o potwierdzenie za pomocą Touch ID lub hasła. Firefox przechowuje swój klucz w profilu, więc macOS nie prosi o żaden element pęku kluczy. Jeśli profil Firefoksa ma hasło główne, cmux poprosi o nie raz i go nie zachowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A importação pede que você confirme com o Touch ID ou sua senha. O Firefox guarda a chave no perfil, então o macOS não pede nenhum item das Chaves. Se um perfil do Firefox tiver uma senha principal, o cmux a pede uma vez e não a guarda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Импорт попросит подтвердить действие с помощью Touch ID или пароля. Firefox хранит ключ в профиле, поэтому macOS не запрашивает объект связки ключей. Если у профиля Firefox есть основной пароль, cmux спросит его один раз и не сохранит."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การนำเข้าจะขอให้คุณยืนยันด้วย Touch ID หรือรหัสผ่าน Firefox เก็บกุญแจไว้ในโปรไฟล์ macOS จึงไม่ขอรายการพวงกุญแจใดๆ หากโปรไฟล์ Firefox มีรหัสผ่านหลัก cmux จะถามหนึ่งครั้งและไม่เก็บไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İçe aktarma, Touch ID veya parolanla onaylamanı ister. Firefox anahtarını profilde tuttuğu için macOS hiçbir Anahtar Zinciri öğesi istemez. Bir Firefox profilinin ana parolası varsa cmux onu bir kez sorar ve saklamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Імпорт попросить підтвердити дію за допомогою Touch ID або пароля. Firefox зберігає ключ у профілі, тож macOS не запитує жодного елемента зв’язки ключів. Якщо профіль Firefox має основний пароль, cmux запитає його один раз і не збереже."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi nhập, bạn sẽ được yêu cầu xác nhận bằng Touch ID hoặc mật khẩu. Firefox giữ khóa trong hồ sơ nên macOS không yêu cầu mục Chuỗi khóa nào. Nếu hồ sơ Firefox có mật khẩu chính, cmux sẽ hỏi một lần và không lưu lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "导入时会要求你用 Touch ID 或密码确认。Firefox 将密钥保存在配置文件中，因此 macOS 不会请求钥匙串项目。如果 Firefox 配置文件设有主密码，cmux 会询问一次且不会保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匯入時會要求你以 Touch ID 或密碼確認。Firefox 將金鑰保存在設定檔中，因此 macOS 不會要求鑰匙圈項目。若 Firefox 設定檔設有主要密碼，cmux 會詢問一次且不會保留。"
+          }
+        }
+      }
+    },
+    "onboarding.passwords.firefoxPrimary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إذا كان لملف Firefox الشخصي كلمة مرور رئيسية، فسيطلبها cmux مرة واحدة ولن يحتفظ بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ako Firefox profil ima glavnu lozinku, cmux će je zatražiti jednom i neće je zadržati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvis en Firefox-profil har en primær adgangskode, beder cmux om den én gang og gemmer den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hat ein Firefox-Profil ein Hauptpasswort, fragt cmux einmal danach und speichert es nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If a Firefox profile has a primary password, cmux asks for it once and does not keep it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si un perfil de Firefox tiene una contraseña principal, cmux la pide una vez y no la guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si un profil Firefox a un mot de passe principal, cmux le demande une fois et ne le conserve pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se un profilo Firefox ha una password principale, cmux la chiede una volta e non la conserva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox プロファイルにプライマリパスワードがある場合、cmux は一度だけそれを尋ね、保存しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រសិនបើប្រវត្តិរូប Firefox មានពាក្យសម្ងាត់មេ cmux នឹងសួររកវាម្តង ហើយមិនរក្សាទុកវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Firefox 프로필에 기본 비밀번호가 있으면 cmux가 한 번 요청하며 보관하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvis en Firefox-profil har et hovedpassord, ber cmux om det én gang og beholder det ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeśli profil Firefoksa ma hasło główne, cmux poprosi o nie raz i go nie zachowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se um perfil do Firefox tiver uma senha principal, o cmux a pede uma vez e não a guarda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если у профиля Firefox есть основной пароль, cmux спросит его один раз и не сохранит."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หากโปรไฟล์ Firefox มีรหัสผ่านหลัก cmux จะถามหนึ่งครั้งและไม่เก็บไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir Firefox profilinin ana parolası varsa cmux onu bir kez sorar ve saklamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо профіль Firefox має основний пароль, cmux запитає його один раз і не збереже."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nếu hồ sơ Firefox có mật khẩu chính, cmux sẽ hỏi một lần và không lưu lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "如果 Firefox 配置文件设有主密码，cmux 会询问一次且不会保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "若 Firefox 設定檔設有主要密碼，cmux 會詢問一次且不會保留。"
+          }
+        }
+      }
+    },
+    "onboarding.import.passwordsConflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محفوظة مسبقًا بكلمة مرور مختلفة: %@. احتفظ cmux بكلمة المرور المحفوظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Već sačuvano s drugom lozinkom: %@. cmux je zadržao sačuvanu lozinku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allerede gemt med en anden adgangskode: %@. cmux beholdt den gemte adgangskode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereits mit einem anderen Passwort gespeichert: %@. cmux hat das gespeicherte Passwort behalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already saved with a different password: %@. cmux kept the saved password."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ya guardadas con otra contraseña: %@. cmux conservó la contraseña guardada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déjà enregistrés avec un autre mot de passe : %@. cmux a conservé le mot de passe enregistré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Già salvate con una password diversa: %@. cmux ha mantenuto la password salvata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のパスワードで保存済み：%@件。cmuxは保存済みのパスワードを残しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានរក្សាទុករួចជាមួយពាក្យសម្ងាត់ផ្សេង៖ %@។ cmux បានរក្សាពាក្យសម្ងាត់ដែលបានរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 비밀번호로 이미 저장됨: %@. cmux가 저장된 비밀번호를 유지했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allerede lagret med et annet passord: %@. cmux beholdt det lagrede passordet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Już zapisane z innym hasłem: %@. cmux zachował zapisane hasło."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Já salvas com outra senha: %@. O cmux manteve a senha salva."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уже сохранены с другим паролем: %@. cmux оставил сохранённый пароль."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึกไว้แล้วด้วยรหัสผ่านอื่น: %@ cmux เก็บรหัสผ่านที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaten farklı bir parolayla kayıtlı: %@. cmux kayıtlı parolayı korudu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уже збережено з іншим паролем: %@. cmux залишив збережений пароль."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã lưu với mật khẩu khác: %@. cmux giữ mật khẩu đã lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已用其他密码保存：%@。cmux 保留了已保存的密码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已用其他密碼儲存：%@。cmux 保留了已儲存的密碼。"
+          }
+        }
+      }
+    },
+    "onboarding.computerUse.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use is off. Allow turns it on, then shows its permissions here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作はオフです。「許可」でオンにすると、ここに権限が表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الكمبيوتر متوقف. يشغّله «سماح» ثم يعرض أذوناته هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use je isključen. Dozvoli ga uključuje, a zatim ovdje prikazuje njegove dozvole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er slået fra. Tillad slår det til og viser derefter tilladelserne her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ist aus. „Erlauben“ schaltet es ein und zeigt dann hier die Berechtigungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use está desactivado. Permitir lo activa y luego muestra sus permisos aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use est désactivé. Autoriser l’active, puis affiche ses autorisations ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use è disattivato. Consenti lo attiva e poi ne mostra qui i permessi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ត្រូវបានបិទ។ អនុញ្ញាត នឹងបើកវា បន្ទាប់មកបង្ហាញសិទ្ធិរបស់វានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use가 꺼져 있습니다. 허용을 누르면 켜지고 여기에 권한이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er av. Tillat slår det på og viser deretter tillatelsene her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use jest wyłączone. Zezwól włącza je, a potem pokazuje tu jego uprawnienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Computer Use está desativado. Permitir o ativa e depois mostra as permissões aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use выключен. «Разрешить» включит его и покажет здесь разрешения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ปิดอยู่ อนุญาตจะเปิดใช้งาน แล้วแสดงสิทธิ์ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use kapalı. İzin Ver onu açar ve izinlerini burada gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use вимкнено. «Дозволити» вмикає його й показує тут дозволи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use đang tắt. Cho phép sẽ bật nó rồi hiển thị quyền ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "电脑操作已关闭。“允许”会将其打开，然后在此显示权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電腦操作已關閉。「允許」會將其開啟，然後在此顯示權限。"
           }
         }
       }

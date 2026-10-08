@@ -13,7 +13,7 @@
 // would look constant to the compiler and keep memoized strings stale. `translate` is for
 // code outside render (event handlers, clients), where the current language is read once.
 import { useSyncExternalStore } from "react";
-import { resolveLanguage } from "../../pages/shared/i18n";
+import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
 
 type Catalog = typeof import("./generated/strings.json");
 type CatalogKey = keyof Catalog["en"];
@@ -40,6 +40,7 @@ export function paneLanguage(languages: readonly string[] = globalThis.navigator
 }
 
 let active: PaneLanguage = paneLanguage();
+setDocumentLanguage(active);
 const listeners = new Set<() => void>();
 
 /** The language the pane renders in now. */
@@ -49,6 +50,7 @@ export function currentLanguage(): PaneLanguage {
 
 /** Switches the pane's language; every component that reads strings through `useT()` re-renders. */
 export function setPaneLanguage(next: PaneLanguage): void {
+  setDocumentLanguage(next);
   if (next === active) return;
   active = next;
   for (const listener of listeners) listener();

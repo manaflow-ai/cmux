@@ -1,53 +1,110 @@
 @testable import CmuxNextApp
 import CmuxNextAgentActivity
+import CmuxNextControl
 import CmuxNextOnboarding
 import Foundation
 import Testing
 
-/// Onboarding's computer use grants come from the cmux-cua daemon's
-/// `permissions_status` result, and Allow opens the matching Privacy &
+/// Computer Use Setup's grants come from the cmux-cua daemon's
+/// `permissions_status` result, and each grant opens its Privacy &
 /// Security list.
 @MainActor
 @Suite struct ComputerUsePermissionSourceTests {
     @Test func grantsAreReadFromThePermissionsStatusResult() {
         let status: [String: Any] = ["accessibility": true, "screen_recording": false, "all_granted": false,
                                      "source": ["pid": 1, "attribution": "driver-daemon"]]
-        #expect(AppComputerUsePermissionSource.permissions(status) == ComputerUsePermissions(accessibility: true, screenRecording: false))
-        #expect(AppComputerUsePermissionSource.permissions([:]) == .none)
+        #expect(ComputerUseSetup.permissions(status) == ComputerUsePermissions(accessibility: true, screenRecording: false))
+        #expect(ComputerUseSetup.permissions([:]) == .none)
     }
 
-    @Test func allowOpensEachPrivacyList() {
-        #expect(AppComputerUsePermissionSource.settingsURL(.accessibility)?.absoluteString
+    @Test func eachGrantOpensItsPrivacyList() {
+        #expect(ComputerUseSetup.settingsURL(.accessibility)?.absoluteString
             == "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-        #expect(AppComputerUsePermissionSource.settingsURL(.screenRecording)?.absoluteString
+        #expect(ComputerUseSetup.settingsURL(.screenRecording)?.absoluteString
             == "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
 
-    @Test func aMissingDaemonLeavesTheRowsAsTheyWere() async {
-        let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString).sock").path
-        let source = AppComputerUsePermissionSource(configuration: .init(socketPath: path, machineName: ""))
-        let stream = source.permissions()
-        let first = Task { () -> ComputerUsePermissions? in
-            for await value in stream { return value }
-            return nil
-        }
-        try? await Task.sleep(for: .milliseconds(300))
-        first.cancel()
-        #expect(await first.value == nil)
+    @Test func aMissingDaemonIsNoAnswer() async {
+        let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString.prefix(8)).sock").path
+        #expect(await ComputerUseSetup.socketRead(.init(socketPath: path, machineName: "")) == .noAnswer)
     }
 
-    @Test func onlyABoundAndListeningSocketCounts() throws {
+    /// A daemon that answers, but refuses `permissions_status` or answers
+    /// without the two grants, speaks another protocol version: Setup
+    /// reports a mismatch, not silence.
+    @Test(arguments: [#"{"ok":false,"error":"unknown method: permissions_status"}"#,
+                      #"{"ok":true,"result":{"granted":true}}"#])
+    func aHelperOnAnotherProtocolIsAVersionMismatch(_ reply: String) async throws {
         let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString.prefix(8)).sock").path
         defer { unlink(path) }
-        #expect(!AppComputerUsePermissionSource.isListening(path))
-        // A daemon listening there.
         let listener = try #require(Self.bound(path))
-        listen(listener, 1)
-        #expect(AppComputerUsePermissionSource.isListening(path))
-        // The daemon exits and leaves its socket file behind.
-        close(listener)
-        #expect(FileManager.default.fileExists(atPath: path))
-        #expect(!AppComputerUsePermissionSource.isListening(path))
+        defer { close(listener) }
+        listen(listener, 4)
+        Self.answerEachRequest(on: listener, with: reply)
+        #expect(await ComputerUseSetup.socketRead(.init(socketPath: path, machineName: "")) == .versionMismatch)
+    }
+
+    @Test func aHelperThatAnswersGivesItsGrants() async throws {
+        let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString.prefix(8)).sock").path
+        defer { unlink(path) }
+        let listener = try #require(Self.bound(path))
+        defer { close(listener) }
+        listen(listener, 4)
+        Self.answerEachRequest(on: listener, with: #"{"ok":true,"result":{"accessibility":true,"screen_recording":true}}"#)
+        #expect(await ComputerUseSetup.socketRead(.init(socketPath: path, machineName: ""))
+            == .answered(ComputerUsePermissions(accessibility: true, screenRecording: true), helper: nil))
+    }
+
+    /// Accepts connections on `listener` and answers each request line with
+    /// `reply`, until the listener closes.
+    static func answerEachRequest(on listener: Int32, with reply: String) {
+        Thread.detachNewThread {
+            while true {
+                let client = accept(listener, nil, nil)
+                guard client >= 0 else { return }
+                var one: Int32 = 1
+                setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+                // A connection that sends no request (the client's server-uid
+                // check) gets no reply.
+                var byte: UInt8 = 0
+                var gotLine = false
+                while read(client, &byte, 1) == 1 { if byte == UInt8(ascii: "\n") { gotLine = true; break } }
+                if gotLine {
+                    let line = Array((reply + "\n").utf8)
+                    _ = line.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+                }
+                close(client)
+            }
+        }
+    }
+
+    /// The app strips every inherited CMUX* variable except CMUX_NEXT_* at
+    /// launch (LaunchIdentity), so the socket override and its tokens use
+    /// CMUX_NEXT_ names: a tagged app and its tests then reach their own
+    /// cmux-cua socket and never the shared default path.
+    @Test func theSocketOverrideSurvivesTheLaunchStrip() {
+        let launched = ["CMUX_NEXT_CUA_SOCKET": "/tmp/tag-scoped/cmux-cua.sock",
+                        "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "agent-token",
+                        "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-token",
+                        "CMUX_CUA_SOCKET": "/tmp/inherited-from-a-parent.sock"]
+        let stripped = Set(LaunchIdentity.inheritedKeys(processEnvironment: launched, bundledEnvironment: [:]))
+        let environment = launched.filter { !stripped.contains($0.key) }
+        let configuration = AgentActivitySocketSource.Configuration.standard(machineName: "", environment: environment,
+                                                                            home: "/Users/someone")
+        #expect(configuration.socketPath == "/tmp/tag-scoped/cmux-cua.sock")
+        #expect(configuration.authToken == "agent-token")
+        #expect(configuration.hostAuthToken == "host-token")
+    }
+
+    /// Without the override the app reads cmux-cua's default socket, and an
+    /// old CMUX_CUA_SOCKET (a parent's, or the helper's own) is never used.
+    @Test func withoutTheOverrideTheDefaultSocketIsUsed() {
+        let configuration = AgentActivitySocketSource.Configuration.standard(
+            machineName: "", environment: ["CMUX_CUA_SOCKET": "/tmp/inherited-from-a-parent.sock",
+                                           "CMUX_CUA_SOCKET_AUTH_TOKEN": "inherited"],
+            home: "/Users/someone")
+        #expect(configuration.socketPath == "/Users/someone/Library/Caches/cmux-cua/cmux-cua.sock")
+        #expect(configuration.authToken == nil)
     }
 
     /// A Unix socket bound at `path`, not yet listening.

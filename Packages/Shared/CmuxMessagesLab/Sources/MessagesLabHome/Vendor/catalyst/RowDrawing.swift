@@ -44,6 +44,7 @@ enum RowDraw {
         switch p.part {
         case .text: return true
         case let .attachment(a): return !["image", "video"].contains(a.kind)
+        case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
         default: return false
         }
     }
@@ -129,7 +130,10 @@ enum PartRenderer {
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
             BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
             _ = lines
-            if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
+            if let md = p.markdown {
+                MarkdownDraw.draw(ctx, md, body: body, outgoing: p.outgoing, offsets: MarkdownScroll.all(md.identity),
+                                  mode: MarkdownOverlay.active ? .skipScrollable : .all)
+            } else if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
         case let .link(url, title, site, image, _) where Sizing.linkPending(title: title, site: site, image: image):
             // Messages' loading card: a grey rounded square, an activity spinner
             // and the domain under it (link-url-and-text take, t+0.6-1.9 s).
@@ -156,6 +160,8 @@ enum PartRenderer {
                      tail: p.tail, outgoing: p.outgoing)
         case let .attachment(a):
             drawAttachment(ctx, a, body: body, row: p, windowY: windowY)
+        case let .custom(c):
+            CustomRows.draw(ctx, c, row: p, body: body, windowY: windowY)
         case let .location(lat, lon, title, subtitle):
             if let img = Images.mapSnapshot(lat, lon) {
                 drawMapSnapshot(ctx, img, body: body, caption: title ?? "", tail: p.tail, outgoing: p.outgoing)
@@ -174,7 +180,7 @@ enum PartRenderer {
             let f = UIFont.systemFont(ofSize: 12, weight: .bold)
             TextDraw.line("!", font: f, color: .white, x: c.x - TextDraw.width("!", font: f) / 2, baseline: c.y + 4.5, in: ctx)
         }
-        drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing)
+        drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, windowY: windowY)
     }
 
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
@@ -497,38 +503,66 @@ enum PartRenderer {
         TextDraw.line(subtitle, font: .systemFont(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx)
     }
 
-    /// Tapback badges on the part's top corner (outer side), stacked, all grey (macOS 27).
-    /// Tapback badges (measured on macOS 26 Messages, 2x screenshot): a 27.5 pt
-    /// disc whose center is 2 pt inside the bubble's top outer corner and
-    /// 8.25 pt above its top edge, colour (59, 59, 61), the tapback as a colour
-    /// emoji, and two tail circles (8 pt and 4 pt) toward the outside. Mine is
-    /// blue. Further badges stack 12 pt toward the bubble's middle.
-    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], body: CGRect, outgoing: Bool) {
-        // Outgoing bubbles carry the badge on their left (top-left), incoming on their right.
+    /// The person whose tapbacks draw blue (the conversation's own participant).
+    static var me: ID = "me"
+    /// Tapback badges on the part's top corner (outer side), stacked.
+    /// Geometry (measured on macOS 26 Messages, 2x screenshot, unchanged on macOS 27): a 27.5 pt
+    /// disc whose center is 2 pt inside the bubble's top outer corner and 8.25 pt above its top
+    /// edge, and two tail circles (8 pt and 4 pt) toward the outside; further badges stack 12 pt
+    /// toward the bubble's middle. Colour (macOS 27, lossless tapback-menu-heart-take1 and
+    /// reply-menu-send-take1): another person's badge is grey (59, 59, 61); MINE is blue, the
+    /// window-position gradient of my bubbles ((81, 151, 248) at window y 277 pt, the gradient's
+    /// value there). Mine is drawn here only when `windowY` is known; in a cell's bitmap
+    /// (`windowY` NaN) the cell's badge layer draws it (RowCell, a window-anchored gradient like
+    /// the outgoing fill, and the badge's pop).
+    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
         let side: CGFloat = outgoing ? -1 : 1
         for (i, r) in rs.enumerated().reversed() {
-            let d: CGFloat = 27.5
-            let cx = (outgoing ? body.minX + 2 : body.maxX - 2) - side * CGFloat(i) * 12
-            let c = CGPoint(x: cx, y: body.minY - 8.25)
-            // macOS 27: my tapback badge is grey too (lossless still, (59, 59, 61)).
-            let fill = Fixture.badge
+            let mine = r.senderId == me
+            if mine && windowY.isNaN { continue }
+            let c = badgeCenter(body: body, outgoing: outgoing, index: i)
+            let shape = badgePath(center: c, side: side, tails: i == 0)
             ctx.saveGState()
-            ctx.setShadow(offset: CGSize(width: 0, height: 0.5), blur: 1.5, color: UIColor(white: 0, alpha: 0.35).cgColor)
-            fill.setFill()
-            if i == 0 {
-                UIBezierPath(ovalIn: CGRect(x: c.x + side * 8.5 - 4, y: c.y + 13.25 - 4, width: 8, height: 8)).fill()
-                UIBezierPath(ovalIn: CGRect(x: c.x + side * 14.25 - 2, y: c.y + 19.25 - 2, width: 4, height: 4)).fill()
+            if mine {
+                shape.addClip()
+                ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY), end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY),
+                                       options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            } else {
+                ctx.setShadow(offset: CGSize(width: 0, height: 0.5), blur: 1.5, color: UIColor(white: 0, alpha: 0.35).cgColor)
+                Fixture.badge.setFill()
+                shape.fill()
             }
-            UIBezierPath(ovalIn: CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)).fill()
             ctx.restoreGState()
-            let rect = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
-            switch r.kind {
-            case let .emoji(e):
-                drawEmoji(e, in: rect, ctx: ctx)
-            case let .tapback(t):
-                if let e = TapbackGlyph.emoji(t) { drawEmoji(e, in: rect, ctx: ctx) }
-                else { TapbackGlyph.draw(t, in: rect.insetBy(dx: 7, dy: 7), color: .white, ctx: ctx) }
-            }
+            drawBadgeGlyph(r.kind, center: c, ctx: ctx)
+        }
+    }
+
+    static let badgeDiameter: CGFloat = 27.5
+    static func badgeCenter(body: CGRect, outgoing: Bool, index i: Int) -> CGPoint {
+        let side: CGFloat = outgoing ? -1 : 1
+        return CGPoint(x: (outgoing ? body.minX + 2 : body.maxX - 2) - side * CGFloat(i) * 12, y: body.minY - 8.25)
+    }
+    /// The disc and (first badge only) its two tail circles toward the outside.
+    static func badgePath(center c: CGPoint, side: CGFloat, tails: Bool) -> UIBezierPath {
+        let d = badgeDiameter
+        let p = UIBezierPath(ovalIn: CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d))
+        if tails {
+            p.append(UIBezierPath(ovalIn: CGRect(x: c.x + side * 8.5 - 4, y: c.y + 13.25 - 4, width: 8, height: 8)))
+            p.append(UIBezierPath(ovalIn: CGRect(x: c.x + side * 14.25 - 2, y: c.y + 19.25 - 2, width: 4, height: 4)))
+        }
+        return p
+    }
+    static func drawBadgeGlyph(_ kind: Reaction.Kind, center c: CGPoint, ctx: CGContext) {
+        let d = badgeDiameter
+        let rect = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+        switch kind {
+        case let .emoji(e):
+            drawEmoji(e, in: rect, ctx: ctx)
+        case .tapback("love"):
+            TapbackGlyph.drawLoveHeart(center: c, ctx: ctx)
+        case let .tapback(t):
+            if let e = TapbackGlyph.emoji(t) { drawEmoji(e, in: rect, ctx: ctx) }
+            else { TapbackGlyph.draw(t, in: rect.insetBy(dx: 7, dy: 7), color: .white, ctx: ctx) }
         }
     }
 
@@ -552,6 +586,35 @@ enum TapbackGlyph {
         }
     }
     static let all = ["love", "like", "dislike", "laugh", "emphasize", "question"]
+    /// The Love tapback on macOS 27 (lossless send-typed-media take, 2026-10-05): not the red
+    /// emoji but a pink heart, heart.fill at 15 pt regular (4 % area error), its centroid 0.27 pt
+    /// above the badge center (box middle 1.25 pt below it on the settled hearts of
+    /// tapback-menu-heart-take1 and send-typed-take1; the earlier 1.52 drew it 1.25 pt high), with an elliptical radial gradient (rms 4.8 levels): center 0.34 pt
+    /// right of and 8 pt above the heart's centroid, x scaled by 1.39, radius 13.85 pt; stops
+    /// (238, 147, 181) at 0, (244, 189, 217) at 0.5, (235, 96, 160) at 1 (light band over the
+    /// middle, deeper pink at the lobes' tops and the tip).
+    static func drawLoveHeart(center c: CGPoint, ctx: CGContext) {
+        guard let img = UIImage(systemName: "heart.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .regular))?
+            .withTintColor(.white, renderingMode: .alwaysOriginal) else { return }
+        let s = img.size
+        // The glyph's centroid sits 0.48 pt left of and 0.84 pt above its 19 x 17 pt box's center.
+        let centroid = CGPoint(x: c.x, y: c.y - 0.27)
+        let box = CGRect(x: centroid.x + 0.48 - s.width / 2, y: centroid.y + 0.84 - s.height / 2, width: s.width, height: s.height)
+        let rgb = { (r: CGFloat, g: CGFloat, b: CGFloat) in UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1).cgColor }
+        guard let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+                                 colors: [rgb(237.87, 147.07, 180.7), rgb(244.11, 188.55, 217.27), rgb(235.21, 96.07, 160.02)] as CFArray,
+                                 locations: [0, 0.5, 1]) else { return }
+        ctx.saveGState()
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        img.draw(in: box)
+        ctx.setBlendMode(.sourceIn)
+        ctx.translateBy(x: centroid.x + 0.34, y: centroid.y - 8)
+        ctx.scaleBy(x: 1 / 1.39, y: 1)
+        ctx.drawRadialGradient(g, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: 13.85,
+                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+    }
     static func draw(_ t: String, in r: CGRect, color: UIColor, ctx: CGContext) {
         let symbol: String?
         switch t {
@@ -712,9 +775,13 @@ final class RowBitmaps {
     /// Bitmaps rendered ahead of time (loader queue), inserted on main.
     func insert(_ items: [(RowSpec, CGImage)]) { items.forEach { store($0.0, $0.1) } }
 
+    /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
+    /// prefetch), so a check for rows without bitmaps has something to find.
+    static var prerenderEnabled = true
     /// Render the rows that will be on screen first (loader queue).
     static func prerender(_ specs: ArraySlice<RowSpec>) -> [(RowSpec, CGImage)] {
-        specs.compactMap { spec in
+        guard prerenderEnabled else { return [] }
+        return specs.compactMap { spec in
             switch spec.kind { case .receipt, .typing: return nil; default: return (spec, render(spec)) }
         }
     }

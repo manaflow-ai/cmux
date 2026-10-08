@@ -1,8 +1,8 @@
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
-/// `sidebar.showCounts`;
-/// plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.showChats` controls the optional device-wide Chats section.
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -29,14 +29,27 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var pinnedBandsScroll: Bool
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
-    /// Each workspace row shows how many tabs it has.
-    public var showCounts = false
+    /// `sidebar.groupByComputer`: one workspace section per computer, each
+    /// under its header. Off (the default) shows one list of workspaces with
+    /// no computer headers; a workspace of another computer names it on its
+    /// second line.
+    public var groupsByComputer = false
+    /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
+    /// the name, the user's icon and the unread/attention mark only
+    /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// Whether the device-wide Chats section is shown in the sidebar.
+    public var showChats = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
     /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
     /// `sidebar.stepping`, `sidebar.steppingWraps`).
     public var navigation = SidebarNavigationSettings.defaults
+    /// The "Did you know" tip card above the footer (`sidebar.cards.tips`,
+    /// BOTTOM-LEFT-CARDS K1). The update card always shows when an update
+    /// is staged.
+    public var showsTips = true
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

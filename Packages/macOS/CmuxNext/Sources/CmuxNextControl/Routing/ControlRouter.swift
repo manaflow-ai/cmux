@@ -20,14 +20,32 @@ public final class ControlRouter: Sendable {
         /// (``ControlMethod/Deadline/terminalStart``).
         public var terminalStartDeadline: Duration
         public var queueLimits: MainActorWorkQueue.Limits
+        /// Whether `debug.*` methods may be registered: only in DEBUG builds
+        /// (``ControlRouter/debugMethodsAllowed``). A release router drops
+        /// every `debug.*` registration, so no release build serves one.
+        public var allowsDebugMethods: Bool
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
-                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits()) {
+                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits(),
+                    allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed) {
             self.requestDeadline = requestDeadline
             self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
+            self.allowsDebugMethods = allowsDebugMethods
         }
     }
+
+    /// True in DEBUG builds only: release builds serve no `debug.*` method.
+    public static var debugMethodsAllowed: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// A `debug.*` method: diagnostics and automation for tagged DEV builds.
+    public static func isDebugMethod(_ name: String) -> Bool { name.hasPrefix("debug.") }
 
     /// Default deadline for a request that starts a terminal: the daemon's
     /// own terminal start deadline (`DaemonConnection.defaultSpawnTimeout`)
@@ -93,10 +111,13 @@ public final class ControlRouter: Sendable {
     // MARK: - Registration
 
     /// Adds methods. A later registration with the same name replaces the
-    /// earlier one (the App or compat layer may refine a built-in).
+    /// earlier one (the App or compat layer may refine a built-in). A
+    /// `debug.*` method is dropped unless the configuration allows debug
+    /// methods (DEBUG builds), whichever code path registers it.
     public func register(_ methods: [ControlMethod]) {
+        let allowsDebug = configuration.allowsDebugMethods
         state.withLock { state in
-            for method in methods {
+            for method in methods where allowsDebug || !Self.isDebugMethod(method.name) {
                 if state.methods.updateValue(method, forKey: method.name) == nil { state.order.append(method.name) }
             }
         }
@@ -222,8 +243,7 @@ public final class ControlRouter: Sendable {
     public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
         guard let method = method(named: request.method) else {
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
-            return .failure(ControlError(code: "method_not_found", message: ControlStrings.format("control.error.unknownMethod", "Unknown method %@", request.method),
-                                         data: ["method": .string(request.method)]))
+            return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
         var snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
@@ -245,6 +265,25 @@ public final class ControlRouter: Sendable {
         } catch {
             return .failure(ControlError(code: "internal_error", message: String(describing: error)))
         }
+    }
+
+    /// `method_not_found`. An unknown method most often comes from an older
+    /// `cmux` (the classic app's CLI, or a cmux-next CLI from an older build)
+    /// that a shell found first on `PATH`: with a bundled CLI the message
+    /// says so and names it (also as `app_cli_path`), worded so that a typo
+    /// sent by this app's own CLI is not called old. The code stays the same.
+    static func methodNotFound(_ method: String, appCLIPath: String?) -> ControlError {
+        guard let cli = appCLIPath, !cli.isEmpty else {
+            return ControlError(code: "method_not_found",
+                                message: ControlStrings.format("control.error.unknownMethod", "Unknown method %@", method),
+                                data: ["method": .string(method)])
+        }
+        return ControlError(
+            code: "method_not_found",
+            message: ControlStrings.format("control.error.unknownMethodOlderCLI",
+                                           "Unknown method %1$@. A cmux CLI that is older than this app (or from another cmux app) sends methods this app does not have; this app's CLI is %2$@",
+                                           method, cli),
+            data: ["method": .string(method), "app_cli_path": .string(cli)])
     }
 
     static func run(_ method: ControlMethod, _ call: ControlCall, queue: MainActorWorkQueue) async throws -> JSONValue {

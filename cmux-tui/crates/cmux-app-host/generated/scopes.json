@@ -649,6 +649,10 @@
       "scope": "inbox:write",
       "class": "mutation"
     },
+    "integration.approval.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
     "integration.complete": {
       "scope": "integration:write",
       "class": "mutation"
@@ -1193,6 +1197,14 @@
       "scope": "session:write",
       "class": "mutation"
     },
+    "sidebar_layout.get": {
+      "scope": "sidebar_layout:read",
+      "class": "read"
+    },
+    "sidebar_layout.update": {
+      "scope": "sidebar_layout:write",
+      "class": "mutation"
+    },
     "sidebar_view.ensure": {
       "scope": "sidebar_view:write",
       "class": "mutation"
@@ -1316,6 +1328,10 @@
     "tab.update": {
       "scope": "workspace:write",
       "class": "mutation"
+    },
+    "team_vm.accounts": {
+      "scope": "team_vm:read",
+      "class": "read"
     },
     "team_vm.ensure_awake": {
       "scope": "team_vm:write",
@@ -1693,7 +1709,10 @@
     "tab.close",
     "tab_group.close",
     "team.enrollment_token.revoke",
+    "team_vm.rebuild",
+    "team_vm.retired.delete",
     "team_vm.ssh_ca.rotate",
+    "team_vm.taint.accept",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",

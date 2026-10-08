@@ -52,7 +52,7 @@ enum TabCloseGuard {
                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
         case .programs(let programs):
             return .init(title: title,
-                         body: ConfirmationStrings.closeTabBody(programs.joined(separator: ", ")),
+                         body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         }
     }

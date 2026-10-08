@@ -114,7 +114,8 @@ fn capped(cmd: &str, limit: &str) -> String {
     format!("out=$({cmd}); rc=$?; printf '%s\\n' \"$out\" | {limit}; exit $rc")
 }
 
-/// Restart the daemon away from launchd: `daemon shutdown` returns once the
+/// Restart the daemon away from launchd: `daemon shutdown --keep-agents`
+/// (hosted agents keep running for the new daemon to adopt) returns once the
 /// old daemon released its lock, and `daemon start` returns once the new one
 /// accepts clients (its readiness pipe), so no step waits on a timer.
 fn restart_detached(json: bool) -> String {
@@ -123,8 +124,14 @@ fn restart_detached(json: bool) -> String {
     } else {
         capped("~/.local/bin/acpmux daemon start", "head -3")
     };
-    format!("~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; {start}")
+    format!("{SHUTDOWN_KEEPING_AGENTS}; {start}")
 }
+
+/// `daemon shutdown --keep-agents` on the remote. A CLI older than the flag
+/// rejects it (clap's usage error names it); its plain `daemon shutdown`
+/// already keeps hosted agents, so only then it runs again without the flag.
+/// Any other failure (no daemon runs) is not retried.
+const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
 
 /// Read the daemon's status after launchd (re)started it; a daemon that is
 /// still not running is an error, not a status line.
@@ -355,6 +362,42 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The remote's shutdown step against a fake `~/.local/bin/acpmux` that
+    /// logs its arguments and exits as `body` says; the calls it got.
+    fn remote_shutdown_calls(tag: &str, body: &str) -> Vec<String> {
+        let home = std::env::temp_dir().join(format!("acpmux-rs-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        let fake = home.join(".local/bin/acpmux");
+        std::fs::write(&fake, format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"))
+            .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::process::Command::new("sh")
+            .args(["-c", SHUTDOWN_KEEPING_AGENTS])
+            .env("HOME", &home)
+            .status()
+            .unwrap();
+        let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&home);
+        calls.lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_restart_keeps_agents_and_falls_back_only_for_a_cli_without_the_flag() {
+        // A current CLI: one call, with the flag.
+        assert_eq!(remote_shutdown_calls("new", "exit 0"), ["daemon shutdown --keep-agents"]);
+        // A CLI older than the flag: clap refuses it; the plain call detaches.
+        let old = r#"case "$*" in *--keep-agents*) echo "error: unexpected argument '--keep-agents' found" >&2; exit 2;; esac"#;
+        assert_eq!(
+            remote_shutdown_calls("old", old),
+            ["daemon shutdown --keep-agents", "daemon shutdown"]
+        );
+        // Any other failure (no daemon answered) is not retried.
+        let down = "echo 'acpmux: runtime: daemon not running' >&2; exit 1";
+        assert_eq!(remote_shutdown_calls("down", down), ["daemon shutdown --keep-agents"]);
+    }
 
     #[test]
     fn every_ssh_and_scp_argv_puts_double_dash_before_the_destination() {

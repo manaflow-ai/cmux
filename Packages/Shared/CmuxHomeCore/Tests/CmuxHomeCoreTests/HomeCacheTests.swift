@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 /// Persistence like iMessage (plans/cmux-next/home-state-ownership.md
@@ -11,9 +12,6 @@ import Testing
 /// never committed was lost.
 @MainActor
 @Suite struct HomeCacheTests {
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<400 where !condition() { await Task.yield() }
-    }
 
     static func cache() -> HomeCache {
         HomeCache(url: FileManager.default.temporaryDirectory

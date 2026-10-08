@@ -17,6 +17,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
@@ -81,9 +82,11 @@ path="\${path#https://cdn.test/cmux-tui/}"
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
 chmod +x "$TMP/bin/curl"
+# The stub CDN publishes the macOS arm64 daemon only. Pin that target: on a Linux runner
+# pin-cmux-tui.sh would otherwise ask for x86_64-unknown-linux-musl, which these trees lack.
 fetch() {
   (cd "$src" && env -u GITHUB_ACTIONS -u CI_JOB_DIR PATH="$TMP/bin:$PATH" CMUX_NEXT_TUI_ALLOW_DIRTY=1 \
-    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
+    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 CMUX_TUI_TREE_TARGET=aarch64-apple-darwin \
     bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1)
 }
 out=$(fetch) || fail "fetch through the v1 publication failed:" "$out"
@@ -138,5 +141,20 @@ sha=$(awk '{print $1}' "$cdn/tree/$v1/cmux-tui-aarch64-apple-darwin.sha256")
 printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"
 commit=$(resolve) || fail "resolve-commit through v1 failed:" "$(cat "$TMP/resolve.err")"
 grep -qxF "resolved cmux-tui tree $v1 (v1 fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the v1 fallback:" "$(cat "$TMP/resolve.err")"
+
+# MACOS-CROSS-COMPILE-ON-LINUX: the Mac and the Linux builder give
+# byte-different macOS binaries, so the builder switch and the Linux recipe
+# are key inputs. A fallback to the other builder never reuses a tree.
+before=$(key --version v2)
+mkdir -p "$src/scripts/ci/macos-stubs"
+printf 'linux\n' > "$src/scripts/ci/cmux-tui-darwin-builder"
+git_q -C "$src" add scripts/ci/cmux-tui-darwin-builder
+git_q -C "$src" commit -m builder
+[[ "$(key --version v2)" != "$before" ]] || fail "switching the macOS builder kept the tree key"
+before=$(key --version v2)
+echo "changed stub" > "$src/scripts/ci/macos-stubs/Security.tbd"
+git_q -C "$src" add scripts/ci/macos-stubs/Security.tbd
+git_q -C "$src" commit -m stubs
+[[ "$(key --version v2)" != "$before" ]] || fail "a framework stub change kept the tree key"
 
 printf 'tree-key-v2 tests: ok\n'

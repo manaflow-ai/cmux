@@ -3,6 +3,7 @@
 //! per-tab session history (`frontend-browser-history-v1`).
 
 use super::*;
+use crate::Actor;
 
 /// Opaque per-tab session history (back/forward entries, scroll) for
 /// frontend-rendered browsers: `set-frontend-browser-history` and
@@ -37,13 +38,18 @@ pub(super) struct NewTabParams {
     /// `frontend-browser-activate-v1`: false keeps the pane's active tab.
     #[serde(default = "activate_by_default")]
     activate: bool,
+    /// `frontend-browser-insert-after-v1`: the tab lands right after this
+    /// tab of the target pane (a link's opener, or the opener's last child),
+    /// instead of at the end. Ignored when that tab is not in the pane.
+    #[serde(default)]
+    after: Option<SurfaceId>,
 }
 
 const fn activate_by_default() -> bool {
     true
 }
 
-pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Value> {
+pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyhow::Result<Value> {
     let NewTabParams {
         url,
         engine,
@@ -56,6 +62,7 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Val
         cols,
         rows,
         activate,
+        after,
     } = params;
     let record = crate::workspace_registry::FrontendBrowserRecord {
         engine,
@@ -68,10 +75,26 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Val
     let size = paired_surface_size("new-frontend-browser-tab", cols, rows)?;
     let (surface, replayed) = match idempotency_key {
         Some(key) => {
-            let outcome = mux.new_frontend_browser_tab_keyed(pane, record, size, &key, activate)?;
+            let outcome = mux.new_frontend_browser_tab_keyed_as(
+                &origin_gate::connection_actor(mux, client),
+                pane,
+                record,
+                size,
+                &key,
+                crate::mux::FrontendTabPlacement { activate, after },
+            )?;
             (outcome.surface, outcome.replayed)
         }
-        None => (mux.new_frontend_browser_tab_activating(pane, record, size, activate)?, false),
+        None => (
+            mux.new_frontend_browser_tab_placed_as(
+                &origin_gate::connection_actor(mux, client),
+                pane,
+                record,
+                size,
+                crate::mux::FrontendTabPlacement { activate, after },
+            )?,
+            false,
+        ),
     };
     let identity = surface.resource_identity();
     Ok(json!({
@@ -112,10 +135,16 @@ pub(super) struct GetParams {
     surface: SurfaceId,
 }
 
-pub(super) fn update(mux: &Mux, params: UpdateTabParams) -> anyhow::Result<Value> {
+pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyhow::Result<Value> {
     let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
-    let (record, changed) =
-        mux.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, owner)?;
+    let (record, changed) = mux.update_frontend_browser_tab_with_owner_as(
+        actor,
+        surface,
+        url,
+        title,
+        favicon_url,
+        owner,
+    )?;
     Ok(json!({
         "surface": surface,
         "url": record.url,
@@ -259,3 +288,7 @@ mod reuse_tests;
 #[cfg(test)]
 #[path = "frontend_browser_activate_tests.rs"]
 mod activate_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_insert_tests.rs"]
+mod insert_tests;

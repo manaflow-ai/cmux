@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// Renders live GitHub content kept in the client detail cache. The feed owner
@@ -20,14 +21,14 @@ struct FeedGitHubDetailSummary: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let branch = detail.branch, !branch.isEmpty {
-                Label(branch, systemImage: "arrow.triangle.branch")
+                FeedIconLabel(branch, icon: .gitBranch, textSize: 11)
                     .font(.system(size: 11)).foregroundStyle(colors.secondary)
             }
             if !detail.checks.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(detail.checks, id: \.self) { check in
-                        Label(check.name + (check.conclusion.map { ": \($0)" } ?? ""),
-                              systemImage: check.conclusion == "failure" ? "xmark.circle" : "checkmark.circle")
+                        FeedIconLabel(check.name + (check.conclusion.map { ": \($0)" } ?? ""),
+                                      icon: check.conclusion == "failure" ? .statusError : .statusSuccess, textSize: 11)
                             .font(.system(size: 11)).foregroundStyle(check.conclusion == "failure" ? colors.danger : colors.secondary)
                     }
                 }
@@ -46,14 +47,14 @@ struct FeedGitHubActions: View {
         VStack(alignment: .leading, spacing: 9) {
             Text(FeedStrings.githubActions).font(.system(size: 11, weight: .semibold)).foregroundStyle(colors.secondary)
             HStack(spacing: 7) {
-                if supported(.open) { action(FeedStrings.openOnGitHub, "arrow.up.right", .open) }
-                if supported(.checkout) { action(FeedStrings.checkout, "arrow.down.to.line", .checkout) }
-                if supported(.startAgent) { action(FeedStrings.startAgent, "sparkles", .startAgent) }
-                if supported(.approve) { action(FeedStrings.approve, "checkmark", .approve) }
-                if supported(.requestChanges) { action(FeedStrings.requestChanges, "exclamationmark.bubble", .requestChanges) }
+                if supported(.open) { action(FeedStrings.openOnGitHub, .linkExternal, .open) }
+                if supported(.checkout) { action(FeedStrings.checkout, .gitBranch, .checkout) }
+                if supported(.startAgent) { action(FeedStrings.startAgent, .agentChatNew, .startAgent) }
+                if supported(.approve) { action(FeedStrings.approve, .actionConfirm, .approve) }
+                if supported(.requestChanges) { action(FeedStrings.requestChanges, .actionReview, .requestChanges) }
             }
             if let error = model.githubActionError {
-                Label(error, systemImage: "exclamationmark.triangle").font(.system(size: 11)).foregroundStyle(colors.danger)
+                FeedIconLabel(error, icon: .statusWarning, textSize: 11).font(.system(size: 11)).foregroundStyle(colors.danger)
             }
             HStack(spacing: 7) {
                 TextField(FeedStrings.comment, text: $comment)
@@ -78,9 +79,9 @@ struct FeedGitHubActions: View {
         model.githubActions?(item).contains(action) ?? true
     }
 
-    private func action(_ title: String, _ symbol: String, _ kind: FeedGitHubAction) -> some View {
+    private func action(_ title: String, _ icon: IconName, _ kind: FeedGitHubAction) -> some View {
         Button { model.onGitHubAction?(item, kind, nil) } label: {
-            Label(title, systemImage: symbol).font(.system(size: 11))
+            FeedIconLabel(title, icon: icon, textSize: 11).font(.system(size: 11))
         }
         .buttonStyle(FeedButtonStyle(role: kind == .approve ? .primary : .plain, compact: true))
         .disabled(model.githubActionPending)

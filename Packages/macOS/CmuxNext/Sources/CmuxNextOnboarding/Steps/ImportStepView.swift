@@ -158,8 +158,8 @@ final class ImportStepView: NSView {
             let counts = ImportCountsText.line(summary.counts)
             var line = counts.isEmpty ? OnboardingStrings.importedNothing : OnboardingStrings.imported(counts)
             // "412 imported, 9 skipped": counts only, never which sites.
-            let skipped = summary.batches.reduce(0) { $0 + ($1.passwords?.notImported ?? 0) }
-            if skipped > 0 { line += " " + OnboardingStrings.passwordsSkipped(skipped.formatted(.number)) }
+            let passwords = OnboardingStrings.passwordsSummary(summary.batches.compactMap(\.passwords))
+            if !passwords.isEmpty { line += " " + passwords }
             if summary.batches.contains(where: { $0.passwordError != nil }) { line += " " + OnboardingStrings.passwordsNotRead }
             return summary.failures.isEmpty ? line : line + " " + OnboardingStrings.importSomeFailed
         case .failed(let message): return message

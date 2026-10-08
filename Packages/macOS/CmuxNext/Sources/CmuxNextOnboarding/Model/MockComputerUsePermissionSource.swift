@@ -3,15 +3,17 @@ public import Foundation
 /// Grants set by hand, for the gallery and tests. Records which panes were opened.
 @MainActor
 public final class MockComputerUsePermissionSource: ComputerUsePermissionSource {
-    public let helperAppURL: URL
+    public let helperAppURL: URL?
     public private(set) var opened: [ComputerUsePermissionPane] = []
+    /// How many times Allow turned Computer Use on.
+    public private(set) var enabledCount = 0
     public var current: ComputerUsePermissions {
         didSet { continuations.values.forEach { $0.yield(current) } }
     }
     private var continuations: [UUID: AsyncStream<ComputerUsePermissions>.Continuation] = [:]
 
     public init(current: ComputerUsePermissions = .none,
-                helperAppURL: URL = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Computer Use.app")) {
+                helperAppURL: URL? = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Computer Use.app")) {
         self.current = current
         self.helperAppURL = helperAppURL
     }
@@ -26,4 +28,10 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
     }
 
     public func openSettings(_ pane: ComputerUsePermissionPane) { opened.append(pane) }
+
+    /// Turns the mock on: the grants stop reporting off.
+    public func enable() {
+        enabledCount += 1
+        if current.isOff { current.isOff = false }
+    }
 }

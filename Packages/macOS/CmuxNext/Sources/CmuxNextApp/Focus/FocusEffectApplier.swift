@@ -40,7 +40,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 }
             })
         }
-        controller.services.observeFocus(of: controller)
+        controller.services.input.observeFocus(of: controller)
     }
 
     func teardown() {
@@ -83,6 +83,8 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
+        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
             guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else { return }

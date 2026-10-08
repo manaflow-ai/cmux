@@ -83,13 +83,14 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
-| Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (newest 50 tabs, screens, workspaces) | shared | `closed.list`, `closed.reopen` |
 | Workspace status (64 entries), progress, log (newest 200 lines) | shared | `workspace_status.*`, `workspace_progress.*`, `workspace_log.*` |
 | Workspace groups, sidebar order, rooms, saved tab groups | personal (home session) | `workspace_group.*`, `workspace.place`, `workspace.placement.list`, `room.*`, `saved_tab_group.*` |
 | Window records (one per app window, keyed install id and window id, one writer) | personal (home session) | `window_record.list`, `window_record.put`, `window_record.delete` |
+| Sidebar section layout (one per user: sections in top, middle and bottom regions; plans/cmux-next/sidebar-sections.md) | personal (home session) | `sidebar_layout.get`, `sidebar_layout.update` |
 
 Every state mutation takes an idempotency key and commits through the same
 durable path as topology mutations: one transaction checks the replay record,
@@ -104,12 +105,19 @@ Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
 workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
-`tab_group_id`, `zoom`, `back`, `forward`, `owner` (the install id of the app
+`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
 `screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
-of every terminal). Other state resources travel as `state_upsert` and
+of every terminal) and `program_status` (the OSC 7501 program status records
+of the terminal, sorted by `id`: `{id, state, progress, kind, app, title, msg,
+updated_seq, updated_at_ms}`; `state` is `idle`, `working`, `done`, `blocked`
+or `error`; `title` and `msg` are untrusted display text without control or
+invisible formatting characters, at most 256 and 1024 characters; a primary
+prompt start removes `working`, `blocked` and `idle` records, an exited
+terminal shows only `done` and `error`, at most 256 records; absent when
+there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the
 session snapshot lists them under `extra.state`. Clients that predate them
 decode these changes as `Unknown`.
@@ -154,16 +162,52 @@ then this session's live workspaces without a personal row in session order;
 the default `order: "session"` keeps the session order. To put a workspace
 right after a group at a boundary, a client sends `workspace.place`, then the
 group's `top_index`, in that order. Compatibility: a workspace this session
-creates gets its personal row (last, ungrouped) in the commit that creates
-it, by every creation path, with its `workspace_placement` change in that
-commit's `session.events` batch and no personal journal record of its own,
-so a group place counts it from the start. The commit bumps
+creates gets its personal row in the commit that creates it, by every
+creation path and every client, at the place `workspaces.newPlacement` names
+in the daemon machine's settings file (read by the daemon itself:
+`CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`, else classic
+`cmux.json` before the app's first launch; the managed layer is not read):
+`top` (the default, also for a missing or unknown value) right after the home workspace's row,
+else first, ungrouped, so before every group at that place; `afterCurrent`
+right after the session's active workspace before the commit, in its group
+(`top` when there is none, it has no row, it is the home workspace, or the
+new workspace is pinned to a room other than the group's);
+`bottom` last, ungrouped. Several workspaces of one commit keep their order.
+The home workspace (`workspace.ensure_home`) always takes the top, and a
+reopened workspace is created last and then takes its closed row's place.
+The creation's `session.events` batch carries a `workspace_placement`
+change for each new row and each row it moved, and a `workspace_group`
+change for each group whose `top_index` moved, and no personal journal
+record of its own, so a group place counts it from the start. A caller that
+wants another place sends `workspace.place` after the creation; that later
+write wins. The commit bumps
 `personal_revision` but sends no raw `personal-changed` event, so raw
 `list-personal` readers see the row on their next refetch; a
 workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
 workspaces.
+`workspace_group.delete` (and the raw `delete-personal-group`) keeps every
+workspace open and stores the group as one closed-history item with no member
+(`kind: "workspace"`, `member_count: 0`) and `ClosedItemSnapshot.group`
+naming it. `closed.reopen` of that item (also after a restart) forms the group
+again with its id, name, color, icon, pin, collapse, room and place, and puts back each
+member whose personal row still exists and that is still ungrouped; a group
+that exists again is left as it is. Its result names the session's active
+workspace.
+`workspace-group-icon-v1` gives a personal group an icon:
+`workspace_group.update {icon}` sets it to the shared icon string (one emoji
+or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
+it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
+and the raw `list-personal` groups report it (null: no icon, and clients draw
+their default group glyph). Older daemons omit the field.
+`workspace-group-pin-v1` pins (saves) a personal group:
+`workspace_group.update {pinned: true}` pins it and `false` unpins it;
+`WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
+The daemon never removes a group because it is empty, pinned or not; the pin
+tells clients to keep an empty group as a saved group (closing its
+workspaces leaves it collapsed and empty, and opening it restores them)
+instead of hiding it. Older daemons omit the field (not pinned).
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the
@@ -192,6 +236,32 @@ by an app adopts that record (its revision continues; the batch deletes the
 unadopted record), and `window_record.delete` drops one the app does not
 adopt. The projection stays readable and writable for older apps and is not
 kept in sync after the migration.
+
+The sidebar section layout is one document per user (`sidebar-layout-v1`):
+ordered sections in the regions `top`, `middle` and `bottom`, each holding
+items (references to apps, built-ins, workspaces, tabs and so on), the
+workspace list (exactly one section), or an app's contributed section.
+`sidebar_layout.update {op}` applies one op of the app's reducer
+(`section.add`, `section.update`, `section.move`, `section.remove`,
+`item.add`, `item.move`, `item.remove`, `item.remove_ref`, `item.update`,
+`layout.reset`) under the request's idempotency key; a reject is
+`validation.invalid` whose message is the reducer's reason and writes
+nothing, and an op that changes nothing commits with no change. Sections and
+items are carried as JSON objects, not closed catalog types: values and keys
+a newer app writes (a new arrangement, item kind, built-in id or field) are
+stored verbatim and come back unchanged. A new `region` or `content` value is
+refused, because the app decodes those two strictly. A workspace item's ref
+value is the qualified public id `<session>:ws_…` and a tab item's
+`<session>:tab_…`; the store compares refs as opaque kind and value strings,
+so one local id on two sessions is two refs, and it does not check that the
+target exists. A change advances the layout's own
+`revision` (a decimal string), publishes a `state_upsert` of resource
+`sidebar_layout`, id `user`, and advances `personal_revision`, so raw
+clients get `personal-changed` (`{event, personal_revision}` with no `kind`
+field, because SDK decoders refuse unknown fields) and refetch with
+`sidebar_layout.get`. Apps hold `sidebar_layout:read` with the app;
+`sidebar_layout:write` is elevated (scope-classes.json): only an explicit user
+grant adds it.
 
 ## Selectors
 
@@ -629,8 +699,8 @@ operations after the server socket is bound.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `closed.list`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `closed.reopen`, `column.update`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `closed.list`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `closed.reopen`, `column.update`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |

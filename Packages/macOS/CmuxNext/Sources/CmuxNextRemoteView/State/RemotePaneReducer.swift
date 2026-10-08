@@ -11,6 +11,11 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     /// The viewer pressed Reconnect; a new session starts connecting.
     case reconnect
     case setInteractiveMaxRtt(Int)
+    /// The indicator's Stop (or the toolbar button of an active kind): the
+    /// kind disappears at once; the transport revokes its consent.
+    case stopUpstream(RemoteUpstreamKind)
+    /// The tab hid or closed: every kind is revoked.
+    case stopAllUpstreams
 }
 
 /// The pane's single writer. Pure: `reduce` maps a state and an event to
@@ -51,6 +56,12 @@ public struct RemotePaneReducer {
             next.hasFrame = false
         case let .setInteractiveMaxRtt(limit):
             next.interactiveMaxRttMs = max(0, limit)
+        case let .stopUpstream(kind):
+            next.status?.upstream.active.remove(kind)
+            next.status?.upstream.requested.remove(kind)
+        case .stopAllUpstreams:
+            next.status?.upstream.active = []
+            next.status?.upstream.requested = []
         }
         return next
     }

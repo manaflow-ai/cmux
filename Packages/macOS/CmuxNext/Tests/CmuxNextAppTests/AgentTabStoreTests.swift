@@ -31,6 +31,24 @@ struct AgentTabStoreTests {
         #expect(fixture.tabs.session(of: "tab_restored") == "s-7")
     }
 
+    /// A New Tab page the store restored (quit and relaunch) has no chat yet: it opens as the
+    /// page again, titled New Tab, not as an empty chat labeled Agent. A blank chat this run
+    /// opened stays a chat.
+    @Test func aRestoredTabWithoutAChatOpensAsTheNewTabPage() async throws {
+        let record = AgentSessionRef(host: AgentTabFixture.host)
+        let fixture = try AgentTabFixture(tree: [AgentTabFixture.tab(50, "tab_restored", record)])
+        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }, setDefaultKind: { _ in },
+                                        listProjects: { _ in [] })
+        fixture.tabs.firstPageNewTab = { _ in (AgentPaneNewTab(kind: .agent), handler) }
+        let view = try #require(fixture.tabs.view(for: "tab_restored"))
+        #expect(view.model.newTab != nil)
+        #expect(fixture.tabs.pageTabs.ids == ["tab_restored"])
+
+        let blank = try await fixture.open()
+        #expect(try #require(fixture.tabs.view(for: blank)).model.newTab == nil)
+        #expect(fixture.tabs.pageTabs.ids == ["tab_restored"])
+    }
+
     /// Only the Mac whose acpmux runs the session attaches to it.
     @Test func aTabOfAnotherHostGetsNoView() throws {
         let record = AgentSessionRef(host: "install:other-mac", session: "s-7")
@@ -249,8 +267,9 @@ struct AgentTabLifecycleTests {
         let fixture = try AgentTabFixture(registry: registry)
         let key = try await fixture.open()
         let view = try #require(fixture.tabs.view(for: key))
-        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌘K" }
-        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌘K")
+        // Search Agent Chats starts unbound (decision K1: Cmd-K clears the terminal).
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["palette.newAgentChat"] == "⌘I" }
+        #expect(view.shortcuts.labels["agentPane.searchChats"] == nil)
         registry.setShortcutOverride(Shortcut("j", modifiers: [.command, .option]), for: "agentPane.searchChats")
         await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J" }
         #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J")

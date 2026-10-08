@@ -112,8 +112,10 @@ extension SidebarView {
         return list.externalDragEnded()
     }
 
+    /// The hover owner's answer now (cx-3wu5): a drag that set the reveal
+    /// itself hands it back to the pointer, so the owner and the reveal agree.
     private var isPointerInside: Bool {
-        guard let window else { return false }
-        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        chromeHover?.refresh()
+        return chromeHover?.isHovering ?? false
     }
 }

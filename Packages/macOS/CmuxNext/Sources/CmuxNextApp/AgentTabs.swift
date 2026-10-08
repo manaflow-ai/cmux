@@ -78,6 +78,8 @@ final class AgentTabStore {
     var views: [String: AgentPaneView] = [:]
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<String> = []
+    /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
+    var launchImages = AgentPaneLaunchImages(directory: nil)
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: [String: AgentTabElsewhereView] = [:]
     /// A provisional tab's id -> the store's id once the creation answered
@@ -117,15 +119,16 @@ final class AgentTabStore {
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
+    /// A new workspace's chat seed until its tab is known (`seedFirstChat`).
+    var firstChats: [WorkspaceHandle: AgentPaneSeedSource] = [:]
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     var adoptions: [String: String] = [:]
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?
-    /// `labs.previewFeatures`, pushed to every page like the shortcuts.
-    private var previewFeatures = false
-    private var previewObservation: Task<Void, Never>?
+    /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
+    private let pageSettings = AgentPanePageSettings()
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -139,7 +142,7 @@ final class AgentTabStore {
     /// nil answers the page `native.not_connected`.
     private let git: AgentPaneGitLink?
 
-    /// `settings`, when given, is followed for `labs.previewFeatures`
+    /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
@@ -182,16 +185,12 @@ final class AgentTabStore {
         if let settings { follow(settings) }
     }
 
-    /// Follows `labs.previewFeatures` in cmux.json.
+    /// Follows the page settings in cmux.json (``AgentPanePageSettings``).
     func follow(_ settings: SettingsController) {
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        previewObservation = Task { [weak self] in
-            for await on in Observations({ settings.snapshot.previewFeatures }) {
-                guard let self else { return }
-                previewFeatures = on
-                for view in views.values { view.previewFeatures = on }
-                for view in standaloneViews.allObjects { view.previewFeatures = on }
-            }
+        pageSettings.follow(settings) { [weak self] in
+            guard let self else { return }
+            for view in views.values { pageSettings.apply(to: view) }
+            for view in standaloneViews.allObjects { pageSettings.apply(to: view) }
         }
     }
 
@@ -238,10 +237,15 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key), record.host == localHost else { return nil }
+        // A tab this run did not open and that has no chat yet is a New Tab page the store
+        // restored after a relaunch: it opens as the page again, not as an empty chat.
+        if newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+            newTabPages[key] = firstPageNewTab?(nil)
+        }
         let model = AgentPaneModel(
             host: host,
             sessionId: sessions[key] ?? record.session,
-            seed: seeds.removeValue(forKey: key),
+            seed: seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store),
             newTab: newTabPages[key]?.page,
             allowsTabConversion: true
         )
@@ -286,15 +290,20 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
         }
+        model.onNewTabInputReady = { [weak self] token in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.inputReady(key, token)
+        }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
-            guard let self else { return }
+            guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
@@ -327,7 +336,7 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        view.previewFeatures = previewFeatures
+        pageSettings.apply(to: view)
         customization.start()
         return view
     }

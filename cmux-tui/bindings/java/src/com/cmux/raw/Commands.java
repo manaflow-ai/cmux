@@ -30,6 +30,7 @@ public final class Commands {
     public static final CommandMetadata BROWSER_RELOAD = new CommandMetadata("browser-reload", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL = new CommandMetadata("browser-wheel", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL_GUARDED = new CommandMetadata("browser-wheel-guarded", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CHIEF_INSPECT = new CommandMetadata("chief-inspect", Authority.LOCAL_ADMIN, 12, "chief-inspect-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
     public static final CommandMetadata CLEAR_WINDOW_TITLE = new CommandMetadata("clear-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLIENT_FOCUS = new CommandMetadata("client-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -50,6 +51,9 @@ public final class Commands {
     public static final CommandMetadata CLOUD_INBOX_LIST = new CommandMetadata("cloud-inbox-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_SUBSCRIBE = new CommandMetadata("cloud-inbox-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_UNSUBSCRIBE = new CommandMetadata("cloud-inbox-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_MUX_ACK = new CommandMetadata("cloud-mux-ack", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_MUX_SUBSCRIBE = new CommandMetadata("cloud-mux-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_MUX_UNSUBSCRIBE = new CommandMetadata("cloud-mux-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -187,7 +191,7 @@ public final class Commands {
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("device_id", 12L), Map.entry("device_kind", 12L), Map.entry("device_name", 12L), Map.entry("display_name", 12L), Map.entry("user_id", 12L)), Map.ofEntries(Map.entry("device_id", "shared-sizing-v1"), Map.entry("device_kind", "shared-sizing-v1"), Map.entry("device_name", "shared-sizing-v1"), Map.entry("display_name", "shared-sizing-v1"), Map.entry("user_id", "shared-sizing-v1")));
     public static final CommandMetadata SET_CLIENT_SIZING = new CommandMetadata("set-client-sizing", Authority.CONTROL, 10, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SET_COLUMN_DOCK = new CommandMetadata("set-column-dock", Authority.CONTROL, 12, "dock-columns-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_COLUMN_DOCK = new CommandMetadata("set-column-dock", Authority.CONTROL, 12, "dock-columns-v1", StreamKind.NONE, Map.ofEntries(Map.entry("role", 12L)), Map.ofEntries(Map.entry("role", "dock-column-role-v1")));
     public static final CommandMetadata SET_DEFAULT_COLORS = new CommandMetadata("set-default-colors", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("complete", 9L), Map.entry("cursor", 9L), Map.entry("cursor_blink", 9L), Map.entry("cursor_style", 9L), Map.entry("palette", 9L), Map.entry("selection_bg", 9L), Map.entry("selection_fg", 9L)), Map.of());
     public static final CommandMetadata SET_FRONTEND_BROWSER_HISTORY = new CommandMetadata("set-frontend-browser-history", Authority.CONTROL, 12, "frontend-browser-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_PERSONAL_TERMINAL = new CommandMetadata("set-personal-terminal", Authority.CONTROL, 12, "personal-terminals-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -266,6 +270,7 @@ public final class Commands {
         values.put("browser-reload", BROWSER_RELOAD);
         values.put("browser-wheel", BROWSER_WHEEL);
         values.put("browser-wheel-guarded", BROWSER_WHEEL_GUARDED);
+        values.put("chief-inspect", CHIEF_INSPECT);
         values.put("clear-history", CLEAR_HISTORY);
         values.put("clear-window-title", CLEAR_WINDOW_TITLE);
         values.put("client-focus", CLIENT_FOCUS);
@@ -286,6 +291,9 @@ public final class Commands {
         values.put("cloud-inbox-list", CLOUD_INBOX_LIST);
         values.put("cloud-inbox-subscribe", CLOUD_INBOX_SUBSCRIBE);
         values.put("cloud-inbox-unsubscribe", CLOUD_INBOX_UNSUBSCRIBE);
+        values.put("cloud-mux-ack", CLOUD_MUX_ACK);
+        values.put("cloud-mux-subscribe", CLOUD_MUX_SUBSCRIBE);
+        values.put("cloud-mux-unsubscribe", CLOUD_MUX_UNSUBSCRIBE);
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);

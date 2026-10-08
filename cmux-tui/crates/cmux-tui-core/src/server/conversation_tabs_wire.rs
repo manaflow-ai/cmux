@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use super::{
     BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
 };
+use crate::Actor;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     AGENT_SESSION_TABS_CAPABILITY, CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY,
@@ -107,7 +108,11 @@ fn record_of(
     }
 }
 
-pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow::Result<Value> {
+pub(super) fn create(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: NewConversationTabParams,
+) -> anyhow::Result<Value> {
     let NewConversationTabParams {
         pane,
         workspace,
@@ -127,14 +132,16 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
         (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
         (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
+    let actor = super::origin_gate::connection_actor(mux, client);
     let mutation = match (origin, mutation_id) {
-        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin)?),
+        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin, actor.clone())?),
         (None, None) => None,
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(conversation, owner, agent_session, page)?;
-    let outcome = mux.new_conversation_tab(target, record.clone(), mutation.as_ref(), size)?;
+    let outcome =
+        mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
@@ -175,10 +182,15 @@ fn required_nullable<'de, D: serde::Deserializer<'de>>(
     Option::deserialize(deserializer)
 }
 
-pub(super) fn bind(mux: &Arc<Mux>, params: BindSessionParams) -> anyhow::Result<Value> {
+pub(super) fn bind(
+    mux: &Arc<Mux>,
+    actor: &Actor,
+    params: BindSessionParams,
+) -> anyhow::Result<Value> {
     let BindSessionParams { surface, session, expected_session } = params;
+    let expected = expected_session.as_deref();
     let (record, replayed) =
-        mux.bind_conversation_tab_session(surface, &session, expected_session.as_deref())?;
+        mux.bind_conversation_tab_session_as(actor, surface, &session, expected)?;
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 

@@ -1,12 +1,13 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import Observation
 
-/// The Home top page, two columns: the conversation list
-/// (`HomeConversationListView`, the merged inbox: Chiefs, then DMs and
-/// groups) on the left, and the chosen conversation's native transcript
+/// The Home top page, two columns: MessagesLab's conversation list
+/// (`HomeSidebarView` over `HomeSidebarSource`: search, the pinned grid with
+/// the Chiefs, then conversations newest first) on the left, and the chosen conversation's native transcript
 /// (`HomeHostView`, MessagesLab's code) on the right. The page opens on the
 /// Chief conversation when there is one, else on the newest conversation.
 /// The store's home workspace and its chief tab stay as they are (other
@@ -14,25 +15,28 @@ import Observation
 @MainActor
 final class TopHomePageView: NSView {
     private weak var services: AppServices?
-    let list = HomeConversationListView()
-    let split = NSSplitView()
+    let list = HomeSidebarView()
+    /// The sidebar's data (pins, search, the Messages-style model).
+    let sidebar: HomeSidebarSource
     let transcriptColumn = NSView()
+    let split: HomeSidebarSplitView
+    /// The rows shown (archived Chiefs hidden), for `debug.home page`.
+    private(set) var rows: [InboxRow] = []
+    var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
+    private var accountObservation: Task<Void, Never>?
 
-    init(services: AppServices) {
+    init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
+        sidebar = services.home.makeSidebarSource()
+        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.autosaveName = "cmux.home.columns"
-        split.addArrangedSubview(list)
-        split.addArrangedSubview(transcriptColumn)
-        split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+        split.windowKey = windowKey
         split.frame = bounds
         split.autoresizingMask = [.width, .height]
         addSubview(split)
@@ -49,30 +53,49 @@ final class TopHomePageView: NSView {
         rowsObservation?.cancel()
         selectionObservation?.cancel()
         chiefObservation?.cancel()
-    }
-
-    static let listWidth: CGFloat = 280
-    private var placedDivider = false
-
-    override func layout() {
-        super.layout()
-        // The list starts at its width once; the user's drag is kept by the split view's autosave.
-        guard !placedDivider, bounds.width > Self.listWidth * 2 else { return }
-        placedDivider = true
-        if UserDefaults.standard.object(forKey: "NSSplitView Subview Frames cmux.home.columns") == nil {
-            split.setPosition(Self.listWidth, ofDividerAt: 0)
-        }
+        accountObservation?.cancel()
     }
 
     private func wireList(_ services: AppServices) {
-        list.onSelect = { [weak self] id in self?.show(id) }
-        list.onNewMessage = { [weak self] in self?.presentNewMessage() }
-        list.onNewChief = { [weak self] in self?.presentNewChief() }
-        list.onInvite = { [weak self] in self?.presentInvite(prefill: "") }
-        list.contextMenu = { [weak services] row in
-            guard let services, let chief = services.home.chief(of: row), !chief.isDefault else { return nil }
-            return HomePageMenus.chiefMenu(chief: chief.id, registry: services.registry)
+        let sidebar = sidebar
+        // Opening a conversation from the list reads it, so a Mark as Unread ends there.
+        list.onSelect = { [weak self] id in
+            sidebar.setMarkedUnread(false, id)
+            self?.show(id)
         }
+        list.onSetPinned = { on, id in sidebar.setPinned(on, id) }
+        let home = services.home
+        let registry = services.registry
+        // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
+        list.onMarkRead = { id in
+            sidebar.setMarkedUnread(false, id)
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.unread > 0 else { return }
+            let store = home.homeStore
+            // task-owner: one op; ends with the owner's answer
+            Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
+        }
+        list.onMarkUnread = { id in sidebar.setMarkedUnread(true, id) }
+        // Archive Chief on a Chief's row (the same action as the palette and the CLI).
+        list.menuItems = { id in
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
+                  let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first,
+                  let title = registry.title(for: "home.archiveChief") else { return [] }
+            return [HomeSidebarView.menuItem(title) {
+                _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief.id)], origin: .user))
+            }]
+        }
+        // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
+        list.teammates = { [weak sidebar] query in
+            guard let sidebar else { return [] }
+            return HomeSidebarModel(rows: home.homeStore.rows, pins: sidebar.pins, me: home.homeStore.me?.id, query: query,
+                                    contacts: home.contacts()).people
+        }
+        list.onStartTeammate = { person in
+            // task-owner: one conversation start; ends with the owner's answer
+            Task { _ = await home.startConversation([.contact(person)], title: "") }
+        }
+        list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
 
     /// Follows the inbox rows (Observation) and the conversation an action
@@ -80,11 +103,14 @@ final class TopHomePageView: NSView {
     private func observe(_ home: HomeService) {
         let store = home.homeStore
         // task-owner: lives as long as this view; event-driven (Observation)
+        let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived) in Observations({ (store.rows, home.directory.archivedChiefs) }) {
+            for await (all, archived, _, _, _) in Observations({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
+            }) {
                 guard let self else { return }
-                let rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
-                list.update(rows: rows, me: store.me?.id)
+                rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
+                list.update(sidebar.model())
                 if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
             }
         }
@@ -97,6 +123,11 @@ final class TopHomePageView: NSView {
                 if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
                 previous = chief
             }
+        }
+        let auth = home.services.cloud.auth
+        // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
+        accountObservation = Task {
+            for await _ in Observations({ auth.user?.id }) { sidebar.reloadPins() }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in

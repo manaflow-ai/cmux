@@ -114,6 +114,52 @@ NOISE = textwrap.dedent("""\
     2026-09-27T10:26:17.8437740Z ##[error]Process completed with exit code 1.
     """)
 
+# actions/download-artifact giving up on GitHub's artifact storage in the
+# `Download compiled test product` step, trimmed from run 37388244997 attempt 3
+# ("macos / CLI product tests"): the retries ran out, then the step's 15
+# minutes. The composite's next step and the CLI test after it fail only
+# because the product never arrived.
+ARTIFACT_DOWNLOAD_RETRIES = textwrap.dedent(f"""\
+    2026-10-06T00:36:28.3060000Z ##[group]Run actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+    2026-10-06T00:36:28.3153000Z with:
+    2026-10-06T00:36:28.3153660Z   repository: manaflow-ai/cmux
+    2026-10-06T00:36:28.3153790Z   run-id: 37388244997
+    2026-10-06T00:36:28.3156860Z ##[endgroup]
+    2026-10-06T00:36:28.3944460Z Downloading artifacts by ID
+    2026-10-06T00:36:28.7079550Z Found 6 artifact(s)
+    2026-10-06T00:36:29.4121430Z Starting download of artifact to: /Users/runner/_work/_temp/app-host-products
+    2026-10-06T00:51:18.5102380Z ##[error]Unable to download artifact(s): Unable to download and extract artifact: Artifact download failed after 5 retries.
+    2026-10-06T00:51:27.3640370Z ##[error]The action has timed out.
+    2026-10-06T00:51:27.3727660Z ##[group]Run python3 - <<'PY'
+    2026-10-06T00:51:27.3728060Z {ESC}[36;1mpython3 - <<'PY'{ESC}[0m
+    2026-10-06T00:51:27.3736820Z {ESC}[36;1m    # Includes artifact lookup, download/retries, and outer ZIP extraction.{ESC}[0m
+    2026-10-06T00:51:27.3819150Z ##[endgroup]
+    2026-10-06T00:51:27.4105780Z ##[error]The action has timed out.
+    2026-10-06T00:51:39.1700000Z ##[group]Run CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_creation_initial_command.py
+    2026-10-06T00:51:39.1700100Z {ESC}[36;1mCMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_creation_initial_command.py{ESC}[0m
+    2026-10-06T00:51:39.1700200Z ##[endgroup]
+    2026-10-06T00:51:39.2700000Z FAIL: Unable to find cmux CLI binary. Set CMUX_CLI_BIN or run ./scripts/reload.sh --tag <tag> first.
+    2026-10-06T00:51:39.2727560Z ##[error]Process completed with exit code 1.
+    """)
+# Run 37388340030 attempt 2 ("macos / app-host unit tests (changed suites)"):
+# the parallel download missed, and actions/download-artifact timed out
+# without printing why (also run 37388244997 attempt 2).
+ARTIFACT_DOWNLOAD_TIMEOUT = textwrap.dedent(f"""\
+    2026-10-06T00:19:56.3111160Z ##[warning]Parallel artifact download missed (TransportError: range 620756992-637534207 failed: parallel download deadline exceeded); using actions/download-artifact.
+    2026-10-06T00:19:57.3302640Z ##[group]Run actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+    2026-10-06T00:19:57.3302900Z with:
+    2026-10-06T00:19:57.3303000Z   artifact-ids: 11382231080
+    2026-10-06T00:19:57.3303100Z ##[endgroup]
+    2026-10-06T00:19:57.4135790Z Downloading artifacts by ID
+    2026-10-06T00:19:57.8386510Z Found 5 artifact(s)
+    2026-10-06T00:19:58.5069120Z Starting download of artifact to: /Users/runner/_work/_temp/app-host-products
+    2026-10-06T00:34:56.3881610Z ##[error]The action has timed out.
+    2026-10-06T00:34:56.3937000Z ##[group]Run python3 - <<'PY'
+    2026-10-06T00:34:56.3937100Z {ESC}[36;1mpython3 - <<'PY'{ESC}[0m
+    2026-10-06T00:34:56.4249310Z ##[endgroup]
+    2026-10-06T00:34:56.4492170Z ##[error]The action has timed out.
+    """)
+
 
 def job(job_id: int, name: str, conclusion: str = "failure", step: str = "Run unit tests") -> dict:
     return {"id": job_id, "name": name, "conclusion": conclusion, "runner_name": f"runner-{job_id}",
@@ -220,6 +266,50 @@ class SignatureTests(unittest.TestCase):
             2026-09-27T10:00:01.0Z ##[error]Process completed with exit code 1.
             """)
         self.assertEqual(self.verdict(log), (cf.CODE, "unittest-failure"))
+
+    def test_github_artifact_storage_failing_the_product_download_is_the_machine(self) -> None:
+        # Run 37388244997 attempt 3: was "unknown; failed step: Download compiled test product".
+        result = cf.classify_text(ARTIFACT_DOWNLOAD_RETRIES)
+        self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "artifact-download-failed"))
+        self.assertIn("Artifact download failed after 5 retries", result["evidence"])
+        # Attempt 2 of both runs: only the timeout.
+        self.assertEqual(self.verdict(ARTIFACT_DOWNLOAD_TIMEOUT), (cf.MACHINE, "artifact-download-timeout"))
+
+    def test_a_timeout_outside_the_artifact_download_is_not_the_machine(self) -> None:
+        # A test step that hangs past its timeout may be the PR's.
+        log = textwrap.dedent(f"""\
+            2026-10-06T00:40:00.0Z ##[group]Run scripts/ci/run-app-host-unit-batches.sh
+            2026-10-06T00:40:00.0Z {ESC}[36;1mscripts/ci/run-app-host-unit-batches.sh{ESC}[0m
+            2026-10-06T00:40:00.0Z ##[endgroup]
+            2026-10-06T00:55:00.0Z ##[error]The action has timed out.
+            """)
+        self.assertEqual(self.verdict(log), (cf.UNKNOWN, None))
+        # Nor a download step whose timeout line is not an error.
+        passed = ARTIFACT_DOWNLOAD_TIMEOUT.replace("##[error]The action has timed out.", "The action has timed out.")
+        self.assertEqual(self.verdict(passed), (cf.UNKNOWN, None))
+
+    def test_a_real_test_failure_after_a_failed_product_download_is_still_the_code(self) -> None:
+        later = textwrap.dedent(f"""\
+            2026-10-06T00:52:00.0Z ##[group]Run swift test
+            2026-10-06T00:52:00.0Z {ESC}[36;1mswift test{ESC}[0m
+            2026-10-06T00:52:00.0Z ##[endgroup]
+            2026-10-06T00:52:01.0Z ✘ Test parsesConfig() recorded an issue at ConfigTests.swift:12:5: Expectation failed
+            2026-10-06T00:52:01.0Z ##[error]Process completed with exit code 1.
+            """)
+        for download in (ARTIFACT_DOWNLOAD_RETRIES, ARTIFACT_DOWNLOAD_TIMEOUT):
+            with self.subTest(download=download[:40]):
+                self.assertEqual(self.verdict(download + later), (cf.CODE, "swift-testing-issue"))
+        # A runner that went away still outweighs the test, as before.
+        result = cf.classify_text(ARTIFACT_DOWNLOAD_TIMEOUT + later, ["The runner has received a shutdown signal."])
+        self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "runner-lost"))
+
+    def test_a_failed_product_download_reruns_the_job(self) -> None:
+        jobs = cf.classify_jobs([job(1, "macos / CLI product tests", step="Download compiled test product"),
+                                 job(2, "macos / app-host unit tests (changed suites)",
+                                     step="Download compiled app-host test product")],
+                                {1: (ARTIFACT_DOWNLOAD_RETRIES, []), 2: (ARTIFACT_DOWNLOAD_TIMEOUT, [])})
+        self.assertEqual([j["verdict"] for j in jobs], [cf.MACHINE, cf.MACHINE])
+        self.assertTrue(cf.all_machine(jobs))
 
     def test_every_signature_has_a_verdict_and_a_reason(self) -> None:
         names = [s.name for s in cf.SIGNATURES]
@@ -329,13 +419,19 @@ class FakeGitHub:
     def __init__(self, *, head: str = "a" * 40, state: str = "open", comments: list[dict] | None = None,
                  latest: dict | None = None, merged: bool = False, files: list[str] | None = None,
                  main_issue: dict | None = None, main_comments: list[dict] | None = None,
-                 files_error: bool = False, closed: list[dict] | None = None):
+                 files_error: bool = False, closed: list[dict] | None = None,
+                 main_runs: list[dict] | None = None, main_runs_error: bool = False, seen: dict | None = None):
         self.head, self.state, self.merged = head, state, merged
         self._comments = comments or []
         self.latest = latest or {"run_attempt": 1, "status": "completed"}
         self.files = files or []
         self.main_issue, self.main_comments = main_issue, main_comments or []
         self.files_error, self.closed = files_error, closed or []
+        # main's full-suite runs, newest first: green unless a test says otherwise.
+        self.main_runs = [main_run("success")] if main_runs is None else main_runs
+        self.main_runs_error = main_runs_error
+        self.seen = seen if seen is not None else {"number": cf.SEEN_ISSUE, "body": "closed report",
+                                                    "user": {"login": cf.BOT}}
         self.calls: list[tuple[str, str]] = []
         self.reads: list[str] = []
 
@@ -357,6 +453,13 @@ class FakeGitHub:
             return [self.main_issue] if self.main_issue else []
         if "/comments?" in path:
             return self.main_comments
+        if path == f"repos/{self.repo}/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch" \
+                   "&status=completed&per_page=20":
+            if self.main_runs_error:
+                raise RuntimeError(f"GET {path}: HTTP 502 Bad Gateway")
+            return {"workflow_runs": self.main_runs}
+        if path == f"repos/{self.repo}/issues/{cf.SEEN_ISSUE}":
+            return self.seen
         raise AssertionError(f"unexpected read {path}")
 
     def comments(self, number: int) -> list[dict]:
@@ -368,6 +471,12 @@ class FakeGitHub:
     def request(self, method: str, path: str, body: object = None) -> dict:
         self.calls.append((method, path))
         return {}
+
+
+def main_run(conclusion: str, created: str = "2026-10-06T00:19:43Z") -> dict:
+    return {"id": 37393414697, "event": "workflow_dispatch", "head_branch": "main",
+            "path": ".github/workflows/ci.yml", "status": "completed", "conclusion": conclusion,
+            "created_at": created, "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/37393414697"}
 
 
 def bot_comment(body: str, comment_id: int = 99, login: str = cf.BOT) -> dict:
@@ -788,6 +897,212 @@ class ReviewFixTests(unittest.TestCase):
         self.assertIn("`evil 'job' name` failed", cf.verdict_line(report, False, ""))
 
 
+# Run 37388340030 attempt 3 (#17258), "macos / app-host unit tests (changed
+# suites)", trimmed: a crash #15409 and #16048 also hit (issue #17483), which
+# the comment called "Probably yours".
+PR_17258_CRASH_LOG = textwrap.dedent("""\
+    2026-10-06T00:42:32.9827160Z ##[group]Run scripts/ci/run-app-host-unit-batches.sh
+    2026-10-06T00:42:32.9827550Z \x1b[36;1mscripts/ci/run-app-host-unit-batches.sh\x1b[0m
+    2026-10-06T00:42:32.9879150Z ##[endgroup]
+    2026-10-06T00:51:22.7162210Z Test Case '-[cmuxTests.TerminalNotificationDirectInteractionTests testKeyDownRecoveryDoesNotRecreateClosedSurface]' started.
+    2026-10-06T00:51:27.7329470Z *** Signal 11: Backtracing from 0x18717e124... done ***
+    2026-10-06T00:51:27.7330000Z *** Program crashed: Bad pointer dereference at 0x000048300000021f ***
+    2026-10-06T00:53:23.6044660Z Failing tests:
+    2026-10-06T00:53:23.6045110Z \tTerminalNotificationDirectInteractionTests.testKeyDownRecoveryDoesNotRecreateClosedSurface()
+    2026-10-06T00:53:33.7298960Z incomplete app-host run: app host restarted after test execution
+    2026-10-06T00:53:33.7302110Z RATCHET_NEW_FAILURE TerminalNotificationDirectInteractionTests/testKeyDownRecoveryDoesNotRecreateClosedSurface()
+    2026-10-06T00:53:33.7362680Z ##[error]Process completed with exit code 65.
+    """)
+PR_17258_FILES = ["Sources/Panels/BrowserPanel.swift", "cmuxTests/BrowserLinkHoverURLSettingsFileTests.swift"]
+TEST_KEY = ("test:TerminalNotificationDirectInteractionTests.swift:"
+            "TerminalNotificationDirectInteractionTests.testKeyDownRecoveryDoesNotRecreateClosedSurface()")
+CRASH_KEY = f"crash:Bad pointer dereference in {TEST_KEY}"
+
+
+# The seen-record tests run at this fixed time (KnownElsewhereTests patches cf.now_utc).
+NOW = "2026-10-06T12:00:00Z"
+
+
+def days_ago(days: float) -> str:
+    from datetime import datetime, timedelta
+
+    return (datetime.fromisoformat(NOW.replace("Z", "+00:00")) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class MainStateTests(unittest.TestCase):
+    """Only a main whose latest full-suite run passed is called green."""
+
+    def verdict(self, gh: FakeGitHub) -> str:
+        writer = cf.Writer(gh, dry_run=True)
+        cf.act(gh, writer, ActTests.RUN, red_report(PR_17258_CRASH_LOG))  # type: ignore[arg-type]
+        (entry,) = [e for e in writer.log if "/issues/7/comments" in e.splitlines()[0]]
+        return entry.splitlines()[3]
+
+    def test_no_open_issue_and_a_green_latest_run_is_green(self) -> None:
+        gh = FakeGitHub(files=PR_17258_FILES)
+        self.assertEqual(cf.main_red(gh), {"state": cf.MAIN_GREEN, "keys": []})
+        self.assertIn("not on main, whose full suite is green", self.verdict(gh))
+
+    def test_17258_a_red_main_without_a_readable_issue_is_not_green(self) -> None:
+        # The workflow's token had no `issues` permission, so the label search came back empty while
+        # #17286 was open and main's latest full suite (run 37393414697) was red.
+        gh = FakeGitHub(files=PR_17258_FILES, main_runs=[main_run("cancelled", "2026-10-06T01:00:00Z"),
+                                                         main_run("failure")])
+        self.assertEqual(cf.main_red(gh)["state"], cf.MAIN_RED)
+        verdict = self.verdict(gh)
+        # No issue lists main's failures, so it cannot say this one is not among them.
+        self.assertIn("main's latest full suite is red too, and its failures could not be read", verdict)
+        self.assertNotIn("not on main", verdict)
+        self.assertNotIn("green", verdict)
+
+    def test_an_unreadable_main_is_not_green(self) -> None:
+        for gh in (FakeGitHub(files=PR_17258_FILES, main_runs=[]),
+                   FakeGitHub(files=PR_17258_FILES, main_runs_error=True),
+                   FakeGitHub(files=PR_17258_FILES, main_issue={"number": "x", "comments": "many"})):
+            with self.subTest(runs=gh.main_runs, error=gh.main_runs_error):
+                verdict = self.verdict(gh)
+                self.assertTrue(verdict.startswith("**Probably yours:**"))
+                self.assertNotIn("green", verdict)
+                self.assertIn("main's full-suite result could not be read", verdict)
+
+    def test_an_open_issue_is_red(self) -> None:
+        issue, comments = main_issue([])
+        gh = FakeGitHub(files=PR_17258_FILES, main_issue=issue, main_comments=comments, main_runs_error=True)
+        self.assertEqual(cf.main_red(gh)["state"], cf.MAIN_RED)
+        self.assertIn("not on main's latest full suite", self.verdict(gh))
+
+
+class KnownElsewhereTests(unittest.TestCase):
+    """A failure the bot saw on another pull request's run is likely flaky, not this PR's."""
+
+    SAME_REPO_RUN = {**ActTests.RUN, "head_repository": {"full_name": "manaflow-ai/cmux"}}
+    FORK_RUN = {**ActTests.RUN, "head_repository": {"full_name": "someone/cmux"}}
+
+    def setUp(self) -> None:
+        from unittest import mock
+
+        patcher = mock.patch.object(cf, "now_utc", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def seen(record: dict, login: str = cf.BOT) -> dict:
+        return {"number": cf.SEEN_ISSUE, "body": "Full-suite CI on `main` failed at older\n\n" + cf.seen_marker(record),
+                "user": {"login": login}}
+
+    def act(self, gh: FakeGitHub, run: dict | None = None) -> tuple[str, list[str]]:
+        writer = cf.Writer(gh, dry_run=True)
+        cf.act(gh, writer, run or self.SAME_REPO_RUN, red_report(PR_17258_CRASH_LOG))  # type: ignore[arg-type]
+        (comment,) = [e for e in writer.log if "/issues/7/comments" in e.splitlines()[0]]
+        return comment.split("\n", 1)[1], [e for e in writer.log if f"/issues/{cf.SEEN_ISSUE}" in e.splitlines()[0]]
+
+    def test_17258_a_crash_other_prs_hit_is_likely_flaky_not_yours(self) -> None:
+        record = {TEST_KEY: {"15409": days_ago(3)}, CRASH_KEY: {"16048": days_ago(1)}}
+        body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        verdict = body.splitlines()[2]
+        self.assertTrue(verdict.startswith("**Seen on other PRs too (likely flaky):** "), verdict)
+        self.assertIn("`TerminalNotificationDirectInteractionTests.swift`", verdict)
+        self.assertIn("crash `Bad pointer dereference`", verdict)
+        self.assertNotIn("Probably yours", body)
+        self.assertNotIn("#15409", body)  # no cross-reference noise on the other PRs
+        self.assertIn("- **seen on other PRs** crash `Bad pointer dereference`", body)
+
+    def test_a_failure_seen_only_on_this_pr_or_long_ago_is_still_probably_yours(self) -> None:
+        for record in ({TEST_KEY: {"7": days_ago(0)}, CRASH_KEY: {"7": days_ago(0)}},
+                       {TEST_KEY: {"15409": days_ago(cf.SEEN_DAYS + 1)}}):
+            with self.subTest(record=record):
+                body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+                self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"))
+
+    def test_a_pr_that_hit_it_after_this_one_does_not_hide_this_ones_regression(self) -> None:
+        # A PR stacked on this one, or a copy of its change, fails the same way later.
+        record = {TEST_KEY: {"7": days_ago(3), "101": days_ago(1)}, CRASH_KEY: {"7": days_ago(3), "101": days_ago(0)}}
+        body, writes = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"), body.splitlines()[2])
+        self.assertNotIn("Seen on other PRs", body)
+        self.assertEqual(writes, [])  # first sightings are kept, so nothing changed
+
+    def test_the_pr_that_started_it_outlives_the_ones_that_hit_it_later(self) -> None:
+        later = {str(101 + i): days_ago(2 - i * 0.1) for i in range(cf.MAX_SEEN_PRS + 2)}
+        record = {TEST_KEY: {"7": days_ago(3), **later}, CRASH_KEY: {"7": days_ago(3), **later}}
+        self.assertIn("7", cf.prune_seen(record, NOW)[TEST_KEY])
+        body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"), body.splitlines()[2])
+
+    def test_a_pr_that_failed_earlier_the_same_day_counts(self) -> None:
+        record = {TEST_KEY: {"15409": days_ago(1 / 24)}, CRASH_KEY: {"16048": days_ago(1 / 24)}}
+        body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Seen on other PRs too (likely flaky):** "))
+
+    def test_a_broken_record_still_comments(self) -> None:
+        from unittest import mock
+
+        record = {TEST_KEY: {"15409": days_ago(1)}}
+        with mock.patch.object(cf, "parse_seen", side_effect=ValueError("bad")):
+            body, writes = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"))
+        self.assertEqual(writes, [])
+
+    def test_a_crash_counts_only_with_the_test_it_crashed(self) -> None:
+        # "Bad pointer dereference" alone names no test: another test's crash is not this one.
+        record = {TEST_KEY: {"15409": days_ago(1)},
+                  "crash:Bad pointer dereference in test:OtherTests.swift:OtherTests.testX()": {"16048": days_ago(1)}}
+        body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        verdict = body.splitlines()[2]
+        self.assertTrue(verdict.startswith("**Probably yours:** crash `Bad pointer dereference`"), verdict)
+        self.assertIn("Seen on other PRs too (likely flaky): `TerminalNotificationDirectInteractionTests.swift`",
+                      verdict)
+
+    def test_a_record_anyone_but_the_bot_wrote_is_ignored(self) -> None:
+        record = {TEST_KEY: {"15409": days_ago(1)}, CRASH_KEY: {"16048": days_ago(1)}}
+        body, writes = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record, "contributor")))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"))
+        self.assertEqual(writes, [])
+
+    def test_a_same_repo_prs_failures_are_recorded_in_place_quietly(self) -> None:
+        old = days_ago(cf.SEEN_DAYS + 5)
+        gh = FakeGitHub(files=PR_17258_FILES, seen=self.seen({TEST_KEY: {"15409": days_ago(2)}, "test:Gone": {"1": old}}))
+        _, writes = self.act(gh)
+        (write,) = writes
+        self.assertTrue(write.startswith(f"--- would PATCH repos/manaflow-ai/cmux/issues/{cf.SEEN_ISSUE}\n"), write)
+        payload = write.split("\n", 1)[1]
+        self.assertIn("Full-suite CI on `main` failed at older", payload)
+        self.assertEqual(payload.count(cf.SEEN_PREFIX), 1)
+        recorded = cf.parse_seen(payload)
+        self.assertEqual(set(recorded[TEST_KEY]), {"15409", "7"})
+        self.assertEqual(set(recorded[CRASH_KEY]), {"7"})
+        self.assertNotIn("test:Gone", recorded)
+        # Recorded again with nothing new: no write.
+        gh = FakeGitHub(files=PR_17258_FILES, seen={"number": cf.SEEN_ISSUE, "body": payload,
+                                                    "user": {"login": cf.BOT}})
+        self.assertEqual(self.act(gh)[1], [])
+
+    def test_a_fork_prs_failures_are_read_but_not_recorded(self) -> None:
+        record = {TEST_KEY: {"15409": days_ago(1)}}
+        body, writes = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)), self.FORK_RUN)
+        self.assertIn("Seen on other PRs too (likely flaky)", body)
+        self.assertEqual(writes, [])
+
+    def test_own_files_and_main_failures_are_not_recorded(self) -> None:
+        gh = FakeGitHub(files=["cmuxTests/TerminalNotificationDirectInteractionTests.swift"])
+        _, writes = self.act(gh)
+        (write,) = writes  # only the crash, which no changed file names
+        recorded = cf.parse_seen(write.split("\n", 1)[1])
+        self.assertEqual(set(recorded), {CRASH_KEY})
+
+    def test_the_record_stays_under_githubs_body_limit(self) -> None:
+        record = {f"test:Suite{i}.swift:" + "x" * 180: {str(1000 + i): days_ago(0)} for i in range(2000)}
+        marker = cf.seen_marker(cf.prune_seen(record, days_ago(0)))
+        self.assertLessEqual(len(marker), cf.MAX_SEEN_CHARS)
+        self.assertEqual(marker.count("-->"), 1)
+
+    def test_the_cap_counts_escaped_angle_brackets(self) -> None:
+        # Swift Testing names like "a -> b": each `>` grows to six characters in the marker.
+        record = {f"test:Suite{i}.swift:" + ">" * 80: {str(1000 + j): days_ago(0) for j in range(5)} for i in range(400)}
+        marker = cf.seen_marker(cf.prune_seen(record, days_ago(0)))
+        self.assertLessEqual(len(marker), cf.MAX_SEEN_CHARS)
+
+
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -812,6 +1127,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(only["permissions"]["actions"], "write")
         self.assertFalse(self.workflow["concurrency"]["cancel-in-progress"])
         self.assertNotIn("contents", {k for k, v in only["permissions"].items() if v == "write"})
+        # Without it the label search returns no issue (main read as green) and the seen-record cannot be kept.
+        self.assertEqual(only["permissions"]["issues"], "write")
 
     def test_every_gate_job_exists_under_the_name_the_jobs_api_reports(self) -> None:
         # The jobs API names a job by its display name, prefixed by the calling
