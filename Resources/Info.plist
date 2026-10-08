@@ -319,18 +319,6 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>Local file URL</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>file</string>
-			</array>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER).auth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
@@ -359,6 +347,18 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>x-man-page</string>
+			</array>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>Local file URL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>file</string>
 			</array>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
