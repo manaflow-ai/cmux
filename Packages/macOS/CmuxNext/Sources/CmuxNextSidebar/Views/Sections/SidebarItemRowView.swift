@@ -47,7 +47,16 @@ final class SidebarItemRowView: NSView {
     let title = NSTextField(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
-    private(set) var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
+    /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
+    /// now over the row's frame now. Leaving also ends a press.
+    private(set) var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            if !isHovered { isPressed = false }
+            pointerChanged()
+        }
+    }
+    private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// The next fill change came from the pointer, so it fades.
     private var fadesNextFill = false
@@ -66,6 +75,7 @@ final class SidebarItemRowView: NSView {
         [icon, title, badge, avatarView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
     @available(*, unavailable)
@@ -298,14 +308,6 @@ final class SidebarItemRowView: NSView {
 
     // MARK: Pointer
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

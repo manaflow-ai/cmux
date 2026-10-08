@@ -84,15 +84,36 @@ public final class PointerHover: NSObject {
 
     #if DEBUG
     /// DEBUG (`debug.mouse`, tests): the pointer synthesized per window, in
-    /// window coordinates; `.some(nil)` is a pointer outside the window. A
-    /// window with a synthesized pointer ignores the real one.
-    static var debugPointers: [ObjectIdentifier: NSPoint?] = [:]
+    /// window coordinates (`point` nil: outside the window), and where the
+    /// real mouse was then. A window with a synthesized pointer ignores the
+    /// real one until the real mouse moves (the user takes over) or the
+    /// window closes.
+    struct DebugPointer {
+        var point: NSPoint?
+        var mouse: NSPoint
+    }
+
+    static var debugPointers: [ObjectIdentifier: DebugPointer] = [:]
 
     /// DEBUG: sets `window`'s synthesized pointer (nil: outside the window),
     /// then recomputes every target in the window.
     public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
-        debugPointers[ObjectIdentifier(window)] = .some(point)
+        debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation)
+        installKeyObserversIfNeeded()
         refresh(in: window)
+    }
+
+    /// DEBUG: the synthesized pointer of `window` while it holds: `.some(nil)`
+    /// is a pointer outside the window, nil is no synthesized pointer.
+    static func debugPointer(in window: NSWindow) -> NSPoint?? {
+        let key = ObjectIdentifier(window)
+        guard let entry = debugPointers[key] else { return nil }
+        guard entry.mouse == NSEvent.mouseLocation else {
+            // The real mouse moved since: the user's pointer counts again.
+            debugPointers[key] = nil
+            return nil
+        }
+        return .some(entry.point)
     }
 
     /// DEBUG: `window` reads the real pointer again (tests restore with it).
@@ -107,7 +128,7 @@ public final class PointerHover: NSObject {
     /// pointer wins in DEBUG builds.
     public static func pointer(in window: NSWindow, requireKey: Bool = false) -> NSPoint? {
         #if DEBUG
-        if let synthetic = debugPointers[ObjectIdentifier(window)] { return synthetic }
+        if let synthetic = debugPointer(in: window) { return synthetic }
         #endif
         guard window.isVisible, !requireKey || window.isKeyWindow else { return nil }
         return window.mouseLocationOutsideOfEventStream
@@ -119,7 +140,7 @@ public final class PointerHover: NSObject {
     /// pointer.
     public static func isTopmost(_ window: NSWindow, passThrough: Set<Int> = []) -> Bool {
         #if DEBUG
-        if debugPointers[ObjectIdentifier(window)] != nil { return true }
+        if debugPointer(in: window) != nil { return true }
         #endif
         let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
         return top == window.windowNumber || passThrough.contains(top)
@@ -182,7 +203,19 @@ private final class KeyWindowObserver: NSObject {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             center.addObserver(self, selector: #selector(keyWindowChanged(_:)), name: name, object: nil)
         }
+        #if DEBUG
+        center.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: nil)
+        #endif
     }
+
+    #if DEBUG
+    /// A closed window's synthesized pointer must not pass to a new window
+    /// that reuses its address.
+    @objc private func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        PointerHover.debugPointers[ObjectIdentifier(window)] = nil
+    }
+    #endif
 
     @objc private func keyWindowChanged(_ notification: Notification) {
         PointerHover.refresh(in: notification.object as? NSWindow)

@@ -20,8 +20,22 @@ final class SidebarCardStackView: NSView {
     /// Every card shows in a column (the pointer is over the stack).
     var isExpanded: Bool { expanded }
     private var observation: Task<Void, Never>?
+    private var pointerHover: PointerHover?
 
     override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        let hover = PointerHover(self) { [weak self] hovering in self?.setExpanded(hovering) }
+        // The cards shown, not the slot: a stack whose cards hid is not hovered.
+        hover.region = { view in
+            view.subviews.reduce(CGRect.null) { $1 is SidebarCardView && !$1.isHidden ? $0.union($1.frame) : $0 }
+        }
+        pointerHover = hover
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
 
     isolated deinit {
         observation?.cancel()
@@ -104,7 +118,10 @@ final class SidebarCardStackView: NSView {
             view.isPeek = place.isPeek
             let frame = place.frame.offsetBy(dx: inset, dy: gap)
             if animate, view.frame != .zero {
-                Motion.animate(.hover, in: view) { view.animator().frame = frame }
+                Motion.animate(.hover, in: view, { view.animator().frame = frame }, completion: { [weak self] in
+                    // The card ended its move under a possibly still pointer (cx-3wu5).
+                    PointerHover.refresh(in: self?.window)
+                })
             } else {
                 view.frame = frame
             }
@@ -113,18 +130,12 @@ final class SidebarCardStackView: NSView {
         for place in layout.placements.reversed() {
             if let view = views[place.id] { addSubview(view, positioned: .above, relativeTo: nil) }
         }
+        // Cards moved or hid under a possibly still pointer (cx-3wu5).
+        PointerHover.refresh(in: window)
     }
 
     // MARK: Hover expands
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { setExpanded(true) }
-    override func mouseExited(with event: NSEvent) { setExpanded(false) }
 
     private func setExpanded(_ value: Bool) {
         guard value != expanded, cards.count > 1 || !value else { return }
