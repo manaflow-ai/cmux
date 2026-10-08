@@ -305,7 +305,7 @@ extension CMUXCLI {
         var registered = false
         var consecutiveFailures = 0
         while true {
-            Self.withAgentInboxPollIteration {
+            AgentInboxPollIteration.withAgentInboxPollIteration {
                 if let agentPID, agentPID > 1, kill(agentPID, 0) != 0, errno == ESRCH {
                     exit(0)
                 }
@@ -357,10 +357,6 @@ extension CMUXCLI {
             }
             Thread.sleep(forTimeInterval: Self.agentInboxPollInterval)
         }
-    }
-
-    static func withAgentInboxPollIteration<T>(_ body: () throws -> T) rethrows -> T {
-        try body()
     }
 
     static let agentInboxPollInterval: TimeInterval = 2

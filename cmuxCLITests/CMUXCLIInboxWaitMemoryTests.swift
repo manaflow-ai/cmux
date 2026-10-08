@@ -1,15 +1,13 @@
 import Foundation
 import Testing
 
-@testable import cmux_cli
-
 @Suite
 struct CMUXCLIInboxWaitMemoryTests {
     @Test("Claude inbox poll iterations drain Objective-C temporaries")
     func pollIterationDrainsObjectiveCTemporaries() {
         weak var releasedObject: NSObject?
 
-        CMUXCLI.withAgentInboxPollIteration {
+        AgentInboxPollIteration.withAgentInboxPollIteration {
             let object = NSObject()
             releasedObject = object
             _ = Unmanaged.passRetained(object).autorelease()
