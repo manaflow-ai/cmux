@@ -12,7 +12,7 @@
 //! `action.run` carries an idempotency key and waits for its work by default
 //! (plans/cmux-next/state-ownership.md, section 4).
 
-use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -21,10 +21,14 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+use open::{OpenRequest, parse_open};
+#[cfg(test)]
+use open::{is_web_url, parse_open_with};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;
 mod keybinding;
+mod open;
 mod run;
 mod settings;
 mod skew;
@@ -68,12 +72,6 @@ pub(super) enum ActionName {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) struct OpenRequest {
-    method: &'static str,
-    params: Value,
-}
-
-#[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
     /// `timeout: None` waits until the app answers (a person at a sheet).
     Call {
@@ -84,6 +82,9 @@ pub(super) enum AppCommand {
     },
     Open {
         requests: Vec<OpenRequest>,
+        /// `open -`: the first failed request ends the command, so a refused
+        /// URL is never followed by the next one.
+        stop_on_failure: bool,
     },
     /// `app call`: one method of a debug build (app/call.rs).
     DebugCall {
@@ -222,143 +223,6 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
     };
     Ok(Some(command))
-}
-
-/// `cmux open` opens paths and URLs through the app control socket.
-fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
-    let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
-    parse_open_with(
-        args,
-        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
-        &environment,
-    )
-}
-
-fn parse_open_with(
-    args: &[String],
-    interactive: bool,
-    environment: &std::collections::HashMap<String, String>,
-) -> Result<AppCommand, UsageError> {
-    let messages = &crate::localization::catalog().app_control;
-    let mut explicit_focus = None;
-    let mut targets = Vec::new();
-    let mut index = 0;
-    let mut literal = false;
-    while index < args.len() {
-        let arg = &args[index];
-        if literal {
-            targets.push(arg.clone());
-            index += 1;
-            continue;
-        }
-        if arg == "--" {
-            literal = true;
-            index += 1;
-            continue;
-        }
-        let (name, inline) =
-            arg.split_once('=').map_or((arg.as_str(), None), |(name, value)| (name, Some(value)));
-        match name {
-            "--focus" => {
-                let value = inline.map(str::to_owned).or_else(|| {
-                    args.get(index + 1)
-                        .filter(|value| matches!(value.as_str(), "true" | "false"))
-                        .cloned()
-                });
-                if inline.is_none() && value.is_some() {
-                    index += 1;
-                }
-                explicit_focus = Some(
-                    value
-                        .as_deref()
-                        .unwrap_or("true")
-                        .parse::<bool>()
-                        .map_err(|_| UsageError::new("--focus must be true|false"))?,
-                );
-            }
-            "--no-focus" => {
-                if inline.is_some() {
-                    return Err(UsageError::new("--no-focus does not take a value"));
-                }
-                explicit_focus = Some(false);
-            }
-            _ if name.starts_with('-') => {
-                return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
-            }
-            _ => targets.push(arg.clone()),
-        }
-        index += 1;
-    }
-    if targets.is_empty() {
-        return Err(UsageError::new("open requires at least one path or URL"));
-    }
-    let focus =
-        explicit_focus.unwrap_or_else(|| default_focus_for_user_open(environment, interactive));
-    let mut requests = Vec::new();
-    let mut pending_files = Vec::new();
-    let flush_files = |requests: &mut Vec<OpenRequest>, pending: &mut Vec<String>| {
-        if pending.is_empty() {
-            return;
-        }
-        let paths = std::mem::take(pending);
-        requests.push(OpenRequest {
-            method: "file.open",
-            params: json!({"paths": paths, "focus": focus}),
-        });
-    };
-    for target in targets {
-        if target.starts_with("http://")
-            || target.starts_with("https://")
-            || target.starts_with("mailto:")
-        {
-            flush_files(&mut requests, &mut pending_files);
-            requests.push(OpenRequest {
-                method: "browser.open_split",
-                params: json!({"url": target, "focus": focus}),
-            });
-        } else if std::fs::metadata(&target).map(|metadata| metadata.is_dir()).unwrap_or(false) {
-            flush_files(&mut requests, &mut pending_files);
-            requests.push(OpenRequest {
-                method: "workspace.create",
-                params: json!({"cwd": target, "focus": focus, "activate": focus}),
-            });
-        } else {
-            pending_files.push(target);
-        }
-    }
-    flush_files(&mut requests, &mut pending_files);
-    Ok(AppCommand::Open { requests })
-}
-
-fn default_focus_for_user_open(
-    environment: &std::collections::HashMap<String, String>,
-    interactive: bool,
-) -> bool {
-    match environment.get("CMUX_FOCUS_NEW").map(String::as_str) {
-        Some("1") => return true,
-        Some("0") => return false,
-        _ => {}
-    }
-    if !interactive {
-        return false;
-    }
-    [
-        "CODEX_CI",
-        "CODEX_THREAD_ID",
-        "CODEX_SESSION_ID",
-        "CODEX_SANDBOX",
-        "CODEX_MANAGED_BY_BUN",
-        "CLAUDECODE",
-        "CLAUDE_CODE",
-        "CLAUDE_CODE_ENTRYPOINT",
-        "CLAUDE_CODE_SESSION_ID",
-        "OPENCODE",
-        "OPENCODE_PORT",
-        "OPENCODE_SESSION_ID",
-        "AI_AGENT",
-    ]
-    .iter()
-    .all(|key| environment.get(*key).is_none_or(|value| value.trim().is_empty()))
 }
 
 /// `cli` when a person runs the command at a terminal, else `script`.
@@ -631,20 +495,24 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
-        AppCommand::Open { requests } => {
+        AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
+                let timeout = Some(request.timeout());
                 if let Ran::Done(code) = call(
                     global,
                     stream,
                     AppCommand::Call {
                         method: request.method,
                         params: request.params,
-                        timeout: Some(READ_TIMEOUT),
+                        timeout,
                         pick: None,
                     },
                 ) {
                     status = status.max(code);
+                }
+                if stop_on_failure && status != 0 {
+                    break;
                 }
             }
             return Ran::Done(status);

@@ -54,6 +54,7 @@ extension ControlRouter {
                 return try await self.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                             deadline: call.deadline, progress: call.progress))
             }.claimingProgress(),
+            browserOpenSplitMethod(),
             .async("settings.get") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.settingsGet(call)

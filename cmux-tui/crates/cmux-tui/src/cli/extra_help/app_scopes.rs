@@ -117,8 +117,12 @@ usage: cmux accounts list
 Lists the app's AI provider accounts; secrets are never printed.";
 
 const OPEN_HELP: &str = "\
-usage: cmux open <path|url>... [--focus [true|false]] [--no-focus]
-URLs open in a browser split, folders in a new workspace, files in the app.";
+usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+URLs open as a browser tab in the caller's pane (or the --workspace pane),
+folders in a new workspace, files in the app. `open -` reads one http(s) URL
+per stdin line, so a URL with a token never appears in argv; it checks every
+line first and stops at the first URL the app refuses.";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

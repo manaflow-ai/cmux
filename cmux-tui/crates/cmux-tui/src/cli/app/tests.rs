@@ -302,8 +302,8 @@ fn open_directory_passes_focus_and_activate_for_both_flags() {
     for (flags, expected) in [(vec!["--focus", "true"], true), (Vec::new(), false)] {
         let mut command_args = flags.into_iter().map(String::from).collect::<Vec<_>>();
         command_args.push(root.to_string_lossy().into_owned());
-        let AppCommand::Open { requests } =
-            parse_open_with(&command_args, false, &environment).unwrap()
+        let AppCommand::Open { requests, .. } =
+            parse_open_with(&command_args, false, &environment, &mut std::io::empty()).unwrap()
         else {
             panic!("expected open command")
         };
@@ -579,4 +579,104 @@ fn ghostty_diagnostics_reads_the_app_report() {
     assert_eq!(method, "ghostty.diagnostics");
     assert_eq!(params, json!({}));
     assert!(parse(&args(&["ghostty", "diagnostics", "extra"])).is_err());
+}
+
+#[test]
+fn open_dash_reads_urls_from_stdin_and_passes_the_callers_terminal() {
+    let environment =
+        std::collections::HashMap::from([("CMUX_TUI_TERMINAL_ID".to_owned(), "term_1".to_owned())]);
+    let mut stdin = "https://a.example/\n\n  \nhttp://127.0.0.1:7739/o/code\r\n".as_bytes();
+    let AppCommand::Open { requests, stop_on_failure } =
+        parse_open_with(&args(&["-"]), false, &environment, &mut stdin).unwrap()
+    else {
+        panic!("expected open command")
+    };
+    assert!(stop_on_failure);
+    let urls: Vec<_> = requests.iter().map(|request| request.params["url"].clone()).collect();
+    assert_eq!(urls, vec![json!("https://a.example/"), json!("http://127.0.0.1:7739/o/code")]);
+    for request in &requests {
+        assert_eq!(request.method, "browser.open_split");
+        assert_eq!(request.params["terminal_id"], "term_1");
+        assert_eq!(request.params["focus"], false);
+        assert_eq!(request.timeout(), WAITING_RUN_TIMEOUT);
+    }
+}
+
+#[test]
+fn open_dash_names_the_bad_line_without_echoing_it() {
+    let environment = std::collections::HashMap::new();
+    let mut stdin = "https://a.example/\nexample.com/?token=SECRET\n".as_bytes();
+    let error = parse_open_with(&args(&["-"]), false, &environment, &mut stdin).unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("line 2"), "{message}");
+    assert!(!message.contains("SECRET"), "{message}");
+    let mut empty = "\n \n".as_bytes();
+    assert!(parse_open_with(&args(&["-"]), false, &environment, &mut empty).is_err());
+    let mut unused = "https://a.example/\n".as_bytes();
+    assert!(
+        parse_open_with(&args(&["-", "https://b.example/"]), false, &environment, &mut unused)
+            .is_err()
+    );
+}
+
+#[test]
+fn open_workspace_names_the_workspace_and_defaults_to_no_focus() {
+    let environment = std::collections::HashMap::new();
+    for given in [
+        vec!["--workspace", "ws_1", "https://a.example/"],
+        vec!["--workspace=ws_1", "https://a.example/"],
+    ] {
+        let AppCommand::Open { requests, .. } =
+            parse_open_with(&args(&given), true, &environment, &mut std::io::empty()).unwrap()
+        else {
+            panic!("expected open command")
+        };
+        assert_eq!(requests[0].params["workspace_id"], "ws_1");
+        assert_eq!(requests[0].params["focus"], false, "a named workspace keeps the view");
+    }
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["--workspace", "ws_1", "--focus", "https://a.example/"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].params["focus"], true);
+    assert!(
+        parse_open_with(
+            &args(&["--workspace", "ws_1", "/tmp"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err(),
+        "--workspace is for URLs"
+    );
+}
+
+#[test]
+fn web_urls_are_absolute_http_with_a_host() {
+    for good in [
+        "https://example.com",
+        "http://127.0.0.1:7739/o/x",
+        "HTTPS://EXAMPLE.COM/a?b#c",
+        "http://[::1]:80/",
+    ] {
+        assert!(is_web_url(good), "{good}");
+    }
+    for bad in [
+        "",
+        "example.com",
+        "https://",
+        "https:///path",
+        "javascript:alert(1)",
+        "file:///etc",
+        "mailto:a@b.c",
+        "https://a b.com/",
+        "https://a.com/\u{7}",
+    ] {
+        assert!(!is_web_url(bad), "{bad}");
+    }
 }
