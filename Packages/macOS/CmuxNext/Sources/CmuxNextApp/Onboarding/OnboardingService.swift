@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -26,15 +25,6 @@ final class OnboardingService {
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
-
-    /// The cmux-cua socket the computer use step reads: the helper this app
-    /// runs (`ComputerUseHelperDaemon`), else CMUX_NEXT_CUA_SOCKET or
-    /// cmux-cua's default. Tests point it at their own socket.
-    var computerUseConfiguration: AgentActivitySocketSource.Configuration {
-        get { computerUseConfigurationOverride ?? ComputerUseHelperDaemon.shared.configuration ?? .standard(machineName: "") }
-        set { computerUseConfigurationOverride = newValue }
-    }
-    private var computerUseConfigurationOverride: AgentActivitySocketSource.Configuration?
 
     /// Whether an open window can show `step`: it already has that step (or
     /// no step was asked for). Otherwise the window is rebuilt for the step.

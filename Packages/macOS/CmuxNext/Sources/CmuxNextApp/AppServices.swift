@@ -140,6 +140,8 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and onboarding.
+    private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
