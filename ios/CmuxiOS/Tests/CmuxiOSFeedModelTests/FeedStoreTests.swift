@@ -31,6 +31,23 @@ actor RefusingSeenFeedSource: FeedSource {
     }
 }
 
+private struct SeenTransportFailure: Error, Sendable {}
+
+actor TransientSeenFeedSource: FeedSource {
+    let hub = MockSnapshotHub<[FeedItem]>(MockFixtures.feedItems())
+    private(set) var seenCalls = 0
+
+    func updates() async -> AsyncStream<SourceSnapshot<[FeedItem]>> { await hub.stream() }
+
+    func perform(_ intent: FeedIntent, key: IntentKey) async throws -> IntentReceipt {
+        if case .seen = intent {
+            seenCalls += 1
+            if seenCalls == 1 { throw SeenTransportFailure() }
+        }
+        return .committed(key: key, revision: await hub.current.revision)
+    }
+}
+
 @MainActor
 @Suite struct FeedStoreTests {
     @Test func answerCommitsAndReportsTheOutcome() async {
@@ -127,5 +144,23 @@ actor RefusingSeenFeedSource: FeedSource {
         store.reportSeen(["feed1"])
         for _ in 0..<20 { await Task.yield() }
         #expect(await source.seenCalls == 1)
+    }
+
+    @Test func transportFailureReleasesSeenReportsForRetry() async {
+        let source = TransientSeenFeedSource()
+        let store = FeedStore(source: source)
+        store.receive(await source.hub.current)
+
+        store.reportSeen(["feed1"])
+        for _ in 0..<20 where await source.seenCalls == 0 { await Task.yield() }
+        #expect(await source.seenCalls == 1)
+
+        // Keep rendering while the failed send settles; once released, the
+        // next visibility pass should submit the id again.
+        for _ in 0..<100 where await source.seenCalls < 2 {
+            store.reportSeen(["feed1"])
+            await Task.yield()
+        }
+        #expect(await source.seenCalls == 2)
     }
 }
