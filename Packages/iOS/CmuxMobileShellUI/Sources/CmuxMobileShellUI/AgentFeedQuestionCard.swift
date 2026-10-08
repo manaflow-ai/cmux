@@ -22,18 +22,18 @@ struct AgentFeedQuestionCard: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-                if draft.hasAnswer {
-                    Label(String(
-                        localized: "mobile.agentFeed.question.answeredShort",
-                        defaultValue: "Answered",
-                        bundle: .module
-                    ), systemImage: "checkmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Color.green.opacity(0.12), in: Capsule())
-                }
+                Label(String(
+                    localized: "mobile.agentFeed.question.answeredShort",
+                    defaultValue: "Answered",
+                    bundle: .module
+                ), systemImage: "checkmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.green.opacity(0.12), in: Capsule())
+                .opacity(draft.hasAnswer ? 1 : 0)
+                .accessibilityHidden(!draft.hasAnswer)
             }
 
             if let header = question.header, !header.isEmpty {

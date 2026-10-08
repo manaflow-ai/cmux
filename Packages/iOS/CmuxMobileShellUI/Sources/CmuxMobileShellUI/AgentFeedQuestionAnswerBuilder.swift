@@ -20,6 +20,7 @@ struct AgentFeedQuestionAnswerBuilder: Sendable {
         var customText: String {
             get { storedCustomText }
             set {
+                guard storedCustomText != newValue else { return }
                 storedCustomText = newValue
                 selectCustomAnswer()
             }

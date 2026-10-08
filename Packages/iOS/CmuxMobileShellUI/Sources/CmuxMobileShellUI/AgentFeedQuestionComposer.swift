@@ -50,6 +50,7 @@ struct AgentFeedQuestionComposer: View {
                 .padding(.top, 16)
                 .padding(.bottom, 24)
             }
+            .safeAreaPadding(.bottom, 12)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(String(
                 localized: "mobile.agentFeed.question.answerTitle",
