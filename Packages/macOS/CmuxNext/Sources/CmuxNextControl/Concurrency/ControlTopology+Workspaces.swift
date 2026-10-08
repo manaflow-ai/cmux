@@ -56,6 +56,8 @@ public struct ControlScreenInfo: Sendable, Hashable {
     public var handle: String
     public var name: String?
     public var zoomedPaneID: String?
+    /// The daemon's active pane of the screen (its default for a new tab).
+    public var defaultPaneID: String?
     public var panes: [ControlPaneInfo]
 
     public init(id: String, handle: String, name: String? = nil, zoomedPaneID: String? = nil, panes: [ControlPaneInfo] = []) {
