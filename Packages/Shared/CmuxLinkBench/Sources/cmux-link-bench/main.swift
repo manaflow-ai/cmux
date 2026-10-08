@@ -7,7 +7,7 @@ import Foundation
 // cmux-link-bench --rig v1|v2-webrtc|v2-mem|v3|ref [--rtt-ms N] [--loss P]
 //                 [--quick] [--only connect,rtt,rtt-bulk,flood,bulk,reconnect,roam]
 //                 [--bulk-record BYTES] [--out results.json]
-// cmux-link-bench serve [--address HOST] [--bind HOST] [--port N]
+// cmux-link-bench serve [--rig v1|v2-webrtc|v3] [--address HOST] [--bind HOST] [--port N]
 //                 [--device-key BASE64 | --allow-any] [--descriptor-out file.json]
 //
 // The regular command runs both peers in one process. `serve` is the F2 Mac
@@ -20,9 +20,9 @@ func usage() -> Never {
     let workloads = BenchWorkload.allCases.map(\.rawValue).joined(separator: ",")
     FileHandle.standardError.write(Data("""
     usage: cmux-link-bench --rig \(rigs) [--rtt-ms N] [--loss 0.01] [--quick] [--only \(workloads)] [--bulk-record BYTES] [--out file.json]
-           cmux-link-bench serve [--address HOST] [--bind HOST] [--port N]
+           cmux-link-bench serve [--rig v1|v2-webrtc|v3] [--address HOST] [--bind HOST] [--port N]
              [--device-key BASE64 | --allow-any] [--descriptor-out file.json]
-           cmux-link-bench client --descriptor file.json --out result.json
+           cmux-link-bench client --descriptor file.json --rig v1|v2-webrtc|v3 --out result.json
              --manifest manifest.json --source-commit SHA [--identity-file key.bin] [--quick]
     --rtt-ms and --loss apply to the shapeable rigs (v2-mem, ref) only.
     `serve` is a development-only direct-carrier listener; prefer a paired
@@ -59,7 +59,7 @@ func runServe(arguments initial: [String]) async throws {
     var bind: String? = "127.0.0.1"
     var port: UInt16 = 0
     var hostID = "cmux-link-bench"
-    var rig = "direct"
+    var rig: BenchRigKind = .v3
     var deviceKey: DirectPublicKey?
     var allowAny = false
     var descriptorOut: String?
@@ -70,8 +70,14 @@ func runServe(arguments initial: [String]) async throws {
         case "--port": port = UInt16(argumentValue(&arguments)) ?? 0
         case "--host-id": hostID = argumentValue(&arguments)
         case "--rig":
-            rig = argumentValue(&arguments)
-            guard rig == "direct" || rig == "v3" else { usage() }
+            let value = argumentValue(&arguments)
+            if value == "direct" {
+                rig = .v3
+            } else {
+                guard let parsed = BenchRigKind(rawValue: value) else { usage() }
+                guard parsed == .v1 || parsed == .v2WebRTC || parsed == .v3 else { usage() }
+                rig = parsed
+            }
         case "--device-key":
             let text = argumentValue(&arguments)
             guard let key = DirectPublicKey(base64: text) else { usage() }
@@ -82,13 +88,17 @@ func runServe(arguments initial: [String]) async throws {
         default: usage()
         }
     }
+    guard rig == .v3 else {
+        throw BenchSplitError.server(
+            "serve rig \(rig.rawValue) is unavailable: the split host currently accepts only v3 direct"
+        )
+    }
     guard allowAny || deviceKey != nil else {
         FileHandle.standardError.write(Data("serve requires --device-key or --allow-any\n".utf8))
         exit(2)
     }
     var allowed: Set<DirectPublicKey> = []
     if let deviceKey { allowed.insert(deviceKey) }
-    _ = rig
     let server = BenchSplitServer(configuration: BenchSplitServerConfiguration(
         hostID: hostID, advertisedAddress: address, localAddress: bind,
         port: port, allowAnyDevice: allowAny, allowedDevices: allowed
@@ -111,7 +121,7 @@ func runServe(arguments initial: [String]) async throws {
         signal(SIGTERM, SIG_DFL)
     }
     do {
-        let descriptor = try await server.start()
+        let descriptor = try await server.start(rig: rig)
         try writeJSON(descriptor, to: descriptorOut)
         for await _ in signals { break }
         await server.stop()
@@ -130,6 +140,7 @@ func runClient(arguments initial: [String]) async throws -> Bool {
     var manifestPath: String?
     var sourceCommit: String?
     var quick = false
+    var requestedRig: BenchRigKind?
     while !arguments.isEmpty {
         switch arguments.removeFirst() {
         case "--descriptor": descriptorPath = argumentValue(&arguments)
@@ -138,19 +149,34 @@ func runClient(arguments initial: [String]) async throws -> Bool {
         case "--manifest": manifestPath = argumentValue(&arguments)
         case "--source-commit": sourceCommit = argumentValue(&arguments)
         case "--quick": quick = true
+        case "--rig":
+            let value = argumentValue(&arguments)
+            if value == "direct" {
+                requestedRig = .v3
+            } else {
+                guard let parsed = BenchRigKind(rawValue: value) else { usage() }
+                requestedRig = parsed
+            }
         default: usage()
         }
     }
     guard let descriptorPath, let output, let manifestPath, let sourceCommit else { usage() }
     let descriptor = try BenchServeDescriptor.decode(Data(contentsOf: URL(fileURLWithPath: descriptorPath)))
+    let rig = try BenchSplitClient.resolveRig(requestedRig, descriptor: descriptor)
     let identity: DirectIdentity
     if let identityPath {
         identity = try DirectIdentity(privateKeyRepresentation: Data(contentsOf: URL(fileURLWithPath: identityPath)))
     } else {
         identity = DirectIdentity()
     }
+    guard rig == .v3 else {
+        throw BenchSplitError.server(
+            "client rig \(rig.rawValue) requires an authenticated control-plane signaling adapter; " +
+            "the standalone CLI has no HostDO session"
+        )
+    }
     let client = try BenchSplitClient(descriptor: descriptor, deviceIdentity: identity)
-    var spec = BenchSpec(rig: .v3, quick: quick)
+    var spec = BenchSpec(rig: rig, quick: quick)
     spec.bulkRecordBytes = descriptor.bulkRecordBytes
     // Validate artifact paths and provenance before starting the workload.
     let manifest = try BenchResultManifest.singleResult(

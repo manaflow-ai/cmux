@@ -39,14 +39,15 @@ evidence remain open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
 WireGuard-over-WebRTC, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
-The current implementation head is `da1d07e41d320b8c083aa5a493f220b3c46897bf`, which
+The last verified implementation head is `da1d07e41d320b8c083aa5a493f220b3c46897bf`, which
 supersedes the baseline above. B5's split V1/V2 signaling adapters are now landed in
 `CmuxLinkBench`: descriptors carry pinned WebRTC and WireGuard host keys, one retained
 `SignalRouter` consumes either B1 control-plane signaling or an in-memory endpoint, and
 `BenchSplitClient` runs the shared workload set against V1 or V2. Hosted package execution
 at this head (`65a3315778434ba00f434fbe`, 10 tests) passed. This closes the shared-library
-adapter gate. The iOS/CLI benchmark entry points and standalone host still need explicit V1/V2
-selection and accepting-side wiring; Cloudflare TURN deployment, real signaling credentials, and
+adapter gate. The iOS benchmark runner now accepts injected V1/V2 adapters. The CLI benchmark client
+and standalone host reject V1/V2 until HostDO accepting-side signaling is wired; Cloudflare TURN
+deployment, real signaling credentials, and
 device/WAN/power measurements remain open.
 
 The remaining work separates independent implementation from shared runtime dependencies:
@@ -205,9 +206,9 @@ The local bakeoff records a DEV-only loopback decision. F2's first split slice n
 `cmux-link-bench serve`/`client` path and the shared `BenchSplitClient` library: it exchanges a
 pinned descriptor, runs the shared connect/echo/flood/bulk workloads through `LinkSession`, and
 writes the regular report plus a checked manifest. The iOS DEV Link bench screen is implemented and
-provenance-safe; B5's V1/V2 signaling adapters now land behind the same split fixture, but the
-benchmark entry points and accepting-side host are still direct-only. The next implementation gate
-is explicit V1/V2 selection plus real HostDO signaling and TURN credentials before a device
+provenance-safe; B5's V1/V2 signaling adapters now land behind the same split fixture, and the iOS
+runner accepts injected V1/V2 adapters. The CLI and accepting-side host reject those carriers pending
+HostDO signaling. The next implementation gate is real HostDO signaling and TURN credentials before a device
 manifest can be captured. No device JSON has been captured yet. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint

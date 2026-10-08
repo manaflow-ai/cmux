@@ -16,12 +16,16 @@ final class DevLinkBenchViewController: UIViewController {
     typealias Runner = @Sendable (
         _ descriptor: BenchServeDescriptor,
         _ identity: DirectIdentity,
+        _ rig: BenchRigKind,
+        _ signaling: BenchSignalingAdapters?,
         _ quick: Bool,
         _ progress: @escaping @Sendable (String) -> Void
     ) async throws -> BenchReport
 
     private let identity: DirectIdentity
     private let runner: Runner
+    private let requestedRig: BenchRigKind?
+    private let signaling: BenchSignalingAdapters?
     private let descriptorEditor = UITextView()
     private let resultView = UITextView()
     private let statusLabel = UILabel()
@@ -72,8 +76,18 @@ final class DevLinkBenchViewController: UIViewController {
         return controller
     }
 
-    init(identity: DirectIdentity = DirectIdentity(), descriptorData: Data? = nil, runner: Runner? = nil) {
+    init(
+        identity: DirectIdentity = DirectIdentity(),
+        descriptorData: Data? = nil,
+        rig: BenchRigKind? = nil,
+        signaling: BenchSignalingAdapters? = nil,
+        runner: Runner? = nil
+    ) {
         self.identity = identity
+        let configuredRig = rig ?? ProcessInfo.processInfo.environment["CMUX_IOS_LINK_BENCH_RIG"]
+            .flatMap(BenchRigKind.init(rawValue:))
+        self.requestedRig = configuredRig
+        self.signaling = signaling
         self.runner = runner ?? Self.liveRunner
         super.init(nibName: nil, bundle: nil)
         if let descriptorData {
@@ -170,13 +184,23 @@ final class DevLinkBenchViewController: UIViewController {
             return
         }
 
+        let selectedRig: BenchRigKind
+        do {
+            selectedRig = try BenchSplitClient.resolveRig(requestedRig, descriptor: descriptor)
+        } catch {
+            statusLabel.text = "Selection error: \(error.localizedDescription)"
+            return
+        }
+
         runButton.isEnabled = false
         reportData = nil
         onRunStart?()
         resultView.text = ""
-        statusLabel.text = "Connecting to \(descriptor.address):\(descriptor.port)…"
+        statusLabel.text = "Connecting with \(selectedRig.rawValue)…"
         let runner = self.runner
         let identity = self.identity
+        let rig = selectedRig
+        let signaling = self.signaling
         let quick = quickSwitch.isOn
         let runID = UUID()
         activeRunID = runID
@@ -188,7 +212,7 @@ final class DevLinkBenchViewController: UIViewController {
         }
         runTask = Task { [weak self] in
             do {
-                let report = try await runner(descriptor, identity, quick) { line in
+                let report = try await runner(descriptor, identity, rig, signaling, quick) { line in
                     Task { @MainActor in publishProgress(line) }
                 }
                 let encoder = JSONEncoder()
@@ -224,9 +248,24 @@ final class DevLinkBenchViewController: UIViewController {
         }
     }
 
-    private static let liveRunner: Runner = { descriptor, identity, quick, progress in
-        let client = try BenchSplitClient(descriptor: descriptor, deviceIdentity: identity)
-        var spec = BenchSpec(rig: .v3, quick: quick)
+    private static let liveRunner: Runner = { descriptor, identity, rig, signaling, quick, progress in
+        let client: BenchSplitClient
+        switch rig {
+        case .v3:
+            client = try BenchSplitClient(descriptor: descriptor, deviceIdentity: identity)
+        case .v1, .v2WebRTC:
+            guard let signaling else {
+                throw BenchSplitError.server(
+                    "iOS \(rig.rawValue) benchmark requires an authenticated control-plane signaling adapter"
+                )
+            }
+            client = try BenchSplitClient(
+                descriptor: descriptor, signaling: signaling, rig: rig, deviceIdentity: identity
+            )
+        case .v2Memory, .reference:
+            throw BenchSplitError.server("iOS benchmark rig \(rig.rawValue) is process-local")
+        }
+        var spec = BenchSpec(rig: rig, quick: quick)
         spec.bulkRecordBytes = descriptor.bulkRecordBytes
         let info = Bundle.main.infoDictionary ?? [:]
         func bundleString(_ key: String) -> String? {

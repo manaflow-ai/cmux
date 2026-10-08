@@ -231,9 +231,10 @@ comes from. Steps run on the tagged pair `nxd3` (section 6).
 ### 2.7 Measurements (D2)
 
 33. The D2 device re-measure plan (d2-bakeoff.md 6): F2 direct split mode, the iOS DEV Link bench
-    screen, and the shared B5 V1/V2 signaling adapters are implemented. The benchmark entry points
-    and accepting-side host remain direct-only; wire explicit V1/V2 selection first, then use real
-    HostDO/TURN configuration and an authorized device run to record C1 `TerminalLatencyReport`
+    screen, and the shared B5 V1/V2 signaling adapters are implemented. The iOS benchmark runner accepts
+    injected V1/V2 adapters. The CLI and accepting-side host reject V1/V2 until HostDO signaling is
+    wired; use explicit iOS selection with real HostDO/TURN configuration and an authorized device run
+    to record C1 `TerminalLatencyReport`
     (echo p50/p95, frame age) idle and under `yes | head -c 500M`, plus a 10 min Power Profiler
     trace per carrier (section 6.5).
 
@@ -498,8 +499,8 @@ the protocol vitest run on every pull request that touches them (`.github/workfl
 
 ### 6.5 D2 device re-measure
 
-Follow d2-bakeoff.md section 6 on the `nxd3` pair once B5 V1/V2 adapters and Mac provenance stamping
-exist; F2 direct split mode and the DEV Link bench screen are already landed. Until then:
+Follow d2-bakeoff.md section 6 on the `nxd3` pair once HostDO accepting-side signaling and TURN
+credentials exist; F2 direct split mode and the DEV Link bench screen are already landed. Until then:
 
 ```bash
 # Power and memory, 10 min per carrier, phone on battery, screen on:

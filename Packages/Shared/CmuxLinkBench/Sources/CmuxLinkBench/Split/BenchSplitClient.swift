@@ -12,6 +12,46 @@ public struct BenchSplitClient: Sendable {
     private let carrierFactory: @Sendable () throws -> [any LinkCarrier]
     private let splitRig: BenchRigKind
 
+    /// Resolves the entry-point selection without opening a socket. A
+    /// descriptor advertising one carrier is unambiguous; descriptors with
+    /// multiple carriers require an explicit rig so a benchmark never falls
+    /// back to a different transport by accident.
+    public static func resolveRig(
+        _ requested: BenchRigKind?, descriptor: BenchServeDescriptor
+    ) throws -> BenchRigKind {
+        try descriptor.validate()
+        let advertised = Set(descriptor.carriers.map(CarrierKind.init(rawValue:)))
+        let selected: BenchRigKind
+        if let requested {
+            selected = requested
+        } else {
+            guard advertised.count == 1, let only = advertised.first else {
+                throw BenchSplitError.invalidDescriptor("multiple carriers require an explicit rig")
+            }
+            if only == .direct {
+                selected = .v3
+            } else if only == .webrtc {
+                selected = .v1
+            } else if only == .webrtcWireGuard {
+                selected = .v2WebRTC
+            } else {
+                throw BenchSplitError.invalidDescriptor("unsupported split carrier \(only.rawValue)")
+            }
+        }
+        let carrier: CarrierKind
+        switch selected {
+        case .v1: carrier = .webrtc
+        case .v2WebRTC: carrier = .webrtcWireGuard
+        case .v3: carrier = .direct
+        case .v2Memory, .reference:
+            throw BenchSplitError.invalidDescriptor("split entry point does not support rig \(selected.rawValue)")
+        }
+        guard advertised.contains(carrier) else {
+            throw BenchSplitError.invalidDescriptor("rig \(selected.rawValue) is not advertised")
+        }
+        return selected
+    }
+
     public init(descriptor: BenchServeDescriptor, deviceIdentity: DirectIdentity) throws {
         try descriptor.validate()
         guard descriptor.carriers.contains(CarrierKind.direct.rawValue) else {
@@ -30,8 +70,9 @@ public struct BenchSplitClient: Sendable {
     }
 
     /// Creates a split client for a real B1 control-plane signaling channel or
-    /// its in-memory test double. `rig` selects V1 or V2 when the descriptor
-    /// advertises both; a descriptor with one signaling carrier may omit it.
+    /// its in-memory test double. Call ``resolveRig(_:descriptor:)`` at an
+    /// entry point first when the descriptor may advertise one or more
+    /// carriers; this initializer then requires the explicit V1/V2 choice.
     public init(
         descriptor: BenchServeDescriptor,
         signaling: BenchSignalingAdapters,

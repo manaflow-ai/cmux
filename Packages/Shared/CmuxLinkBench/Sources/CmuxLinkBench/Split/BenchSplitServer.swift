@@ -71,7 +71,16 @@ public actor BenchSplitServer {
     }
 
     /// Starts listening and returns the descriptor a phone can import.
-    public func start() async throws -> BenchServeDescriptor {
+    ///
+    /// The server currently owns the direct/V3 acceptor. Taking the rig as an
+    /// explicit argument makes an attempted V1/V2 host run fail before a
+    /// listener is opened instead of silently measuring a direct fallback.
+    public func start(rig: BenchRigKind = .v3) async throws -> BenchServeDescriptor {
+        guard rig == .v3 else {
+            throw BenchSplitError.server(
+                "host rig \(rig.rawValue) is unavailable: the split host currently accepts only v3 direct"
+            )
+        }
         guard !started, !stopped else { throw BenchSplitError.server("server already stopped") }
         guard !configuration.hostID.isEmpty, !configuration.advertisedAddress.isEmpty else {
             throw BenchSplitError.invalidDescriptor("server address")

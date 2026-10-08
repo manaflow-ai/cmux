@@ -195,6 +195,62 @@ struct BenchHarnessTests {
         #expect(throws: BenchSplitError.self) { try descriptor.validate() }
     }
 
+    @Test("split entry points resolve one carrier and reject ambiguous descriptors")
+    func splitEntryPointSelection() throws {
+        let direct = BenchServeDescriptor(
+            hostID: "direct-host", address: "127.0.0.1", port: 4180,
+            hostKey: DirectIdentity().publicKey
+        )
+        #expect(try BenchSplitClient.resolveRig(nil, descriptor: direct) == .v3)
+        #expect(try BenchSplitClient.resolveRig(.v3, descriptor: direct) == .v3)
+        #expect(throws: BenchSplitError.self) {
+            try BenchSplitClient.resolveRig(.v1, descriptor: direct)
+        }
+
+        let signaling = BenchServeDescriptor(
+            hostID: "signal-host", address: "", port: 0,
+            hostKey: DirectIdentity().publicKey,
+            webrtcHostKey: SoftwareWebRTCIdentity().publicKey.base64,
+            carriers: [.webrtc]
+        )
+        #expect(try BenchSplitClient.resolveRig(nil, descriptor: signaling) == .v1)
+
+        let wireGuard = BenchServeDescriptor(
+            hostID: "wg-host", address: "", port: 0,
+            hostKey: DirectIdentity().publicKey,
+            wireGuardHostKey: WireGuardPrivateKey().publicKey.base64,
+            carriers: [.webrtcWireGuard]
+        )
+        #expect(try BenchSplitClient.resolveRig(nil, descriptor: wireGuard) == .v2WebRTC)
+
+        let mixed = BenchServeDescriptor(
+            hostID: "mixed-host", address: "127.0.0.1", port: 4180,
+            hostKey: DirectIdentity().publicKey,
+            webrtcHostKey: SoftwareWebRTCIdentity().publicKey.base64,
+            carriers: [.direct, .webrtc]
+        )
+        #expect(throws: BenchSplitError.self) {
+            try BenchSplitClient.resolveRig(nil, descriptor: mixed)
+        }
+        #expect(try BenchSplitClient.resolveRig(.v1, descriptor: mixed) == .v1)
+        #expect(throws: BenchSplitError.self) {
+            try BenchSplitClient.resolveRig(.v2Memory, descriptor: direct)
+        }
+    }
+
+    @Test("split server rejects an unavailable signaling rig before listening")
+    func splitServerRejectsUnavailableRig() async throws {
+        for rig in [BenchRigKind.v1, .v2WebRTC] {
+            let server = BenchSplitServer(configuration: .init(allowAnyDevice: true))
+            #expect(throws: BenchSplitError.self) {
+                try await server.start(rig: rig)
+            }
+            let descriptor = try await server.start(rig: .v3)
+            #expect(descriptor.carriers == [CarrierKind.direct.rawValue])
+            await server.stop()
+        }
+    }
+
     @Test("split direct server serves the shared echo workload")
     func splitDirectEcho() async throws {
         let server = BenchSplitServer(configuration: .init(

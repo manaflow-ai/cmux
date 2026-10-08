@@ -25,8 +25,10 @@ The B5 signaling adapter library gate is closed at `da1d07e41d320b8c083aa5a493f2
 `BenchSignalingAdapters` retains one `SignalRouter` for the V1 and V2 sessions, accepts the real
 control-plane channel or an in-memory test endpoint, validates pinned WebRTC/WireGuard host keys,
 and constructs the corresponding `LinkCarrier`. The hosted `CmuxLinkBench` suite passed 10 tests
-at this head (`65a3315778434ba00f434fbe`). The iOS/CLI benchmark entry points and standalone host
-remain direct-only until their accepting-side V1/V2 wiring lands, so this does not claim that
+at this head (`65a3315778434ba00f434fbe`). The iOS benchmark runner now accepts an injected V1/V2
+adapter for the split runner. The default `DevLinkBenchViewController.make()` still supplies no adapter,
+so a usable V1/V2 app launch requires composition wiring. The CLI client and standalone host deliberately reject V1/V2 until
+HostDO accepting-side signaling is wired; this does not claim that
 device-manifest capture, Cloudflare TURN, HostDO signaling, WAN paths, or phone power measurements
 have run.
 
@@ -298,8 +300,9 @@ F8 still needs WAN/device evidence before the default path policy is promoted be
 ## 6. Re-measure on device
 
 F2 direct split mode is implemented, including the Mac service, client library and iOS DEV Link bench
-screen. The app-level numbers still need a tagged D1/D3 pair with B5 serving V1, V2 and V3 on the Mac;
-V1/V2 signaling adapters and Mac provenance stamping are the remaining implementation gates.
+screen. The iOS runner can select injected V1/V2 adapters, while the CLI and standalone host reject those
+carriers until HostDO accepting-side signaling is wired. The app-level numbers still need a tagged
+D1/D3 pair, real signaling credentials, and an authorized device run.
 
 1. Build one tagged pair from this branch merged into D1: `./scripts/reload-cloud.sh --tag nxd2 --launch`
    then `./ios/scripts/reload-cloud.sh --tag nxd2 --device-id <iphone> --wait` (same account, trusted
@@ -353,8 +356,9 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
   typical after; rare outliers to 1.2 s at load 35, bound 2 s). Still open: confirm on device, tune
   the window for WAN RTTs (256 KiB caps one association at 40 Mbit/s at 50 ms), SCTP stats in `rtt`.
 - F2 (D2/D3): direct bench split mode and the iOS DEV "Link bench" screen are implemented. The
-  remaining work is B5's V1/V2 signaling integration and device manifests so the same JSON comes from
-  real carrier runs.
+  iOS runner accepts injected V1/V2 adapters; the CLI and standalone host reject those carriers
+  pending HostDO accepting-side signaling. Remaining work is production signaling and device manifests
+  so the same JSON comes from real carrier runs.
 - F3 (B2): steady-state `getStats` RTT sampling is wired into the bounded path event inbox
   (`a22b7f7327`), and reliable sends suspended on a full channel now have ID-keyed cancellation,
   pre-cancel registration guards and a post-wake cancellation check. Focused room-waiter tests are

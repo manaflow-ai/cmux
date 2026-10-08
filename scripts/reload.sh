@@ -1381,9 +1381,10 @@ if [[ "$BUILD_CONFIGURATION" == Release ]]; then
 fi
 
 # Keep the tagged Mac bundle provenance-compatible with the iOS reload. Debug
-# builds carry the checked-out commit's short SHA (with a dirty marker when the
-# checkout has uncommitted changes) and the original tag. Release/TestFlight
-# builds intentionally retain the blank project defaults.
+# builds carry the checked-out commit's short SHA (with a dirty marker for local
+# uncommitted changes) and the original tag. Exact-ref fleet builds suppress the
+# marker because their preparation may create generated checkout files.
+# Release/TestFlight builds intentionally retain the blank project defaults.
 CMUX_GIT_SHA_VALUE=""
 if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
   CMUX_GIT_SHA_VALUE="$CMUX_SOURCE_GIT_SHA"
