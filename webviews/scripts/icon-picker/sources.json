@@ -1,8 +1,8 @@
 {
   "emojiTest": {
-    "version": "17.0",
-    "url": "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt",
-    "sha256": "1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda"
+    "version": "18.0",
+    "url": "https://www.unicode.org/Public/18.0.0/emoji/emoji-test.txt",
+    "sha256": "8f3735cda1f92a779d78af67cf86066bb1f07143dc22f2ac29394d9bc57ab21a"
   },
   "annotations": {
     "version": "48.2.0",

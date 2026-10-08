@@ -1013,6 +1013,14 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate the nightly-next arm64-only track
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_arm64_only.py
+
+      - name: Validate the nightly web bundles build before Rust
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_web_bundles_order.py
+
       - name: Validate the nightly-next release notes fetch (published span only)
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_release_notes_fetch.py

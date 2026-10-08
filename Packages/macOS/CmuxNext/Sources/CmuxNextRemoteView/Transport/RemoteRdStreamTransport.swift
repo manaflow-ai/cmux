@@ -3,23 +3,11 @@ import CmuxNextWakeups
 import Network
 import Synchronization
 
-/// A development host on this Mac's loopback interface (remote-desktop.md
-/// 11.0: phase-1 hosts listen only on loopback). The transport connects to a
-/// literal 127.0.0.1, never a resolved name.
-public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
-    public let port: UInt16
-
-    /// Nil for a privileged port (the host refuses ports below 1024 too).
-    public init?(port: UInt16) {
-        guard port >= 1024 else { return nil }
-        self.port = port
-    }
-}
-
 /// The in-app `cmux.rd/1` transport over the stream carrier: one TCP
 /// connection carries control JSON and datagrams as `u8 type, u32 len`
 /// frames (until the overlay datagram service carries media). The shared Rust
-/// core does reassembly, FEC, feedback (`RemoteRdCore`) and input redundancy
+/// core does reassembly, FEC, per-stream feedback (`RemoteRdSession`: the
+/// page on stream 0, rb/1 popup surfaces on their own streams) and input redundancy
 /// (`RemoteRdInput`); this type only moves bytes, runs the handshake
 /// (`RemoteRdHandshake`) and arms one deadline timer (`DemandTimer`, never a
 /// poll). Everything that touches the core runs on one serial queue.
@@ -28,34 +16,45 @@ public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
 /// contract; the pane drives it through `RemoteUpstreamControl`.
 public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, RemoteUpstreamControl {
     private let endpoint: RemoteRdLoopbackEndpoint
-    private let hello: RemoteRdHello
+    // internal for the +Service extension file
+    let hello: RemoteRdHello
     private let startKey: String
     private let control: Bool
     private let nowMicros: @Sendable () -> UInt64
-    private let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
+    // internal for the +Service extension file
+    let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
-    private let state: Mutex<Continuations>
+    // internal for the +Service extension file
+    let state: Mutex<Continuations>
+    // internal for the +Service extension file
     // crash-allow: confined to the serial `queue`; every access runs in a queue block or an NWConnection callback started on it.
-    private nonisolated(unsafe) let engine: Engine
+    nonisolated(unsafe) let engine: Engine
 
-    private struct Continuations {
+    // internal for the +Service extension file
+    struct Continuations {
         var units: AsyncStream<RemoteAccessUnit>.Continuation?
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
+        var services: AsyncStream<RemoteRdJSON>.Continuation?
+        /// rb/1 popup surface streams and their buffered units.
+        var surfaces = RemoteRdSurfaceStreams()
         var status = RemoteViewStatus(state: .connecting)
     }
 
     /// Queue-confined session state: the Rust core, the input channel, the
     /// handshake and the connection.
-    private nonisolated final class Engine {
-        let core: RemoteRdCore
+    // internal for the +Service extension file
+    nonisolated final class Engine {
+        let core: RemoteRdSession
         let input: RemoteRdInput
         var handshake: RemoteRdHandshake
         var connection: NWConnection?
+        /// Cuts received bytes after control frames (surface streams open in between).
+        var splitter = RemoteRdStreamSplitter()
         /// Created from the welcome's caps; ends with the session.
         var upstream: RemoteUpstreamConsent?
 
-        init(core: RemoteRdCore, input: RemoteRdInput, service: String) {
+        init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
             self.core = core
             self.input = input
             handshake = RemoteRdHandshake(service: service)
@@ -69,7 +68,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         endpoint: RemoteRdLoopbackEndpoint, hello: RemoteRdHello, startKey: String, control: Bool = false,
         nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
     ) {
-        guard let core = RemoteRdCore(carrier: .stream), let input = RemoteRdInput(carrier: .stream) else { return nil }
+        guard let core = RemoteRdSession(carrier: .stream), let input = RemoteRdInput(carrier: .stream) else { return nil }
         var streamHello = hello
         streamHello.udpPort = nil
         self.endpoint = endpoint
@@ -205,10 +204,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     public func requestKeyframe() {
-        queue.async { [self] in
-            try? engine.core.requestKeyframe()
-            pump()
-        }
+        requestKeyframe(stream: 0)
     }
 
     // MARK: Queue-confined work
@@ -242,41 +238,37 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     private func ingest(_ data: Data) {
-        do {
-            try engine.core.push(streamBytes: data, nowMicros: nowMicros())
-        } catch {
-            // The stream broke or the host flooded the queues: end the session.
-            closed()
-            return
+        for segment in engine.splitter.split(data) {
+            do {
+                try engine.core.push(streamBytes: segment.bytes, nowMicros: nowMicros())
+            } catch {
+                // The stream broke or the host flooded the queues: end the session.
+                closed()
+                return
+            }
+            // A surface's frames follow its show in the same read: open its
+            // stream before they are pushed.
+            if segment.endsControlFrame { drainMessages(now: nowMicros()) }
         }
         pump()
     }
 
     /// Hands out ready frames and messages, sends due feedback and input, and
     /// arms the one timer for the next deadline.
-    private func pump() {
+    // internal for the +Service extension file
+    func pump() {
         let now = nowMicros()
         _ = try? engine.core.tick(nowMicros: now)
-        while let unit = try? engine.core.popAccessUnit(codec: .h264) {
-            _ = state.withLock { $0.units?.yield(unit) }
-        }
-        while let message = try? engine.core.popMessage() {
-            switch message {
-            case let .control(json):
-                guard let control = try? RemoteRdControl.parse(json) else { continue }
-                engine.handshake.receive(control)
-                handleUpstream(control)
-            case let .datagram(datagram):
-                // Upstream feedback goes to its sender; InputAck datagrams to
-                // the input channel; any other datagram is refused without a state change.
-                let senders = engine.upstream?.activeSenders ?? []
-                if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
-                try? engine.input.acknowledge(datagram: datagram)
-            case .bulk:
-                // Transfers belong to the service (rb/1 uploads and downloads); the desktop has none.
-                break
+        while let popped = try? engine.core.popAccessUnit(codec: .h264) {
+            state.withLock { state in
+                if popped.stream == 0 {
+                    state.units?.yield(popped.unit)
+                } else {
+                    state.surfaces.yield(popped.unit, stream: popped.stream)
+                }
             }
         }
+        drainMessages(now: now)
         publishStatus()
         if engine.handshake.isEnded {
             finish()
@@ -291,6 +283,31 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             sendRaw(bytes)
         }
         armTimer(now: now)
+    }
+
+    /// Hands out queued control messages and datagrams.
+    private func drainMessages(now: UInt64) {
+        while let message = try? engine.core.popMessage() {
+            switch message {
+            case let .control(json):
+                guard let control = try? RemoteRdControl.parse(json) else { continue }
+                if case let .service(service, body) = control, service == hello.service, !engine.handshake.isEnded {
+                    applySurfaceStreams(body)
+                    _ = state.withLock { $0.services?.yield(body) }
+                }
+                engine.handshake.receive(control)
+                handleUpstream(control)
+            case let .datagram(datagram):
+                // Upstream feedback goes to its sender; InputAck datagrams to
+                // the input channel; any other datagram is refused without a state change.
+                let senders = engine.upstream?.activeSenders ?? []
+                if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
+                try? engine.input.acknowledge(datagram: datagram)
+            case .bulk:
+                // Transfers belong to the service (rb/1 uploads and downloads); the desktop has none.
+                break
+            }
+        }
     }
 
     /// The welcome creates the session's consent; stream answers update it.
@@ -328,7 +345,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
-    private func sendControl(_ control: RemoteRdControl) {
+    // internal for the +Service extension file
+    func sendControl(_ control: RemoteRdControl) {
         guard let json = try? control.json(), let frame = try? RemoteRdCore.streamFrame(json, control: true) else { return }
         sendRaw(frame)
     }
@@ -368,21 +386,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         state.withLock { state in
             state.units?.finish()
             state.cursors?.finish()
+            state.services?.finish()
+            state.surfaces.endAll()
             state.statuses?.finish()
         }
-    }
-}
-
-/// Sends the pane's captured input on a `RemoteRdStreamTransport`.
-@MainActor
-public final class RemoteRdTransportInputSink: RemoteViewInputSink {
-    private let transport: RemoteRdStreamTransport
-
-    public init(transport: RemoteRdStreamTransport) {
-        self.transport = transport
-    }
-
-    public func send(_ event: RemoteInputEvent) {
-        transport.send(event)
     }
 }

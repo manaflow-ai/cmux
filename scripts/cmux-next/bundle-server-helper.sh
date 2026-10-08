@@ -26,7 +26,7 @@
 #
 # The server agent runs the bundled cmux CLI (Contents/Resources/bin/cmux, put
 # there by "Bundle cmux-tui" or by install-cmux-tui-client.sh) as the frozen
-# unit command `cmux host run`. A bundle without that binary gets no agent
+# unit command `cmux host run --mode user`. A bundle without that binary gets no agent
 # plist, so the app reports that the server is not in this build. The plist
 # holds no environment, no secrets and no per-user path (it is sealed in a
 # bundle every user of the Mac shares; launchd does not expand `~`), so it sets
@@ -45,6 +45,9 @@
 # cmux-server-helper (the file name) in both places. The plists are resources
 # sealed by the app signature; they carry no signature of their own.
 set -euo pipefail
+# ASCII collation in every locale: the bundle-id regex below must not accept
+# non-ASCII letters through a locale's character classes or ranges.
+export LC_ALL=C
 
 # Writes or removes both plists for the app at $1 from its bundle id.
 # $2 = "build" (the Xcode phase): a Release build is built as com.cmuxterm.app and
@@ -123,6 +126,10 @@ stamp_agent() {
   plutil -insert ProgramArguments -string "$program" -append "$plist.tmp"
   plutil -insert ProgramArguments -string host -append "$plist.tmp"
   plutil -insert ProgramArguments -string run -append "$plist.tmp"
+  # The mode is an argument: launchd passes a plist environment to every child
+  # of the job, including the user's shells.
+  plutil -insert ProgramArguments -string --mode -append "$plist.tmp"
+  plutil -insert ProgramArguments -string user -append "$plist.tmp"
   plutil -insert RunAtLoad -bool YES "$plist.tmp"
   # Restart only after a failure: a clean exit (the host was disabled) stays
   # down. ThrottleInterval spaces restarts of a failing binary.
@@ -131,7 +138,8 @@ stamp_agent() {
   plutil -insert ThrottleInterval -integer 10 "$plist.tmp"
   # Standard, not Background: the job hosts the user's terminals and app
   # servers, which must not run under background CPU and I/O limits. Same as
-  # the cmux-server-core launchd golden.
+  # cmux-server-core's app_service_agent_plist, which writes this plist byte for
+  # byte (golden: cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist).
   plutil -insert ProcessType -string Standard "$plist.tmp"
   plist_commit "$plist"
   echo "bundle-server-helper: $label"

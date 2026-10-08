@@ -74,6 +74,8 @@ export const NEW_TAB_LABELS = {
 
 /// What the host's handshake says about a tab opened as a new tab page.
 export type NewTabHost = {
+  inputToken?: string;
+  tools?: { id: string; title: string; symbol: string; shortcut?: string; menu: string[] }[];
   hotkeys: Partial<Record<TabKind, string>>;
   initialKind: TabKind;
   cwd?: string;
@@ -107,7 +109,24 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const cwd =
     typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
   const omnibar = omnibarContext(object.omnibar);
+  const tools = Array.isArray(object.tools)
+    ? object.tools.flatMap((tool) => {
+        if (typeof tool !== "object" || tool === null) return [];
+        const value = tool as Record<string, unknown>;
+        const id = typeof value.id === "string" ? value.id : "";
+        const title = typeof value.title === "string" ? value.title : "";
+        const symbol = typeof value.symbol === "string" ? value.symbol : "square.grid.2x2";
+        if (!id || !title) return [];
+        const menu = Array.isArray(value.menu)
+          ? value.menu.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        return [
+          { id, title, symbol, ...(typeof value.shortcut === "string" ? { shortcut: value.shortcut } : {}), menu },
+        ];
+      })
+    : [];
   return {
+    ...(tools.length ? { tools } : {}),
     hotkeys,
     initialKind,
     ...(cwd ? { cwd } : {}),
@@ -127,6 +146,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     layout: object.layout === "a" ? "a" : "b",
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
+    ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
   };
 }
 
@@ -179,6 +199,9 @@ type Props = {
   cwd?: string;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
+  tools?: NewTabHost["tools"];
+  inputToken?: string;
+  onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
   chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Open tabs, workspaces, folders, commands and history the bar suggests.
@@ -198,11 +221,10 @@ type Props = {
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
+  onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
   onImport?(): void;
   onBrowseProject?(): void;
-  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
-  onAddHarness?(): void;
   now?: number;
 };
 
@@ -228,7 +250,8 @@ export function NewTabPage({
   onEditShortcut,
   onImport,
   onBrowseProject,
-  onAddHarness,
+  inputToken,
+  onInputReady,
 }: Props) {
   const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
@@ -278,10 +301,11 @@ export function NewTabPage({
       field.current?.select();
     };
     focus();
+    if (inputToken) onInputReady?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, []);
+  }, [inputToken, onInputReady]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);
@@ -504,11 +528,6 @@ export function NewTabPage({
         {onImport && (
           <button type="button" className="acpmux-newtab-all" onClick={onImport}>
             {t("newtab.importAndSync")}
-          </button>
-        )}
-        {onAddHarness && (
-          <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
-            {t("newtab.addHarness")}
           </button>
         )}
       </div>

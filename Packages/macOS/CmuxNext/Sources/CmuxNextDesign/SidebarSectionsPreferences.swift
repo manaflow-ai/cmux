@@ -41,6 +41,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
     /// `sidebar.stepping`, `sidebar.steppingWraps`).
     public var navigation = SidebarNavigationSettings.defaults
+    /// The "Did you know" tip card above the footer (`sidebar.cards.tips`,
+    /// BOTTOM-LEFT-CARDS K1). The update card always shows when an update
+    /// is staged.
+    public var showsTips = true
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

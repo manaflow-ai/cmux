@@ -789,6 +789,10 @@ path = "tests/test_web_validation.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_webviews_tests_per_file.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_canonical_build_root.py"
 lane = "linux-guard"
 
@@ -997,10 +1001,6 @@ path = "tests/test_cmux_next_route.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_next_regenerate_bundles_workflow.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"
 
@@ -1010,6 +1010,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_source_archive.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_arm64_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_web_bundles_order.py"
 lane = "linux-guard"
 
 [[test]]

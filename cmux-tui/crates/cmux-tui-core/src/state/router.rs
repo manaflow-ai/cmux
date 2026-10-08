@@ -237,12 +237,13 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner"])?;
+            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
                 forward: fields.contains_key("forward").then(|| strings(fields, "forward")),
                 owner: string(fields, "owner"),
+                icon: nullable_string(fields, "icon"),
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
@@ -611,7 +612,10 @@ fn personal_change(
             index: index(fields, "index"),
         },
         Op::WorkspaceGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed", "room", "top_index"])?;
+            require_any(
+                fields,
+                &["name", "color", "collapsed", "room", "top_index", "icon", "pinned"],
+            )?;
             PersonalChange::GroupUpdate {
                 group: group(),
                 name: string(fields, "name"),
@@ -621,6 +625,8 @@ fn personal_change(
                 top_index: fields
                     .get("top_index")
                     .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
+                icon: nullable_string(fields, "icon"),
+                pinned: fields.get("pinned").and_then(Value::as_bool),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

@@ -235,7 +235,10 @@ be empty. There is no command, cwd, or environment: no child is spawned. The
 replay carries the title (OSC 2) and working directory (OSC 7); an owner
 appends the last OSC 9;4 progress (`ESC ] 9 ; <progress> ESC \`) after it, and
 the host also feeds the seed to its terminal-metadata parser, discarding any
-notifications and shell marks, so its snapshots report that progress.
+notifications and shell marks, so its snapshots report that progress. Known gap:
+the seed is applied with plain VT writes, so Kitty graphics placements and
+image-number aliases from before the replacement are not restored; programs
+redraw their images on the next update.
 
 `LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
 by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity
@@ -568,8 +571,9 @@ sockets are mode `0600`.
 
 A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
 moves each terminal host it starts into its own transient scope
-`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, before the
-host receives `Launch` or `LaunchAdopt`, so the host's child inherits the
+`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`: the daemon waits (at most 2 s)
+until the host's own cgroup names the scope, so the host's child inherits the
 scope and a stop or restart of the daemon's unit leaves the host running for
 adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
 with the host PID, run as `busctl` with a fixed argument vector (through

@@ -16,6 +16,10 @@
 //! - [`manifest`]: signed channel manifest verification (server.md 4.2).
 //! - [`catalog`]: the `server.*` operations as static data (server.md 13).
 //! - [`reexec`]: the one re-exec into a newer staged `cmux` (decision SV-R2).
+//! - [`role`]: the role trait and lifecycle events `cmux host run`
+//!   supervises (lane 1 vm-image.md 6.3).
+//! - [`role_spec`] and [`role_proc`]: process roles from `server.json`
+//!   and their restart and health reducer (server.md 5.1).
 
 pub mod access;
 pub mod catalog;
@@ -27,6 +31,9 @@ pub mod pg;
 pub mod platform;
 pub mod ports;
 pub mod reexec;
+pub mod role;
+pub mod role_proc;
+pub mod role_spec;
 pub mod units;
 
 pub use platform::{HostPath, InstallMode, Platform};

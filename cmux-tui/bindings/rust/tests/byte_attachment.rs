@@ -173,6 +173,8 @@ fn byte_attachment_set_client_info_with_the_lease_capability_precedes_attach_on_
             info["capabilities"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(advertised, BYTE_ATTACHMENT_CAPABILITIES);
         assert!(advertised.contains(&"view-attachment-lease-v1"));
+        // The reader decodes any device kind, so the daemon may send linux and windows.
+        assert!(advertised.contains(&"open-device-kinds-v1"));
         assert_eq!(info["kind"], "frontend");
         assert_eq!(info["name"], "cmux-browser");
         assert_eq!(info["device_kind"], "browser");
@@ -505,7 +507,13 @@ fn byte_attachment_attach_events_decode_in_wire_order() {
         );
         fake.write(json!({"event": "size-state", "surface": 7, "state": {
             "generation": 3, "cols": 100, "rows": 30, "reason": "latest", "owners": ["c1"],
-            "policy": {"mode": "latest", "priority": [], "fixed": null}, "participants": []}}));
+            "policy": {"mode": "latest", "priority": [], "fixed": null}, "participants": [
+                {"id": "c1", "user_id": "u1", "display_name": null, "device_kind": "linux",
+                 "device_name": null, "device_id": null, "via": null, "viewport": null,
+                 "counts": true, "counts_override": null, "priority_key": "u1/linux"},
+                {"id": "c2", "user_id": "u1", "display_name": null, "device_kind": "quantum",
+                 "device_name": null, "device_id": null, "via": null, "viewport": null,
+                 "counts": true, "counts_override": null, "priority_key": "u1/quantum"}]}}));
         fake.write(json!({"event": "notification", "surface": 7, "title": "t"}));
         fake.write(json!({"event": "detached", "surface": 7, "scope": "view",
                           "reason": "disconnected-by", "by": {"display_name": "Maya"}}));
@@ -529,6 +537,16 @@ fn byte_attachment_attach_events_decode_in_wire_order() {
     assert_eq!(next(&mut reader), AttachmentItem::ScrollChanged { offset: 12, at_bottom: false });
     let AttachmentItem::SizeState(state) = next(&mut reader) else { panic!("size-state") };
     assert_eq!((state.generation, state.cols, state.rows), (3, 100, 30));
+    let kinds: Vec<Value> = state
+        .participants
+        .iter()
+        .map(|row| serde_json::to_value(row.device_kind).unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        [json!("linux"), json!("unknown")],
+        "an unknown kind does not end the stream"
+    );
     let AttachmentItem::Other { event, .. } = next(&mut reader) else { panic!("other") };
     assert_eq!(event, "notification");
     let AttachmentItem::ViewDetached { actor } = next(&mut reader) else { panic!("view detach") };

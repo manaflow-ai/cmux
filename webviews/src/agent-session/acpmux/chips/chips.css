@@ -124,3 +124,68 @@
   outline: 1px solid var(--cv-link);
   outline-offset: 1px;
 }
+
+/* Video and audio (ReplyMedia): the player at its own size, capped like a reply image. */
+.cv-media {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  vertical-align: top;
+}
+.cv-media video {
+  display: block;
+  max-width: min(100%, 480px);
+  max-height: 320px;
+  border-radius: 8px;
+  background: #000;
+}
+.cv-media.is-video:not(:has(video)) {
+  min-width: 160px;
+  min-height: 90px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+.cv-media__name {
+  font-size: 12px;
+  color: var(--cv-text);
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-media__expand {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.5);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.cv-media:hover .cv-media__expand,
+.cv-media__expand:focus-visible {
+  opacity: 1;
+}
+.cv-media-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 16px 16px;
+}
+.cv-media-stage video {
+  max-width: 100%;
+  max-height: 100%;
+}

@@ -71,6 +71,8 @@ extension AgentPaneModel {
             return Self.replyResult(await openReplyPath(path))
         case .loadImage(let src):
             return await loadReplyImage(src)
+        case .loadMedia(let src):
+            return await loadReplyMedia(src)
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .openIn(let url, let browserId):

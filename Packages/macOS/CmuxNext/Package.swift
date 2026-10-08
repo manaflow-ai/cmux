@@ -143,6 +143,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextMallocZone",
+                "CmuxNextProcessEnvironment",
                 "CmuxNextHome",
                 "CmuxNextAgentQuestion",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -179,6 +180,7 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
+                "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -545,6 +547,9 @@ let package = Package(
         .target(
             name: "CmuxNextRemoteBrowser",
             dependencies: ["CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -678,6 +683,17 @@ let package = Package(
             name: "CmuxNextWakeups",
             swiftSettings: daemonSwiftSettings
         ),
+        // The freeze gate for this process's environment writes (libghostty
+        // keeps a copy of environ from ghostty_init). No dependencies.
+        .target(
+            name: "CmuxNextProcessEnvironment",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextProcessEnvironmentTests",
+            dependencies: ["CmuxNextProcessEnvironment"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
             dependencies: ["CmuxNextWakeups"],
@@ -749,6 +765,7 @@ let package = Package(
             name: "CmuxNextTerminal",
             dependencies: [
                 "CmuxNextWakeups",
+                "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextCopyMode",
@@ -937,7 +954,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextControl",
-            dependencies: ["CmuxNextWakeups", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -950,7 +967,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
