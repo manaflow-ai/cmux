@@ -10,7 +10,7 @@ struct TerminalViewportReportPolicyTests {
             naturalGrid: grid(columns: 72, rows: 60),
             previousNaturalGrid: grid(columns: 72, rows: 60),
             shouldReassertNaturalSize: true,
-            effectiveMatchesNatural: false,
+            effectiveGrid: (columns: 72, rows: 60),
             viewportReportPending: true
         ).shouldReport)
     }
@@ -21,7 +21,7 @@ struct TerminalViewportReportPolicyTests {
             naturalGrid: grid(columns: 73, rows: 60),
             previousNaturalGrid: grid(columns: 72, rows: 60),
             shouldReassertNaturalSize: true,
-            effectiveMatchesNatural: false,
+            effectiveGrid: (columns: 80, rows: 60),
             viewportReportPending: true
         ).shouldReport)
     }
@@ -32,7 +32,7 @@ struct TerminalViewportReportPolicyTests {
             naturalGrid: grid(columns: 72, rows: 60),
             previousNaturalGrid: grid(columns: 72, rows: 60),
             shouldReassertNaturalSize: true,
-            effectiveMatchesNatural: false,
+            effectiveGrid: (columns: 80, rows: 60),
             viewportReportPending: false
         ).shouldReport)
     }
@@ -43,7 +43,7 @@ struct TerminalViewportReportPolicyTests {
             naturalGrid: grid(columns: 66, rows: 53),
             previousNaturalGrid: grid(columns: 66, rows: 53),
             shouldReassertNaturalSize: true,
-            effectiveMatchesNatural: false,
+            effectiveGrid: (columns: 66, rows: 35),
             viewportReportPending: false
         ).shouldReport)
     }
@@ -54,7 +54,7 @@ struct TerminalViewportReportPolicyTests {
             naturalGrid: grid(columns: 72, rows: 60, pixelWidth: 1081, pixelHeight: 1777),
             previousNaturalGrid: grid(columns: 72, rows: 60, pixelWidth: 1080, pixelHeight: 1776),
             shouldReassertNaturalSize: false,
-            effectiveMatchesNatural: true,
+            effectiveGrid: (columns: 72, rows: 60),
             viewportReportPending: false
         ).shouldReport)
     }

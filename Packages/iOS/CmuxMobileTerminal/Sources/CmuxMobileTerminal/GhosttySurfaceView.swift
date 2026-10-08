@@ -5921,14 +5921,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             applyAbsoluteFontSize(userBaseFontSize)
         }
-        let effectiveMatchesNatural = effectiveGrid.map { grid in
-            grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
-        } ?? true
         let viewportReportPolicy = TerminalViewportReportPolicy(
             naturalGrid: reportGrid,
             previousNaturalGrid: lastReportedSize,
             shouldReassertNaturalSize: shouldReassertNaturalSize,
-            effectiveMatchesNatural: effectiveMatchesNatural,
+            effectiveGrid: effectiveGrid.map { (columns: $0.cols, rows: $0.rows) },
             viewportReportPending: viewportReportPending
         )
         let shouldReportNaturalSize = viewportReportPolicy.shouldReport
@@ -5975,6 +5972,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportID &+= 1
         awaitingViewportEcho = true
         noteKeyboardTransitionPresentationReportPublished(id: viewportReportID)
+        diagnosticLog?.recordTerminalViewportReport(
+            correlationID: hostSurfaceID,
+            columns: report.columns,
+            rows: report.rows,
+            reportID: viewportReportID
+        )
         MobileDebugLog.anchormux(
             "viewport.report grid=\(report.columns)x\(report.rows) id=\(viewportReportID) "
                 + "retry=\(viewportReportRetries) reason=\(reason)"

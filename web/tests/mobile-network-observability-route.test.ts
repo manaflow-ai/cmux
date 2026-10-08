@@ -402,6 +402,56 @@ describe("iOS mobile network observability route", () => {
     expect(emitted[0]?.batch[0]).toMatchObject({ stage: "input_to_output", durationMs: 1_250 });
   });
 
+  test("accepts bounded terminal viewport loop diagnostics", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_terminal_viewport_resize",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        phase: "terminal_viewport",
+        status: "published",
+        columns: 66,
+        rows: 53,
+        report_id: 4,
+        event_surface: 7,
+        same_capacity_reports: 4,
+        repeat_window_ms: 3_000,
+        loop_detected: true,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      columns: 66,
+      rows: 53,
+      reportId: 4,
+      sameCapacityReports: 4,
+      repeatWindowMs: 3_000,
+      loopDetected: true,
+    });
+  });
+
+  test("rejects unbounded terminal viewport diagnostics", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_terminal_viewport_resize",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        phase: "terminal_viewport",
+        status: "published",
+        columns: 66,
+        rows: 53,
+        report_id: 4,
+        same_capacity_reports: 4,
+        repeat_window_ms: 3_000,
+        loop_detected: false,
+        terminal_text: "must be rejected",
+      },
+    }]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toHaveLength(0);
+  });
+
   test("accepts a bounded terminal trace correlation", async () => {
     const response = await POST(outcomeRequest([
       outcome({

@@ -97,6 +97,7 @@ final class AppCompositionRoot {
     /// analytics so network outcomes never enter PostHog.
     private let networkOutcomeReporter: MobileNetworkOutcomeReporter
     private let terminalTraceReporter: MobileTerminalTraceReporter
+    private let terminalViewportReporter: MobileTerminalViewportReporter
 
     init(
         runtime: CMUXMobileRuntime,
@@ -174,12 +175,15 @@ final class AppCompositionRoot {
         let initialConnectionReporter = analytics.initialConnectionReporter
         let terminalTraceReporter = analytics.terminalTraceReporter
         self.terminalTraceReporter = terminalTraceReporter
+        let terminalViewportReporter = analytics.terminalViewportReporter
+        self.terminalViewportReporter = terminalViewportReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
             networkOutcomeReporter.ingest(event)
             initialConnectionReporter.ingest(event)
             terminalTraceReporter.ingest(event)
+            terminalViewportReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -479,12 +483,14 @@ final class AppCompositionRoot {
             let initialConnectionReporter = self.analytics.initialConnectionReporter
             let terminalLatencyReporter = self.analytics.terminalLatencyReporter
             let terminalTraceReporter = self.terminalTraceReporter
+            let terminalViewportReporter = self.terminalViewportReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
                 await initialConnectionReporter.flush()
                 await terminalLatencyReporter.flush()
                 await terminalTraceReporter.flush()
+                await terminalViewportReporter.flush()
             }
         @unknown default:
             break

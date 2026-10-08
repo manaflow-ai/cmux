@@ -12,6 +12,7 @@ const TASK_MODEL_EVENT_NAME = "ios_task_model_discovery";
 const TASK_MODEL_RESULT_EVENT_NAME = "ios_task_model_result";
 const TERMINAL_WINDOW_EVENT_NAME = "ios_terminal_latency_window";
 const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
+const TERMINAL_VIEWPORT_EVENT_NAME = "ios_terminal_viewport_resize";
 const RUNTIME_ROLE = "mobileClient";
 const MAX_STRING_LENGTH = 120;
 const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
@@ -92,6 +93,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
+  "status", "columns", "rows", "report_id", "same_capacity_reports", "repeat_window_ms", "loop_detected",
   "replay_trigger", "surface_blank", "barrier_active", "replay_attempt", "app_foreground",
   "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
   "provider", "source", "effort_count",
@@ -267,7 +269,25 @@ export type MobileTaskModelResult = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileIrohPathEvent | MobileIrohPathInventory | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery | MobileTaskModelResult;
+export type MobileTerminalViewportResize = {
+  readonly timestamp: string;
+  readonly columns: number;
+  readonly rows: number;
+  readonly reportId: number;
+  readonly eventSurface?: number;
+  readonly sameCapacityReports: number;
+  readonly repeatWindowMs: number;
+  readonly loopDetected: boolean;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
+export type MobileObservabilityEvent = MobileNetworkOutcome | MobileIrohPathEvent | MobileIrohPathInventory | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTerminalViewportResize | MobileTaskModelDiscovery | MobileTaskModelResult;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -479,14 +499,61 @@ export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTer
   };
 }
 
+export function parseMobileTerminalViewportResize(candidate: unknown): MobileTerminalViewportResize | null {
+  if (!isRecord(candidate) || candidate.event !== TERMINAL_VIEWPORT_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const properties = candidate.properties;
+  const phase = optionalExact(properties.phase, "terminal_viewport");
+  const status = optionalExact(properties.status, "published");
+  const columns = boundedUnsignedInteger(properties.columns, 512);
+  const rows = boundedUnsignedInteger(properties.rows, 512);
+  const reportId = boundedUnsignedInteger(properties.report_id, MAX_SAFE_UNSIGNED_INTEGER, true);
+  const eventSurface = optionalDiagnosticInteger(properties.event_surface);
+  const sameCapacityReports = boundedUnsignedInteger(properties.same_capacity_reports, 1_000, true);
+  const repeatWindowMs = boundedUnsignedInteger(properties.repeat_window_ms, 60_000);
+  const loopDetected = properties.loop_detected;
+  const metadata = parseMetadata(properties);
+  if (phase !== "terminal_viewport" || status !== "published"
+    || columns === null || rows === null || reportId === null || eventSurface === false
+    || sameCapacityReports === null || repeatWindowMs === null
+    || typeof loopDetected !== "boolean" || !metadata) return null;
+  return {
+    timestamp: candidate.timestamp,
+    columns,
+    rows,
+    reportId,
+    ...(typeof eventSurface === "number" ? { eventSurface } : {}),
+    sameCapacityReports,
+    repeatWindowMs,
+    loopDetected,
+    ...viewportMetadataFields(metadata),
+  };
+}
+
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
   return parseMobileIrohPathInventory(candidate)
     ?? parseMobileIrohPathEvent(candidate)
     ?? parseMobileTaskModelResult(candidate)
     ?? parseMobileTaskModelDiscovery(candidate)
+    ?? parseMobileTerminalViewportResize(candidate)
     ?? parseMobileNetworkOutcome(candidate)
     ?? parseMobileTerminalLatencyWindow(candidate)
     ?? parseMobileTerminalLatencyAnomaly(candidate);
+}
+
+function viewportMetadataFields(metadata: Metadata): Pick<
+  MobileTerminalViewportResize,
+  "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel"
+> {
+  return {
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
 }
 
 type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "correlationId" | "failure">;
@@ -985,6 +1052,41 @@ export async function emitMobileObservabilityEvents(
     if ("phase" in observation) {
       return emitMobileNetworkOutcomes(userId, [observation]);
     }
+    if ("columns" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.terminal.viewport",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.terminal.event": "viewport_resize",
+          "cmux.mobile.terminal.columns": observation.columns,
+          "cmux.mobile.terminal.rows": observation.rows,
+          "cmux.mobile.terminal.report_id": observation.reportId,
+          "cmux.mobile.event_surface": observation.eventSurface,
+          "cmux.mobile.terminal.same_capacity_reports": observation.sameCapacityReports,
+          "cmux.mobile.terminal.repeat_window_ms": observation.repeatWindowMs,
+          "cmux.mobile.terminal.loop_detected": observation.loopDetected,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        (span) => {
+          if (observation.loopDetected) {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: "terminal_viewport:loop_detected",
+            });
+          }
+        },
+      );
+    }
     if ("windowMs" in observation) {
       return withSpan(
         "cmux-mobile-network",
@@ -1060,6 +1162,12 @@ function unsignedInteger(value: unknown): number | null {
   return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= MAX_SAFE_UNSIGNED_INTEGER
     ? Number(value)
     : null;
+}
+
+function boundedUnsignedInteger(value: unknown, maximum: number, requirePositive = false): number | null {
+  const parsed = unsignedInteger(value);
+  if (parsed === null || parsed > maximum || (requirePositive && parsed === 0)) return null;
+  return parsed;
 }
 
 function optionalSetValue(value: unknown, allowed: ReadonlySet<string>): string | undefined | false {
