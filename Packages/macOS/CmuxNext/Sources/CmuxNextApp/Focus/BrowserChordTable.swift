@@ -76,6 +76,14 @@ enum BrowserChordTable {
         return shortcuts(of: event).contains { chords.contains($0) }
     }
 
+    /// The page-history action (`focusHistoryBack` / `focusHistoryForward`) of a browser-only
+    /// chord, for a page with its own history (history.md 4.2b); nil for any other key.
+    static func pageHistoryAction(for event: NSEvent, registry: ActionRegistry) -> ActionID? {
+        let typed = shortcuts(of: event)
+        let pairs: [(ActionID, ActionID)] = [("browserBack", "focusHistoryBack"), ("browserForward", "focusHistoryForward")]
+        return pairs.first { pair in registry.effectiveShortcut(for: pair.0).map(typed.contains) ?? false }?.1
+    }
+
     /// Like `ActionRegistry.resolveShortcut`: the key as typed and its
     /// unshifted base (Cmd-Shift-[ arrives as "{", Ctrl-Shift-Tab as
     /// back-tab U+0019).

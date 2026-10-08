@@ -33,4 +33,20 @@ final class InternalPageView: NSView {
     var focusTarget: NSView { (content as? PageWebView)?.webKitView ?? content }
 
     override var acceptsFirstResponder: Bool { false }
+
+    /// Runs Go Back (true) or Go Forward (false): the mouse side buttons and a
+    /// swipe over the page (history.md 4.2b). Set by the page's host.
+    var navigate: ((Bool) -> Void)?
+
+    /// Buttons 4 and 5 (AppKit numbers 3 and 4): Back and Forward, as in a browser.
+    override func otherMouseUp(with event: NSEvent) {
+        guard let navigate, event.buttonNumber == 3 || event.buttonNumber == 4 else { return super.otherMouseUp(with: event) }
+        navigate(event.buttonNumber == 3)
+    }
+
+    /// A swipe to the right is Back, to the left Forward (WebKit's rule).
+    override func swipe(with event: NSEvent) {
+        guard let navigate, event.deltaX != 0 else { return super.swipe(with: event) }
+        navigate(event.deltaX > 0)
+    }
 }

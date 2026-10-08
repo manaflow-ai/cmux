@@ -714,6 +714,36 @@ impl WorkspaceRegistry {
         Ok((group, changed))
     }
 
+    /// Move the existing personal row of a qualified workspace to `index` of
+    /// the personal order (past the end: last). Groups keep their slot among
+    /// the other workspaces (mixed order). Writes no journal record: the
+    /// caller's commit states the change.
+    pub(crate) fn move_personal_row_in(
+        tx: &Transaction<'_>,
+        session: &str,
+        key: &str,
+        index: usize,
+    ) -> anyhow::Result<()> {
+        let slots = mixed_order::group_slots(tx, Some((session, key)))?;
+        let rows = read_workspaces(tx)?;
+        let mut order = rows
+            .iter()
+            .map(|row| (row.session_id.clone(), row.workspace_key.clone()))
+            .collect::<Vec<_>>();
+        let Some(old) = order.iter().position(|(s, k)| s == session && k == key) else {
+            anyhow::bail!("no personal row for {session}/{key}");
+        };
+        let moved = order.remove(old);
+        order.insert(index.min(order.len()), moved);
+        for (position, (s, k)) in order.iter().enumerate() {
+            tx.execute(
+                "UPDATE personal_workspaces SET position = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
+                params![s, k, i64::try_from(position)?],
+            )?;
+        }
+        mixed_order::restore_group_slots(tx, &slots, Some((session, key)))
+    }
+
     /// Create or update the personal row of a qualified workspace. `index`
     /// is its final position in the personal order (absent on create:
     /// last). The daemon does not check that a group belongs to the room
@@ -767,24 +797,7 @@ impl WorkspaceRegistry {
             )?;
         }
         if let Some(index) = update.index {
-            // Groups keep their slot among the other workspaces (mixed order).
-            let slots = mixed_order::group_slots(tx, Some((session, key)))?;
-            let rows = read_workspaces(tx)?;
-            let mut order = rows
-                .iter()
-                .map(|row| (row.session_id.clone(), row.workspace_key.clone()))
-                .collect::<Vec<_>>();
-            let old =
-                order.iter().position(|(s, k)| s == session && k == key).unwrap_or(order.len() - 1);
-            let moved = order.remove(old);
-            order.insert(index.min(order.len()), moved);
-            for (position, (s, k)) in order.iter().enumerate() {
-                tx.execute(
-                    "UPDATE personal_workspaces SET position = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
-                    params![s, k, i64::try_from(position)?],
-                )?;
-            }
-            mixed_order::restore_group_slots(tx, &slots, Some((session, key)))?;
+            Self::move_personal_row_in(tx, session, key, index)?;
         }
         crate::state::home_store::require_home_first(tx)?;
         let after = find(&read_workspaces(tx)?)
