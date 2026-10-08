@@ -8,7 +8,7 @@ import Foundation
 /// The owning `@MainActor` controller keeps the WebKit
 /// evaluation seam and the per-surface ref/workspace state, normalizes the raw
 /// result via ``BrowserControlService/normalizeJSValue(_:isUndefinedSentinel:)``,
-/// and composes the RPC reply, so the wire output is unchanged.
+/// and composes the RPC reply.
 extension BrowserControlService {
     /// Normalizes the requested Web Storage area to either `"session"` or
     /// `"local"`, defaulting to `"local"` for any unrecognized request.
