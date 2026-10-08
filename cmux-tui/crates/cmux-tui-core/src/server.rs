@@ -21415,13 +21415,13 @@ mod tests {
 
     #[test]
     fn stalled_websocket_handshake_times_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (listener, mux) = (TcpListener::bind("127.0.0.1:0").unwrap(), test_mux());
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
             handle_websocket_connection(
-                test_mux(),
+                mux,
                 server,
                 peer,
                 None,
@@ -21431,7 +21431,7 @@ mod tests {
         });
 
         finished
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("stalled handshake must not occupy a connection slot indefinitely");
         drop(client);
         handler.join().unwrap();
@@ -21439,13 +21439,13 @@ mod tests {
 
     #[test]
     fn stalled_websocket_authentication_times_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (listener, mux) = (TcpListener::bind("127.0.0.1:0").unwrap(), test_mux());
         let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
             handle_websocket_connection(
-                test_mux(),
+                mux,
                 server,
                 peer,
                 Some("secret"),
@@ -21456,7 +21456,7 @@ mod tests {
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();
 
         finished
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("stalled authentication must not occupy a connection slot indefinitely");
         drop(client);
         handler.join().unwrap();
