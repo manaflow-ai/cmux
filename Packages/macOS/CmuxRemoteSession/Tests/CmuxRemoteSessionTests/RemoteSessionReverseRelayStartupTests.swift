@@ -35,6 +35,25 @@ struct RemoteSessionReverseRelayStartupTests {
         ))
     }
 
+    @Test("Only canonical OpenSSH authentication markers are classified")
+    func identifiesSSHAuthenticationFailure() {
+        #expect(
+            RemoteRelayAuthenticationFailure.detect(
+                in: "user@example.test: Permission denied (publickey,password)."
+            ) == .permissionDenied(methods: "publickey, password")
+        )
+        #expect(
+            RemoteRelayAuthenticationFailure.detect(
+                in: "Too many authentication failures for user"
+            ) == .tooManyAuthenticationFailures
+        )
+        #expect(
+            RemoteRelayAuthenticationFailure.detect(
+                in: "Permission denied: caller-controlled diagnostic"
+            ) == nil
+        )
+    }
+
     @MainActor
     static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),

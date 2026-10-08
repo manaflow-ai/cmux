@@ -644106,6 +644106,65 @@
           }
         }
       }
+    },
+    "remoteSession.parked.sshAuthenticationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication to %@ failed (%@). Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への SSH 認証に失敗しました（%@）。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 %@ 的 SSH 身份验证失败（%@）。自动重连已暂停；请使用“重新连接”再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung bei %@ ist fehlgeschlagen (%@). Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH auprès de %@ a échoué (%@). Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت مصادقة SSH مع %@ (%@). تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH en %@ falló (%@). Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 對 %@ 的驗證失敗（%@）。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 SSH 인증에 실패했습니다(%@). 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

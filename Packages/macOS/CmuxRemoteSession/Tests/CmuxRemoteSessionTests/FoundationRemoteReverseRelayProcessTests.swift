@@ -47,6 +47,39 @@ struct FoundationRemoteReverseRelayProcessTests {
         #expect(process.terminationStatus == 255)
     }
 
+    @Test("Termination preserves an SSH authentication marker over later cleanup")
+    func terminationPrioritizesAuthenticationFailure() async throws {
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            """
+            printf 'Permission denied (publickey).\\n' >&2
+            printf 'Connection to example.com closed.\\n' >&2
+            exit 255
+            """,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+        let relayProcess = FoundationRemoteReverseRelayProcess(
+            process: process,
+            stderrPipe: stderrPipe
+        )
+        let (details, continuation) = AsyncStream<String?>.makeStream()
+
+        try process.run()
+        relayProcess.captureTermination { detail in
+            continuation.yield(detail)
+            continuation.finish()
+        }
+
+        var iterator = details.makeAsyncIterator()
+        #expect(await iterator.next() == "Permission denied (publickey).")
+        #expect(process.terminationStatus == 255)
+    }
+
     @Test("Termination bounds draining inherited stderr writers")
     func terminationBoundsInheritedStderr() async throws {
         let process = Process()

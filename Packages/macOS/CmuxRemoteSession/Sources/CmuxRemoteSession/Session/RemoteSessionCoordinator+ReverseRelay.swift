@@ -226,8 +226,39 @@ extension RemoteSessionCoordinator {
         guard let remotePath = daemonRemotePath,
               !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let detail = stderrDetail ?? "status=\(process.terminationStatus)"
-        debugLog("remote.relay.exit \(detail)")
+        if let authenticationFailure = stderrDetail.flatMap(
+            RemoteRelayAuthenticationFailure.detect(in:)
+        ) {
+            debugLog(
+                "remote.relay.authFailed kind=\(authenticationFailure.logLabel) " +
+                    "status=\(process.terminationStatus)"
+            )
+            let detail = String(
+                format: String(
+                    localized: "remoteSession.parked.sshAuthenticationFailed",
+                    defaultValue: "SSH authentication to %@ failed (%@). Automatic reconnect paused; use Reconnect to try again."
+                ),
+                configuration.displayTarget,
+                authenticationFailure.methodLabel
+            )
+            resetTransportForReconnectLocked(
+                preservePersistentRelayMetadata: true
+            )
+            parkSessionLocked(
+                cause: .sshAuthenticationFailed,
+                daemonState: .error,
+                detail: detail
+            )
+            return
+        }
+
+        // Stderr can contain ProxyCommand output, hostnames, usernames, or
+        // other caller-controlled secrets. Keep it out of logs and publish
+        // only the existing retry state for failures we do not classify.
+        debugLog(
+            "remote.relay.exit status=\(process.terminationStatus) " +
+                "detailAvailable=\(stderrDetail == nil ? 0 : 1)"
+        )
         publishReverseRelayFailureLocked(remotePath: remotePath)
     }
 

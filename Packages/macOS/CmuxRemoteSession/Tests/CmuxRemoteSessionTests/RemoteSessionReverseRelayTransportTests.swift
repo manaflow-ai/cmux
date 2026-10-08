@@ -426,7 +426,13 @@ struct RemoteSessionReverseRelayTransportTests {
 
         let status = try #require(await statuses.next())
         #expect(status.state == .error)
-        #expect(status.detail?.contains("Permission denied (publickey)") == true)
+        #expect(status.detail?.contains("SSH authentication") == true)
+        #expect(status.detail?.contains("publickey") == true)
+        #expect(coordinator.queue.sync {
+            coordinator.parkedState?.cause == .sshAuthenticationFailed &&
+                coordinator.reverseRelayRestartToken == nil &&
+                !coordinator.daemonReady
+        })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
