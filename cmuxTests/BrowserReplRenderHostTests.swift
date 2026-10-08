@@ -52,7 +52,7 @@ struct BrowserReplRenderHostTests {
         }
     }
 
-    @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() throws {
+    @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() async throws {
         let (window, anchor) = try makeWindow()
         defer { window.orderOut(nil) }
         let panel = BrowserPanel(
@@ -86,6 +86,9 @@ struct BrowserReplRenderHostTests {
 
         // The pane shows the tab: the web view comes back at once.
         panel.noteWebViewVisibility(true, reason: "test.visible")
+        await Task.yield()
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
         #expect(webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(webView.window === window)
         #expect(visibleRenderWindows().isEmpty)
@@ -93,9 +96,11 @@ struct BrowserReplRenderHostTests {
         // Hidden again, then the session ends: the pane gets it back.
         panel.noteWebViewVisibility(false, reason: "test.hiddenAgain")
         BrowserReplTabAttachments.shared.attachment(for: panel.id)?.keepRendering()
+        await Task.yield()
         #expect(webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
         BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
         #expect(webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(visibleRenderWindows().isEmpty)
     }
