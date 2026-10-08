@@ -137,12 +137,39 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     }
 }
 
-/// The zero-cost NSView ``MirrorHostProbe`` plants inside the mirror's own
+/// The NSView ``MirrorHostProbe`` plants inside the mirror's own
 /// view subtree so the mirror has a window handle that survives portal
 /// churn, and an ancestor chain rooted at the mirror's real position for
 /// geometry diagnostics.
 final class MirrorHostProbeView: NSView {
     weak var mirror: RemoteTmuxWindowMirror?
+    private weak var pendingDisplayWindow: NSWindow?
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func hostWindowDisplayDidChange(_ notification: Notification) {
+        guard let sourceWindow = notification.object as? NSWindow,
+              sourceWindow === window,
+              pendingDisplayWindow !== sourceWindow else { return }
+        pendingDisplayWindow = sourceWindow
+        // Display removal can resize the region without ending a live resize.
+        // Read the region after AppKit updates its layout and backing scale;
+        // the window content size includes chrome outside this mirror.
+        DispatchQueue.main.async { [weak self, weak sourceWindow] in
+            guard let self, let sourceWindow,
+                  self.pendingDisplayWindow === sourceWindow else { return }
+            self.pendingDisplayWindow = nil
+            guard self.window === sourceWindow,
+                  let mirror = self.mirror,
+                  mirror.hostProbeView === self else { return }
+            mirror.noteContainerSize(
+                pointSize: self.bounds.size,
+                scale: sourceWindow.backingScaleFactor
+            )
+        }
+    }
 
     /// The probe backs the whole mirror region, including the sub-cell
     /// margin outside the split tree; it must never swallow a click there.
@@ -162,7 +189,9 @@ final class MirrorHostProbeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else {
+        NotificationCenter.default.removeObserver(self)
+        pendingDisplayWindow = nil
+        guard let window else {
             // A tab re-show can recreate the probe, and AppKit delivers the
             // DYING probe's move-to-nil-window after the replacement already
             // registered — claiming here would shadow the live probe's
@@ -173,6 +202,14 @@ final class MirrorHostProbeView: NSView {
             return
         }
         mirror?.hostProbeView = self
+        for name in [NSWindow.didChangeScreenNotification, NSWindow.didChangeBackingPropertiesNotification] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(hostWindowDisplayDidChange(_:)),
+                name: name,
+                object: window
+            )
+        }
     }
 }
 
