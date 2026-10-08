@@ -1641,3 +1641,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_gh_merge_green_revert.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_notarization_recovery_manifest.py"
+lane = "linux-guard"
