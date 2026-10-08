@@ -288,6 +288,23 @@ struct SidebarAppKitRowCellTests {
         #expect(!closeButton.isAccessibilityElement())
     }
 
+    @Test
+    func workspaceRowAccessibilityPressSelectsWorkspace() throws {
+        let tabManager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace()
+        let model = Self.makeModel(workspaceId: workspace.id)
+        let cell = Self.configuredCell(
+            model: model,
+            tab: workspace,
+            tabManager: tabManager
+        )
+
+        #expect(cell.accessibilityIdentifier() == "sidebarWorkspace.\(workspace.id.uuidString)")
+        #expect(cell.accessibilityRole() == .button)
+        #expect(cell.accessibilityPerformPress())
+        #expect(tabManager.selectedTabId == workspace.id)
+    }
+
     @Test(arguments: [false, true], [
         ("**Pi finished.**", "Pi finished."),
         ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),
