@@ -236,3 +236,6 @@ fn a_legacy_topology_command_records_its_connection_actor() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(newest_legacy_actor(&mux).as_deref(), Some("peer:websocket"));
 }
+
+#[path = "mutation_actor_legacy_tests.rs"]
+mod legacy;

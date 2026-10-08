@@ -111,3 +111,78 @@ fn effect_receipts_written_before_the_actor_column_read_legacy() {
     drop(registry);
     let _ = fs::remove_dir_all(root);
 }
+
+/// The ledgers that predate actors (P8 landing 3b).
+const OLDER_LEDGERS: [&str; 4] =
+    ["mutations", "terminal_mutations", "projection_mutations", "bookmark_mutations"];
+
+fn has_actor_column(connection: &Connection, table: &str) -> bool {
+    connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .map(Result::unwrap)
+        .any(|column| column == "actor")
+}
+
+/// One row in each older ledger, as a daemon without actors writes it.
+fn insert_old_ledger_rows(connection: &Connection, id: &str) {
+    for table in ["mutations", "terminal_mutations"] {
+        let sql = format!(
+            "INSERT INTO {table}(origin, mutation_id, fingerprint, result_json, committed_revision)
+             VALUES('old-origin', ?1, '{{}}', '{{}}', 0)"
+        );
+        connection.execute(&sql, [id]).unwrap();
+    }
+    connection
+        .execute(
+            "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
+             VALUES('old-origin', ?1, '{}', '{}')",
+            [id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO bookmark_mutations(origin, mutation_id, operation, fingerprint, result_json)
+             VALUES('old-origin', ?1, 'bookmark.create', '{}', '{}')",
+            [id],
+        )
+        .unwrap();
+}
+
+/// Design D (landing 2c): a nullable column, so a row from before it, or
+/// from an older daemon on the upgraded store, stays NULL and reads `legacy`.
+#[test]
+fn older_ledgers_gain_a_nullable_actor_and_their_old_rows_read_legacy() {
+    let root = temp_root("older-ledgers");
+    {
+        let registry = WorkspaceRegistry::open(&root, "ledger-migration").unwrap();
+        for table in OLDER_LEDGERS {
+            if has_actor_column(&registry.connection, table) {
+                let sql = format!("ALTER TABLE {table} DROP COLUMN actor;");
+                registry.connection.execute_batch(&sql).unwrap();
+            }
+        }
+        insert_old_ledger_rows(&registry.connection, "old");
+    }
+    let registry = WorkspaceRegistry::open(&root, "ledger-migration").unwrap();
+    // An older daemon on the upgraded store omits the column on its writes.
+    insert_old_ledger_rows(&registry.connection, "old-daemon-after");
+    for table in OLDER_LEDGERS {
+        assert!(has_actor_column(&registry.connection, table), "{table} has no actor column");
+        let sql = format!("SELECT COUNT(*) FROM {table} WHERE actor IS NOT NULL");
+        let stored: i64 = registry.connection.query_row(&sql, [], |row| row.get(0)).unwrap();
+        assert_eq!(stored, 0, "{table}: an old row got an actor");
+    }
+    let tx = registry.connection.unchecked_transaction().unwrap();
+    let actor = session_journal::resource_record_actor(&tx, "old", true).unwrap();
+    assert_eq!(actor.as_deref(), Some("legacy"), "a NULL ledger actor reads legacy");
+    drop(tx);
+    drop(registry);
+    // A second open is a no-op on the migrated store.
+    let registry = WorkspaceRegistry::open(&root, "ledger-migration").unwrap();
+    assert!(has_actor_column(&registry.connection, "bookmark_mutations"));
+    drop(registry);
+    let _ = fs::remove_dir_all(root);
+}

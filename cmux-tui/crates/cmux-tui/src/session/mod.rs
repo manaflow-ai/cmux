@@ -281,6 +281,8 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 }
 
 #[cfg(test)]
+mod local_actor_tests;
+#[cfg(test)]
 mod test_errors;
 #[cfg(test)]
 pub(crate) use test_errors::*;
