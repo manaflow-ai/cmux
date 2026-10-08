@@ -21,6 +21,7 @@ import {
 import { FileSearch } from "./FileSearch";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
+import { commandArgs } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { readNativePersistedDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
@@ -91,6 +92,10 @@ type Props = {
   handle?: React.Ref<ComposerHandle>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Handles a cmux-owned slash command after the user submits it.
+  onCmuxCommand?(command: SlashCommand, args?: string): boolean | void;
+  /// Reads a transcript chosen by the cmux-owned `/import` command.
+  onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
@@ -138,6 +143,8 @@ export function Composer({
   accessory,
   prompt,
   onAttach,
+  onCmuxCommand,
+  onImportFile,
   searchFiles,
   onProject,
   projectChoices,
@@ -161,6 +168,7 @@ export function Composer({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  const importInput = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
@@ -393,6 +401,24 @@ export function Composer({
       plusDraft.current = undefined;
       return false;
     }
+    const owned = commands?.find((command) => command.source === "cmux" && commandArgs(prompt, command) !== undefined);
+    if (owned) {
+      if (owned.name === "import") {
+        if (!onImportFile) return false;
+        importInput.current?.click();
+      } else if (!onCmuxCommand) {
+        return false;
+      } else {
+        const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
+        if (accepted === false) return false;
+      }
+      setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
+      setAttachError(undefined);
+      plusDraft.current = undefined;
+      edit("", 0);
+      sentAt.current = Date.now();
+      return true;
+    }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
     const taken = onSend(prompt, sent);
@@ -538,7 +564,9 @@ export function Composer({
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.
-    const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
+    const typedInFull =
+      matches[selected]?.command.name === query &&
+      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
     if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
       submit(event);
       return;
@@ -629,6 +657,19 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box">
+        <input
+          ref={importInput}
+          className="acpmux-import-input"
+          type="file"
+          accept=".jsonl,.json,text/plain,application/json"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void onImportFile?.(file);
+          }}
+        />
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
           <SlashMenu
@@ -903,6 +944,7 @@ function SlashMenu({
             /<Highlighted name={match.command.name} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+          {match.command.source && <span className="acpmux-slash-source">{match.command.source}</span>}
           <span className="acpmux-slash-description">{match.command.description}</span>
         </div>
       ))}
