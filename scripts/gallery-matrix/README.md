@@ -31,7 +31,7 @@ bun runner.ts --manifest manifest.json --gallery-dir dist/gallery --output-dir .
 
 The Freestyle path installs the declared Bun dependencies and Playwright browsers in each VM, runs each shard in parallel, records every exact VM id in `.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json`, and PAUSES only those recorded ids in a `finally` block (also on failure and signals). It never lists the account to decide what to pause or delete. A run refuses to start while the ledger holds ids an earlier run neither paused nor deleted; `--freestyle-cleanup` pauses exactly those. Each VM also pauses itself after 300 s of network idleness. The key is read from its file and only sent to the Freestyle API.
 
-The local runner reuses one browser per engine but recycles it once when a renderer target crashes. If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots.
+The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The per-PR workflow runs the base, head and repeat stages as isolated jobs, then compares their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
 
 ## Per-PR diff
 

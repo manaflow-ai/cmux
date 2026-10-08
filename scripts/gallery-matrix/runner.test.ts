@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, shardCases, undeletedLedgerIds, writeLedger } from "./runner";
+import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
 
 test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);
@@ -14,6 +14,10 @@ test("shards cases deterministically", () => {
   const cases = [0, 1, 2, 3, 4, 5].map((id) => ({ id: String(id), path_or_url: "x" }));
   expect(shardCases(cases, 2, 0).map((item) => item.id)).toEqual(["0", "2", "4"]);
   expect(shardCases(cases, 2, 1).map((item) => item.id)).toEqual(["1", "3", "5"]);
+});
+
+test("bounds a renderer operation that stops responding", async () => {
+  await expect(withTimeout(new Promise(() => {}), 5, "fixture chromium")).rejects.toThrow("fixture chromium timed out after 5ms");
 });
 
 test("computes a pixel diff and threshold percentage", () => {
@@ -131,6 +135,49 @@ test("recycles a crashed renderer and keeps the matrix moving", async () => {
     expect(launches).toBe(2);
     expect(closedBrowsers).toBe(2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("records a hung case after both bounded attempts and captures later cases", async () => {
+  const { runLocal } = await import("./runner");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-browser-timeout-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "hung", path_or_url: "https://example.test/hung" },
+    { id: "next", path_or_url: "https://example.test/next" },
+  ]));
+  let launches = 0; let closedBrowsers = 0;
+  const previousExitCode = process.exitCode;
+  try {
+    const browserTypes = { chromium: { launch: async () => {
+      launches++;
+      return {
+        newContext: async () => {
+          let target = "";
+          return {
+            newPage: async () => ({
+              exposeFunction: async () => {}, goto: async (url: string) => { target = url; }, waitForFunction: async () => {},
+              evaluate: async () => target.includes("hung") ? new Promise(() => {}) : null,
+              screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+            }),
+            close: async () => {},
+          };
+        },
+        close: async () => { closedBrowsers++; },
+      };
+    } } };
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0, caseTimeoutMs: 5 }, browserTypes as never);
+    expect(results.map((result) => result.id)).toEqual(["hung", "next"]);
+    expect(results[0]?.ready).toBe("error");
+    expect(results[0]?.error).toContain("timed out after 5ms");
+    expect(results[1]?.ready).toBe(null);
+    expect(launches).toBe(3);
+    expect(closedBrowsers).toBe(3);
+    expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toEqual(results);
+  } finally {
+    process.exitCode = previousExitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("allocation failure waits for late VM ids before finally cleanup", async () => {
