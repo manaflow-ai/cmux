@@ -161,6 +161,31 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// cx-nvhp: the scope directory can be visible before its
+    /// `cgroup.events` file. The watch must still see the file appear and
+    /// then its change, instead of sleeping to the deadline.
+    #[test]
+    fn the_wait_ends_on_the_event_when_cgroup_events_appears_after_the_scope() {
+        let root = temp_root("late-events");
+        std::fs::write(root.join("cgroup.controllers"), "cpu memory\n").ok();
+        let scope = root.join("s.slice").join("h.scope");
+        std::fs::create_dir_all(&scope).ok();
+        let watch = PlacementWatch::new(&root, "s.slice", "h.scope");
+        assert!(watch.is_ok(), "{:?}", watch.as_ref().err());
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            std::fs::write(scope.join("cgroup.events"), "populated 0\nfrozen 0\n").ok();
+            std::thread::sleep(Duration::from_millis(50));
+            std::fs::write(scope.join("cgroup.events"), "populated 1\nfrozen 0\n").ok();
+        });
+        let started = Instant::now();
+        let result = watch.map(|watch| watch.wait(Duration::from_secs(5)));
+        writer.join().ok();
+        assert_eq!(result, Ok(Ok(())));
+        assert!(started.elapsed() < Duration::from_secs(4), "the wait did not end on the event");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn a_scope_that_never_fills_times_out_and_fails_open() {
         let root = temp_root("timeout");
