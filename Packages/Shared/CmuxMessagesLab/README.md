@@ -87,8 +87,11 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-08): every file at cc52c46, the sidebar's included
-(cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
+that are wip checkpoints. Current pins (2026-10-08): every file at 7d072dd, the sidebar's included
+(7d072dd and c7b32bb, verified with verify-clean 5/5: the header avatar stays centred on the pill after a
+resize, and ChromeView's `leadingEdgeIsWindowEdge`; Home hides ChromeView, so it keeps the default;
+pinned tiles are layers and cmux places the unread dot with `SidebarDraw.tileUnreadDot`, below the
+unread bubble; cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
 system text menu (Services) and media placeholders in a cross-bubble copy; long Markdown in tiles
 (MarkdownLong.swift) and the off-main streaming tail, both OFF unless `--long-markdown` /
 `--long-tail-off-main`; pinned sidebar tiles as separate layers; a copied attachment says
