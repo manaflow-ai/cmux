@@ -28291,6 +28291,9 @@ struct CMUXCLI {
             let panes = payload["panes"] as? [[String: Any]] ?? []
             let containerFrame = payload["container_frame"] as? [String: Any]
             for pane in panes {
+                // Dock panes are real cmux state, but they are outside the
+                // workspace split tree and cannot be tmux split targets.
+                guard pane["dock_scope"] == nil else { continue }
                 // Empty persisted Dock panes are valid cmux state but have no
                 // targetable tmux surface, so omit them from the tmux projection.
                 guard tmuxPaneHasTargetableSurface(pane) else { continue }
