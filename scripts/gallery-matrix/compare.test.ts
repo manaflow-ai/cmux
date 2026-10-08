@@ -131,7 +131,7 @@ function outcome(o: Partial<Outcome>): Outcome {
   full.key ||= `${full.id}-${full.engine}.png`;
   return full;
 }
-const meta = { pr: 18189, head: "e574a65ba50ef129", base: "1960804a7c4ea264", links: { diff: "https://g/pr-18189/diff/", thumbBase: "https://raw/pr-media/18189/gallery-e574a65-" } };
+const meta = { pr: 18189, head: "e574a65ba50ef129", base: "1960804a7c4ea264", links: { diff: "https://g/pr-18189/diff/", feed: "https://feed/pr-18189", thumbBase: "https://raw/pr-media/18189/gallery-e574a65-" } };
 
 test("the summary names changed states once each and the other counts", () => {
   const list = [
@@ -152,6 +152,7 @@ test("the comment is marked, links the diff page and shows thumbnails; nondeterm
   const md = commentMarkdown([outcome({}), outcome({ variant: "clock", status: "nondeterministic" })], meta);
   expect(md.startsWith(COMMENT_MARKER)).toBe(true);
   expect(md).toContain("**1 state changed: agent-pane.composer/idle**");
+  expect(md).toContain("[Review in feed](https://feed/pr-18189)");
   expect(md).toContain("[Diff page](https://g/pr-18189/diff/)");
   expect(md).toContain('<img src="https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer-idle-chromium.png" width="480">');
   expect(md).toContain("1 nondeterministic state differed from a second render");

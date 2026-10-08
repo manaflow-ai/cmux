@@ -153,13 +153,14 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/runs/base"
           bun pr.ts --base "$RUNNER_TEMP/runs/base" --head "$RUNNER_TEMP/runs/head" --repeat "$RUNNER_TEMP/runs/repeat" \
             --base-manifest "$RUNNER_TEMP/base.json" --head-manifest "$RUNNER_TEMP/head.json" \
             --out "$RUNNER_TEMP/gallery-pr/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" \
-            --artifact-url "$ARTIFACT_URL"
+            --artifact-url "$ARTIFACT_URL" --feed-url "${FEED_BASE_URL}?pr=${PR}&view=all"
           cp "$RUNNER_TEMP/touched.json" "$RUNNER_TEMP/gallery-pr/"
           cp -r "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/gallery-pr/gallery"
           cp -r "$RUNNER_TEMP/runs/head" "$RUNNER_TEMP/gallery-pr/matrix"
@@ -221,6 +222,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ needs.render.outputs.base_sha }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
         run: |
           set -euo pipefail
           prefix="gallery-${HEAD_SHA:0:11}-"
@@ -228,7 +230,8 @@ jobs:
           report="$RUNNER_TEMP/report"
           (cd scripts/gallery-matrix && bun install --frozen-lockfile --ignore-scripts && \
             bun pr.ts --outcomes "$RUNNER_TEMP/render/diff/outcomes.json" --out "$report" --pr "$PR" \
-              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base")
+              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" \
+              --feed-url "${FEED_BASE_URL}?pr=${PR}&view=all" --thumb-base "$thumb_base")
           upload="$RUNNER_TEMP/upload"
           mkdir -p "$upload"
           while IFS= read -r key; do

@@ -5,7 +5,7 @@
 //
 //   bun pr.ts --base base-run --head head-run --repeat head-run-2 \
 //     --base-manifest base.json --head-manifest head.json --out diff \
-//     --pr 18189 --head-sha <sha> --base-sha <sha> [--diff-url U] [--gallery-url U] [--matrix-url U]
+//     --pr 18189 --head-sha <sha> --base-sha <sha> [--diff-url U] [--gallery-url U] [--matrix-url U] [--feed-url U]
 //     [--artifact-url U] [--thumb-base U]
 //
 // With --outcomes (an earlier run's outcomes.json) it only writes the reports, so a publisher can
@@ -37,6 +37,7 @@ if (import.meta.main) {
       "diff-url": { type: "string" },
       "gallery-url": { type: "string" },
       "matrix-url": { type: "string" },
+      "feed-url": { type: "string" },
       "thumb-base": { type: "string" },
       "artifact-url": { type: "string" },
     },
@@ -63,6 +64,7 @@ if (import.meta.main) {
       diff: values["diff-url"],
       gallery: values["gallery-url"],
       matrix: values["matrix-url"],
+      feed: values["feed-url"],
       thumbBase: values["thumb-base"],
       artifact: values["artifact-url"],
     },
