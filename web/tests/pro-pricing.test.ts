@@ -225,6 +225,8 @@ describe("VM defaults and pricing copy", () => {
       const sizeError = messages.docs.cloudTroubleshooting.fixSize;
       expect(sizeError).toContain("16");
       expect(sizeError).not.toContain("32 GB");
+      expect(messages.docs.cloudMachines.limitsMax).toContain("24 GB / 12 vCPU");
+      expect(messages.docs.cloudMachines.limitsMax).toContain("32 GB / 16 vCPU");
       const pool = messages.vmErrors.resourcePool;
       for (const key of ["memoryMessage", "vcpuMessage"] as const) {
         for (const placeholder of ["{used}", "{pool}", "{requested}"]) {

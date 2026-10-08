@@ -2933,7 +2933,7 @@
       "limitsFree": "免费账户无法创建机器。",
       "limitsPaid": "Pro 和 Founder's Edition 账户最多可拥有 5 台活跃机器，共享 20 个 vCPU 和 40 GB 内存。正在运行或正在启动的机器即为活跃机器。",
       "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台活跃机器。每个付费席位会为团队资源池增加 20 个 vCPU 和 40 GB 内存。",
-      "limitsMax": "Max 账户最多可拥有 5 台活跃机器，共享 80 个 vCPU 和 160 GB 内存。在 Pro 和 Team 中，单台机器最高 16 GB 和 8 vCPU；在 Max 中最高 64 GB 和 32 vCPU。",
+      "limitsMax": "Max 账户最多可拥有 5 台活跃机器，共享 80 个 vCPU 和 160 GB 内存。单台 Max 机器最多可使用 64 GB 和 32 个 vCPU，包括 24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格；Pro 和 Team 的上限为 16 GB 和 8 个 vCPU。",
       "limitsPoolFull": "如果新建、恢复、扩容或分叉的机器会超出资源池，cmux 会拒绝该请求，并显示资源池的已用量。暂停或删除一台机器以释放资源，或升级到 Max。",
       "limitsPricing": "当前价格请查看定价页面。不按用量计费，也没有超额费用。",
       "agentUpdatesTitle": "让编码代理保持最新",

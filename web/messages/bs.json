@@ -2933,7 +2933,7 @@
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
       "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 aktivnih mašina koje dijele 20 vCPU-a i 40 GB memorije. Mašina je aktivna dok radi ili se pokreće.",
       "limitsTeam": "Timski računi mogu imati do 5 aktivnih mašina po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
-      "limitsMax": "Max računi mogu imati do 5 aktivnih mašina koje dijele 80 vCPU-a i 160 GB memorije. Jedna mašina može imati do 16 GB i 8 vCPU-a na Pro i Team planu, ili do 64 GB i 32 vCPU-a na Max planu.",
+      "limitsMax": "Max računi mogu imati do 5 aktivnih mašina koje dijele 80 vCPU-a i 160 GB memorije. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU-a i 32 GB / 16 vCPU-a; Pro i Team se zaustavljaju na 16 GB i 8 vCPU-a.",
       "limitsPoolFull": "Ako bi nova, nastavljena, povećana ili forkana mašina premašila zajednički skup, cmux odbija zahtjev i pokazuje koliko je skupa zauzeto. Pauzirajte ili obrišite mašinu da oslobodite resurse ili pređite na Max.",
       "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Nema mjerenja potrošnje ni naplate prekoračenja.",
       "agentUpdatesTitle": "Održavaj agente za kodiranje ažurnim",

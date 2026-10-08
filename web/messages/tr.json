@@ -2931,7 +2931,7 @@
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
       "limitsPaid": "Pro ve Founder's Edition hesaplarında 20 vCPU ve 40 GB belleği paylaşan en fazla 5 etkin makine olabilir. Bir makine çalışırken veya başlatılırken etkin sayılır.",
       "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 etkin makine olabilir. Her ücretli koltuk ekibin havuzuna 20 vCPU ve 40 GB bellek ekler.",
-      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 etkin makine olabilir. Tek bir makine Pro ve Team'de en fazla 16 GB ve 8 vCPU'ya, Max'te en fazla 64 GB ve 32 vCPU'ya çıkabilir.",
+      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 etkin makine olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil olmak üzere 64 GB ve 32 vCPU'ya kadar kullanabilir; Pro ve Team 16 GB ve 8 vCPU ile sınırlıdır.",
       "limitsPoolFull": "Yeni, sürdürülen, büyütülen veya çatallanan bir makine havuzu aşacaksa cmux isteği reddeder ve havuzun ne kadarının kullanıldığını gösterir. Kaynak açmak için bir makineyi duraklatın veya silin ya da Max'e yükseltin.",
       "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
       "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",

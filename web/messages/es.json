@@ -2932,7 +2932,7 @@
       "limitsFree": "Las cuentas gratuitas no pueden crear máquinas.",
       "limitsPaid": "Las cuentas Pro y Founder's Edition pueden tener hasta 5 máquinas activas que comparten 20 vCPU y 40 GB de memoria. Una máquina está activa mientras está en ejecución o iniciándose.",
       "limitsTeam": "Las cuentas de equipo pueden tener hasta 5 máquinas activas por cada puesto de pago. Cada puesto de pago añade 20 vCPU y 40 GB de memoria al fondo del equipo.",
-      "limitsMax": "Las cuentas Max pueden tener hasta 5 máquinas activas que comparten 80 vCPU y 160 GB de memoria. Una sola máquina puede tener hasta 16 GB y 8 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max.",
+      "limitsMax": "Las cuentas Max pueden tener hasta 5 máquinas activas que comparten 80 vCPU y 160 GB de memoria. Una máquina Max puede usar hasta 64 GB y 32 vCPU, incluidos los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU; Pro y Team llegan hasta 16 GB y 8 vCPU.",
       "limitsPoolFull": "Si una máquina nueva, reanudada, ampliada o bifurcada superara el fondo, cmux rechaza la solicitud y muestra cuánto del fondo está en uso. Pausa o elimina una máquina para liberar recursos, o mejora a Max.",
       "limitsPricing": "Consulta la página de precios para ver los precios actuales. No hay medición de uso ni cargos por exceso.",
       "agentUpdatesTitle": "Mantener actualizados los agentes de programación",

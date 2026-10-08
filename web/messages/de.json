@@ -2933,7 +2933,7 @@
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
       "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 aktive Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen. Eine Maschine ist aktiv, solange sie läuft oder startet.",
       "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
-      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine einzelne Maschine kann bei Pro und Team bis zu 16 GB und 8 vCPUs haben, bei Max bis zu 64 GB und 32 vCPUs.",
+      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine Max-Maschine kann bis zu 64 GB und 32 vCPUs nutzen, einschließlich der Größen 24 GB / 12 vCPU und 32 GB / 16 vCPU; Pro und Team enden bei 16 GB und 8 vCPUs.",
       "limitsPoolFull": "Würde eine neue, fortgesetzte, vergrößerte oder geforkte Maschine den Pool überschreiten, lehnt cmux die Anfrage ab und zeigt, wie viel vom Pool belegt ist. Pausiere oder lösche eine Maschine, um Ressourcen freizugeben, oder führe ein Upgrade auf Max durch.",
       "limitsPricing": "Aktuelle Preise findest du auf der Preisseite. Es gibt keine nutzungsbasierte Abrechnung und keine Überschreitungsgebühren.",
       "agentUpdatesTitle": "Coding-Agents aktuell halten",

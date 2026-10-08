@@ -4456,7 +4456,7 @@
       "limitsFree": "Free accounts cannot create machines.",
       "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 active machines that share 20 vCPUs and 40 GB of memory. A machine is active while it is running or starting.",
       "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
-      "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One machine can have up to 16 GB and 8 vCPUs on Pro and Team, or up to 64 GB and 32 vCPUs on Max.",
+      "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
       "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",

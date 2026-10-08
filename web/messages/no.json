@@ -2930,7 +2930,7 @@
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
       "limitsPaid": "Pro- og Founder's Edition-kontoer kan ha opptil 5 aktive maskiner som deler 20 vCPU-er og 40 GB minne. En maskin er aktiv mens den kjører eller starter.",
       "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
-      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én maskin kan ha opptil 16 GB og 8 vCPU-er med Pro og Team, eller opptil 64 GB og 32 vCPU-er med Max.",
+      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én Max-maskin kan bruke opptil 64 GB og 32 vCPU-er, inkludert størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper på 16 GB og 8 vCPU-er.",
       "limitsPoolFull": "Hvis en ny, gjenopptatt, forstørret eller forket maskin ville gått over potten, avviser cmux forespørselen og viser hvor mye av potten som er i bruk. Sett en maskin på pause eller slett den for å frigjøre ressurser, eller oppgrader til Max.",
       "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
       "agentUpdatesTitle": "Hold kodeagenter oppdatert",

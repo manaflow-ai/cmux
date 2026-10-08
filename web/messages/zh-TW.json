@@ -2932,7 +2932,7 @@
       "limitsFree": "免費帳號無法建立機器。",
       "limitsPaid": "Pro 和 Founder's Edition 帳號最多可擁有 5 台使用中的機器，共用 20 個 vCPU 和 40 GB 記憶體。正在執行或正在啟動的機器即為使用中的機器。",
       "limitsTeam": "Team 帳號每個付費席位最多可擁有 5 台使用中的機器。每個付費席位會為團隊資源池增加 20 個 vCPU 和 40 GB 記憶體。",
-      "limitsMax": "Max 帳號最多可擁有 5 台使用中的機器，共用 80 個 vCPU 和 160 GB 記憶體。在 Pro 和 Team 中，單台機器最高 16 GB 和 8 vCPU；在 Max 中最高 64 GB 和 32 vCPU。",
+      "limitsMax": "Max 帳號最多可擁有 5 台使用中的機器，共用 80 個 vCPU 和 160 GB 記憶體。單台 Max 機器最多可使用 64 GB 和 32 個 vCPU，包含 24 GB / 12 vCPU 與 32 GB / 16 vCPU 規格；Pro 和 Team 的上限為 16 GB 和 8 個 vCPU。",
       "limitsPoolFull": "如果新建、恢復、擴充或分叉的機器會超出資源池，cmux 會拒絕該請求，並顯示資源池的已用量。暫停或刪除一台機器以釋出資源，或升級到 Max。",
       "limitsPricing": "目前的價格請參閱定價頁面。不依用量計費，也沒有超額費用。",
       "agentUpdatesTitle": "讓程式碼代理保持最新",
