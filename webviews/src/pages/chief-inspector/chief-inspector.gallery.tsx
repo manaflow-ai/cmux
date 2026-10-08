@@ -69,8 +69,7 @@ const status: Status = {
   },
 };
 
-const viewText =
-  "L3.0 Release planning and the dock rework\nL2.4 Inspector page over the owner session\n";
+const viewText = "L3.0 Release planning and the dock rework\nL2.4 Inspector page over the owner session\n";
 
 const prompt: TurnPrompt = {
   turn: "now",
