@@ -53,6 +53,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
+    /// Activates this workspace from an accessibility AXPress.
+    var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     private(set) var isShowingPlaceholder = false
@@ -112,6 +114,7 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isDropTarget = false
         onClose = nil
+        onSelect = nil
         onToggleTabs = nil
         title.stopMarquee()
     }
@@ -178,6 +181,7 @@ final class WorkspaceRowView: SidebarRowView {
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
+        setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
         setAccessibilityLabel(accessibilityText(ws, content: shown))
         needsLayout = true
         needsDisplay = true
