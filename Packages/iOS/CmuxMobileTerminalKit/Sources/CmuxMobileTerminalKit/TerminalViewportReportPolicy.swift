@@ -24,6 +24,6 @@ public struct TerminalViewportReportPolicy: Sendable {
 
     public var shouldReport: Bool {
         naturalGridChanged ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+            (shouldReassertNaturalSize && !effectiveMatchesNatural && !viewportReportPending)
     }
 }
