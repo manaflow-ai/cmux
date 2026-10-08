@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The current implementation head is `05b230b2c337faa2021d3e934ab3d369222fc91a`. The latest
+The current implementation head is `4bee42d738dbcd63aecb9e9a5fc49b4ef7fbf458`. The latest
 wave closes three contract gaps without claiming runtime parity: D1b now retains a serialized
 mobile-link teardown chain across disable/account replacement, clears partially started hosts, and
 guards runner/assembly/session startup with lifetime checks;

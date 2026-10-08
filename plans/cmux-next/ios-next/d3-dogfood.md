@@ -1,7 +1,7 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
 Status: parity refresh on `feat-cmux-next-ios` implementation head
-`05b230b2c337faa2021d3e934ab3d369222fc91a`, including the C9 durable lifecycle owner adapter,
+`4bee42d738dbcd63aecb9e9a5fc49b4ef7fbf458`, including the C9 durable lifecycle owner adapter,
 C12 HostDO VM admission, D1b serialized mobile-link teardown, the direct and WebRTC cancellation
 tests, the split link benchmark harness, cancellation-safe teardown, and provenance-safe report
 artifacts. These additions close contract seams only; they do not claim tagged-pair runtime evidence.
