@@ -289,6 +289,18 @@ describe("direct client session state", () => {
     expect(ScriptedSocket.current.waiting.length).toBe(0);
   });
 
+  test("a failed detach does not prevent the new session from attaching", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("_acpmux/detach");
+    const selecting = client.select("b");
+    await settle();
+    expect(ScriptedSocket.current.waiting.find((request) => request.method === "_acpmux/detach")?.params.sessionId).toBe("a");
+    ScriptedSocket.current.fail("_acpmux/detach");
+    expect(await selecting).toBe("b");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/attach").at(-1)?.params.sessionId).toBe("b");
+    expect(texts()).toEqual(["b one"]);
+  });
+
   test("selecting a session drops the previous session's queue, summary, permission and pending prompt", async () => {
     const client = await connect();
     ScriptedSocket.current.notify("_acpmux/permission_pending", { sessionId: "a", permissionId: "p1", request: { toolCall: { title: "Run" }, options: [] } });

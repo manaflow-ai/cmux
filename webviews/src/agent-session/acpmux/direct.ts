@@ -454,7 +454,15 @@ export class AcpmuxDirectClient {
     const generation = ++this.selectionGeneration;
     this.selectedSessionId = sessionId;
     this.resetSessionState();
-    if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
+    if (previousSessionId && previousSessionId !== sessionId) {
+      // Detach is cleanup for the old selection. A stale daemon or a dropped
+      // socket must not prevent the requested session from attaching.
+      try {
+        await this.request("_acpmux/detach", { sessionId: previousSessionId });
+      } catch {
+        // The selection generation still guards the attach below.
+      }
+    }
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
