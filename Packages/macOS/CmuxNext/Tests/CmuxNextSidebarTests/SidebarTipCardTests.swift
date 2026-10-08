@@ -81,4 +81,34 @@ import Testing
         reduce.override = nil
         #expect(card.surface.material != .opaque)
     }
+
+    /// nxdog75: the glass card drew EMPTY (no title, text, Try It or x). Every line and button
+    /// must have room and be visible inside the card, in a real window, on every SDK.
+    @Test func theLinesAreVisibleInsideTheGlassCard() async throws {
+        let reduce = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let card = SidebarTipCardView(reduceTransparency: reduce)
+        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 300, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        window.contentView?.addSubview(card)
+        card.configure(Self.tip)
+        card.frame = NSRect(x: 8, y: 8, width: 236, height: SidebarTipCardView.height)
+        for _ in 0..<5 {
+            window.contentView?.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        for view in [card.tryButton, card.closeButton] + card.lineViews {
+            #expect(!view.isHiddenOrHasHiddenAncestor)
+            let shown = view.convert(view.visibleRect, to: card)
+            #expect(shown.width >= 1 && shown.height >= 1, "\(type(of: view)) has room: visible \(view.visibleRect), frame \(view.frame)")
+            var ancestor = view.superview
+            while let current = ancestor, current !== card {
+                #expect(!current.bounds.isEmpty, "no empty view between the line and the card: \(type(of: current)) \(current.frame)")
+                ancestor = current.superview
+            }
+        }
+    }
 }
+

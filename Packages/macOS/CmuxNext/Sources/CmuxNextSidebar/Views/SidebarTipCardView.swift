@@ -134,6 +134,9 @@ final class SidebarTipCardView: NSView {
 
     // MARK: Tests
 
+    /// The text lines (eyebrow, title, benefit, shortcut).
+    var lineViews: [NSView] { [eyebrowLabel, titleLabel, benefitLabel, shortcutLabel] }
+
     /// Every line as shown, top to bottom.
     var shownText: [String] {
         [eyebrowLabel, titleLabel, benefitLabel].map(\.stringValue) + [tryButton.title] + (shortcutLabel.isHidden ? [] : [shortcutLabel.stringValue])
