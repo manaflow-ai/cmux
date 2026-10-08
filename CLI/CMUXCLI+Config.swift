@@ -8,6 +8,7 @@ extension CMUXCLI {
     /// only; `check`/`validate`/`paths`/`documentation` still resolve.
     static let configSubcommandNames = [
         "doctor", "path", "docs", "reload", "get", "set",
+        "unset", "toggle", "cycle", "preset",
         CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
         CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
         "help",

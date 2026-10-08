@@ -489,7 +489,7 @@ command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
 command  config  aliases=-
   arg  --path  kind=option  completion=file()
-  arg  arguments  kind=argument  completion=list(docs,doctor,get,help,path,reload,set,sidebar-font-size,surface-tab-bar-font-size)
+  arg  arguments  kind=argument  completion=list(cycle,docs,doctor,get,help,path,preset,reload,set,sidebar-font-size,surface-tab-bar-font-size,toggle,unset)
 command  copy-mode  aliases=-
   arg  arguments  kind=argument  completion=-
 command  current  aliases=-
