@@ -37,6 +37,17 @@ struct TerminalViewportReportPolicyTests {
         ).shouldReport)
     }
 
+    @Test("a smaller shared grid does not reassert the phone capacity")
+    func acceptsMacConstrainedGrid() {
+        #expect(!TerminalViewportReportPolicy(
+            naturalGrid: grid(columns: 66, rows: 53),
+            previousNaturalGrid: grid(columns: 66, rows: 53),
+            shouldReassertNaturalSize: true,
+            effectiveMatchesNatural: false,
+            viewportReportPending: false
+        ).shouldReport)
+    }
+
     @Test("pixel-only drift does not mint another report")
     func ignoresPixelOnlyDrift() {
         #expect(!TerminalViewportReportPolicy(
