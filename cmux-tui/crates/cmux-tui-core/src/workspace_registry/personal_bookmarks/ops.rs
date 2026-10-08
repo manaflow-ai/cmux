@@ -337,9 +337,17 @@ fn record_replay(
     result: &Value,
 ) -> anyhow::Result<()> {
     tx.execute(
-        "INSERT INTO bookmark_mutations(origin, mutation_id, operation, fingerprint, result_json)
-         VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![key.origin, key.id, operation, fingerprint, serde_json::to_string(result)?],
+        "INSERT INTO bookmark_mutations(
+           origin, mutation_id, operation, fingerprint, result_json, actor
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            key.origin,
+            key.id,
+            operation,
+            fingerprint,
+            serde_json::to_string(result)?,
+            key.actor.wire()
+        ],
     )?;
     tx.execute(
         "DELETE FROM bookmark_mutations
