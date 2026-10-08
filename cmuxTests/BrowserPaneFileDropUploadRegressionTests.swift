@@ -38,6 +38,14 @@ struct BrowserPaneFileDropUploadRegressionTests {
     private final class SlowPromisedFileURLProvider: NSObject, NSPasteboardItemDataProvider {
         let urlString: String
         let delay: TimeInterval
+        private let lock = NSLock()
+        private var _resolvedOnMainThread: Bool?
+
+        var resolvedOnMainThread: Bool? {
+            lock.lock()
+            defer { lock.unlock() }
+            return _resolvedOnMainThread
+        }
 
         init(urlString: String, delay: TimeInterval) {
             self.urlString = urlString
@@ -49,6 +57,9 @@ struct BrowserPaneFileDropUploadRegressionTests {
             item: NSPasteboardItem,
             provideDataForType type: NSPasteboard.PasteboardType
         ) {
+            lock.lock()
+            _resolvedOnMainThread = Thread.isMainThread
+            lock.unlock()
             Thread.sleep(forTimeInterval: delay)
             item.setString(urlString, forType: type)
         }
@@ -459,7 +470,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
         #expect(swept, "drop record should expire without another guard call")
     }
 
-    @Test func guardDoesNotBlockOnSlowPromisedFileURLRead() async throws {
+    @Test func guardResolvesSlowPromisedFileURLOffMainThread() async throws {
         let guardStore = BrowserFileDropNavigationGuard()
         let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let expectedURL = URL(fileURLWithPath: "/tmp/promised-upload.png")
@@ -478,10 +489,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
         ))
         #expect(pasteboard.writeObjects([item]))
 
-        let startedAt = Date()
         guardStore.recordDelivery(webView: webView, pasteboard: pasteboard)
-        let elapsed = Date().timeIntervalSince(startedAt)
-        #expect(elapsed < 0.2, "a promised pasteboard read must not hold the main actor")
 
         var recordedURLs: [URL] = []
         for _ in 0..<30 {
@@ -492,6 +500,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         #expect(recordedURLs == [expectedURL])
+        #expect(provider.resolvedOnMainThread == false)
     }
 
     @Test func fallbackNavigationClassifierRequiresMainFrameFileOtherNavigation() {
