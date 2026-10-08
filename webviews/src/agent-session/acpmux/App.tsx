@@ -1924,8 +1924,8 @@ function AcpmuxPane() {
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
     };
-    // Both are stable for the pane's life (a state initializer and the provider's client).
-  }, [harnessSwitch, queryClient]);
+    // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
+  }, [harnessSwitch, queryClient, toggleInspector]);
   const ComposerChips =
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
