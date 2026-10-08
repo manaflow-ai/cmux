@@ -1,6 +1,6 @@
 # cmux-next iOS execution snapshot
 
-Updated 2026-10-07. This is the working handoff for the next implementation wave. The
+Updated 2026-10-08. This is the working handoff for the next implementation wave. The
 authoritative lane contracts remain in [PLAN.md](PLAN.md); this file records what is
 actually ready to run from the current `feat-cmux-next-ios` head.
 
@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `1cfec92701` reports 86 of 98 parity rows done, with one
+The refreshed D3 matrix at implementation baseline `a7bff36e41` reports 86 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), three seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -131,10 +131,19 @@ The remaining work separates independent implementation from shared runtime depe
 - `ab67558826` wires C8 task attachments through C4's shared PhotosUI/camera/document staging and
   transfer coordinator, including verified owner upload references, bounded progress and cancellation
   cleanup. Static guards pass; native package tests remain blocked by the known host/toolchain issue.
+- `ea5b529e25` fixes the Xcode whole-module device archive error in `DirectWriter` by typing both
+  throwing `Void` continuations. `c582018fc0` scopes C8 upload completions to their admitting target
+  generation, removes canceled placeholders on composer teardown/target change, and resumes active
+  direct writes with cancellation after closing the blocked socket. `a7bff36e41` ratchets the mobile
+  concurrency and crash-safety baselines after those fixes.
 
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
-remain explicitly unverified. Exact fleet archives prove the iOS device and simulator targets compile:
+remain explicitly unverified. The first exact archive at `1cfec927019d0735b1838bb5acbf1e2f91104b8b`
+reached the device archive and failed only on the now-fixed `DirectWriter` continuation inference. A
+fresh exact-head archive for `a7bff36e41fcb72b58087dd05fab9c0b6e4c276c` is queued as job
+`11f9299987232dacbae75a8b`; no compile or runtime evidence is claimed until it reaches a terminal state.
+The older exact fleet archives prove the iOS device and simulator targets compile:
 the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
 `dd344fa661ac766511d5da0f02f70dfa7e10a42a`, artifact digest
 `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00` (the prior `f23162542f` archive
