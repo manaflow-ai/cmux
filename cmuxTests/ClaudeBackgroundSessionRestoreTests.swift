@@ -307,9 +307,12 @@ struct ClaudeBackgroundSessionRestoreTests {
         let restored = try restore(fixture) { terminal in
             var brokenAgent = agent(fixture, hadActivePromptTurn: false)
             brokenAgent.launchCommand = AgentLaunchCommandSnapshot(
-                launcher: "claude",
+                // One-shot managed launchers have no resume form. This makes
+                // native resume planning fail closed without changing the
+                // shell-bootstrap safety coverage in AgentResumeArgv.
+                launcher: "omx",
                 executablePath: "/bin/sh",
-                arguments: ["/bin/sh", "echo unsafe"],
+                arguments: ["cmux", "omx"],
                 workingDirectory: fixture.workingDirectory.path,
                 environment: [:],
                 capturedAt: 1_791_158_107,
@@ -338,7 +341,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         )
 
         let restored = try restore(fixture) { terminal in
-            terminal.agent = agent(fixture)
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
         }
@@ -479,7 +482,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         try fixture.registerSession(kind: "interactive", sessionID: sessionID, jobID: nil, processID: fixture.daemonProcessID)
 
         let restored = try restore(fixture) { terminal in
-            terminal.agent = agent(fixture)
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
         }
