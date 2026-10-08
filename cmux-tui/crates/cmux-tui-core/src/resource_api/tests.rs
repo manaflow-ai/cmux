@@ -318,6 +318,22 @@ fn program_status_osc7501_reaches_snapshot_and_event_feed() {
                 && change["value"]["extra"]["program_status"][0]["state"] == "working"
         })
     }));
+    let working_hook_event = mux
+        .session_journal_after(0, 512)
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| {
+            record.kind == "terminal.program_status"
+                && record.payload["result"]["program_status_change"]["event"] == "report"
+                && record.payload["result"]["program_status_change"]["record"]["state"]
+                    == "working"
+        })
+        .expect("a program status report must be visible to journal hooks");
+    assert_eq!(
+        working_hook_event.payload["result"]["program_status_change"]["record"]["id"],
+        ""
+    );
 
     surface.write_bytes(b"\n").unwrap();
     let done = wait_for_status(
@@ -331,6 +347,17 @@ fn program_status_osc7501_reaches_snapshot_and_event_feed() {
 
     surface.write_bytes(b"\n").unwrap();
     wait_for_status(&|status| status.is_null(), "the clear report never removed the record");
+    let clear_hook_event = mux
+        .session_journal_after(0, 512)
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| {
+            record.kind == "terminal.program_status"
+                && record.payload["result"]["program_status_change"]["event"] == "clear"
+        })
+        .expect("a clear must be visible to journal hooks");
+    assert_eq!(clear_hook_event.payload["result"]["program_status_change"]["id"], "");
     mux.shutdown();
 }
 
