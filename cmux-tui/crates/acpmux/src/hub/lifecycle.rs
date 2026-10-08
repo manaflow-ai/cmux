@@ -292,7 +292,7 @@ impl Hub {
         // Claude's store: start a fresh one rather than fail on `--resume`.
         if is_claude
             && fork_from.is_none()
-            && session.claude_unstored.load(Ordering::SeqCst)
+            && session.meta().claude_unstored
             && let Some(sid) = existing_sid.take()
         {
             tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: the one to resume never finished a turn");
@@ -478,8 +478,8 @@ impl Hub {
                     "new"
                 };
                 m.agent_session_id = sid.clone();
+                m.claude_unstored = level == "new";
                 drop(m);
-                session.claude_unstored.store(level == "new", Ordering::SeqCst);
                 self.write_mode_state(
                     session,
                     [ModeWrite::Modes(modes), ModeWrite::ConfigOptions(opts)],
