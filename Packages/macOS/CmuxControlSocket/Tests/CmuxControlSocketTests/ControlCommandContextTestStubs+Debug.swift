@@ -8,6 +8,7 @@ import Foundation
 
 extension ControlDebugContext {
     func controlCommandPaletteToggle(windowID: UUID?) -> Bool { false }
+    func controlCommandPaletteState(windowID: UUID?) -> (windowID: UUID, visible: Bool)? { nil }
 }
 
 #if DEBUG

@@ -20,6 +20,15 @@ public protocol ControlDebugContext: AnyObject {
     /// stay DEBUG-gated because they expose test-only state and interactions.
     func controlCommandPaletteToggle(windowID: UUID?) -> Bool
 
+    /// Returns the target window and current palette visibility for the
+    /// production `command_palette.toggle` receipt.
+    ///
+    /// - Parameter windowID: The explicit target window, or `nil` for the key
+    ///   or main window.
+    /// - Returns: The resolved window and visibility, or `nil` when no target
+    ///   window exists.
+    func controlCommandPaletteState(windowID: UUID?) -> (windowID: UUID, visible: Bool)?
+
 #if DEBUG
     // MARK: - Session-snapshot benchmarks
 

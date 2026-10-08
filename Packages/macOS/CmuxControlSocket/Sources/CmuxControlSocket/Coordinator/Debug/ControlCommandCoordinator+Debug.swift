@@ -12,15 +12,35 @@ extension ControlCommandCoordinator {
     /// Handles the production command-palette toggle used by agent receipts.
     func handleCommandPalette(_ request: ControlRequest) -> ControlCallResult? {
         guard request.method == "command_palette.toggle" else { return nil }
-        let requestedWindowID = uuid(request.params, "window_id")
-        let posted = (context as? any ControlDebugContext)?.controlCommandPaletteToggle(windowID: requestedWindowID) ?? false
-        if let requestedWindowID, !posted {
-            return .err(code: "not_found", message: "Window not found", data: .object([
-                "window_id": .string(requestedWindowID.uuidString),
-                "window_ref": ref(.window, requestedWindowID),
-            ]))
+        if let rawWindow = request.params["window_id"] {
+            guard case .string(let value) = rawWindow,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  uuid(request.params, "window_id") != nil else {
+                return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+            }
         }
-        return .ok(.object([:]))
+        let requestedWindowID = uuid(request.params, "window_id")
+        guard let debugContext = context as? any ControlDebugContext else {
+            return .err(code: "not_found", message: "No target window", data: nil)
+        }
+        guard debugContext.controlCommandPaletteState(windowID: requestedWindowID) != nil else {
+            if let requestedWindowID {
+                return .err(code: "not_found", message: "Window not found", data: .object([
+                    "window_id": .string(requestedWindowID.uuidString),
+                    "window_ref": ref(.window, requestedWindowID),
+                ]))
+            }
+            return .err(code: "not_found", message: "No target window", data: nil)
+        }
+        guard debugContext.controlCommandPaletteToggle(windowID: requestedWindowID),
+              let state = debugContext.controlCommandPaletteState(windowID: requestedWindowID) else {
+            return .err(code: "not_found", message: "No target window", data: nil)
+        }
+        return .ok(.object([
+            "window_id": .string(state.windowID.uuidString),
+            "window_ref": ref(.window, state.windowID),
+            "visible": .bool(state.visible),
+        ]))
     }
 }
 

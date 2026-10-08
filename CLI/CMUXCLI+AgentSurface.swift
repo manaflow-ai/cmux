@@ -16,11 +16,11 @@ extension CMUXCLI {
 
         Commands:
           snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]
-          workspace select <id|ref|index>
-          workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]
-          tab select <id|ref|index>
-          surface focus <id|ref|index>
-          surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]
+          workspace select <id|ref|index> [--window <id|ref|index>]
+          workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>] [--window <id|ref|index>]
+          tab select <id|ref|index> [--window <id|ref|index>] [--workspace <id|ref|index>]
+          surface focus <id|ref|index> [--window <id|ref|index>] [--workspace <id|ref|index>]
+          surface split <left|right|up|down> [--surface <id|ref|index>] [--window <id|ref|index>] [--workspace <id|ref|index>] [--command <text>]
           palette toggle [--window <id|ref|index>]
           dialog list
           dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)
@@ -99,10 +99,16 @@ extension CMUXCLI {
             switch verb {
             case "select":
                 let (target, args) = try agentSurfaceTarget(tail, option: "--workspace")
-                guard args.isEmpty else { throw CLIError(message: "agents workspace select: unexpected arguments") }
                 guard let target else { throw CLIError(message: "agents workspace select requires a workspace") }
-                let context = try agentSurfaceContext([], client: client, windowOverride: windowOverride)
-                var params: [String: Any] = ["workspace_id": try normalizeWorkspaceHandle(target, client: client, windowHandle: context.windowID) as Any]
+                let context = try agentSurfaceContext(args, client: client, windowOverride: windowOverride)
+                guard let workspaceID = try normalizeWorkspaceHandle(
+                    target,
+                    client: client,
+                    windowHandle: context.windowID
+                ) else {
+                    throw CLIError(message: "agents workspace select requires a valid workspace")
+                }
+                var params: [String: Any] = ["workspace_id": workspaceID]
                 if let windowID = context.windowID { params["window_id"] = windowID }
                 let result = try client.sendV2(method: "workspace.select", params: params)
                 return try agentSurfaceReceipt(
@@ -160,9 +166,11 @@ extension CMUXCLI {
                 )
             }
             let (target, args) = try agentSurfaceTarget(Array(rest.dropFirst()), option: family == "tab" ? "--tab" : "--surface")
-            guard args.isEmpty else { throw CLIError(message: "agents \(family) \(verb): unexpected arguments") }
             guard let target else { throw CLIError(message: "agents \(family) \(verb) requires a target") }
-            let context = try agentSurfaceContext([], client: client, windowOverride: windowOverride)
+            let context = try agentSurfaceContext(args, client: client, windowOverride: windowOverride)
+            guard !context.allWindows else {
+                throw CLIError(message: "agents \(family) \(verb) cannot use --all")
+            }
             let canonical = target.lowercased().hasPrefix("tab:")
                 ? "surface:" + String(target.dropFirst("tab:".count))
                 : target
@@ -191,6 +199,9 @@ extension CMUXCLI {
                 throw CLIError(message: "agents palette requires toggle")
             }
             let context = try agentSurfaceContext(Array(rest.dropFirst()), client: client, windowOverride: windowOverride)
+            guard !context.allWindows, context.workspaceID == nil else {
+                throw CLIError(message: "agents palette toggle accepts only --window")
+            }
             var params: [String: Any] = [:]
             if let windowID = context.windowID { params["window_id"] = windowID }
             let result = try client.sendV2(method: "command_palette.toggle", params: params)
@@ -208,7 +219,11 @@ extension CMUXCLI {
             }
             switch verb {
             case "list":
-                let pendingOnly = !rest.contains("--all")
+                let listArgs = Array(rest.dropFirst())
+                guard listArgs.allSatisfy({ $0 == "--all" }) else {
+                    throw CLIError(message: "agents dialog list accepts only --all")
+                }
+                let pendingOnly = !listArgs.contains("--all")
                 let result = try client.sendV2(method: "feed.list", params: ["pending_only": pendingOnly])
                 return [
                     "schema_version": 1,
@@ -270,6 +285,15 @@ extension CMUXCLI {
         guard afterWindow.isEmpty else {
             throw CLIError(message: "agents: unexpected argument '\(afterWindow[0])'")
         }
+        if let windowRaw, windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents: --window requires a value")
+        }
+        if let windowOverride, windowOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents: --window requires a value")
+        }
+        if let workspaceRaw, workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents: --workspace requires a value")
+        }
         let windowID = try normalizeWindowHandle(windowRaw ?? windowOverride, client: client)
         let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowID)
         if allWindows && (windowID != nil || workspaceID != nil) {
@@ -330,6 +354,12 @@ extension CMUXCLI {
         let (focus, rem3) = parseOption(rem2, name: "--focus")
         let (windowRaw, remaining) = parseOption(rem3, name: "--window")
         guard remaining.isEmpty else { throw CLIError(message: "agents workspace create: unexpected argument '\(remaining[0])'") }
+        if let windowRaw, windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents workspace create: --window requires a value")
+        }
+        if let windowOverride, windowOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents workspace create: --window requires a value")
+        }
         let windowID = try normalizeWindowHandle(windowRaw ?? windowOverride, client: client)
         var params: [String: Any] = [:]
         if let windowID { params["window_id"] = windowID }
@@ -349,9 +379,19 @@ extension CMUXCLI {
         let (surfaceRaw, rem0) = parseOption(args, name: "--surface")
         let (workspaceRaw, rem1) = parseOption(rem0, name: "--workspace")
         let (command, rem2) = parseOption(rem1, name: "--command")
-        let (focus, remaining) = parseOption(rem2, name: "--focus")
+        let (focus, rem3) = parseOption(rem2, name: "--focus")
+        let (windowRaw, remaining) = parseOption(rem3, name: "--window")
         guard remaining.isEmpty else { throw CLIError(message: "agents surface split: unexpected argument '\(remaining[0])'") }
-        let windowID = try normalizeWindowHandle(windowOverride, client: client)
+        if let windowRaw, windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents surface split: --window requires a value")
+        }
+        if let workspaceRaw, workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents surface split: --workspace requires a value")
+        }
+        if let windowOverride, windowOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "agents surface split: --window requires a value")
+        }
+        let windowID = try normalizeWindowHandle(windowRaw ?? windowOverride, client: client)
         let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowID, allowCurrent: true)
         let surfaceID = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceID, windowHandle: windowID)
         var params: [String: Any] = ["direction": direction.lowercased()]
@@ -429,6 +469,25 @@ extension CMUXCLI {
         return (values, remaining)
     }
 
+    private func appendAgentSurfaceScope(
+        _ arguments: [String: Any],
+        to command: inout [String],
+        includeWorkspace: Bool
+    ) throws {
+        if let window = arguments["window"] {
+            guard let window = window as? String, !window.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "window must be a non-empty handle")
+            }
+            command += ["--window", window]
+        }
+        if includeWorkspace, let workspace = arguments["workspace"] {
+            guard let workspace = workspace as? String, !workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "workspace must be a non-empty handle")
+            }
+            command += ["--workspace", workspace]
+        }
+    }
+
     private func runAgentSurfaceMCP(client: SocketClient) throws {
         let server = AgentSurfaceMCPServer(version: resolvedVersionInfo()["CFBundleShortVersionString"] ?? "dev") { [self] name, arguments in
             var command: [String]
@@ -436,27 +495,32 @@ extension CMUXCLI {
             case "snapshot":
                 command = ["snapshot"]
                 if arguments["all"] as? Bool == true { command.append("--all") }
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: true)
             case "workspace_select":
                 guard let workspace = arguments["workspace"] as? String else {
                     throw CLIError(message: "workspace_select needs workspace")
                 }
                 command = ["workspace", "select", workspace]
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: false)
             case "workspace_create":
                 command = ["workspace", "create"]
                 if let name = arguments["name"] as? String { command += ["--name", name] }
                 if let cwd = arguments["cwd"] as? String { command += ["--cwd", cwd] }
                 if let initialCommand = arguments["command"] as? String { command += ["--command", initialCommand] }
                 if let focus = arguments["focus"] as? Bool { command += ["--focus", focus ? "true" : "false"] }
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: false)
             case "tab_select":
                 guard let tab = arguments["tab"] as? String else {
                     throw CLIError(message: "tab_select needs tab")
                 }
                 command = ["tab", "select", tab]
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: true)
             case "surface_focus":
                 guard let surface = arguments["surface"] as? String else {
                     throw CLIError(message: "surface_focus needs surface")
                 }
                 command = ["surface", "focus", surface]
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: true)
             case "surface_split":
                 guard let direction = arguments["direction"] as? String else {
                     throw CLIError(message: "surface_split needs direction")
@@ -465,8 +529,10 @@ extension CMUXCLI {
                 if let surface = arguments["surface"] as? String { command += ["--surface", surface] }
                 if let initialCommand = arguments["command"] as? String { command += ["--command", initialCommand] }
                 if let focus = arguments["focus"] as? Bool { command += ["--focus", focus ? "true" : "false"] }
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: true)
             case "palette_toggle":
                 command = ["palette", "toggle"]
+                try appendAgentSurfaceScope(arguments, to: &command, includeWorkspace: false)
             case "dialog_list":
                 command = ["dialog", "list"]
                 if arguments["all"] as? Bool == true { command.append("--all") }
@@ -512,13 +578,13 @@ struct AgentSurfaceMCPServer {
 
     static let protocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"]
     static let tools: [[String: Any]] = [
-        ["name": "snapshot", "description": "Return windows, workspaces, panes, tabs, surfaces, focus and selection.", "inputSchema": ["type": "object", "properties": ["all": ["type": "boolean"]]] as [String: Any]],
-        ["name": "workspace_select", "description": "Select a workspace and return the resulting topology.", "inputSchema": ["type": "object", "properties": ["workspace": ["type": "string"]], "required": ["workspace"]] as [String: Any]],
-        ["name": "workspace_create", "description": "Create a workspace and return the resulting topology.", "inputSchema": ["type": "object", "properties": ["name": ["type": "string"], "cwd": ["type": "string"], "command": ["type": "string"], "focus": ["type": "boolean"]] ] as [String: Any]],
-        ["name": "tab_select", "description": "Focus a tab or surface by stable id or ref.", "inputSchema": ["type": "object", "properties": ["tab": ["type": "string"]], "required": ["tab"]] as [String: Any]],
-        ["name": "surface_focus", "description": "Focus a surface by stable id or ref.", "inputSchema": ["type": "object", "properties": ["surface": ["type": "string"]], "required": ["surface"]] as [String: Any]],
-        ["name": "surface_split", "description": "Split a surface in one direction.", "inputSchema": ["type": "object", "properties": ["direction": ["type": "string"], "surface": ["type": "string"], "command": ["type": "string"], "focus": ["type": "boolean"]], "required": ["direction"]] as [String: Any]],
-        ["name": "palette_toggle", "description": "Toggle the command palette in the target window.", "inputSchema": ["type": "object", "properties": [:] as [String: Any]] as [String: Any]],
+        ["name": "snapshot", "description": "Return windows, workspaces, panes, tabs, surfaces, focus and selection.", "inputSchema": ["type": "object", "properties": ["all": ["type": "boolean"], "window": ["type": "string"], "workspace": ["type": "string"]]] as [String: Any]],
+        ["name": "workspace_select", "description": "Select a workspace and return the resulting topology.", "inputSchema": ["type": "object", "properties": ["workspace": ["type": "string"], "window": ["type": "string"]], "required": ["workspace"]] as [String: Any]],
+        ["name": "workspace_create", "description": "Create a workspace and return the resulting topology.", "inputSchema": ["type": "object", "properties": ["name": ["type": "string"], "cwd": ["type": "string"], "command": ["type": "string"], "focus": ["type": "boolean"], "window": ["type": "string"]] ] as [String: Any]],
+        ["name": "tab_select", "description": "Focus a tab or surface by stable id or ref.", "inputSchema": ["type": "object", "properties": ["tab": ["type": "string"], "window": ["type": "string"], "workspace": ["type": "string"]], "required": ["tab"]] as [String: Any]],
+        ["name": "surface_focus", "description": "Focus a surface by stable id or ref.", "inputSchema": ["type": "object", "properties": ["surface": ["type": "string"], "window": ["type": "string"], "workspace": ["type": "string"]], "required": ["surface"]] as [String: Any]],
+        ["name": "surface_split", "description": "Split a surface in one direction.", "inputSchema": ["type": "object", "properties": ["direction": ["type": "string"], "surface": ["type": "string"], "command": ["type": "string"], "focus": ["type": "boolean"], "window": ["type": "string"], "workspace": ["type": "string"]], "required": ["direction"]] as [String: Any]],
+        ["name": "palette_toggle", "description": "Toggle the command palette in the target window.", "inputSchema": ["type": "object", "properties": ["window": ["type": "string"]] as [String: Any]] as [String: Any]],
         ["name": "dialog_list", "description": "List pending agent permission, question and plan dialogs.", "inputSchema": ["type": "object", "properties": ["all": ["type": "boolean"]]] as [String: Any]],
         ["name": "dialog_answer", "description": "Answer one pending agent dialog.", "inputSchema": ["type": "object", "properties": ["request_id": ["type": "string"], "mode": ["type": "string"], "plan_mode": ["type": "string"], "selection": ["type": "string"], "selections": ["type": "array", "items": ["type": "string"]], "feedback": ["type": "string"]], "required": ["request_id"]] as [String: Any]],
     ]
@@ -540,8 +606,8 @@ struct AgentSurfaceMCPServer {
         switch method {
         case "initialize":
             let requested = params["protocolVersion"] as? String ?? ""
-            let version = Self.protocolVersions.contains(requested) ? requested : Self.protocolVersions[0]
-            return encode(["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": version, "capabilities": ["tools": ["listChanged": false]], "serverInfo": ["name": "cmux-agent-surface", "version": version]]])
+            let protocolVersion = Self.protocolVersions.contains(requested) ? requested : Self.protocolVersions[0]
+            return encode(["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": protocolVersion, "capabilities": ["tools": ["listChanged": false]], "serverInfo": ["name": "cmux-agent-surface", "version": self.version]]])
         case "ping":
             return encode(["jsonrpc": "2.0", "id": id, "result": [:]])
         case "tools/list":

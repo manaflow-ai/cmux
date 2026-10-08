@@ -37,16 +37,23 @@ func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
 #endif
 
 extension TerminalController: ControlDebugContext {
-    func controlCommandPaletteToggle(windowID: UUID?) -> Bool {
-        let targetWindow: NSWindow?
+    private func commandPaletteTargetWindow(windowID: UUID?) -> NSWindow? {
         if let windowID {
-            guard let window = AppDelegate.shared?.mainWindow(for: windowID) else {
-                return false
-            }
-            targetWindow = window
-        } else {
-            targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            return AppDelegate.shared?.mainWindow(for: windowID)
         }
+        return NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    func controlCommandPaletteState(windowID: UUID?) -> (windowID: UUID, visible: Bool)? {
+        guard let targetWindow = commandPaletteTargetWindow(windowID: windowID),
+              let targetWindowID = AppDelegate.shared?.mainWindowId(from: targetWindow) else {
+            return nil
+        }
+        return (targetWindowID, AppDelegate.shared?.isCommandPaletteVisible(windowId: targetWindowID) ?? false)
+    }
+
+    func controlCommandPaletteToggle(windowID: UUID?) -> Bool {
+        guard let targetWindow = commandPaletteTargetWindow(windowID: windowID) else { return false }
         NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: targetWindow)
         return true
     }
