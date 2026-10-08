@@ -147,7 +147,7 @@ struct DeviceDirectoryMerge {
                 .max()
             // The `devices` collection pins owners by host device id.
             let ownerIDs = [id] + (hostIDsByRow[id] ?? []).sorted { $0.wireValue < $1.wireValue }
-            let pinnedOwner = ownerIDs.lazy.compactMap { input.owners[$0.deviceID] }.first
+            let pinnedOwner = ownerIDs.lazy.compactMap { input.owners[cmxCanonicalDeviceID($0.deviceID)] }.first
             let ownerUserID = pinnedOwner ?? (input.ownersKnown ? nil : previous?.ownerUserID)
             let trust: SurfaceDevicePresence.AccountTrust
             if accountMac != nil || paired != nil {
