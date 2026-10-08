@@ -336,3 +336,28 @@ overlapping page refusal, request/page bounds, and terminal replay. The model ha
 I/O and does not claim that a host can serve history yet: host pagination, parser-state snapshots,
 and Ghostty history rendering remain open. Swift parsing and diff checks pass; native execution,
 live SSH history, and simulator/device verification remain unverified.
+
+### Bounded pane output and parser hydration seam (2026-10-08)
+
+`SSHTmuxPaneOutputRouter` closes the next multi-pane seam without coupling the
+renderer to a carrier. It keys every delivery by the host-issued server epoch,
+window id and pane id, and creates one bounded queue per validated layout pane.
+Each pane must receive its complete snapshot before `%output` bytes are
+accepted; snapshot and live chunks retain a monotonic per-pane sequence and
+are split at 16 KiB for the Ghostty bridge. A reconnect resets every pane to
+the snapshot barrier, clears queued bytes, and rejects stale-generation data.
+
+Layout reconciliation removes vanished panes before adding replacements and
+updates the frame of a surviving id without resetting its queued parser input.
+Input coordinates are available only for hydrated panes; tmux divider cells,
+unknown panes, stale epochs and wrong windows fail closed. A pane is refused
+and marked overflowed when its queue exceeds 256 KiB or the window-wide queue
+exceeds 1 MiB, so the caller never silently drops terminal bytes.
+
+Five deterministic tests cover independent pane ordering, stale and unknown
+targets, reconnect barriers, identity-preserving layout changes and overflow
+refusal. Swift parsing and diff checks pass; native package execution, control
+mode wiring, live tmux output, Ghostty composition and simulator/device SSH
+verification remain build-host/runtime gates. This is the bounded state and
+delivery contract needed before wiring a multi-pane control adapter; it does
+not claim full C9 renderer parity.

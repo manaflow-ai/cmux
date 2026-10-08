@@ -141,6 +141,12 @@ The remaining work separates independent implementation from shared runtime depe
   and parser identities, grid input maps to pane-local coordinates, and reconciliation emits
   deterministic add/remove/update operations. This is a landed partial seam; full SSH multi-pane,
   history, parser-state restoration and lifecycle parity remain incomplete.
+- The pending C9 parity slice adds `SSHTmuxPaneOutputRouter`: per-pane bounded queues keyed by the
+  server epoch/window/pane identity, snapshot-before-live hydration, reconnect barriers, stale
+  generation refusal, live-only input routing, and identity-preserving layout reconciliation. Five
+  focused tests cover ordering, stale targets, reconnect reset, pane removal/resize and overflow.
+  It is a carrier-independent contract; control-mode wiring, live tmux output and Ghostty renderer
+  composition remain runtime gates.
 - `efe7c3c349` through `b060e3e9b4` add a transport-agnostic, bounded analytics uploader with offline
   fail-closed behavior, body/event splitting, transient retry backoff, cancellation-safe flushes,
   payload bounds and focused tests. It remains opt-in; `NoopAnalytics` is still the app default.
