@@ -91,13 +91,15 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
            (DirectAddress(address) == nil || port == 0) {
             throw BenchSplitError.invalidDescriptor("direct endpoint")
         }
-        if carrierKinds.contains(CarrierKind.webrtc.rawValue),
-           (webrtcHostKey == nil || WebRTCPublicKey(base64: webrtcHostKey!) == nil) {
-            throw BenchSplitError.invalidDescriptor("webrtc host key")
+        if carrierKinds.contains(CarrierKind.webrtc.rawValue) {
+            guard let webrtcHostKey, WebRTCPublicKey(base64: webrtcHostKey) != nil else {
+                throw BenchSplitError.invalidDescriptor("webrtc host key")
+            }
         }
-        if carrierKinds.contains(CarrierKind.webrtcWireGuard.rawValue),
-           (wireGuardHostKey == nil || WireGuardPublicKey(base64: wireGuardHostKey!) == nil) {
-            throw BenchSplitError.invalidDescriptor("wireguard host key")
+        if carrierKinds.contains(CarrierKind.webrtcWireGuard.rawValue) {
+            guard let wireGuardHostKey, WireGuardPublicKey(base64: wireGuardHostKey) != nil else {
+                throw BenchSplitError.invalidDescriptor("wireguard host key")
+            }
         }
         guard !workloads.isEmpty, workloads.allSatisfy({ BenchWorkload.splitSupported.contains($0) }) else {
             throw BenchSplitError.invalidDescriptor("workloads")
