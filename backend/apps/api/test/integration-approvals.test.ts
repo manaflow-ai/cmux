@@ -85,7 +85,9 @@ describe("gateway approvals for risky provider ops (G8)", { timeout: 60_000 }, (
     // The approval view fetches the full request with the user's own session; the agent cannot.
     const view = await read(s.token, "integration.approval.get", { request })
     expect(view.json.value).toMatchObject({ request, op: "slack.post_as_bot", state: "pending", params: { text: "secret body text" } })
-    expect((await read(s.agent, "integration.approval.get", { request })).json.ok).toBe(false)
+    const agentView = await read(s.agent, "integration.approval.get", { request })
+    expect(agentView.status).toBe(403)
+    expect(JSON.stringify(agentView.json)).not.toContain("secret body text")
     // A retry with the same key stays pending and posts no second request.
     expect((await op(s.agent, "slack.post_as_bot", { connection: s.conn, channel: "C1", text: "secret body text" }, "send-1")).json.error.code).toBe("approval.pending")
     expect(await s.approvals()).toHaveLength(1)

@@ -1,0 +1,161 @@
+import type { Principal } from "@cmux/ownership"
+
+/**
+ * G8 gateway approvals (plans/cmux-next/integrations-plan.md section 3). A provider op with risk
+ * send-external, money or destructive from a principal that is not the person's own session does
+ * not run: the ConnectionDO keeps the exact request here, posts an `approve` feed request to the
+ * acting user, and answers `approval.pending {request}`. The user's answer (delivered by that
+ * user's FeedDO) runs it once under the key `approval:<request>` in the external-call ledger.
+ *
+ * The params (a mail body, a message) stay in this DO-local table: never in the replicated
+ * state, events, the feed item or the projection. The feed item shows the op, the target and a
+ * short summary; the approval view reads the rest with the user's session
+ * (`integration.approval.get`). Rows leave 30 days after they end.
+ */
+export const RISKY_CLASSES: ReadonlySet<string> = new Set(["send-external", "money", "destructive"])
+export const APPROVAL_TTL_MS = 24 * 3_600_000
+export const MAX_PENDING_PER_CONNECTION = 20
+export const APPROVAL_RETENTION_MS = 30 * 24 * 3_600_000
+
+export type ApprovalState = "pending" | "done" | "denied" | "expired"
+
+export interface ApprovalRow {
+  readonly request: string
+  readonly identity: string
+  readonly idempotency_key: string
+  readonly user: string
+  readonly connection: string
+  readonly op: string
+  readonly params: Record<string, unknown>
+  readonly params_hash: string
+  readonly digest: string
+  readonly principal: Principal
+  readonly feed_item: string | null
+  readonly state: ApprovalState
+  readonly reply: unknown
+  readonly created_at: number
+  readonly expires_at: number
+  readonly ended_at: number | null
+}
+
+type Sql = SqlStorage
+
+export const createApprovalTable = (sql: Sql) => {
+  sql.exec(`CREATE TABLE IF NOT EXISTS integration_approvals (
+    request TEXT PRIMARY KEY, identity TEXT NOT NULL, idempotency_key TEXT NOT NULL, user TEXT NOT NULL,
+    connection TEXT NOT NULL, op TEXT NOT NULL, params TEXT NOT NULL, params_hash TEXT NOT NULL, digest TEXT NOT NULL,
+    principal TEXT NOT NULL, feed_item TEXT, state TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL, ended_at INTEGER, UNIQUE (identity, idempotency_key))`)
+  sql.exec(`CREATE INDEX IF NOT EXISTS integration_approvals_pending ON integration_approvals (connection, state)`)
+}
+
+type Raw = Record<string, SqlStorageValue>
+const decode = (r: Raw): ApprovalRow => ({
+  request: String(r.request),
+  identity: String(r.identity),
+  idempotency_key: String(r.idempotency_key),
+  user: String(r.user),
+  connection: String(r.connection),
+  op: String(r.op),
+  params: JSON.parse(String(r.params)) as Record<string, unknown>,
+  params_hash: String(r.params_hash),
+  digest: String(r.digest),
+  principal: JSON.parse(String(r.principal)) as Principal,
+  feed_item: r.feed_item === null ? null : String(r.feed_item),
+  state: String(r.state) as ApprovalState,
+  reply: r.reply === null ? null : (JSON.parse(String(r.reply)) as unknown),
+  created_at: Number(r.created_at),
+  expires_at: Number(r.expires_at),
+  ended_at: r.ended_at === null ? null : Number(r.ended_at)
+})
+
+export const approvalByRequest = (sql: Sql, request: string): ApprovalRow | undefined => {
+  const r = sql.exec<Raw>(`SELECT * FROM integration_approvals WHERE request = ?`, request).toArray()[0]
+  return r ? decode(r) : undefined
+}
+
+export const approvalByKey = (sql: Sql, identity: string, key: string): ApprovalRow | undefined => {
+  const r = sql.exec<Raw>(`SELECT * FROM integration_approvals WHERE identity = ? AND idempotency_key = ?`, identity, key).toArray()[0]
+  return r ? decode(r) : undefined
+}
+
+/** Pending requests for one connection that have not expired (the flood guard counts these). */
+export const pendingCount = (sql: Sql, connection: string, now: number): number =>
+  Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_approvals WHERE connection = ? AND state = 'pending' AND expires_at > ?`, connection, now).toArray()[0]?.n ?? 0)
+
+export const insertApproval = (sql: Sql, row: Omit<ApprovalRow, "feed_item" | "state" | "reply" | "ended_at">) => {
+  sql.exec(
+    `INSERT INTO integration_approvals (request, identity, idempotency_key, user, connection, op, params, params_hash, digest, principal, feed_item, state, reply, created_at, expires_at, ended_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?, NULL)`,
+    row.request, row.identity, row.idempotency_key, row.user, row.connection, row.op, JSON.stringify(row.params), row.params_hash, row.digest,
+    JSON.stringify(row.principal), row.created_at, row.expires_at
+  )
+}
+
+export const setFeedItem = (sql: Sql, request: string, item: string) => sql.exec(`UPDATE integration_approvals SET feed_item = ? WHERE request = ?`, item, request)
+export const deleteApproval = (sql: Sql, request: string) => sql.exec(`DELETE FROM integration_approvals WHERE request = ?`, request)
+
+/** Moves a pending request to a final state; returns false when it was no longer pending. */
+export const endApproval = (sql: Sql, request: string, state: Exclude<ApprovalState, "pending">, now: number, reply: unknown = null): boolean => {
+  const before = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_approvals WHERE request = ? AND state = 'pending'`, request).toArray()[0]?.n
+  if (!before) return false
+  sql.exec(`UPDATE integration_approvals SET state = ?, reply = ?, ended_at = ? WHERE request = ? AND state = 'pending'`, state, reply === null ? null : JSON.stringify(reply), now, request)
+  return true
+}
+
+/** A pending request past its time becomes expired (final); returns the row as it is now. */
+export const settleExpiry = (sql: Sql, row: ApprovalRow, now: number): ApprovalRow => {
+  if (row.state !== "pending" || now < row.expires_at) return row
+  endApproval(sql, row.request, "expired", now)
+  return { ...row, state: "expired", ended_at: now }
+}
+
+/** integration.approval.get: the person's own session reads the full request it is asked to approve. */
+export const approvalView = (sql: Sql, principal: Principal, params: unknown, now: number) => {
+  const row = approvalByRequest(sql, String((params as { request?: unknown } | null)?.request ?? ""))
+  if (!row || principal.kind !== "session" || principal.user !== row.user) return { ok: false as const, code: "selector.not_found", message: "no such approval request" }
+  const state = row.state === "pending" && now >= row.expires_at ? "expired" : row.state
+  return { ok: true as const, value: { request: row.request, op: row.op, connection: row.connection, params: row.params, digest: row.digest, state, created_at: row.created_at, expires_at: row.expires_at }, revision: "" }
+}
+
+export const pruneApprovals = (sql: Sql, before: number) => sql.exec(`DELETE FROM integration_approvals WHERE ended_at IS NOT NULL AND ended_at < ?`, before)
+
+/** The earliest time a pending request expires or an ended one leaves the table. */
+export const nextApprovalAt = (sql: Sql): number | null => {
+  const r = sql.exec<{ a: number | null; b: number | null }>(
+    `SELECT (SELECT MIN(expires_at) FROM integration_approvals WHERE state = 'pending') AS a, (SELECT MIN(ended_at) FROM integration_approvals WHERE ended_at IS NOT NULL) AS b`
+  ).toArray()[0]
+  const times = [r?.a, r?.b === null || r?.b === undefined ? null : Number(r.b) + APPROVAL_RETENTION_MS].filter((t): t is number => typeof t === "number")
+  return times.length ? Math.min(...times) : null
+}
+
+/** Expires every pending request whose time passed (the alarm calls this). */
+export const expireDue = (sql: Sql, now: number) =>
+  sql.exec(`UPDATE integration_approvals SET state = 'expired', ended_at = ? WHERE state = 'pending' AND expires_at <= ?`, now, now)
+
+const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "")
+const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [])
+
+/**
+ * What the person sees in the feed before opening the approval view: the target (recipient,
+ * channel, repository, calendar) and a short summary (a mail subject, an event title). Never a
+ * mail body or a message text.
+ */
+export const describeRequest = (op: string, p: Record<string, unknown>): { target: string; summary: string } => {
+  switch (op) {
+    case "mail.send": {
+      const to = [...list(p.to), ...list(p.cc), ...list(p.bcc)]
+      return { target: text(to.slice(0, 5).join(", ") + (to.length > 5 ? ` and ${to.length - 5} more` : ""), 300), summary: text(p.subject, 200) }
+    }
+    case "calendar.event.create":
+      return { target: text(`${text(p.calendar_id, 100) || "calendar"}${Array.isArray(p.attendees) && p.attendees.length ? `, ${p.attendees.length} attendees` : ""}`, 300), summary: text(p.summary, 200) }
+    case "calendar.event.respond":
+      return { target: text(`${text(p.calendar_id, 100) || "calendar"} event ${text(p.event_id, 100)}`, 300), summary: text(p.response, 40) }
+    case "github.issue.comment":
+      return { target: text(`${text(p.repo, 200)}#${String(p.issue ?? "")}`, 300), summary: "" }
+    case "slack.post_as_bot":
+      return { target: text(p.channel, 100), summary: "" }
+    default:
+      return { target: text(p.connection, 100), summary: "" }
+  }
+}

@@ -116,6 +116,31 @@ export const IntegrationPolicyGet = def({
   mcp: { expose: "opt_in", group: "integration" }
 })
 
+/** G8: the approval view reads the exact request an agent, automation or app asked to run. */
+export const IntegrationApprovalGet = def({
+  name: "integration.approval.get",
+  owner: "cloud:ConnectionDO",
+  class: "read",
+  risk: "read",
+  target: "connection",
+  principals: ["session"],
+  params: Schema.Struct({ request: Schema.String.check(Schema.isPattern(/^apr_[a-f0-9]{32}$/)) }),
+  result: Schema.Struct({
+    request: Schema.String,
+    op: Schema.String,
+    connection: Schema.String,
+    params: Schema.Unknown,
+    digest: Schema.String,
+    state: Schema.Literals(["pending", "done", "denied", "expired"]),
+    created_at: Schema.Number,
+    expires_at: Schema.Number
+  }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
+  docs: "Read a provider op that waits for your approval (G8): the op, its full parameters and the digest the feed request shows. Only your own session reads it.",
+  cli: { path: "integration approval", visible: true },
+  mcp: { expose: "never", group: "integration" }
+})
+
 export const IntegrationPolicySet = def({
   name: "integration.policy.set",
   owner: "cloud:ConnectionDO",
@@ -266,6 +291,7 @@ export const integrationOps = [
   IntegrationRevoke,
   IntegrationList,
   IntegrationPolicyGet,
+  IntegrationApprovalGet,
   IntegrationPolicySet,
   GitHubIssueComment,
   LinearIssueCreate,

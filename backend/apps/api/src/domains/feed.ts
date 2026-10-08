@@ -2,6 +2,7 @@ import type { Domain, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { checkAnswer, FeedAnswer, FeedArchive, FeedCancel, FeedPrefsSet, FeedRead, FeedSnooze, type FeedItem } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { reduceAdopt, reduceAdoptCancel, reducePost } from "./feed-post.ts"
+import { approvalDecision, integrationPoster } from "./feed-approvals.ts"
 import { matchesFilter, type FeedFilterValue } from "./feed-query.ts"
 import {
   ADOPT_TOMBSTONE_MS,
@@ -83,7 +84,8 @@ const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Re
     read_at: item.read_at ?? ctx.now,
     push_due_at: null
   })
-  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next } }
+  const decision = (d.value.answer as { decision?: unknown } | null)?.decision === "allow" ? "allow" : "deny"
+  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next }, outbox: approvalDecision(next, decision) }
 }
 
 const reduceCancel = (state: FeedState, params: unknown, ctx: ReduceContext): Result => {
@@ -109,7 +111,8 @@ const reduceCancel = (state: FeedState, params: unknown, ctx: ReduceContext): Re
     closed_at: ctx.now,
     push_due_at: null
   })
-  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next } }
+  // A declined integration approval is a final deny for the waiting op (G8).
+  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next }, ...(reason === "declined" ? { outbox: approvalDecision(next, "deny") } : {}) }
 }
 
 const reduceTriage = (state: FeedState, op: string, params: unknown, ctx: ReduceContext): Result => {
@@ -253,7 +256,9 @@ export const feedDomain: Domain<FeedState> = {
     // The owner's own UserDO posts security notices (FeedDO.systemPrincipal sets `user` only for
     // the stream user:<feed user>); no other system source posts, and a system post is no grant.
     if (principal.kind === "system") {
-      if (op !== "feed.post" || principal.identity !== `system:user:${principal.user}` || !principal.user) return { code: "auth.forbidden", message: `${op} is not open to system principals` }
+      // A team's ConnectionDO posts approval requests (G8, FeedDO.integrationApproval stamps `user`).
+      const poster = principal.identity === `system:user:${principal.user}` || integrationPoster(principal) !== null
+      if (op !== "feed.post" || !principal.user || !poster) return { code: "auth.forbidden", message: `${op} is not open to system principals` }
       return state.user && principal.user !== state.user ? { code: "auth.forbidden", message: "not this user's feed" } : undefined
     }
     if (state.user && principal.user !== state.user) return { code: "auth.forbidden", message: "not this user's feed" }

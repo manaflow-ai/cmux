@@ -2163,6 +2163,22 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
+  /** Read a provider op that waits for your approval (G8): the op, its full parameters and the digest the feed request shows. Only your own session reads it. */
+  readonly "integration.approval.get": {
+    readonly params: {
+      readonly request: string
+    }
+    readonly result: {
+      readonly request: string
+      readonly op: string
+      readonly connection: string
+      readonly params: unknown
+      readonly digest: string
+      readonly state: "pending" | "done" | "denied" | "expired"
+      readonly created_at: number | "Infinity" | "-Infinity" | "NaN"
+      readonly expires_at: number | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
   /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
   readonly "integration.complete": {
     readonly params: {
@@ -3068,6 +3084,7 @@ export const cloudOpMeta = {
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },

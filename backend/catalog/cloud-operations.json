@@ -37590,6 +37590,232 @@
         }
       }
     },
+    "integration.approval.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "request": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^apr_[a-f0-9]{32}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "request": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "op": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "params": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "digest": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "state": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pending",
+                "done",
+                "denied",
+                "expired"
+              ]
+            }
+          },
+          "created_at": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "expires_at": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "integration approval",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "integration"
+      },
+      "docs": "Read a provider op that waits for your approval (G8): the op, its full parameters and the digest the feed request shows. Only your own session reads it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "pattern": "^apr_[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string"
+          },
+          "connection": {
+            "type": "string"
+          },
+          "params": {},
+          "digest": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done",
+              "denied",
+              "expired"
+            ]
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "op",
+          "connection",
+          "params",
+          "digest",
+          "state",
+          "created_at",
+          "expires_at"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "integration.complete": {
       "class": "mutation",
       "idempotency": "required",
