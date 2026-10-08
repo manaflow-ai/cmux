@@ -169,9 +169,11 @@ no rate limit, 1200 B datagrams):
 
 - Fastest everywhere on loopback: 1.3 ms first byte, 0.13 ms echo, 726 Mbit/s flood, 2.9 Gbit/s bulk
   at 6 ms CPU/MiB (kernel TCP plus ChaChaPoly). Lowest memory (25 MiB).
-- One TCP stream for every lane: under bulk the echo waits behind whatever the kernel send buffer
-  holds (4.7/11.9 ms p50/p99 median, 102 ms p99 in one run). On a WAN with a deep socket buffer this
-  becomes RTT-scale head-of-line blocking: F7.
+- One TCP stream for every lane: the baseline run's echo waited behind whatever the kernel send buffer
+  held (4.7/11.9 ms p50/p99 median, 102 ms p99 in one run). The direct writer now bounds the unsent
+  application queue to one maximum-sized bulk frame and selects queued frames by lane priority (F7).
+  The baseline numbers predate that change; WAN and device measurements still need to confirm the
+  resulting tail latency.
 
 ### 4.4 Session layer (all carriers)
 
@@ -217,9 +219,18 @@ to the render baseline, so the adaptive budget applies to the real host-to-phone
 the input budget remains unchanged. Other explicit channel budgets are preserved, and waiters wake
 when a new RTT sample can enlarge the window. This is a bounded protocol-side change, covered by
 pure budget tests and an input-priority terminal integration case; it does not claim device
-throughput. F3 (continuous V1 RTT sampling and cancellation of a send waiting on a full channel)
-and F7 (direct TCP head-of-line control) remain open. F8 still needs WAN/device evidence before the
-default path policy is promoted beyond DEV dogfood.
+throughput.
+
+F7 implementation (2026-10-07): `DirectWriter` keeps TCP record segments for a frame contiguous,
+but queues later frames by `ChannelPriority` so input/control/render work can pass queued bulk. Reliable
+bulk admission is bounded to one `TransportCapabilities.stream.maxFrameBytes` of unsent application
+data; callers wait for capacity instead of growing an unbounded FIFO. Unordered media remains
+drop-when-busy and partial frames still expire at their declared lifetime. `DirectSendQueueTests`
+covers priority/FIFO behavior and bulk-byte accounting. This is a scheduling and admission fix, not
+device or WAN evidence; the D2 measurement gate remains open.
+
+F3 (continuous V1 RTT sampling and cancellation of a send waiting on a full channel) remains open.
+F8 still needs WAN/device evidence before the default path policy is promoted beyond DEV dogfood.
 
 ## 6. Re-measure on device
 
@@ -289,8 +300,10 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
   native path to cut the per-datagram cost (80 % of V2 CPU); reuse buffers in the engine.
 - F6 (B3): pipeline `hello` into the WireGuard confirmation packet and send channel data with `open`
   to cut first byte from about 4 RTT to about 2.
-- F7 (B4): head-of-line on the single TCP stream: cap the socket send buffer (or unsent low-water) so
-  bulk cannot queue more than about one BDP in the kernel, or carry `bulk` on a second connection.
+- F7 (B4, implemented 2026-10-07): `DirectWriter` priority scheduling and a one-frame unsent bulk
+  admission budget prevent an application-side bulk backlog from hiding interactive frames. It keeps
+  record segments contiguous for Noise nonce order. Confirm WAN/device tail latency in D2; a separate
+  bulk connection remains a future option if kernel buffering still dominates.
 - F9 (E1, done 2026-10-08): bounded ingress on every carrier (`TransportInbox`, credit on
   consumption, conformance case `rawBackPressure`); see note (b) in section 3.
 - F8 (A3/C1): the 256 KiB render credit caps flood at 256 KiB per RTT (9 Mbit/s at 200 ms); size the
