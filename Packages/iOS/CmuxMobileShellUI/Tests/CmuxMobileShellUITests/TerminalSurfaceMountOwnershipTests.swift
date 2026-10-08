@@ -150,12 +150,13 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         #expect(remounted)
 
-        // Presentation ownership, unlike temporary window attachment, releases
-        // the sticky viewport lease and its generation-fenced Mac report.
+        // Backgrounding must keep the sticky viewport lease and its
+        // generation-fenced Mac report so resume cannot flash the wrong grid.
         coordinator.setTerminalPresentationActive(false)
-        #expect(!store.reportedViewportSizesByTerminalKey.values.contains(
+        #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
     }
 
     @MainActor
