@@ -8,18 +8,19 @@ use std::collections::BTreeMap;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-/// The actor the mutation ledger stored for `idempotency_key` (a mutation or
-/// an effect receipt), if any.
+/// The actor the mutation ledger stored for `idempotency_key`, if any. The
+/// mutation row comes first; a close writes both rows with the receipt's actor.
 pub(crate) fn ledger_actor(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
 ) -> anyhow::Result<Option<String>> {
     let actor = transaction
         .query_row(
-            "SELECT actor FROM resource_mutations WHERE idempotency_key = ?1
-             UNION ALL
-             SELECT actor FROM resource_effect_receipts WHERE idempotency_key = ?1
-             LIMIT 1",
+            "SELECT actor FROM (
+               SELECT 0 AS rank, actor FROM resource_mutations WHERE idempotency_key = ?1
+               UNION ALL
+               SELECT 1, actor FROM resource_effect_receipts WHERE idempotency_key = ?1
+             ) ORDER BY rank LIMIT 1",
             [idempotency_key],
             |row| row.get::<_, String>(0),
         )

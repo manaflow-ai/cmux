@@ -74,15 +74,15 @@ impl JournalSensitivity {
     }
 }
 
+/// Stored records only (never wire input): tolerant like the record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalProducer {
     pub kind: String,
     pub id: String,
 }
 
+/// Stored records only (never wire input): tolerant like the record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalAuthority {
     pub principal_id: String,
     pub lease_id: String,
@@ -98,7 +98,9 @@ pub struct JournalSubject {
 }
 
 /// Decoding tolerates unknown fields: a sealed segment written by a newer
-/// daemon must stay readable (P8 landing 2c). Wire input is checked elsewhere.
+/// daemon must stay readable (P8 landing 2c). Limits: `JournalSubject` stays
+/// strict (it is also wire input, `JournalIngress`), and a new enum variant
+/// still breaks an older reader.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionJournalRecord {
     pub sequence: u64,
@@ -978,6 +980,12 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
+    // A migrated legacy revision has no actor (and its ledgers may predate the
+    // column); a fresh record is its ledger row's, else the daemon's own.
+    let actor = match with_current_state {
+        true => Some(ledger_actor(transaction, idempotency_key)?.unwrap_or_else(|| crate::Actor::Daemon.wire())),
+        false => None,
+    };
     append_journal_record(
         transaction,
         &JournalAppend {
@@ -998,7 +1006,7 @@ fn append_resource_journal_record_at(
             content: None,
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
-            actor: ledger_actor(transaction, idempotency_key)?.as_deref(),
+            actor: actor.as_deref(),
         },
     )?;
     Ok(())
