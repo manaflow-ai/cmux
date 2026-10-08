@@ -598,7 +598,7 @@ def run_wrapper(
         inject_args_body = (
             "  exit 1\n"
             if hooks_inject_fails
-            else "  printf '%s\\0' --enable hooks -c hooks.cmux-test=true\n  exit 0\n"
+            else "  printf '%s\\0' --enable codex_hooks -c hooks.cmux-test=true\n  exit 0\n"
         )
         make_executable(
             wrapper_dir / "cmux",
@@ -1067,7 +1067,7 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
     expect(code == 0, f"wrapper exited {code}: {stderr}", failures)
     expect("app-server" not in args, f"must not use codex app-server, got {args}", failures)
     expect(
-        "--enable" in args and "hooks" in args and "hooks.cmux-test=true" in args,
+        "--enable" in args and "codex_hooks" in args and "hooks.cmux-test=true" in args,
         f"expected existing hook injection args to survive, got {args}",
         failures,
     )
@@ -1572,7 +1572,7 @@ def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["fork", "0e2f4bd8-2c34-4e6e-9d2b-000000000000"])
     expect(code == 0, f"fork wrapper exited {code}: {stderr}", failures)
     expect(
-        "--enable" in args and "hooks" in args and "hooks.cmux-test=true" in args,
+        "--enable" in args and "codex_hooks" in args and "hooks.cmux-test=true" in args,
         f"expected hook injection for fork sessions, got {args}",
         failures,
     )
@@ -1631,7 +1631,7 @@ def expect_session_globals_survive(
     ]:
         expect(key in keys, f"{context}: Codex would drop -c {key}; effective keys {keys}, argv {args}", failures)
     enabled = effective.get("enable") or []
-    for feature in ["hooks", *user_enabled]:
+    for feature in ["codex_hooks", *user_enabled]:
         expect(feature in enabled, f"{context}: Codex would drop --enable {feature}; effective {enabled}, argv {args}", failures)
     expect(
         "computer_use" in (effective.get("disable") or []),

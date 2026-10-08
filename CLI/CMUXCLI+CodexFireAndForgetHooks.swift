@@ -171,7 +171,7 @@ extension CMUXCLI {
     /// invocation without rewriting the user's Codex configuration. Returns
     /// activation flags followed by one `-c` pair for every event that is not
     /// already supplied by a cmux-owned persistent hook:
-    ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
+    ///   --enable\0codex_hooks\0--dangerously-bypass-hook-trust\0
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<hook>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
     /// Queued hooks use bounded ordered admission; native child lifecycle hooks
@@ -217,7 +217,7 @@ extension CMUXCLI {
         // are written once into a cmux-owned dir (~/.cmux/hooks), not the user's
         // ~/.codex. Any write failure falls back to the inline snippet.
         let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
-        var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
+        var args: [String] = ["--enable", "codex_hooks", "--dangerously-bypass-hook-trust"]
         func hookCommand(subcommand: String, body: String) throws -> String {
             let command: String
             if let scriptPath = hooksDir.flatMap({

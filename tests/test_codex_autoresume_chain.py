@@ -45,7 +45,7 @@ state = json.loads(state_path.read_text())
 args = sys.argv[1:]
 state["calls"].append(args)
 if args[:3] == ["hooks", "codex", "inject-args"]:
-    sys.stdout.buffer.write(b"--enable\\0hooks\\0--dangerously-bypass-hook-trust\\0")
+    sys.stdout.buffer.write(b"--enable\\0codex_hooks\\0--dangerously-bypass-hook-trust\\0")
     sys.stdout.buffer.write(b"-c\\0hooks.SessionStart=[{hooks=[{type=\\\"command\\\",command=\\\"fake\\\"}]}]\\0")
     sys.stdout.buffer.write(b"-c\\0hooks.Stop=[{hooks=[{type=\\\"command\\\",command=\\\"fake\\\"}]}]\\0")
 elif args[:4] == ["hooks", "enqueue", "codex", "session-start"] or args[:3] == ["hooks", "codex", "session-start"]:

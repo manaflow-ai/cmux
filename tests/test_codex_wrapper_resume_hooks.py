@@ -93,7 +93,7 @@ if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "inject-args" ]]
   [[ "${FAKE_INJECT_ARGS_AVAILABLE:-1}" == "1" ]] || exit 1
   printf '%s\\0' \
     '--enable' \
-    'hooks' \
+    'codex_hooks' \
     '--dangerously-bypass-hook-trust' \
     '-c' \
     'hooks.SessionStart=[{hooks=[{type="command",command="fake-session-start",timeout=10000}]}]' \
@@ -192,7 +192,7 @@ def assert_session_entrypoint_is_instrumented(
     expect(real_argv[:len(NATIVE_COMPUTER_USE_POLICY)] == NATIVE_COMPUTER_USE_POLICY,
            f"{label}: missing native Computer Use policy prefix: {real_argv}", failures)
     hook_args = real_argv[len(NATIVE_COMPUTER_USE_POLICY):]
-    expect(hook_args[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
+    expect(hook_args[:3] == ["--enable", "codex_hooks", "--dangerously-bypass-hook-trust"],
            f"{label}: missing injected hook prefix: {real_argv}", failures)
     expect(any(arg.startswith("hooks.SessionStart=") for arg in real_argv),
            f"{label}: missing SessionStart hook: {real_argv}", failures)
