@@ -60,8 +60,15 @@ pub enum SurfaceOut {
 
 /// The rb surface kind of a fork surface kind (`CMUX_RP_SURFACE_*` in
 /// cef_cmux.h). `None`: the host leaves the surface alone.
+/// Kind 4 (`CMUX_RP_SURFACE_BUBBLE`) has no embedder test in the fork yet,
+/// so the host neither captures nor closes it.
 pub fn fork_surface_kind(kind: i32) -> Option<SurfaceKind> {
-    Some(if kind == 1 { SurfaceKind::PagePopup } else { SurfaceKind::Bubble })
+    match kind {
+        1 => Some(SurfaceKind::PagePopup),
+        2 => Some(SurfaceKind::Autofill),
+        3 => Some(SurfaceKind::ExtensionPopup),
+        _ => None,
+    }
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -673,9 +680,31 @@ impl HostTab {
         out
     }
 
-    /// A viewer joined on a new pump while popup surfaces are shown.
-    pub fn rejoin_surfaces(&mut self, _p: &mut dyn Presentation) -> Vec<SurfaceOut> {
-        Vec::new()
+    /// A viewer joined on a new pump while popup surfaces are shown: each
+    /// shown surface gets its stream back (same id, a new encoder) and its
+    /// `rb.surface.show`, and its capture is asked for a full frame, since
+    /// the popup may not change again. A surface without pixels yet shows
+    /// on its first frame as usual.
+    pub fn rejoin_surfaces(&mut self, p: &mut dyn Presentation) -> Vec<SurfaceOut> {
+        let mut out = Vec::new();
+        for (&surface, open) in &self.surfaces {
+            let Some((stream, width, height)) = open.shown else { continue };
+            out.push(SurfaceOut::AddStream { surface, stream, width, height });
+            out.push(SurfaceOut::Control(Control::SurfaceShow {
+                surface,
+                stream,
+                kind: open.kind,
+                anchor: open.anchor,
+                width,
+                height,
+            }));
+        }
+        for out in &out {
+            if let SurfaceOut::AddStream { surface, .. } = out {
+                p.surface_refresh(*surface);
+            }
+        }
+        out
     }
 
     /// The stream that carries `surface`, once it is shown.

@@ -170,6 +170,7 @@ unsafe extern "C" {
         modifiers: c_int,
     ) -> c_int;
     pub fn rb_shim_surface_close(surface: c_int) -> c_int;
+    pub fn rb_shim_surface_refresh(surface: c_int) -> c_int;
     pub fn rb_shim_context_menu_result(token: i64, command_id: c_int) -> c_int;
     pub fn rb_shim_popup_menu_result(token: i64, indices: *const c_int, count: c_int) -> c_int;
     pub fn rb_shim_dialog_result(token: i64, accept: c_int, text: *const c_char) -> c_int;
@@ -341,8 +342,10 @@ impl Presentation for ShimPresentation {
         }
     }
 
-    fn surface_refresh(&mut self, _surface: u32) -> bool {
-        false
+    fn surface_refresh(&mut self, surface: u32) -> bool {
+        let Ok(surface) = c_int::try_from(surface) else { return false };
+        // SAFETY: plain value; UI thread.
+        unsafe { rb_shim_surface_refresh(surface) == 1 }
     }
 
     fn load_url(&mut self, browser: i32, url: &str) -> bool {
