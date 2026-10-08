@@ -1692,6 +1692,18 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    /// The stored actor of the mutation `key`, if it is in the ledger.
+    #[cfg(test)]
+    pub(crate) fn resource_mutation_actor_for_test(&self, key: &str) -> anyhow::Result<Option<String>> {
+        let actor = self
+            .connection
+            .query_row("SELECT actor FROM resource_mutations WHERE idempotency_key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?;
+        Ok(actor)
+    }
+
     #[cfg(test)]
     pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
         let count =

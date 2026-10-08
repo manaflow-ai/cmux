@@ -6070,3 +6070,6 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod personal_tests;
+
+#[cfg(test)]
+mod actor_migration_tests;
