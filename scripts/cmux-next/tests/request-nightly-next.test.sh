@@ -30,6 +30,11 @@ cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo one > "$src/cmux-tui/a"
+mkdir -p "$src/.github/workflows"
+# A real nightly.yml is large and names the gate early: a reader that stops at
+# the first match must not turn that into a failure (feat-cmux-next push run
+# 37818675501 refused 551654ba57bc, whose nightly.yml has the gate).
+{ echo "env: {NIGHTLY_NEXT_NOTARY_PAUSED: x}"; for i in $(seq 1 20000); do echo "# filler line $i of a large workflow"; done; } > "$src/.github/workflows/nightly.yml"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty
@@ -150,6 +155,21 @@ runs 12 "$app" other 11 "$head" other
 jobs 12 completed success; jobs 11 completed success
 request --tree-ready "$head"
 ! dispatched "$app" && ! dispatched "$head" || fail "a Release compile on another branch must not count"
+
+# A commit whose nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate would
+# notarize while the pause is on: never promoted, from either side.
+git_q -C "$src" checkout -q -b nogate "$head"
+echo "env: {}" > "$src/.github/workflows/nightly.yml"; git_q -C "$src" add -A; git_q -C "$src" commit -m "workflow without the gate"
+nogate=$(git -C "$src" rev-parse HEAD)
+request --sha "$nogate" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$nogate" || fail "a commit without the notary gate must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "NIGHTLY_NEXT_NOTARY_PAUSED" <<<"$out" || fail "the refusal must name the gate:" "$out"
+runs 14 "$nogate" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 14 completed success; jobs 11 completed success
+request --tree-ready "$nogate"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$nogate" \
+  || fail "--tree-ready must pass over a commit without the gate for an older gated one:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
 
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
