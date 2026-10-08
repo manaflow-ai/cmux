@@ -399,6 +399,12 @@ final class CloudBrowserAccessState {
         if model?.usesBrowserProxy == true {
             remoteURL = url
             navigationURL = url
+        } else if model?.route == .loopback, var remote = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            let host = model?.target.host.lowercased()
+            remote.host = host == "::1" ? "[::1]" : host
+            remote.port = model?.target.port
+            remoteURL = remote.url
+            navigationURL = url
         }
         hasCommittedNavigation = true
         trace("navigation_committed")
@@ -459,6 +465,9 @@ final class CloudBrowserAccessState {
 
     func owns(_ url: URL) -> Bool {
         guard let remoteURL else { return false }
+        if model?.route == .loopback {
+            return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
+        }
         if model?.usesBrowserProxy == true {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   url.host?.lowercased() == remoteURL.host?.lowercased() else { return false }
@@ -471,12 +480,33 @@ final class CloudBrowserAccessState {
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
     }
 
+    func forwardedURL(for url: URL) -> URL? {
+        guard model?.route == .loopback, owns(url) else { return nil }
+        return model?.url(for: url)
+    }
+
+    /// An SSH loopback alias change must be rebound to the owning provider
+    /// before WebKit can interpret it as a client-local destination.
+    func shouldRebindLoopbackNavigation(_ url: URL) -> Bool {
+        model?.allowsLoopback == true
+            && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
+            && !owns(url)
+    }
+
     /// Explicit localhost links within a VM page keep that page's VM as their owner.
     func rewrittenLoopbackURL(_ url: URL) -> URL? {
         guard model?.usesBrowserProxy == true, let remoteURL,
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
               let address = remoteURL.host else { return nil }
-        return CloudPortRoutePolicy().privateURL(url.absoluteString, address: address)
+        let allowsLoopback = model?.allowsLoopback == true
+        let explicitSSHLoopback = allowsLoopback
+            ? url.host.flatMap { ["127.0.0.1", "::1"].contains($0.lowercased()) ? $0 : nil }
+            : nil
+        return CloudPortRoutePolicy().privateURL(
+            url.absoluteString,
+            address: explicitSSHLoopback ?? address,
+            allowLoopback: allowsLoopback
+        )
     }
 
     private func cancelUnavailableRetry() {

@@ -184,6 +184,7 @@ extension DockSplitStore {
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: resolvedBypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
+            allowsLocalNavigationWithoutRemoteProxy: settings.allowsLocalNavigationWithoutRemoteProxy,
             remoteWebsiteDataStoreIdentifier: resolvedBypassRemoteProxy
                 ? nil
                 : settings.remoteWebsiteDataStoreIdentifier,

@@ -41,8 +41,17 @@ struct CloudPortRoutePlanTests {
     func explicitForwardURL() {
         let policy = CloudPortRoutePolicy()
         #expect(policy.localURL(rewriting: "http://10.0.0.7:3000/path?x=1#frag", toLoopbackPort: 41000)?.absoluteString == "http://127.0.0.1:41000/path?x=1#frag")
+        #expect(policy.localURL(rewriting: "http://[::1]:3000/path", toLoopbackPort: 41000)?.absoluteString == "http://127.0.0.1:41000/path")
         #expect(policy.localURL(rewriting: "https://10.0.0.7:8443", toLoopbackPort: 41000) == nil)
         #expect(policy.localURL(rewriting: "file:///tmp/file", toLoopbackPort: 41000) == nil)
+    }
+
+    @Test("Explicit localhost SSH routes are accepted only when loopback is enabled")
+    func explicitLocalhostRouteRequiresLoopbackCapability() {
+        let policy = CloudPortRoutePolicy()
+        #expect(policy.privateURL("http://localhost:3000/path", address: "localhost", allowLoopback: true)?.host == "localhost")
+        #expect(policy.privateURL("http://localhost:3000/path", address: "localhost", allowLoopback: false) == nil)
+        #expect(policy.localURL(rewriting: "http://localhost:3000/path", toLoopbackPort: 41000)?.absoluteString == "http://127.0.0.1:41000/path")
     }
 
     @Test("Direct private access waits for VPN without creating a listener")
@@ -84,7 +93,9 @@ struct CloudPortRoutePlanTests {
         #expect(starts == 1 && model.localAddress == "127.0.0.1:42000")
         #expect(second.route == .loopback)
         await model.stop()
-        #expect(stops == 1 && model.localAddress == nil && model.phase == .needsVPN)
+        #expect(stops == 1)
+        #expect(model.localAddress == nil)
+        #expect(model.phase == .needsVPN)
         await store.remove(machineID: "vm-1")
         #expect(model.phase == .closed && store.models.isEmpty)
     }
@@ -101,6 +112,40 @@ struct CloudPortRoutePlanTests {
         }
         #expect(http !== https)
         #expect(store.models.count == 2)
+    }
+
+    @Test("Managed SSH IPv4 and IPv6 aliases do not retarget each other's panes")
+    func accessModelsSeparateLoopbackAliases() {
+        let store = CloudPortAccessStore()
+        let ipv4 = store.model(
+            machineID: "ssh-1", target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            loopbackHost: "127.0.0.1"
+        ) { makeModel(port: 3000, host: "127.0.0.1", route: .loopback) }
+        let ipv6 = store.model(
+            machineID: "ssh-1", target: CloudPortForwardTarget(host: "::1", port: 3000),
+            loopbackHost: "::1"
+        ) { makeModel(port: 3000, host: "::1", route: .loopback) }
+        #expect(ipv4 !== ipv6)
+        #expect(ipv4.target.host == "127.0.0.1")
+        #expect(ipv6.target.host == "::1")
+    }
+
+    @Test("Retiring immediately after a retarget still closes the original loopback route")
+    func retirementClosesPriorLoopbackRouteAfterRetarget() async {
+        let first = CloudPortForwardTarget(host: "127.0.0.1", port: 3000)
+        let second = CloudPortForwardTarget(host: "::1", port: 3000)
+        var stopped: [CloudPortForwardTarget] = []
+        let model = CloudPortAccessModel(
+            target: first, coordinator: nil, wake: {},
+            startForward: { _ in 42000 }, stopForward: {}, route: .loopback,
+            stopForwardForTarget: { stopped.append($0) }
+        )
+        model.connect()
+        #expect(await wait { model.phase == .forwarded(42000) })
+        model.updateTarget(second)
+        await model.retire()
+        #expect(stopped.first == first)
+        #expect(!stopped.contains(second))
     }
 
     @Test("Desktop can use the authenticated loopback forward while VPN is off")
@@ -265,15 +310,84 @@ struct CloudPortRoutePlanTests {
         #expect(!model.isReady)
     }
 
+    @Test("Managed SSH loopback forwards preserve IPv4 and IPv6 destination hosts")
+    func managedSSHLoopbackForwardPreservesDestinationHosts() async throws {
+        for host in ["127.0.0.1", "::1"] {
+            let model = CloudPortAccessModel(
+                target: CloudPortForwardTarget(host: host, port: 3000),
+                coordinator: nil, wake: {}, startForward: { _ in 42002 },
+                stopForward: {}, route: .loopback, allowsLoopback: true
+            )
+            let page = CloudBrowserAccessState()
+            let remoteURL = try #require(URL(string: "http://\(host == "::1" ? "[::1]" : host):3000/path"))
+            page.configure(model: model, url: remoteURL)
+            var navigations: [URL] = []
+            page.automaticallyNavigate { navigations.append($0) }
+            model.connect()
+            #expect(await wait { model.isReady && navigations.count == 1 })
+            #expect(navigations.first?.host == "127.0.0.1")
+            #expect(navigations.first?.port == 42002)
+            #expect(page.nextURL() == nil, "An already-emitted route must not navigate twice")
+            #expect(page.owns(remoteURL))
+            let committedURL = try #require(model.url(for: remoteURL))
+            page.didCommit(url: committedURL)
+            #expect(page.owns(remoteURL), "Committing a loopback navigation must keep its owner URL valid")
+            if host == "::1" {
+                #expect(page.remoteURL?.absoluteString == "http://[::1]:3000/path",
+                        "A committed local IPv4 listener must restore the remote IPv6 origin")
+            }
+            await model.retire()
+        }
+
+        let aliasModel = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
+            route: .loopback, allowsLoopback: true
+        )
+        let aliasPage = CloudBrowserAccessState()
+        let ipv4PageURL = URL(string: "http://127.0.0.1:3000/page")!
+        let ipv6URL = URL(string: "http://[::1]:3000/ipv6")!
+        aliasPage.configure(model: aliasModel, url: ipv4PageURL)
+        #expect(aliasPage.shouldRebindLoopbackNavigation(ipv6URL))
+        #expect(!aliasPage.shouldRebindLoopbackNavigation(ipv4PageURL))
+        await aliasModel.retire()
+
+        let reverseAliasModel = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "::1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
+            route: .loopback, allowsLoopback: true
+        )
+        let reverseAliasPage = CloudBrowserAccessState()
+        let ipv6PageURL = URL(string: "http://[::1]:3000/page")!
+        let ipv4URL = URL(string: "http://127.0.0.1:3000/ipv4")!
+        reverseAliasPage.configure(model: reverseAliasModel, url: ipv6PageURL)
+        #expect(reverseAliasPage.shouldRebindLoopbackNavigation(ipv4URL))
+        #expect(!reverseAliasPage.shouldRebindLoopbackNavigation(ipv6PageURL))
+        await reverseAliasModel.retire()
+
+        let ordinaryModel = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
+            startBrowserProxy: {
+                CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 42001, username: "fixture", password: "secret")
+            }
+        )
+        ordinaryModel.connectBrowser()
+        #expect(await wait { ordinaryModel.isReady })
+        #expect(ordinaryModel.url(for: URL(string: "http://127.0.0.1:3000/path")!) == nil)
+        await ordinaryModel.retire()
+    }
+
     private func makeModel(
         port: Int = 3000,
+        host: String = "10.0.0.7",
         coordinator: CloudTunnelCoordinator? = nil,
         wake: @escaping @MainActor () async throws -> Void = {},
         forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
         stop: @escaping @MainActor () async -> Void = {},
         route: CloudPortAccessRoute = .privateNetwork
     ) -> CloudPortAccessModel {
-        CloudPortAccessModel(target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop, route: route)
+        CloudPortAccessModel(target: CloudPortForwardTarget(host: host, port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop, route: route)
     }
 
     private enum TestForwardError: Error { case unavailable }

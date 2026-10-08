@@ -4,14 +4,34 @@ import CmuxCore
 enum RemoteLoopbackRuntimeBridge {
     static let runtimeBridgeScriptSource = scriptSource(aliasHost: RemoteLoopbackProxyAlias.aliasHost)
 
-    static func scriptSource(aliasHost: String, preservesSubdomains: Bool = true) -> String {
+    static func scriptSource(
+        aliasHost: String,
+        preservesSubdomains: Bool = true,
+        aliasPort: Int? = nil,
+        remoteHost: String? = nil,
+        remotePort: Int? = nil,
+        enabled: Bool = true,
+        generation: Int = 0
+    ) -> String {
         let exactLoopbackHostLiterals = RemoteLoopbackProxyAlias.exactLoopbackHosts
             .sorted()
             .map(javaScriptStringLiteral)
             .joined(separator: ", ")
         return """
         (() => {
-          const aliasHost = \(javaScriptStringLiteral(aliasHost));
+          const nextConfiguration = {
+            aliasHost: \(javaScriptStringLiteral(aliasHost)),
+            aliasPort: \(aliasPort.map(String.init) ?? "null"),
+            remoteHost: \(remoteHost.map(javaScriptStringLiteral) ?? "null"),
+            remotePort: \(remotePort.map(String.init) ?? "null"),
+            enabled: \(enabled ? "true" : "false"),
+            generation: \(generation),
+          };
+          const previousConfiguration = window.__cmuxRemoteLoopbackBridgeConfig;
+          if (!previousConfiguration || nextConfiguration.generation >= previousConfiguration.generation) {
+            window.__cmuxRemoteLoopbackBridgeConfig = nextConfiguration;
+          }
+          if (!window.__cmuxRemoteLoopbackRuntimeBridgeInstalled && !window.__cmuxRemoteLoopbackBridgeConfig.enabled) return true;
           const canonicalLoopbackHost = \(javaScriptStringLiteral(RemoteLoopbackProxyAlias.canonicalLoopbackHost));
           const exactLoopbackHosts = new Set([\(exactLoopbackHostLiterals)]);
           const normalizeHost = (host) => {
@@ -23,7 +43,7 @@ enum RemoteLoopbackRuntimeBridge {
             }
             return value;
           };
-          const normalizedAliasHost = normalizeHost(aliasHost);
+          const normalizedAliasHost = normalizeHost(window.__cmuxRemoteLoopbackBridgeConfig.aliasHost);
           const initialHost = normalizeHost(window.location.hostname);
           // Preserve the original no-wrapper path for ordinary non-loopback
           // pages. An about:blank bootstrap has no host yet, so it remains
@@ -45,24 +65,31 @@ enum RemoteLoopbackRuntimeBridge {
                 pageHost = normalizeHost(new URL(document.baseURI).hostname);
               } catch (_) {}
             }
-            return pageHost === normalizedAliasHost || pageHost.endsWith(`.${normalizedAliasHost}`);
+            const currentAliasHost = normalizeHost(window.__cmuxRemoteLoopbackBridgeConfig.aliasHost);
+            return pageHost === currentAliasHost || pageHost.endsWith(`.${currentAliasHost}`);
           };
           if (window.__cmuxRemoteLoopbackRuntimeBridgeInstalled) return true;
+          if (!window.__cmuxRemoteLoopbackBridgeConfig.enabled) return true;
           window.__cmuxRemoteLoopbackRuntimeBridgeInstalled = true;
 
           const loopbackAliasHost = (host) => {
+            const configuration = window.__cmuxRemoteLoopbackBridgeConfig;
+            if (!configuration.enabled) return null;
+            const currentAliasHost = configuration.aliasHost;
             const normalizedHost = normalizeHost(host);
             if (exactLoopbackHosts.has(normalizedHost)) {
-              return aliasHost;
+              return currentAliasHost;
             }
             const suffix = `.${canonicalLoopbackHost}`;
             if (normalizedHost.endsWith(suffix) && normalizedHost.length > suffix.length) {
-              return \(preservesSubdomains ? "`${normalizedHost.slice(0, -suffix.length)}.${aliasHost}`" : "aliasHost");
+              return \(preservesSubdomains ? "`${normalizedHost.slice(0, -suffix.length)}.${currentAliasHost}`" : "currentAliasHost");
             }
             return null;
           };
 
           const rewriteLoopbackURL = (input) => {
+            const configuration = window.__cmuxRemoteLoopbackBridgeConfig;
+            if (!configuration.enabled) return input;
             if (!isRemoteLoopbackPage()) return input;
             if (typeof input !== 'string' && !(input instanceof URL)) {
               return input;
@@ -84,7 +111,14 @@ enum RemoteLoopbackRuntimeBridge {
             if (!rewrittenHost) {
               return input;
             }
+            if (configuration.aliasPort !== null) {
+              const expectedHost = normalizeHost(configuration.remoteHost);
+              const expectedPort = configuration.remotePort ?? (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? 443 : 80);
+              const actualPort = Number(parsed.port || (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? 443 : 80));
+              if (normalizeHost(parsed.hostname) !== expectedHost || actualPort !== expectedPort) return input;
+            }
             parsed.hostname = rewrittenHost;
+            if (configuration.aliasPort !== null) parsed.port = String(configuration.aliasPort);
             return parsed.href;
           };
 
