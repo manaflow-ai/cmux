@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import Foundation
 import Observation
 import Testing

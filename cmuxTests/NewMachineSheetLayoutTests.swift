@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import CmuxCloudResizeCore
 import Observation
 import SwiftUI
 import Testing
