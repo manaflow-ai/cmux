@@ -116,6 +116,27 @@ struct DeviceDirectoryMergeTests {
         }
     }
 
+    @Test("Account-owned presence remains visible when the selected team changes")
+    func accountOwnedPresenceIsIndependentOfTeamScope() throws {
+        let peer = SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")
+        let live = presence(studioID, online: true, name: "Studio")
+        let input = DeviceDirectoryMerge.Input(
+            authenticatedMacs: [],
+            requiresAuthenticatedDiscovery: true,
+            presence: [live.0: live.1],
+            presenceLive: true,
+            owners: [cmxCanonicalDeviceID(studioID): "my-account"],
+            ownersKnown: true,
+            selfInstance: selfInstance,
+            currentUserID: "my-account",
+            resolvedTeamID: "team-b"
+        )
+
+        let records = DeviceDirectoryMerge.merge(input)
+        #expect(records.map(\.instance) == [peer])
+        #expect(records.first?.accountTrust == .sameAccount)
+    }
+
     private let selfID = "11111111-1111-1111-1111-111111111111"
     private let studioID = "22222222-2222-2222-2222-222222222222"
     private let laptopID = "33333333-3333-3333-3333-333333333333"
