@@ -146,14 +146,15 @@ public final class FeedStore {
             Task { [weak self] in
                 guard let self else { return }
                 let outcome = await self.send(.seen(itemIDs: chunk))
-                // A failed or refused seen intent must be eligible for a
-                // later render pass. Keeping it marked forever would let the
-                // owner continue treating the item as unseen and send a
-                // duplicate notification.
-                guard case .committed = outcome else {
-                    self.reportedSeen.subtract(chunk)
+                // A transport failure did not reach the owner, so a later
+                // visibility pass should retry it. A refusal is authoritative
+                // for this batch (for example, an item disappeared remotely):
+                // keep the ids marked or a visible feed would immediately
+                // resend the same permanently invalid batch on every render.
+                guard case .notSent = outcome else {
                     return
                 }
+                self.reportedSeen.subtract(chunk)
             }
         }
     }
