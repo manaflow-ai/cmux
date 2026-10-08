@@ -81,6 +81,8 @@ pub mod terminal_respawn_text;
 mod windows_processes;
 mod workspace_registry;
 
+#[cfg(unix)]
+mod host_exe;
 pub mod layout;
 pub mod platform;
 #[cfg(unix)]
@@ -92,6 +94,7 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,

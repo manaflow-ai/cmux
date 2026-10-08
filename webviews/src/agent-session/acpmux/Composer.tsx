@@ -21,8 +21,9 @@ import {
 import { FileSearch } from "./FileSearch";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
+import { commandArgs } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { seededText } from "./composerDraft";
+import { readNativePersistedDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -78,6 +79,8 @@ type Props = {
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
+  /// The durable session whose unsent prompt belongs in this composer.
+  sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -89,6 +92,10 @@ type Props = {
   handle?: React.Ref<ComposerHandle>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Handles a cmux-owned slash command after the user submits it.
+  onCmuxCommand?(command: SlashCommand, args?: string): boolean | void;
+  /// Reads a transcript chosen by the cmux-owned `/import` command.
+  onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
@@ -136,6 +143,8 @@ export function Composer({
   accessory,
   prompt,
   onAttach,
+  onCmuxCommand,
+  onImportFile,
   searchFiles,
   onProject,
   projectChoices,
@@ -149,6 +158,7 @@ export function Composer({
   onMode,
   onOpenInWindow,
   handle,
+  sessionId,
   blocked,
 }: Props) {
   const t = useT();
@@ -158,7 +168,10 @@ export function Composer({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
-  const [text, setText] = useState("");
+  const importInput = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
+  const textRef = useRef(text);
+  textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
@@ -188,6 +201,9 @@ export function Composer({
   const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
+  /// The session id owns the prompt. A page can switch sessions without remounting the composer.
+  const persistedSession = useRef(sessionId);
+  const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -278,6 +294,36 @@ export function Composer({
     setCaret(draft.length);
     pendingCaret.current = draft.length;
   }, [draft]);
+  useEffect(() => {
+    if (persistedSession.current === sessionId) return;
+    const previous = persistedSession.current;
+    if (previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    persistedSession.current = sessionId;
+    restoringSession.current = true;
+    const restored = readPersistedDraft(sessionId) ?? "";
+    setText(restored);
+    setCaret(restored.length);
+    pendingCaret.current = restored.length;
+  }, [sessionId, text]);
+  useEffect(() => {
+    let current = true;
+    void readNativePersistedDraft(sessionId).then((restored) => {
+      if (!current || !restored || field.current?.value() || textRef.current) return;
+      setText(restored);
+      setCaret(restored.length);
+      pendingCaret.current = restored.length;
+    });
+    return () => {
+      current = false;
+    };
+  }, [sessionId]);
+  useEffect(() => {
+    if (restoringSession.current) {
+      restoringSession.current = false;
+      return;
+    }
+    writePersistedDraft(sessionId, text);
+  }, [sessionId, text]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -354,6 +400,24 @@ export function Composer({
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
+    }
+    const owned = commands?.find((command) => command.source === "cmux" && commandArgs(prompt, command) !== undefined);
+    if (owned) {
+      if (owned.name === "import") {
+        if (!onImportFile) return false;
+        importInput.current?.click();
+      } else if (!onCmuxCommand) {
+        return false;
+      } else {
+        const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
+        if (accepted === false) return false;
+      }
+      setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
+      setAttachError(undefined);
+      plusDraft.current = undefined;
+      edit("", 0);
+      sentAt.current = Date.now();
+      return true;
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
@@ -500,7 +564,9 @@ export function Composer({
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.
-    const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
+    const typedInFull =
+      matches[selected]?.command.name === query &&
+      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
     if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
       submit(event);
       return;
@@ -591,6 +657,20 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box">
+        <input
+          ref={importInput}
+          className="acpmux-import-input"
+          type="file"
+          accept=".jsonl,.json,text/plain,application/json"
+          // The /import picker: never shown or focused; the label is the command's language-neutral name.
+          hidden
+          aria-label="/import"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void onImportFile?.(file);
+          }}
+        />
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
           <SlashMenu
@@ -865,6 +945,7 @@ function SlashMenu({
             /<Highlighted name={match.command.name} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+          {match.command.source && <span className="acpmux-slash-source">{match.command.source}</span>}
           <span className="acpmux-slash-description">{match.command.description}</span>
         </div>
       ))}

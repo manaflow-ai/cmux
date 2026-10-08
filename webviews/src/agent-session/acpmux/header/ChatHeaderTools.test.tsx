@@ -193,3 +193,7 @@ test("Quick Chat has no tab to split, and its menu waits disabled until it has r
   expect(container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!.disabled).toBe(true);
   await act(async () => root.unmount());
 });
+
+test("the menu opens the chat in a new window through the app's own action", () => {
+  expect(HEADER_ACTIONS.newWindow).toBe("tab.moveToNewWindow");
+});

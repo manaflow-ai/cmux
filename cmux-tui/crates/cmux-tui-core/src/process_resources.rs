@@ -324,6 +324,8 @@ mod imp {
     pub(super) struct Sampler {
         timebase: Timebase,
         own_path: Option<String>,
+        /// The verified copy terminal hosts run from (host_exe.rs, cx-0tgl LF).
+        host_copy: Option<String>,
     }
 
     impl Sampler {
@@ -333,7 +335,11 @@ mod imp {
             if unsafe { mach_timebase_info(&raw mut timebase) } != 0 || timebase.denom == 0 {
                 timebase = Timebase { numer: 1, denom: 1 };
             }
-            Self { timebase, own_path: pid_path(std::process::id()) }
+            let host_copy = crate::host_exe::terminal_host_executable()
+                .ok()
+                .and_then(|path| std::fs::canonicalize(path).ok())
+                .map(|path| path.to_string_lossy().into_owned());
+            Self { timebase, own_path: pid_path(std::process::id()), host_copy }
         }
 
         pub(super) fn children(&self, pid: u32) -> Vec<u32> {
@@ -411,7 +417,8 @@ mod imp {
         }
 
         pub(super) fn runs_own_executable(&self, pid: u32) -> bool {
-            self.own_path.is_some() && pid_path(pid) == self.own_path
+            let path = pid_path(pid);
+            path.is_some() && (path == self.own_path || path == self.host_copy)
         }
     }
 
