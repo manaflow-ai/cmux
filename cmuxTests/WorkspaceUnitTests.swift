@@ -2767,6 +2767,64 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement), .end)
     }
 
+    func testSettingsFileStoreParsesGoToWorkspaceOrder() throws {
+        let defaults = UserDefaults.standard
+        let orderKey = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        let previousOrder = defaults.object(forKey: orderKey)
+        defer {
+            if let previousOrder {
+                defaults.set(previousOrder, forKey: orderKey)
+            } else {
+                defaults.removeObject(forKey: orderKey)
+            }
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "goToWorkspaceOrder": "recent"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .recent
+        )
+
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "goToWorkspaceOrder": "nope"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -3362,6 +3420,44 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
             totalCount: 5
         )
         XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+final class WorkspaceSwitcherOrderSettingsTests: XCTestCase {
+    func testCurrentOrderDefaultsToSidebarWhenUnset() {
+        let suiteName = "WorkspaceSwitcherOrderSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
+    }
+
+    func testCurrentOrderReadsRecentAndFallsBackForInvalidValues() {
+        let suiteName = "WorkspaceSwitcherOrderSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let key = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        defaults.set(WorkspaceSwitcherOrder.recent.rawValue, forKey: key)
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .recent
+        )
+
+        defaults.set("nope", forKey: key)
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
     }
 }
 

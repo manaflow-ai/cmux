@@ -25,9 +25,24 @@ public struct CommandPaletteWorkspaceOrdering: Sendable {
             return Self.selectedFirst(sidebarIDs, selectedID: selectedID)
         }
 
-        // The recency mode is intentionally covered by the regression test
-        // before this implementation is filled in.
-        return Self.selectedFirst(sidebarIDs, selectedID: selectedID)
+        let sidebarSet = Set(sidebarIDs)
+        var recent = Self.unique(recentIDs).filter { sidebarSet.contains($0) }
+        if let selectedID {
+            recent.removeAll { $0 == selectedID }
+        }
+        guard !recent.isEmpty else {
+            return Self.selectedFirst(sidebarIDs, selectedID: selectedID)
+        }
+
+        let recentSet = Set(recent)
+        var result = recent
+        result.append(contentsOf: sidebarIDs.filter { id in
+            id != selectedID && !recentSet.contains(id)
+        })
+        if let selectedID, sidebarSet.contains(selectedID) {
+            result.append(selectedID)
+        }
+        return result
     }
 
     private static func selectedFirst(_ ids: [UUID], selectedID: UUID?) -> [UUID] {

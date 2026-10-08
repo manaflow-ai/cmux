@@ -239,6 +239,7 @@ enum AppSettingsFileMapping {
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
+        .init(jsonKey: "goToWorkspaceOrder", defaultsKey: app.goToWorkspaceOrder.userDefaultsKey),
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
         .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]

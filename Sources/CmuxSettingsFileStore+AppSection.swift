@@ -56,6 +56,13 @@ extension CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        if let raw = jsonString(section["goToWorkspaceOrder"]) {
+            guard let order = WorkspaceSwitcherOrder(rawValue: raw) else {
+                logInvalid("app.goToWorkspaceOrder", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey] = .string(order.rawValue)
+        }
         if section.keys.contains("tabBarVisibility") {
             if let raw = jsonString(section["tabBarVisibility"]),
                let visibility = PaneTabBarVisibility(rawValue: raw) {

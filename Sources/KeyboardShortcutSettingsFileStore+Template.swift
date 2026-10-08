@@ -67,6 +67,7 @@ extension CmuxSettingsFileStore {
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": SettingCatalog().app.newWorkspacePlacement.defaultValue.rawValue,
+                    "goToWorkspaceOrder": SettingCatalog().app.goToWorkspaceOrder.defaultValue.rawValue,
                     "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
                     "minimalMode": false,
