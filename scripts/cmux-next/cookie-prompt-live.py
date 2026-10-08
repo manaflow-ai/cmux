@@ -182,19 +182,30 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", 
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    # A recovered-draft toast from an earlier run of this tag would hold the card back (and cover it).
+    for draft in rpc("debug.filepages").get("drafts") or []:
+        rpc("debug.filepages", {"restore": draft["id"]})
+    wait_for(lambda: not rpc("debug.filepages").get("toasts"), "no window toast before the check", 15)
     state = prompt("reset")
     check(state.get("shown_on") == [] and not state.get("never_show"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
-    rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
-    settle(2.0)
-    opened = rpc("action.run", {"action": "openBrowser", "args": {"url": "https://example.com/", "engine": "cef"}})
-    print("openBrowser:", json.dumps(opened)[:300], flush=True)
+    # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
+    print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
+    settle(3.0)
+    # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
+    # through openBrowser is agent-driven and never shows the card.)
+    typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
+    print("omnibar_type:", json.dumps(typed)[:300], flush=True)
     shown = wait_for(lambda: prompt().get("shown_on"), "the card appears when the page finishes", 60)
     state = prompt()
     check(bool(shown), f"the card showed by itself on the finished page: {state}")
     check(bool(state.get("browsers")), f"installed browsers found: {state.get('browsers')}")
     focus = rpc("debug.focus")
     check(not focus.get("app_active"), f"no activation: {focus}")
+    # The card may have come up on a tab restored from an earlier run (a hidden workspace);
+    # the captures need it on the tab on screen.
+    state = prompt("show")
+    check(len(state.get("shown_on") or []) >= 1, f"card on the visible tab for the captures: {state}")
     settle()
     capture("browser-card-light")
     rpc("debug.appearance", {"mode": "dark"})
@@ -217,7 +228,7 @@ try:
     # Answers: Not Now snoozes, a second page in this launch shows nothing.
     state = prompt("answer", choice="not_now")
     check(state.get("snoozed_until") is not None and state.get("shown_on") == [], f"Not Now closes and snoozes: {state}")
-    rpc("action.run", {"action": "openBrowser", "args": {"url": "https://example.org/", "engine": "cef"}})
+    rpc("debug.omnibar_type", {"text": "https://example.org/"})
     settle(5.0)
     check(prompt().get("shown_on") == [], "once per launch and snoozed: no second card")
     state = prompt("answer", choice="never")

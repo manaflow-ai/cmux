@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextDesign
 import Foundation
 
 /// The cookie import card (cx-367y): once per launch, on the first web
@@ -58,8 +59,10 @@ final class CookieImportPromptService {
         let tab = entry.tab
         let personal = !OffTheRecordProfiles.shared.isOffTheRecord(tab.profileID) && !tab.isAgentDriven
             && tab.profileID.rawValue.uuidString.lowercased() != AgentBrowserProfile.id.lowercased()
+        // A window toast (a recovered draft, an undo) sits in the same spot: the card waits for a later page.
+        let toast = entry.chrome.window.map { !CmuxToastCenter.shared.toasts(in: $0).isEmpty } ?? false
         return CookieImportPage(url: url, isChromium: tab.engineKind == .cef, isPersonal: personal,
-                                showsOtherNotice: entry.chrome.noticeText != nil)
+                                showsOtherNotice: entry.chrome.noticeText != nil || toast)
     }
 
     /// Shows the card on `chrome` (also `debug.cookie_prompt show`, which skips the checks).
