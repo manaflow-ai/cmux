@@ -26,6 +26,7 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         shellCommand: String,
         workingDirectory: String?
     ) -> Bool
+    func requestTogglePaneZoom(_ tmuxPaneID: Int) -> Bool
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool
     func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool
     func requestResizePane(

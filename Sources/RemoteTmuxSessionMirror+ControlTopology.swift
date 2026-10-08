@@ -294,6 +294,12 @@ extension RemoteTmuxSessionMirror {
         }
     }
 
+    func requestTogglePaneZoom(_ tmuxPaneID: Int) -> Bool {
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else { return false }
+        return windowMirror.requestTogglePaneZoom(tmuxPaneID)
+    }
+
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
         guard let windowID = windowIdByPane[tmuxPaneID],
               let windowMirror = windowMirrorByWindowId[windowID] else { return false }

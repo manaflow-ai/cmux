@@ -57,6 +57,10 @@ struct RemoteTmuxControlPaneLocation {
         )
     }
 
+    func requestTogglePaneZoom() -> Bool {
+        owner.requestTogglePaneZoom(pane.tmuxPaneID)
+    }
+
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
         owner.requestResizePane(tmuxPaneID, direction: direction, amountCells: amountCells)
     }
