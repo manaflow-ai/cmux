@@ -36,9 +36,10 @@ describe("the Mac install grant", { timeout: 60_000 }, () => {
 
   it("a real mac install token is refused an execute op and can still read", async () => {
     const mac = await signedInWithInstall("mac-grant-2", "mac")
-    const upgrade = await post("/v1/ops", mac.installToken, { op: "cloud.machine.upgrade", params: { machine: "vm_00000000000000000000000000" }, idempotency_key: crypto.randomUUID(), origin: "cli" })
-    expect(upgrade.body, JSON.stringify(upgrade.body)).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
+    // automation.run is an execute op: the grant check refuses it before the automation is looked up.
+    const run = await post("/v1/ops", mac.installToken, { op: "automation.run", params: { automation: "auto_00000000000000000000" }, idempotency_key: crypto.randomUUID(), origin: "cli" })
+    expect(JSON.stringify(run.body)).toContain("grant does not cover execute")
     const list = await post("/v1/read", mac.installToken, { op: "cloud.machine.list", params: {} })
-    expect(list.body, JSON.stringify(list.body)).toMatchObject({ ok: true })
+    expect(list.body, JSON.stringify(list.body)).toMatchObject({ op: "cloud.machine.list", value: { machines: [] } })
   })
 })

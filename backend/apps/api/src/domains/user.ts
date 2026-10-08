@@ -149,11 +149,22 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
 }
 
 /**
- * Default grant per install kind: the iPhone app gets read, mutate-own (L14-1) and the narrow
- * cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5); execute and riskier classes need their own grant.
+ * Default grant per install kind, and the most a register may ask for (it may narrow, never widen):
+ * - ios: read, mutate-own (L14-1) and the narrow cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5);
+ * - mac (the cmux Mac app, cx-wb5.64): the phone grant plus mutate-shared (start, pause, rename team
+ *   machines through the credential relay); never execute, so a stolen Mac install token sends no
+ *   terminal input, code or CUA act;
+ * - vm: vm-self only; every other kind (cli, ...): all install classes.
+ * money and destructive are never install classes (G8 approvals, cx-wb5.65).
  */
 export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number] | "cloud-link" | "vm-self"> =>
-  kind === "ios" ? ["read", "mutate-own", "cloud-link"] : kind === "vm" ? ["vm-self"] : INSTALL_CLASSES
+  kind === "ios"
+    ? ["read", "mutate-own", "cloud-link"]
+    : kind === "mac"
+      ? ["read", "mutate-own", "mutate-shared", "cloud-link"]
+      : kind === "vm"
+        ? ["vm-self"]
+        : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
 export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
