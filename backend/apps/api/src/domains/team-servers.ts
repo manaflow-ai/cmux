@@ -146,6 +146,17 @@ export const hostAccessFor = (state: TeamState, rows: RowReader | undefined, hos
   return p.agent ? null : { role: "device", host: summary }
 }
 
+type HostPrincipal = { user?: string; install?: string; kind?: string; agent?: string; install_kind?: string }
+type CloudHostAccess = (role: "host" | "device") => Promise<HostAccess | null>
+
+/** Resolves ordinary hosts locally and delegates VM hosts to CloudDO. */
+export const teamHostAccess = async (state: TeamState, rows: RowReader | undefined, host: string, p: HostPrincipal, cloud: CloudHostAccess): Promise<HostAccess | null> => {
+  if (p.install_kind === "vm") return p.agent === undefined ? cloud("host") : null
+  const ordinary = hostAccessFor(state, rows, host, p)
+  if (ordinary) return ordinary
+  return p.user && p.agent === undefined && memberOf(state, rows, p.user) ? cloud("device") : null
+}
+
 /** Removes a server host; the Worker then revokes its install key in the owner's UserDO. */
 export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   const p = ctx.principal

@@ -430,15 +430,10 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** For FeedDO and Home push: the user's push targets whose install is still active (feed.md 7.3). */
-  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
-    return (await this.notifyTargets(entity)).push
-  }
+  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> { return (await this.notifyTargets(entity)).push }
 
   /** For FeedDO and notification delivery: the user's active APNs and Live Activity targets. */
-  async notifyTargets(entity: string): Promise<NotifyTargets> {
-    const engine = this.existing()
-    return notifyTargetsOf(engine && engine.stream === `user:${entity}` ? engine.currentState : undefined, Date.now())
-  }
+  async notifyTargets(entity: string): Promise<NotifyTargets> { const engine = this.existing(); return notifyTargetsOf(engine && engine.stream === `user:${entity}` ? engine.currentState : undefined, Date.now()) }
 
   /** For FeedDO and Home push: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
   async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
