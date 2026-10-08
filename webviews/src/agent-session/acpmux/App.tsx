@@ -83,6 +83,7 @@ import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { canFork, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
 import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
@@ -109,6 +110,8 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
+import { mergedCommands } from "./cmuxCommands";
+import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -891,6 +894,7 @@ function AcpmuxPane() {
   const [chooseFolder, setChooseFolder] = useState(false);
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
+  const [importError, setImportError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
@@ -972,7 +976,7 @@ function AcpmuxPane() {
   // Footer actions show only while acpmux is reachable. The client reports failures in the
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
-  const forkable = Boolean(snapshot.canFork) && connected;
+  const forkable = canFork(snapshot);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1347,9 +1351,10 @@ function AcpmuxPane() {
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
+    const withCommands = { ...current, commands: mergedCommands(snapshot.commands) };
     return projectDraft && !snapshot.sessionId
-      ? { ...current, summary: { sessionId: "", cwd: projectDraft } }
-      : current;
+      ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
+      : withCommands;
   }, [snapshot, catalog, projectDraft]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
@@ -1805,6 +1810,10 @@ function AcpmuxPane() {
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
+        // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
+        setMessageMenuSource((rowId) =>
+          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined,
+        );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
           turnRunning: () => client.turnRunning(),
@@ -2036,6 +2045,13 @@ function AcpmuxPane() {
         shortcutAction: HEADER_ACTIONS.newWorkspace,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
       },
+      {
+        key: "newWindow",
+        label: t("chatMenu.newWindow"),
+        icon: "app.open.external",
+        shortcutAction: HEADER_ACTIONS.newWindow,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+      },
       "separator",
       {
         key: "close",
@@ -2047,6 +2063,17 @@ function AcpmuxPane() {
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const importFile = useCallback(async (file: File) => {
+    setImportError(undefined);
+    try {
+      const session = parseImportedSession(await file.text(), file.name || "transcript.jsonl");
+      if (!session.messages.length) return;
+      await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
+      await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : undefined);
+    }
+  }, []);
   const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
     if (kind !== "agent") {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
@@ -2186,6 +2213,11 @@ function AcpmuxPane() {
   const composer = !reviewing && !handoffLoading && (
     <>
       <DictationNotice dictation={dictation} />
+      {importError && (
+        <p className="acpmux-composer-remote-note" role="alert">
+          {importError}
+        </p>
+      )}
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
@@ -2300,6 +2332,7 @@ function AcpmuxPane() {
         handle={composerRef}
         blocked={trustAsk.blocked}
         accessory={<DictationButton dictation={dictation} />}
+        onImportFile={importFile}
       />
     </>
   );
