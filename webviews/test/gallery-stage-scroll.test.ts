@@ -1,6 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { readScrollPosition, restoreScrollPosition, scrollTargetFor } from "../src/gallery/shell/scroll";
+import {
+  readScrollPosition,
+  restoreScrollPosition,
+  restoreScrollPositionIfUnchanged,
+  scrollTargetFor,
+} from "../src/gallery/shell/scroll";
 
 const dom = new JSDOM(`<!doctype html><main class="gallery-main"><iframe></iframe></main>`);
 const iframe = dom.window.document.querySelector("iframe")!;
@@ -24,5 +29,14 @@ describe("gallery stage scroll restoration", () => {
     main.scrollTop = 0;
     restoreScrollPosition(main, position);
     expect(readScrollPosition(main)).toEqual({ x: 12, y: 34 });
+  });
+
+  test("does not reset a target that moved after the iframe mounted", () => {
+    const initial = { x: 12, y: 34 };
+    main.scrollLeft = initial.x;
+    main.scrollTop = initial.y;
+    main.scrollTop = 99;
+    expect(restoreScrollPositionIfUnchanged(main, initial)).toBe(false);
+    expect(readScrollPosition(main)).toEqual({ x: 12, y: 99 });
   });
 });

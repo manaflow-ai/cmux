@@ -20,7 +20,7 @@ import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
-import { readScrollPosition, restoreScrollPosition, scrollTargetFor } from "./scroll";
+import { readScrollPosition, restoreScrollPositionIfUnchanged, scrollTargetFor } from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
 
@@ -142,7 +142,7 @@ export function Stage({
     const restore = () => {
       if (restored) return;
       restored = true;
-      restoreScrollPosition(scrollTarget, initialScroll);
+      restoreScrollPositionIfUnchanged(scrollTarget, initialScroll);
     };
     const receive = (event: MessageEvent) => {
       const data = event.data as { type?: string; status?: string; report?: PlayReport } | null;

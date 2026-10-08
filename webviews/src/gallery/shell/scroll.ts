@@ -24,3 +24,11 @@ export function restoreScrollPosition(target: HTMLElement | null, position: Gall
     target.scrollTop = position.y;
   }
 }
+
+/** Restore a mount position only when nothing has intentionally moved the scroll target since. */
+export function restoreScrollPositionIfUnchanged(target: HTMLElement | null, position: GalleryScrollPosition): boolean {
+  const current = readScrollPosition(target);
+  if (current.x !== position.x || current.y !== position.y) return false;
+  restoreScrollPosition(target, position);
+  return true;
+}
