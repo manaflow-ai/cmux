@@ -245,6 +245,10 @@ mod tests {
         assert!(check_answers(&request, &json!({"name": {"answers": ["ledger"]}})).is_ok());
         assert!(check_answers(&request, &json!({"name": {"answers": []}})).is_err());
         assert!(check_answers(&request, &json!({"Name?": "ledger"})).is_err());
+        // Codex's value is `{answers: [...]}` with that one key: an extra key
+        // would ride along unchecked into the agent's tool input.
+        let junk = json!({"name": {"answers": ["ledger"], "junk": "x".repeat(8192)}});
+        assert!(check_answers(&request, &junk).is_err());
     }
 
     #[test]
