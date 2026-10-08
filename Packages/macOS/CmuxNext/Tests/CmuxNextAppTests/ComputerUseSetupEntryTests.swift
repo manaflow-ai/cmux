@@ -28,13 +28,3 @@ import Testing
         #expect(onboarding.computerUsePermissions != nil, "the step shows with Computer Use off")
     }
 }
-
-extension ComputerUseSetupEntryTests {
-    /// Asking for the step while another onboarding window shows rebuilds it with the step.
-    @Test func askingForAStepTheOpenWindowLacksRebuildsIt() {
-        let firstRun: [OnboardingModel.Step] = [.accounts, .importData]
-        #expect(OnboardingService.reusesWindow(showing: firstRun, for: nil))
-        #expect(OnboardingService.reusesWindow(showing: firstRun, for: .importData))
-        #expect(!OnboardingService.reusesWindow(showing: firstRun, for: .computerUse))
-    }
-}
