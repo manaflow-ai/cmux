@@ -10,6 +10,7 @@ output and on a hand-built Mach-O object.
 from __future__ import annotations
 
 import importlib.util
+import re
 import struct
 import tempfile
 import unittest
@@ -81,7 +82,7 @@ class StubTests(unittest.TestCase):
         self.assertIn(f"install-name:    '{CF}'", text)
         self.assertIn("current-version: 5026.5.4", text)
         self.assertIn("compatibility-version: 150.0.0", text)
-        symbols = [line.strip().strip("',") for line in text.splitlines() if line.strip().startswith("'_")]
+        symbols = re.findall(r"'(_[^']*)'", text)
         self.assertEqual(symbols, ["_CFRelease", "_CFRetain", "_OBJC_CLASS_$_NSObject", "_kCFAllocatorDefault"])
 
     def test_check_names_a_stub_that_lost_an_import(self) -> None:
