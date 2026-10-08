@@ -1369,18 +1369,18 @@
 		C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6495000000000000000C /* CMUXCLISessionsListTranscriptPidTests.swift */; };
 		C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */; };
 		C10DC1000000000000000004 /* CmuxCloud in Frameworks */ = {isa = PBXBuildFile; productRef = C10DC1000000000000000002 /* CmuxCloud */; };
-		C10DC1000000000000000006 /* CmuxCloudResizeCore in Frameworks */ = {isa = PBXBuildFile; productRef = C10DC1000000000000000005 /* CmuxCloudResizeCore */; };
 		D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F2A0000000000000000002 /* CmuxCloudBannerCore */; };
 		D0F2A0000000000000000004 /* CmuxCloudBannerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F2A0000000000000000002 /* CmuxCloudBannerCore */; };
 		D0F3A0000000000000000003 /* CmuxCloudImagePaste in Frameworks */ = {isa = PBXBuildFile; productRef = D0F3A0000000000000000002 /* CmuxCloudImagePaste */; };
 		D0F3A0000000000000000004 /* CmuxCloudImagePaste in Frameworks */ = {isa = PBXBuildFile; productRef = D0F3A0000000000000000002 /* CmuxCloudImagePaste */; };
 		5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
 		F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
+		C10DC1000000000000000006 /* CmuxCloudResizeCore in Frameworks */ = {isa = PBXBuildFile; productRef = C10DC1000000000000000005 /* CmuxCloudResizeCore */; };
 		C10DC1000000000000000007 /* CmuxCloudResizeCore in Frameworks */ = {isa = PBXBuildFile; productRef = C10DC1000000000000000005 /* CmuxCloudResizeCore */; };
+		C10DC1000000000000000008 /* CmuxCloudResizeCore in Frameworks */ = {isa = PBXBuildFile; productRef = C10DC1000000000000000005 /* CmuxCloudResizeCore */; };
 		C1D7A0000000000000000004 /* CmuxCloudTui in Frameworks */ = {isa = PBXBuildFile; productRef = C1D7A0000000000000000002 /* CmuxCloudTui */; };
 		D0F4A0000000000000000003 /* CmuxCloudTunnelCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F4A0000000000000000002 /* CmuxCloudTunnelCore */; };
 		D0F4A0000000000000000004 /* CmuxCloudTunnelCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F4A0000000000000000002 /* CmuxCloudTunnelCore */; };
-		C10DC1000000000000000008 /* CmuxCloudResizeCore in Frameworks */ = {isa = PBXBuildFile; productRef = C10DC1000000000000000005 /* CmuxCloudResizeCore */; };
 		5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		C0C0A2026091900000000003 /* CmuxComputerUse in Frameworks */ = {isa = PBXBuildFile; productRef = C0C0A2026091900000000002 /* CmuxComputerUse */; };
@@ -8954,10 +8954,10 @@
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
 				C10DC1000000000000000004 /* CmuxCloud in Frameworks */,
-				C10DC1000000000000000006 /* CmuxCloudResizeCore in Frameworks */,
 				D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */,
 				D0F3A0000000000000000003 /* CmuxCloudImagePaste in Frameworks */,
 				5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */,
+				C10DC1000000000000000006 /* CmuxCloudResizeCore in Frameworks */,
 				C1D7A0000000000000000004 /* CmuxCloudTui in Frameworks */,
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
 				C0C0A2026091900000000003 /* CmuxComputerUse in Frameworks */,
@@ -9076,8 +9076,8 @@
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				D0F2A0000000000000000004 /* CmuxCloudBannerCore in Frameworks */,
-				C10DC1000000000000000008 /* CmuxCloudResizeCore in Frameworks */,
 				D0F3A0000000000000000004 /* CmuxCloudImagePaste in Frameworks */,
+				C10DC1000000000000000008 /* CmuxCloudResizeCore in Frameworks */,
 				D0F4A0000000000000000003 /* CmuxCloudTunnelCore in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
 				C0C0A2026091900000000004 /* CmuxComputerUse in Frameworks */,
