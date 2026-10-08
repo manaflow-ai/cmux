@@ -266,6 +266,13 @@ final class WindowManager {
             awaitingContent[window.id] = false
         }
         if controllers.count == 1 { onFirstWindow?(controller) }
+        // An App Store request made while no window existed shows now (S22):
+        // a user run needs only the window (its top page), automation waits
+        // for a pane (`WorkspaceContentController.makeContentView`).
+        if controllers.count == 1, services.apps.isStoreWaiting {
+            let apps = services.apps
+            Task { apps.windowDidShowContent() }
+        }
         return controller
     }
 
@@ -322,6 +329,10 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
+        // A closed window is never the active one, even while another owner
+        // still retains its controller (S22: an App Store request after
+        // Close All Windows went to the closed window).
+        if lastActive === controller { lastActive = nil }
         awaitingContent[id] = nil
         contentWaiters[id] = nil
         controller.teardown()
