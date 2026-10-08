@@ -105,7 +105,8 @@ final class CloudTreeNode: NSObject {
         case machineDetailTabs(CloudTreeMachineDetailTabs)
         /// The gap after a Cloud machine's last row, before the next machine.
         case machineEndSpacer(machine: SurfaceMachineID)
-        /// Port discovery is demand-driven when the user opens the Ports group.
+        /// Port discovery is eager for expanded machines in the viewport; an explicit
+        /// Ports disclosure still refreshes its machine and collapsed rows stay lazy.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
         /// The identity glyph a top-level section header carries once for all of
         /// its rows, so the machine and device rows under it show no repeated icon.
