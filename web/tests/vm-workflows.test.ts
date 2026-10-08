@@ -1714,7 +1714,7 @@ describe("VM Effect workflows", () => {
         providerVmId: vm.providerVmId!,
         command: "sleep 999",
         timeoutMs: 60_000,
-        deadlineAtMs: startedAt + 150,
+        answerWithinMs: 150,
       }).pipe(Effect.provide(layer)),
     );
     expect(Date.now() - startedAt).toBeLessThan(2_000);
@@ -1736,7 +1736,7 @@ describe("VM Effect workflows", () => {
         providerVmId: vm.providerVmId!,
         command: "sleep 999",
         timeoutMs: 20,
-        deadlineAtMs: Date.now() + 5_000,
+        answerWithinMs: 5_000,
       }).pipe(Effect.provide(layer)),
     );
     expect(result.exitCode).toBe(124);
