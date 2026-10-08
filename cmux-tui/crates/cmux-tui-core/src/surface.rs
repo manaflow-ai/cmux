@@ -1643,6 +1643,7 @@ pub struct PtyTerminalRuntime {
     journal_capture_gate: Mutex<()>,
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
+    journal_capture_disabled: AtomicBool,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -2583,6 +2584,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -3103,6 +3105,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4191,6 +4194,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4423,6 +4427,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -6717,7 +6722,9 @@ impl PtySurface {
             loop {
                 let space_epoch = {
                     let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire) {
+                    if !self.journal_capture_open.load(Ordering::Acquire)
+                        || self.journal_capture_disabled.load(Ordering::Acquire)
+                    {
                         return;
                     }
                     let retry = match mux.try_journal_terminal_output(
@@ -6728,7 +6735,7 @@ impl PtySurface {
                     ) {
                         Ok(retry) => retry,
                         Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
+                            self.journal_capture_disabled.store(true, Ordering::Release);
                             eprintln!(
                                 "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
                             );
@@ -6740,7 +6747,7 @@ impl PtySurface {
                     space_epoch
                 };
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
+                    self.journal_capture_disabled.store(true, Ordering::Release);
                     eprintln!(
                         "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
                     );
@@ -7735,7 +7742,8 @@ mod tests {
             b"the next write reports the permanent failure".to_vec(),
         );
 
-        assert!(!pty.journal_capture_open.load(Ordering::Acquire));
+        assert!(pty.journal_capture_open.load(Ordering::Acquire));
+        assert!(pty.journal_capture_disabled.load(Ordering::Acquire));
         assert!(
             !mux.daemon_shutdown_requested(),
             "journal storage failure must leave live terminal hosts available"
