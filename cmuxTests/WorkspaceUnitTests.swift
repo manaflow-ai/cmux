@@ -2770,12 +2770,20 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     func testSettingsFileStoreParsesGoToWorkspaceOrder() throws {
         let defaults = UserDefaults.standard
         let orderKey = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        let tabBarVisibilityKey = AppCatalogSection().tabBarVisibility.userDefaultsKey
         let previousOrder = defaults.object(forKey: orderKey)
+        let previousTabBarVisibility = defaults.object(forKey: tabBarVisibilityKey)
         defer {
             if let previousOrder {
                 defaults.set(previousOrder, forKey: orderKey)
             } else {
                 defaults.removeObject(forKey: orderKey)
+            }
+
+            if let previousTabBarVisibility {
+                defaults.set(previousTabBarVisibility, forKey: tabBarVisibilityKey)
+            } else {
+                defaults.removeObject(forKey: tabBarVisibilityKey)
             }
         }
 
@@ -2808,7 +2816,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             """
             {
               "app": {
-                "goToWorkspaceOrder": "nope"
+                "goToWorkspaceOrder": "nope",
+                "tabBarVisibility": "multiple-tabs"
               }
             }
             """,
@@ -2822,6 +2831,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
             .sidebar
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.tabBarVisibility),
+            .multipleTabs
         )
     }
 
