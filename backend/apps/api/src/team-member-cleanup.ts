@@ -3,6 +3,8 @@ import type { TeamState } from "./domains/team.ts"
 import { TABLE_HOST, type HostRecord, type RowsWithScan } from "./domains/team-members.ts"
 import { KRL_GRACE_MS } from "./domains/team-ssh.ts"
 import { ensureSshTables } from "./team-ssh-ca.ts"
+import { ensureLoginTables } from "./team-sso-login.ts"
+import { userIdFor } from "./domains/user.ts"
 
 export interface CleanupDeps {
   readonly state: () => TeamState
@@ -10,6 +12,18 @@ export interface CleanupDeps {
   readonly sql: SqlStorage
   readonly now: () => number
   readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
+  /** The Stack project the user ids derive from (domains/user.ts userIdFor). */
+  readonly stackProjectId: string
+}
+
+/**
+ * Ends the member's SSO sessions of this team (cx-44j.50): withSsoSession then stamps this team on
+ * none of their new installs. Rows hold the Stack subject; the user id derives from it.
+ */
+const endSsoSessions = (deps: CleanupDeps, user: string) => {
+  ensureLoginTables(deps.sql)
+  const subjects = new Set(deps.sql.exec<{ stack_user: string }>(`SELECT DISTINCT stack_user FROM sso_sessions3`).toArray().map((r) => r.stack_user))
+  for (const sub of subjects) if (userIdFor(deps.stackProjectId, sub) === user) deps.sql.exec(`DELETE FROM sso_sessions3 WHERE stack_user = ?`, sub)
 }
 
 const HOST_PAGE = 200
@@ -56,6 +70,7 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
     }
     // Legacy maps (an old head before team.rows_migrate) hold hosts too.
     for (const h of Object.values(deps.state().hosts ?? {})) if (h.owner_user === user && !h.orphaned && h.enrolled_at <= at && !hosts.includes(h.id)) hosts.push(h.id)
+    endSsoSessions(deps, user)
     committed(deps.submitSystem("team.member.cleaned", { user, hosts }, `member-cleaned:${user}:${at}`))
   }
   return pending.length

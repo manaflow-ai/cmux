@@ -193,7 +193,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const engine = this.boundEngine
     if (!engine) return
     try {
-      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) })
+      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key), stackProjectId: this.env.STACK_PROJECT_ID })
       this.cleanupAttempts = 0
       this.cleanupRetryAt = null
     } catch (e) {

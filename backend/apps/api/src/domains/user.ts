@@ -121,8 +121,9 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }
   const g = state.grants[cur.grant]
-  // Install tokens carry the personal team; a bound server's team may also have signed for it.
-  const teams = state.user ? [...new Set([state.user.personal_team, ...(cur.bound_team ? [cur.bound_team] : [])])] : []
+  // Every team whose CA may have signed for it (cx-44j.50): the personal team, the bound team, the team whose SSO
+  // authorized it, and every team the user belongs to (any member may get a team certificate from any install).
+  const teams = state.user ? [...new Set([state.user.personal_team, ...(cur.bound_team ? [cur.bound_team] : []), ...(cur.sso_team ? [cur.sso_team] : []), ...Object.keys(state.team_index ?? {})])] : []
   const pending = teams.length > 0 && state.user ? { ...state.ssh_revoke_pending, [cur.id]: { user: state.user.id, teams, at: now } } : state.ssh_revoke_pending
   return {
     ok: true,
