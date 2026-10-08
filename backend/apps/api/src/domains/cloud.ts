@@ -135,6 +135,8 @@ export const publicMachine = (row: MachineRow): CloudMachineView => {
 }
 
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
+/** Money and destructive Cloud ops: an install's request runs only after the person's approval (G8, cx-wb5.65). */
+export const CLOUD_APPROVAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.resize", "cloud.machine.delete", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore"])
 
 /** Creator or team admin (all teams are personal today: the personal team's user is its admin). */
 export const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
@@ -167,13 +169,17 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if (state.team !== null && state.team !== principal.team) return { code: "auth.forbidden", message: "not this team's machines" }
     if (isAgent(principal) && op === "cloud.machine.create") return { code: "auth.forbidden", message: "an agent cannot create machines" }
     if (isAgent(principal) && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "an agent cannot delete machines" }
-    // CLOUDDO-MONEY-OPS: pause and start change what the team pays; a person decides (no agent, no install grant).
-    if ((op === "cloud.machine.pause" || op === "cloud.machine.start" || op === "cloud.machine.resize") && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: "pausing, starting or resizing a machine needs a signed-in person" }
-    if (op.startsWith("cloud.snapshot.") && op !== "cloud.snapshot.list" && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: op === "cloud.snapshot.restore" && isAgent(principal) ? "an agent cannot create machines" : "snapshots need a signed-in person" }
-    // Money and destructive ops need a signed-in person, never an install's grant (even one that lists
-    // money/destructive). Later: an install with a fresh single-use origin.confirmation (decision ORIGIN).
-    if (principal.kind !== "session" && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
-    if (principal.kind !== "session" && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "deleting a machine needs a signed-in person" }
+    // CLOUDDO-MONEY-OPS: pause and start change what the team pays. A person, or a non-agent install whose
+    // grant covers mutate-shared (the Mac relay, cx-wb5.65; CloudDO limits its starts); never an agent.
+    if ((op === "cloud.machine.pause" || op === "cloud.machine.start") && isAgent(principal)) return { code: "auth.forbidden", message: "an agent cannot pause or start machines" }
+    // Money and destructive ops: a signed-in person, or an install's request the person approved in the
+    // feed (G8, cx-wb5.65: CloudDO sets `approval` only on that run), never an install's grant alone
+    // (even one that lists money/destructive) and never an agent.
+    const approved = principal.kind === "install" && !isAgent(principal) && principal.approval !== undefined
+    if (op === "cloud.machine.resize" && principal.kind !== "session" && !approved) return { code: "auth.forbidden", message: "resizing a machine needs a signed-in person or their approval" }
+    if (op.startsWith("cloud.snapshot.") && op !== "cloud.snapshot.list" && principal.kind !== "session" && !approved) return { code: "auth.forbidden", message: op === "cloud.snapshot.restore" && isAgent(principal) ? "an agent cannot create machines" : "snapshots need a signed-in person or their approval" }
+    if (principal.kind !== "session" && !approved && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
+    if (principal.kind !== "session" && !approved && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "deleting a machine needs a signed-in person" }
     return admit("cloud:CloudDO", op, principal, grantClasses, Date.now())
   },
 

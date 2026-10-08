@@ -29,6 +29,7 @@ import type { ExternalReply } from "./external.ts"
 import type { Env } from "../env.ts"
 import { ProviderError } from "./providers.ts"
 import { withGrantClasses } from "../auth.ts"
+import type { ApprovalSource } from "../domains/feed-approvals.ts"
 
 /** A gate answer: a final refusal or pending state for the caller, or a replay of the approved run. */
 export type GateAnswer =
@@ -44,6 +45,10 @@ export interface GateHost {
   readonly newRequestId?: () => string
   /** Arms the alarm for the new request's expiry. */
   readonly armAlarm: () => void
+  /** What the per-bucket flood guard counts: the connection by default; CloudDO uses one bucket per team. */
+  readonly bucket?: (params: Record<string, unknown>) => string
+  /** Ask or block for this op: the integrations policy by default; CloudDO always asks (chief decision, cx-wb5.65). */
+  readonly action?: (def: CloudOpDef) => "ask" | "block" | "allow"
 }
 
 /**
@@ -97,7 +102,7 @@ const stateAnswer = (row: ApprovalRow): GateAnswer => {
  * result), and never posts a second feed request.
  */
 export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Principal, params: Record<string, unknown>, identity: string, key: string, now: number): Promise<GateAnswer> => {
-  const action = resolveEffectivePolicy(def.name, [], defaultActionFor(def.risk as Parameters<typeof defaultActionFor>[0])).action
+  const action = host.action ? host.action(def) : resolveEffectivePolicy(def.name, [], defaultActionFor(def.risk as Parameters<typeof defaultActionFor>[0])).action
   if (action === "block") return { kind: "refuse", code: "policy.denied", message: `${def.name} is blocked for agents, automations and apps` }
   const paramsHash = approvalDigest(def.name, params)
   const prior = approvalByKey(host.sql, identity, key)
@@ -112,7 +117,7 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
     if (e instanceof ProviderError) return { kind: "refuse", code: e.code === "needs_reauth" ? "integration.unavailable" : e.code, message: e.message }
     throw e
   }
-  const connection = String(params.connection)
+  const connection = host.bucket ? host.bucket(params) : String(params.connection)
   if (pendingCount(host.sql, connection, now) >= MAX_PENDING_PER_CONNECTION || pendingCountFor(host.sql, identity, now) >= MAX_PENDING_PER_IDENTITY) {
     return { kind: "refuse", code: "approval.too_many_pending", message: `too many requests wait for approval (at most ${MAX_PENDING_PER_IDENTITY} per caller and ${MAX_PENDING_PER_CONNECTION} per connection)`, retryable: true }
   }
@@ -124,7 +129,7 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
     action: {
       type: "tool",
       tool: def.name,
-      summary: `${def.name} to ${target || "this connection"}${summary ? `: ${summary}` : ""}`.slice(0, 500),
+      summary: `${def.name} ${host.bucket ? "for" : "to"} ${target || "this connection"}${summary ? `: ${summary}` : ""}`.slice(0, 500),
       risk: def.risk,
       input: { approval: { team: principal.team ?? "", request, digest }, connection, target, summary }
     },
@@ -251,12 +256,15 @@ export const deliverAnswers = async (
 /** Outbox items the ConnectionDO handles itself (DO-local approvals table), not through its engine. */
 export const APPROVAL_ITEM_OPS: ReadonlySet<string> = new Set(["integration.approval.answered", "connections.member_left"])
 
-/** The FeedDO RPC that posts an integration approve request to `user`'s feed (G8); returns the item id. */
-export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<string> => {
+/**
+ * The FeedDO RPC that posts an approve request to `user`'s feed (G8); returns the item id. `source`
+ * names the posting owner of `team`: its ConnectionDO (integrations) or its CloudDO (cx-wb5.65).
+ */
+export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource = "connections"): Promise<string> => {
   const feed = env.FEED_DO.get(env.FEED_DO.idFromName(user)) as unknown as {
-    integrationApproval(user: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<{ ok: true; item: string } | { ok: false; message: string }>
+    integrationApproval(user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource): Promise<{ ok: true; item: string } | { ok: false; message: string }>
   }
-  const r = await feed.integrationApproval(user, team, prompt, expiresInMs, key)
+  const r = await feed.integrationApproval(user, team, prompt, expiresInMs, key, source)
   if (!r.ok) throw new Error(r.message)
   return r.item
 }

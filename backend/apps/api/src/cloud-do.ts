@@ -8,6 +8,8 @@ import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGe
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
+import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -23,6 +25,8 @@ const STATE_CHECK_EVERY_MS = 30_000
 export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
+    if (op === "integration.approval.get") return readCloudApproval(this.ctx.storage.sql, principal, params)
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
@@ -37,6 +41,15 @@ export class CloudDO extends CloudIdle {
       return r.ok ? { ...r, revision: "0" } : r
     }
     return super.readOp(entity, principal, op, params)
+  }
+
+  /** The person's approval answers (G8, cloud-approvals.ts) run here; other items go to the engine. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const answers = items.filter((i) => i.op === "integration.approval.answered")
+    const rest = items.filter((i) => i.op !== "integration.approval.answered")
+    const done = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : []
+    if (answers.length) done.push(...(await deliverCloudAnswers(this.approvalHost(entity), source, answers, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))).done)
+    return { done }
   }
 
   /**

@@ -37,7 +37,7 @@ import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
-import { answerPrincipal, approvalReader } from "./integrations/approval-route.ts"
+import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -391,8 +391,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const resolved = yield* principalFor(def.owner, principal)
-        // G8: an approval of a team's agent is read from that team, for its members (approval-route.ts).
-        const reader = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalReader(env, resolved, payload.params), catch: unreachable }) : resolved
+        // G8: an approval is read from the team and owner (ConnectionDO, or CloudDO for Cloud) that posted it, for its members (approval-route.ts).
+        const { reader, owner } = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalRoute(env, resolved, payload.params), catch: unreachable }) : { reader: resolved, owner: def.owner }
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
@@ -419,7 +419,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(env, reader, payload.op, payload.params) as Promise<ReadResult>
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
-            const route = ownerRoute(def.owner, reader)
+            const route = ownerRoute(owner, reader)
             return rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params))
           },
           catch: unreachable
