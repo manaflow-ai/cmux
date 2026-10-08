@@ -268,17 +268,25 @@ public final class UpdaterService {
         channelSwitchError = nil
         let switcher = switcher
         let task = Task { [weak self] () -> String? in
+            // The switcher reports phases from its own threads. They reach the main actor through
+            // one ordered stream (state-audit U1): the newest phase is applied, in order, before the
+            // switch ends, and a phase reported after the end (a late progress callback) is dropped.
+            let (phases, sink) = AsyncStream.makeStream(of: AppChannelSwitchPhase.self, bufferingPolicy: .bufferingNewest(1))
+            // task-owner: the switch task; ends when the switch finishes the stream below
+            let applier = Task { @MainActor [weak self] in
+                for await phase in phases { self?.channelSwitchPhase = phase }
+            }
             var failure: String?
             do {
-                let outcome = try await switcher.switchTo(target) { phase in
-                    Task { @MainActor in self?.channelSwitchPhase = phase }
-                }
+                let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
                 failure = String(describing: error)
                 self?.channelSwitchError = failure
                 self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
             }
+            sink.finish()
+            await applier.value
             self?.channelSwitchPhase = nil
             self?.switchTask = nil
             return failure

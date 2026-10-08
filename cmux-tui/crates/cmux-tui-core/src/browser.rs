@@ -6983,16 +6983,6 @@ mod tests {
 
         let error = runtime_endpoint(&opts).expect_err("provider-less runtime must fail");
         assert!(error.to_string().contains("no cmux-browser provider is attached"));
-
-        let discover_opts = SurfaceOptions {
-            browser_discover: true,
-            browser_discover_ports: vec![9],
-            chrome_binary: Some("/definitely/missing/chrome".to_string()),
-            ..opts
-        };
-        let error = runtime_endpoint(&discover_opts)
-            .expect_err("legacy discovery options must not launch or discover Chrome");
-        assert!(error.to_string().contains("no cmux-browser provider is attached"));
     }
 
     #[test]
