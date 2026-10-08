@@ -405,6 +405,9 @@ mod host_self_errors;
 #[path = "loss_causes.rs"]
 mod loss_causes;
 
+#[path = "host_argv.rs"]
+mod host_argv;
+
 #[path = "pty_custody.rs"]
 mod pty_custody;
 
