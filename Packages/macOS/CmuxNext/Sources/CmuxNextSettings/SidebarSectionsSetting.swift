@@ -13,6 +13,16 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showChatsPath = ["sidebar", "showChats"]
+    public static let tipsPath = ["sidebar", "cards", "tips"]
+
+    static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(tipsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
+                          help: SettingsText.keyed("settings.sidebar.cards.tips.help",
+                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
+                          keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])
+    }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -91,6 +101,13 @@ public nonisolated enum SidebarSectionsSetting {
                 result.showWorkspaceTabs = flag
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
+            }
+        }
+        if let value = root.value(at: tipsPath) {
+            if let flag = value.boolValue {
+                result.showsTips = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.cards.tips", message: "expected true or false"))
             }
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)

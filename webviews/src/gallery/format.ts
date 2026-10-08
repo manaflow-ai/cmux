@@ -45,6 +45,10 @@ export type SettingsPageVariant = VariantBase & {
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
+  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
+  look?: "quiet" | "dense";
+  /** Publish every bundled theme and its colors (the app does); default the mock's six. */
+  allThemes?: boolean;
 };
 export type PasswordsPageVariant = VariantBase & {
   data: MockData;
@@ -133,6 +137,8 @@ export type MarkdownPageVariant = VariantBase & {
   /** Null: the page opens in its empty state (no file). */
   text: string | null;
   readOnly?: boolean;
+  /** Gallery-only GitHub `origin` repository used for bare issue references. */
+  githubRepository?: string;
   /** cmux.json's `markdown` section. */
   settings?: Record<string, unknown>;
   /** The user's markdown/theme.css. */

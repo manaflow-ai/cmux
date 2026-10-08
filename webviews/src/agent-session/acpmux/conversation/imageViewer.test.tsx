@@ -284,3 +284,41 @@ test("Control-scroll on the stage zooms the image, and the pane never scrolls be
   expect(image.style.transform).not.toBe("translate(0px, 0px) scale(1)");
   await unmount();
 });
+
+test("a copy that finishes after the viewer moved on labels only the image it copied", async () => {
+  // A copy the test finishes by hand; the image never loads, as in jsdom.
+  let finish = () => {};
+  const clipboard = Object.getOwnPropertyDescriptor(dom.window.navigator, "clipboard");
+  Object.defineProperty(dom.window.navigator, "clipboard", {
+    configurable: true,
+    value: { write: () => new Promise<void>((resolve) => (finish = resolve)) },
+  });
+  const savedItem = globals.ClipboardItem;
+  const savedImage = globals.Image;
+  globals.ClipboardItem = class {};
+  globals.Image = class {};
+  const images = [
+    { src: png("A"), alt: "Light" },
+    { src: png("B"), alt: "Dark" },
+  ];
+  const container = dom.window.document.body.appendChild(dom.window.document.createElement("div"));
+  const root = createRoot(container);
+  const show = (index: number) =>
+    act(async () => root.render(createElement(ImageViewer, { images, index, onIndex: () => {}, onClose: () => {} })));
+  await show(0);
+  await until(() => doc().querySelector(".acpmux-image-viewer"));
+  const copy = () => doc().querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!;
+  expect(copy().getAttribute("aria-label")).toBe("Copy image");
+  await act(async () => copy().click());
+  await show(1);
+  await act(async () => finish());
+  expect(doc().querySelector(".acpmux-image-viewer-image")?.getAttribute("src")).toBe(png("B"));
+  expect(copy().getAttribute("aria-label")).toBe("Copy image");
+  await act(async () => root.unmount());
+  container.remove();
+  await until(() => !doc().querySelector("[data-base-ui-portal], [data-base-ui-inert]"));
+  globals.ClipboardItem = savedItem;
+  globals.Image = savedImage;
+  if (clipboard) Object.defineProperty(dom.window.navigator, "clipboard", clipboard);
+  else delete (dom.window.navigator as unknown as Record<string, unknown>).clipboard;
+});
