@@ -23,6 +23,7 @@ import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { discoverHarnesses } from "./harnesses";
 import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
+import { OpenCodes } from "./open-codes";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
 import { closeSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -134,6 +135,8 @@ export function stripAuthPrefixForTest(path: string, token: string): string | nu
   const stripped = stripAuthPrefixWithToken(new URL(`http://127.0.0.1${path}`), token);
   return stripped?.pathname ?? null;
 }
+
+const openCodes = new OpenCodes();
 
 function prefixedPath(path: string): string {
   return `${AUTH_PREFIX}${path}`;
@@ -2126,6 +2129,14 @@ function startServer() {
     }
     const originalUrl = new URL(req.url);
     if (originalUrl.pathname === "/healthz") return new Response("ok");
+    // A one-time open code (`open-codes.ts`): spent by this request whatever
+    // its result, and redirects only to a page route under the token.
+    const openCode = /^\/o\/([A-Za-z0-9_-]{1,128})$/.exec(originalUrl.pathname);
+    if (openCode && req.method === "GET" && !originalUrl.search) {
+      const target = openCodes.redeem(openCode[1]);
+      if (!target) return new Response("not found", { status: 404 });
+      return new Response(null, { status: 302, headers: { location: prefixedPath(target), "cache-control": "no-store" } });
+    }
     const url = stripAuthPrefix(originalUrl);
     if (!url) return new Response("not found", { status: 404 });
     if (url.pathname === "/ws") {
@@ -2171,6 +2182,13 @@ function startServer() {
     }
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
+    // A one-time code for `cmux open`, whose argv other processes can read.
+    if (url.pathname === "/api/open-code" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const code = typeof body?.path === "string" ? openCodes.issue(body.path) : null;
+      if (!code) return Response.json({ error: "path is not a page of this server" }, { status: 400 });
+      return Response.json({ url: `http://127.0.0.1:${srv.port}/o/${code}` }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/api/sessions" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
       const provider = String(body.provider ?? "claude");

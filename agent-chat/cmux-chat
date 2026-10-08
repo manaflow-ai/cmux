@@ -1,10 +1,10 @@
 #!/bin/bash
 # cmux-chat: open a cmux agent chat (browser-surface UI) from the terminal.
 #
-#   cmux-chat                          new composer as a workspace tab (sidebar entry)
+#   cmux-chat                          new composer in a browser split
 #   cmux-chat fix the failing test     start a chat with that prompt
 #   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/goose/pi/gemini)
-#   cmux-chat --split                  open as a split in the current workspace instead
+#   cmux-chat --split                  the same, with a transparent page background
 #   cmux-chat --no-open ...            print the URL only
 #   cmux-chat --terminal [--surface ID] chat view of the agent running in a
 #                                      terminal ($CMUX_SURFACE_ID), as a split
@@ -69,7 +69,8 @@ ok=false
 for _ in $(seq 1 50); do
   token="$(head -n 1 "$token_file" 2>/dev/null || true)"
   # Only the token's own form reaches the curl config (no quote or newline).
-  [[ "$token" =~ ^[A-Za-z0-9_-]{32,256}$ ]] || token=""
+  # (bash 3.2's regex has no bound above 255, so the length is checked apart.)
+  [[ "$token" =~ ^[A-Za-z0-9_-]+$ ]] && [ ${#token} -ge 32 ] && [ ${#token} -le 256 ] || token=""
   if [ -n "$token" ] && curl_url "$ROOT/$token/api/theme" -fsS --max-time 1 -o /dev/null 2>/dev/null; then ok=true; break; fi
   sleep 0.1
 done
@@ -103,20 +104,13 @@ if $no_open; then
   exit 0
 fi
 
-if [ "$open_mode" = "tab" ]; then
-  layout=$(CC_URL="$url" python3 -c '
-import json, os
-print(json.dumps({"pane": {"surfaces": [{"type": "browser", "url": os.environ["CC_URL"], "focus": True}]}}))')
-  cmux new-workspace --name "agent chat" --layout "$layout" >/dev/null
-else
-  # Splits get a transparent webview so Ghostty background-opacity/blur show
-  # through; the page matches with an alpha body when ?transparent=1 is set.
-  params=$(CC_URL="${url}?transparent=1" python3 -c '
-import json, os
-p = {"url": os.environ["CC_URL"], "transparent_background": True}
-ws = os.environ.get("CMUX_WORKSPACE_ID")
-if ws: p["workspace_id"] = ws
-print(json.dumps(p))')
-  cmux rpc browser.open_split "$params" >/dev/null
-fi
+# `cmux open` takes the URL in argv, which other processes can read, so it
+# gets a one-time code URL (/o/<code>: used once, 60 s) that redirects the
+# browser surface to the tokened page. The code is asked for over curl's stdin.
+page="${url#"$BASE"}"
+[ "$open_mode" = "split" ] && page="${page}?transparent=1"
+code_body=$(printf '%s' "$page" | python3 -c 'import json, sys; print(json.dumps({"path": sys.stdin.read()}))')
+code_url=$(curl_url "$BASE/api/open-code" -fsS -X POST -H 'content-type: application/json' -d "$code_body" |
+  python3 -c 'import json, sys; print(json.load(sys.stdin)["url"])')
+cmux open "$code_url" >/dev/null
 echo "$url"

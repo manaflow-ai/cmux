@@ -158,7 +158,7 @@ test("an open code redirects once to its page and is then refused", async () => 
   expect((await requestWithLocation(generated.port, code, host)).status).toBe(404);
 });
 
-test("an open code obeys the Host and Origin rules and is spent by a refused try", async () => {
+test("an open code obeys the Host and Origin rules, and a wrong code is refused", async () => {
   const code = new URL((await issueCode(generated.port, "/")).url!).pathname;
   expect((await requestWithLocation(generated.port, code, { Host: `evil.example:${generated.port}` })).status).toBe(403);
   expect((await requestWithLocation(generated.port, code, { Host: `127.0.0.1:${generated.port}`, Origin: "https://evil.example" })).status).toBe(403);
