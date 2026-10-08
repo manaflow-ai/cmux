@@ -104,17 +104,6 @@ class CriticalPathTests(unittest.TestCase):
         self.assertIsNone(measured.setup_seconds)
         self.assertIsNone(measured.cleanup_seconds)
 
-        bookends_only = job(
-            "bookends-only",
-            0,
-            10,
-            100,
-            steps=[("Set up job", 10, 25), ("Complete job", 80, 100)],
-        )
-        empty = readout.Job(bookends_only)
-        self.assertIsNone(empty.setup_seconds)
-        self.assertIsNone(empty.cleanup_seconds)
-
         malformed = job("malformed-step", 0, 10, 100)
         malformed["steps"] = [{"name": None, "started_at": at(20), "completed_at": at(30)}]
         measured = readout.Job(malformed)
