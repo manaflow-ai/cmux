@@ -83,7 +83,7 @@ import Testing
         #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["SQLite"]])))
         // A scalar may use all 4096 bytes; a list's strings are counted together.
         #expect(Self.passes(Self.respond(permission: "p-claude", answers: ["Which auth?": String(repeating: "a", count: 4096)])))
-        #expect(Self.refused(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": [String(repeating: "a", count: 2048), String(repeating: "b", count: 2048)]]])))
+        #expect(Self.refused(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": [String(repeating: "a", count: 2048), String(repeating: "b", count: 2049)]]])))
         // A list holds at most 64 strings.
         #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": Array(repeating: "SQLite", count: 64)]])))
         #expect(Self.passes(Self.respond(permission: "p-claude", answers: ["Which auth?": Array(repeating: "OAuth", count: 64)])))

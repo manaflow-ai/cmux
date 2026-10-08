@@ -1394,6 +1394,43 @@
    "method": "_acpmux/permission_respond",
    "id": "38",
    "spend": null
+  },
+  "swift_gap": "Swift accepts Codex's {answers: [string]} form; the Rust policy currently allows only strings or string lists.",
+  "swift_expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 38,
+    "method": "_acpmux/permission_respond",
+    "params": {
+     "sessionId": "s1",
+     "permissionId": "p1",
+     "optionId": "allow_once",
+     "answers": {
+      "db_engine": {
+       "answers": [
+        "SQLite"
+       ]
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/permission_respond",
+    "page_id": "38",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
   }
  },
  {
