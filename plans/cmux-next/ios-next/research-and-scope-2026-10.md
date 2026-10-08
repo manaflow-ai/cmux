@@ -1,7 +1,8 @@
 # cmux-next iOS: product and design research, scope, and verification
 
 **Date:** 2026-10-07
-**Evidence baseline:** `feat-cmux-next-ios` implementation baseline `f538410565` (the initial D3 baseline at
+**Evidence baseline:** `feat-cmux-next-ios` implementation baseline `166e9c49fa` (the current branch adds
+documentation-only follow-ups; the initial D3 baseline at
 `40df21e546`/`afbc8c69b3b` remains cited where historical results matter)
 **Purpose:** turn the existing lane plans and the refreshed D3 pass into an executable product scope. This note is a research and sequencing artifact; it does not change product code.
 
