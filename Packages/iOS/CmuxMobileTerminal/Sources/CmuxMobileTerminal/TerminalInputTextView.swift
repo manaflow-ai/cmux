@@ -36,6 +36,7 @@ import UIKit
 /// be enabled: they require the field to retain the in-progress word, which is
 /// incompatible with forwarding every keystroke to a remote terminal.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -863,7 +864,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    init() {
+    init(
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+            MobileTerminalKeyboardCorrectionPreference()
+    ) {
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         super.init(frame: .zero)
         backgroundColor = .clear
         tintColor = .clear
@@ -1630,6 +1635,7 @@ extension TerminalInputTextView {
     var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
     var smartDashesType: UITextSmartDashesType { get { .no } set {} }
     var smartInsertDeleteType: UITextSmartInsertDeleteType { get { .no } set {} }
+    var inlinePredictionType: UITextInlinePredictionType { get { .no } set {} }
     var keyboardType: UIKeyboardType { get { .default } set {} }
     var returnKeyType: UIReturnKeyType { get { .default } set {} }
 }
