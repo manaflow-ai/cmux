@@ -285,12 +285,9 @@ fn record_terminal_event(
         "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
         [revision.to_string()],
     )?;
-    tx.execute(
-        "INSERT INTO terminal_mutations(
-           origin, mutation_id, fingerprint, result_json, committed_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![&mutation.origin, &mutation.id, fingerprint, result_json, sqlite_revision],
-    )?;
+    let ledger = super::mutation_ledger::KeyedLedger::Terminal;
+    let row = (fingerprint, result_json, sqlite_revision);
+    super::mutation_ledger::insert_keyed_mutation(tx, ledger, mutation, row.0, row.1, row.2)?;
     tx.execute(
         "INSERT INTO terminal_events(
            revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json

@@ -261,7 +261,7 @@ impl Mux {
                     Err(error) => {
                         drop(state);
                         drop(registry);
-                        self.discard_spawned(vec![surface]);
+                        self.discard_spawned(&Actor::Daemon, vec![surface]);
                         return Err(error);
                     }
                 };
