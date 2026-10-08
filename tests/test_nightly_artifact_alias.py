@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,7 +17,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/auto-resume-nightly-notarization.yml"
-RECONSTRUCT = ROOT / "scripts/ci/reconstruct-notarized-alias.py"
 
 
 class NightlyArtifactAliasTests(unittest.TestCase):
@@ -30,35 +30,72 @@ class NightlyArtifactAliasTests(unittest.TestCase):
             'cp "verified/$IMMUTABLE_NAME" "verified/$ALIAS_NAME"',
             generate,
         )
+        self.assertIn('verified recovery artifact must not contain a duplicate DMG alias', generate)
+        publish_steps = {
+            step["name"]: step for step in workflow["jobs"]["publish"]["steps"]
+        }
+        assemble = publish_steps["Assemble and verify all accepted publication inputs"]["run"]
+        self.assertIn(
+            'cp "$dir/$immutable" "nightly-out/${DMG_PREFIX}-${variant}.dmg"',
+            assemble,
+        )
+        self.assertNotIn(
+            'cp "$dir/${DMG_PREFIX}-${variant}.dmg"',
+            assemble,
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            immutable = root / "cmux-nightly-macos-arm64-123.dmg"
-            alias = root / "cmux-nightly-macos-arm64.dmg"
-            immutable.write_bytes(b"signed-and-stapled-dmg")
-            expected_sha = hashlib.sha256(immutable.read_bytes()).hexdigest()
-            (root / "appcast-arm64.xml").write_text("feed\n", encoding="utf-8")
-            (root / "cmux-nightly-notarization-recovery.json").write_text(
-                json.dumps({"immutable_path": immutable.name}), encoding="utf-8"
-            )
+            verified = root / "verified"
+            payloads = {}
+            for variant in ("arm64", "x86_64", "universal"):
+                folder = verified / f"accepted-{variant}-TEST"
+                folder.mkdir(parents=True)
+                immutable = folder / f"cmux-nightly-macos-{variant}-123.dmg"
+                payload = f"signed-and-stapled-{variant}".encode()
+                immutable.write_bytes(payload)
+                payloads[variant] = payload
+                feed = "appcast.xml" if variant == "universal" else f"appcast-{variant}.xml"
+                (folder / feed).write_text("feed\n", encoding="utf-8")
+                (folder / "cmux-nightly-notarization-recovery.json").write_text(
+                    json.dumps({
+                        "build": 123,
+                        "immutable_path": immutable.name,
+                        "final_dmg_sha256": hashlib.sha256(payload).hexdigest(),
+                    }),
+                    encoding="utf-8",
+                )
 
+            env = os.environ.copy()
+            env.update({
+                "SHORT_SHA": "TEST",
+                "DMG_PREFIX": "cmux-nightly-macos",
+                "GITHUB_ENV": str(root / "github.env"),
+            })
+            # Air's system Bash is 3.2 and cannot parse `${var,,}`. The real
+            # publish job runs on Ubuntu; fixture hashes are already lowercase,
+            # so direct comparison exercises the same gate here.
+            portable_assemble = assemble.replace(
+                '[ "${actual,,}" = "${expected,,}" ]',
+                '[ "$actual" = "$expected" ]',
+            )
             result = subprocess.run(
-                [
-                    sys.executable,
-                    str(RECONSTRUCT),
-                    str(immutable),
-                    str(alias),
-                    expected_sha,
-                ],
+                ["bash", "-euo", "pipefail", "-c", portable_assemble],
+                cwd=root,
+                env=env,
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(alias.read_bytes(), immutable.read_bytes())
+            for variant, payload in payloads.items():
+                self.assertEqual(
+                    (root / "nightly-out" / f"cmux-nightly-macos-{variant}.dmg").read_bytes(),
+                    payload,
+                )
             self.assertEqual(
-                hashlib.sha256(alias.read_bytes()).hexdigest(),
-                expected_sha,
+                (root / "nightly-out" / "cmux-nightly-macos.dmg").read_bytes(),
+                payloads["universal"],
             )
 
 
