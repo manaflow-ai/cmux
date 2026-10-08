@@ -1,6 +1,8 @@
 /**
  * Metadata guard (bead cx-5hr2, discovered from cx-d0d.7): the cmux VM image
- * blocks the cloud metadata service for every process but root.
+ * (web/scripts/cmux-vm-image/bake.ts) and the devbox image
+ * (web/scripts/build-devbox-freestyle.ts) block the cloud metadata service for
+ * every process but root.
  *
  * Freestyle VMs have a metadata service at 169.254.169.254 (Firecracker MMDS,
  * EC2-style token then GET). Its readers in the image all run as root: the
