@@ -151,6 +151,20 @@ request --tree-ready "$head"
 ! dispatched "$app" && ! dispatched "$head" || fail "a commit without a green Release compile must not be promoted:" "$(cat "$TMP/gh.log")"
 grep -q "Release compile" <<<"$out" || fail "the skip must name the Release compile:" "$out"
 
+# A commit with the same tree that does not descend from the published one
+# (an older line of history) is never requested: only commits from the tree's
+# publisher onward are candidates, so the job reads a short window.
+git_q -C "$src" checkout -q -b aside "$head^"
+echo two > "$src/cmux-tui/a"; echo aside > "$src/Aside.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "same tree, other line"
+aside=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$aside")" == "$(key "$head")" ]] || fail "fixture: the aside commit must share the tree"
+git_q -C "$src" checkout -q --detach "$head"
+runs 15 "$aside" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 15 completed success; jobs 11 completed success
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$aside" \
+  || fail "a same-tree commit that does not descend from the publisher must not be requested:" "$out" "$(cat "$TMP/gh.log")"
+
 # A run on another branch never counts.
 runs 12 "$app" other 11 "$head" other
 jobs 12 completed success; jobs 11 completed success
