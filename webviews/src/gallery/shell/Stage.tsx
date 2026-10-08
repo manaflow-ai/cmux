@@ -20,6 +20,7 @@ import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
+import { readScrollPosition, restoreScrollPosition, scrollTargetFor } from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
 
@@ -135,14 +136,13 @@ export function Stage({
   const hasPlay = Boolean(entry.variants[state]?.play);
   const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
     if (!iframe) return;
-    let lastScroll = { x: scrollX, y: scrollY };
+    const scrollTarget = scrollTargetFor(iframe);
+    const initialScroll = readScrollPosition(scrollTarget);
+    let restored = false;
     const restore = () => {
-      const activeFrame = document.activeElement;
-      if (activeFrame?.tagName === "IFRAME") {
-        if (activeFrame === iframe) scrollTo(lastScroll.x, lastScroll.y);
-        return;
-      }
-      lastScroll = { x: scrollX, y: scrollY };
+      if (restored) return;
+      restored = true;
+      restoreScrollPosition(scrollTarget, initialScroll);
     };
     const receive = (event: MessageEvent) => {
       const data = event.data as { type?: string; status?: string; report?: PlayReport } | null;
@@ -150,14 +150,11 @@ export function Stage({
       if (data?.type === "cmux-gallery-play") setReport(data.report);
       if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
         restore();
-        removeEventListener("scroll", restore);
       }
     };
-    addEventListener("scroll", restore, { passive: true });
     addEventListener("message", receive);
     return () => {
       removeEventListener("message", receive);
-      removeEventListener("scroll", restore);
     };
   }, []);
   const note = entry.variants[state]?.note;
