@@ -12,6 +12,7 @@ enum BookmarkAppStrings {
     static var needsBookmark: String { t("bookmarks.refusal.needsBookmark", "Name a bookmark (id, URL or title)") }
     static var invalidURL: String { t("bookmarks.refusal.invalidURL", "That is not a valid URL") }
     static var notFolder: String { t("bookmarks.refusal.notFolder", "That is not a bookmark folder") }
+    static var folderHasNoLink: String { t("bookmarks.refusal.folderHasNoLink", "A folder has no link to copy") }
     static var noBrowserTab: String { t("bookmarks.refusal.noBrowserTab", "Focus a browser tab first") }
     static var noTabs: String { t("bookmarks.refusal.noTabs", "This pane has no web pages to bookmark") }
     static var importEmpty: String { t("bookmarks.refusal.importEmpty", "The file has no bookmarks") }
