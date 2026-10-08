@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import type { Principal } from "@cmux/ownership"
 import { hostOf, hostUpsert, memberUpsert } from "../src/domains/team-members.ts"
 import { ensureSshTables } from "../src/team-ssh-ca.ts"
+import { ensureLoginTables } from "../src/team-sso-login.ts"
 import { withGrantClasses, withLiveSsoTeam } from "../src/auth.ts"
 import { approvalDigest } from "../src/integrations/approval-gate.ts"
 import { approvalByRequest, insertApproval, APPROVAL_TTL_MS } from "../src/integrations/approvals.ts"
@@ -233,5 +234,23 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     // The host stays for an owner to reassign; it says whose it was.
     expect(after.host).toMatchObject({ id: hostId, owner_user: member.user, orphaned: { former_owner: member.user } })
     expect(after.other?.orphaned).toBeUndefined()
+  })
+
+  it("ends the member's SSO sessions of the team, so no new install gets the team's SSO from them", async () => {
+    const owner = await signIn("rm-owner8")
+    const member = await signIn("rm-member8")
+    const other = await signIn("rm-other8")
+    await join(owner.team, member.user)
+    await join(owner.team, other.user)
+    const sessions = () => inDO(team(owner.team), async (_i, st) => st.storage.sql.exec<{ refresh_token_id: string }>(`SELECT refresh_token_id FROM sso_sessions3 ORDER BY refresh_token_id`).toArray().map((r) => r.refresh_token_id))
+    await inDO(team(owner.team), async (_i, st) => {
+      ensureLoginTables(st.storage.sql)
+      const now = Date.now()
+      // Stack subjects as signIn uses them (the user id derives from the Stack project and subject).
+      for (const [rt, sub] of [["rt_member_a", "rm-member8"], ["rt_member_b", "rm-member8"], ["rt_other", "rm-other8"]] as const)
+        st.storage.sql.exec(`INSERT INTO sso_sessions3 (refresh_token_id, stack_user, connection, signed_in_at, expires_at) VALUES (?, ?, 'ssoc_x', ?, ?)`, rt, sub, now, now + 3_600_000)
+    })
+    await removeMember(owner.team, member.user)
+    expect(await sessions()).toEqual(["rt_other"])
   })
 })

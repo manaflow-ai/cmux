@@ -106,6 +106,13 @@ describe("install revocation reaches the team SSH KRL (UserDO reducer)", () => {
     if (!done.ok) throw new Error(done.message)
     expect(done.state.ssh_revoke_pending).toEqual({})
   })
+
+  it("the notice also reaches the install's SSO team and every team the user belongs to (any of them may have issued certificates)", () => {
+    const state = { ...userState({ sso_team: "team_sso00000000000000000" }), team_index: { team_idx00000000000000000: { role: "member", kind: "stack" } } } as unknown as UserState
+    const r = domain.reduce(state, "install.revoke", { install: INST }, ctx(session))
+    if (!r.ok) throw new Error(r.message)
+    expect([...r.state.ssh_revoke_pending![INST]!.teams].sort()).toEqual([TEAM, "team_idx00000000000000000", "team_sso00000000000000000"].sort())
+  })
 })
 
 const sessionToken = async (stackUser: string) => {
