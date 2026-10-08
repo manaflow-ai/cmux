@@ -3,7 +3,8 @@ import Testing
 @testable import CmuxNextActions
 
 /// SIDEBAR-FOOTER-AND-SPACE-MENU F3 (Lawrence 2026-10-06): a right-click on a
-/// space shows a short Arc-style menu. Change Space Icon…, Remove Space Icon
+/// space shows a short Arc-style menu. New Workspace and New Window in the
+/// space come first (cx-k9go, chief 2026-10-08). Change Space Icon…, Remove Space Icon
 /// (while the space has an icon, cx-k9go), Rename Space…,
 /// Edit Theme Color ›, Set Browser Profile ›, then New Group, then Delete
 /// Space…. Every row runs its catalog action (the palette and CLI path) with
@@ -41,6 +42,7 @@ import Testing
     @Test func theSpaceMenuIsTheArcList() {
         let menu = registry { _, _ in }.makeContextMenu(for: .profile, target: Self.space)
         #expect(titles(menu) == [
+            "New Workspace", "New Window", "—",
             "Change Space Icon…", "Remove Space Icon", "Rename Space…", "Edit Theme Color", "Set Browser Profile", "—",
             "New Group", "—",
             "Delete Space…",
@@ -56,7 +58,7 @@ import Testing
         defer { withExtendedLifetime(owner) {} }
         let menu = owner.makeContextMenu(for: .profile, target: Self.space)
         for item in menu.items where !item.isSeparatorItem && item.submenu == nil { click(item) }
-        #expect(ran.map(\.0) == ["space.setIcon", "space.clearIcon", "space.rename", "space.newGroup", "space.delete"])
+        #expect(ran.map(\.0) == ["space.newWorkspace", "space.newWindow", "space.setIcon", "space.clearIcon", "space.rename", "space.newGroup", "space.delete"])
         #expect(ran.allSatisfy { $0.1.target == Self.space })
     }
 
