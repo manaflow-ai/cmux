@@ -12,6 +12,12 @@ extension AppServices {
         pages.tabIDs(in: paneKey).filter { !closed.contains($0) }.map(pages.stripItem)
     }
 
+    /// Page tabs as the control snapshot lists them (bd cx-5xsi).
+    var controlPageFacts: ControlPageFacts {
+        ControlPageFacts(appOnlyTabs: { [weak self] pane in self?.controlPageTabs(of: pane) ?? [] },
+                         title: { [weak self] page in self?.pages.provider(InternalPageID(rawValue: page))?.title })
+    }
+
     /// `pane`'s app-only page tabs as the control snapshot lists them, the
     /// shown one marked (bd cx-5xsi). The shown tab is the mounted strip's,
     /// else the one a window remembers for the pane.

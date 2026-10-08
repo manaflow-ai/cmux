@@ -74,6 +74,10 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var browserProfileID: String?
     /// An agent chat tab's acpmux session (`agent-session-tabs-v1`); nil for other tabs.
     public var agentSessionID: String?
+    /// A page tab's internal page (`app-store`, `settings`): a store page
+    /// tab (`page-tabs-v1`) the daemon lists as a conversation. `snapshot.get`
+    /// reports its kind as `page`. Nil for other tabs.
+    public var page: String?
 
     public init(id: String, surface: String, kind: String, title: String, name: String? = nil, terminalID: String? = nil,
                 columns: Int? = nil, rows: Int? = nil, cwd: String? = nil, url: String? = nil, gitBranch: String? = nil,

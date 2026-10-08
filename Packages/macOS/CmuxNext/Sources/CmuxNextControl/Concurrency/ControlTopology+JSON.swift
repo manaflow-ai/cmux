@@ -76,7 +76,8 @@ extension ControlPageTabInfo {
 extension ControlTabInfo {
     public var json: JSONValue {
         [
-            "id": .string(id), "surface": .string(surface), "kind": .string(kind), "title": .string(title), "name": .optional(name),
+            "id": .string(id), "surface": .string(surface), "kind": .string(page == nil ? kind : "page"), "page": .optional(page),
+            "title": .string(title), "name": .optional(name),
             "terminal": .optional(terminalResourceID ?? terminalID), "terminal_key": .optional(terminalID),
             "columns": columns.map { JSONValue($0) } ?? .null,
             "rows": rows.map { JSONValue($0) } ?? .null, "cwd": .optional(cwd), "url": .optional(url),

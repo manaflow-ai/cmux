@@ -96,7 +96,7 @@ final class ControlSnapshotPublisher {
         let windows: WindowManager = services.windows
         var topology = ControlTopologyMapper.topology(store: services.daemon.store, selectedTab: { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
-        }, pageTabs: services.controlPageTabs(of:))
+        }, pages: services.controlPageFacts)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         // Read inside tracking: every applied batch republishes, so a compat
         // read waiting on its write barrier wakes (CompatWriteBarrier).
@@ -110,7 +110,7 @@ final class ControlSnapshotPublisher {
             topology.workspaces += daemon.store.workspaces.map { model in
                 var info = ControlTopologyMapper.workspace(from: model, selectedTab: { [services] pane in
                     services.paneController(for: pane)?.selectedTab?.id
-                }, pageTabs: services.controlPageTabs(of:))
+                }, pages: services.controlPageFacts)
                 info.sessionID = session
                 info.machine = daemon.machineID
                 return info
