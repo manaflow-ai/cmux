@@ -39,6 +39,9 @@ public struct Palette {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
+    /// A translucent scrim of the surface background for text over the
+    /// window's backdrop (``ThemeTokens/legibilityScrim``).
+    public static var legibilityScrim: NSColor { color(\.legibilityScrim, dynamic: PaletteDynamic.legibilityScrim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.

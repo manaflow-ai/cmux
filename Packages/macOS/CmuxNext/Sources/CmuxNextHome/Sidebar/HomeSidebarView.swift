@@ -5,9 +5,12 @@ import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
-/// with no background of its own: the window's material or background image
-/// shows through, as behind the transcript. It owns no data: the page gives
-/// it the model after every change and handles the choices.
+/// over one translucent scrim of the window's background
+/// (`Palette.legibilityScrim`): the window's material or background image
+/// shows through, as behind the transcript, and the labels keep a calmer
+/// base over a light image. No vibrancy material (it drew a solid gray
+/// panel) and no opaque fill. It owns no data: the page gives it the model
+/// after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
@@ -30,6 +33,7 @@ public final class HomeSidebarView: NSView {
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
@@ -99,9 +103,11 @@ public final class HomeSidebarView: NSView {
         return String(words.prefix(2).compactMap(\.first)).uppercased()
     }
 
-    /// The unread dot uses the app's theme accent (sent bubbles alone are iMessage blue).
+    /// The unread dot uses the app's theme accent (sent bubbles alone are
+    /// iMessage blue); the column lays the theme's legibility scrim.
     func applyColors() {
         list.unreadColor = performWithTheme { Palette.accent }
+        layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
