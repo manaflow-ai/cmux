@@ -1,34 +1,6 @@
 import CmuxRemoteSession
 import Foundation
 
-/// A one-shot result for a tmux control command acknowledged by `%end` or `%error`.
-@MainActor
-final class RemoteTmuxTrackedCommandReceipt {
-    private var resolvedValue: Bool?
-    private var waiters: [CheckedContinuation<Bool, Never>] = []
-
-    /// Resolves the receipt exactly once and resumes every awaiting caller.
-    func resolve(_ accepted: Bool) {
-        guard resolvedValue == nil else { return }
-        resolvedValue = accepted
-        let pendingWaiters = waiters
-        waiters.removeAll()
-        pendingWaiters.forEach { $0.resume(returning: accepted) }
-    }
-
-    /// Waits for the command block to resolve on the control stream.
-    func result() async -> Bool {
-        if let resolvedValue { return resolvedValue }
-        return await withCheckedContinuation { continuation in
-            if let resolvedValue {
-                continuation.resume(returning: resolvedValue)
-            } else {
-                waiters.append(continuation)
-            }
-        }
-    }
-}
-
 extension RemoteTmuxControlConnection {
     /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
     /// (or reconnected) mirror surface. Clamped by the remote pane's `history-limit`.
@@ -158,25 +130,10 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
-    /// Sends a tracked command and returns an awaitable receipt for its result block.
-    func sendTracked(_ command: String) -> RemoteTmuxTrackedCommandReceipt? {
-        let token = UUID()
-        let receipt = RemoteTmuxTrackedCommandReceipt()
-        trackedSendReceipts[token] = receipt
-        guard sendInternal(command, kind: .tracked(token)) else {
-            trackedSendReceipts.removeValue(forKey: token)
-            return nil
-        }
-        return receipt
-    }
-
     func failPendingTrackedSends() {
         let completions = Array(trackedSendCompletions.values)
         trackedSendCompletions.removeAll()
         completions.forEach { $0(false) }
-        let receipts = Array(trackedSendReceipts.values)
-        trackedSendReceipts.removeAll()
-        receipts.forEach { $0.resolve(false) }
     }
 
     /// Atomically enqueues a window-reorder batch and its result correlation.

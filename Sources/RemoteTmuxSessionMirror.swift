@@ -322,15 +322,17 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Starts a pane-title command only while this session still owns the pane.
     func requestRenamePane(
         _ tmuxPaneID: Int,
-        title: String
-    ) -> RemoteTmuxTrackedCommandReceipt? {
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
         guard windowIdByPane[tmuxPaneID] != nil,
               let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
               connection.connectionState == .connected else {
             return false
         }
         return connection.sendTracked(
-            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))",
+            completion: completion
         )
     }
 

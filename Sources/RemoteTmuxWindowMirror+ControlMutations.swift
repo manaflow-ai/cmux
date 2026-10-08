@@ -6,14 +6,16 @@ extension RemoteTmuxWindowMirror {
     /// Starts a pane-title command for a standalone window mirror projection.
     func requestRenamePane(
         _ tmuxPaneID: Int,
-        title: String
-    ) -> RemoteTmuxTrackedCommandReceipt? {
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
         guard !isTornDown,
               panelsByPaneId[tmuxPaneID] != nil,
               let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
               let connection else { return false }
         return connection.sendTracked(
-            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))",
+            completion: completion
         )
     }
 

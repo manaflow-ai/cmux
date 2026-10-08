@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 /// Incremental parser for a tmux control-mode (`tmux -CC`) byte stream.
@@ -251,19 +252,13 @@ struct RemoteTmuxControlStreamParser {
             return .sessionWindowChanged(sessionId: sid, windowId: wid)
         }
         if line.hasPrefix("%subscription-changed ") {
-            guard let name = Self.field(line, 1) else { return .ignoredNotification(line) }
-            // The value is everything after the first " : " separator. The
-            // middle fields vary by tmux version, but tmux documents a pane id
-            // before the separator; retain the first sigil-prefixed one without
-            // depending on a fixed field index.
-            let separator = line.range(of: " : ")
-            let header = (separator.map { line[..<$0.lowerBound] } ?? line[...])
-                .split(separator: " ")
-            let paneId = header.dropFirst(2).compactMap { Self.id($0, sigil: "%") }.first
+            guard let change = RemoteTmuxSubscriptionChange(controlModeLine: line) else {
+                return .ignoredNotification(line)
+            }
             return .subscriptionChanged(
-                name: name,
-                paneId: paneId,
-                value: separator.map { String(line[$0.upperBound...]) } ?? ""
+                name: change.name,
+                paneId: change.paneID,
+                value: change.value
             )
         }
         if line.hasPrefix("%") { return .ignoredNotification(line) }

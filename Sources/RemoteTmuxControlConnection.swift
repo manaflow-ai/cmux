@@ -124,9 +124,6 @@ final class RemoteTmuxControlConnection {
     /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
     /// build protocol-anchored state machines on that guarantee.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
-    /// Receipts for tracked commands consumed with `await`, keyed by the FIFO token.
-    var trackedSendReceipts: [UUID: RemoteTmuxTrackedCommandReceipt] = [:]
-
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
