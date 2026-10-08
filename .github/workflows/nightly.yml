@@ -2146,7 +2146,7 @@ jobs:
           PY
 
       - name: Upload pending notarization recovery artifact
-        if: failure() && needs.decide.outputs.fast_build != 'true' && steps.notarize-nightly.outcome == 'failure'
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
