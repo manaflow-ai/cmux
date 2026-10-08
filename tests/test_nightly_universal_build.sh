@@ -512,9 +512,18 @@ assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
 assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
 auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
 assert "workflow_run:" in auto
+assert "workflow_dispatch:" in auto
+assert "source_run_id:" in auto and "source_run_attempt:" in auto
+assert "poll:" in auto
+assert "poll-notary-submission.py" in auto
+assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'" in auto
+assert "sleep 300" in auto
+assert "exact recovery artifacts for manual continuation" in auto
+assert "needs.poll.outputs.all_accepted == 'true'" in auto
 assert "wait-and-staple:" in auto
 assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
 assert "needs.wait-and-staple.result == 'success'" in auto
+assert "CMUX_NOTARY_WAIT_TIMEOUT=2m" in auto
 assert "publish-release-assets.py" in auto
 assert "--replace-feeds" in auto
 assert "resolve-notarization-recovery.py" in auto

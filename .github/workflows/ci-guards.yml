@@ -1159,6 +1159,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_notarization_recovery_manifest.py
 
+      - name: Validate asynchronous notarization status polling
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_poll_notary_submission.py
+
       - name: Validate accepted nightly DMG artifact aliases
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_artifact_alias.py
