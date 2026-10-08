@@ -22,7 +22,7 @@ import { FileSearch } from "./FileSearch";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { seededText } from "./composerDraft";
+import { readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -78,6 +78,8 @@ type Props = {
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
+  /// The durable session whose unsent prompt belongs in this composer.
+  sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -149,6 +151,7 @@ export function Composer({
   onMode,
   onOpenInWindow,
   handle,
+  sessionId,
   blocked,
 }: Props) {
   const t = useT();
@@ -158,7 +161,7 @@ export function Composer({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
@@ -188,6 +191,9 @@ export function Composer({
   const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
+  /// The session id owns the prompt. A page can switch sessions without remounting the composer.
+  const persistedSession = useRef(sessionId);
+  const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -278,6 +284,24 @@ export function Composer({
     setCaret(draft.length);
     pendingCaret.current = draft.length;
   }, [draft]);
+  useEffect(() => {
+    if (persistedSession.current === sessionId) return;
+    const previous = persistedSession.current;
+    if (previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    persistedSession.current = sessionId;
+    restoringSession.current = true;
+    const restored = readPersistedDraft(sessionId) ?? "";
+    setText(restored);
+    setCaret(restored.length);
+    pendingCaret.current = restored.length;
+  }, [sessionId, text]);
+  useEffect(() => {
+    if (restoringSession.current) {
+      restoringSession.current = false;
+      return;
+    }
+    writePersistedDraft(sessionId, text);
+  }, [sessionId, text]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
