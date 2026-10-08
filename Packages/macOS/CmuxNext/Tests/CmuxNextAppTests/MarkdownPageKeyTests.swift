@@ -44,14 +44,14 @@ extension MarkdownPageKeyTests {
 }
 
 extension MarkdownPageKeyTests {
-    /// hq-48 S6: Cmd-K inserts a link, Cmd-[ / Cmd-] go back and forward in
+    /// hq-48 S6: Cmd-Shift-K inserts a link (decision K1 moved it off Cmd-K), Cmd-[ / Cmd-] go back and forward in
     /// a focused markdown page, through its page commands; elsewhere those
     /// keys keep their owners.
     @Test func linkBackAndForwardInAMarkdownPage() throws {
         let router = M.services().keyRouter!
         let markdown = KeyRouter.Facts(pageID: PageDescriptor.markdown.id)
         let cases: [(NSEvent, ActionID, String)] = [
-            (try K.key("k", keyCode: 40, [.command]), "markdownLink", "link"),
+            (try K.key("k", keyCode: 40, [.command, .shift]), "markdownLink", "link"),
             (try K.key("[", keyCode: 33, [.command]), "markdownBack", "back"),
             (try K.key("]", keyCode: 30, [.command]), "markdownForward", "forward"),
         ]

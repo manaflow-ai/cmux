@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+mod cookie_purge;
 mod idle;
 pub use idle::DEFAULT_IDLE_TIMEOUT;
 use idle::{Idle, IdleCall};
@@ -115,6 +116,16 @@ pub struct Host {
     opening: Mutex<()>,
     /// Secrets any session typed into a tab (masked for every session).
     tab_secrets: Arc<crate::secrets::TabSecrets>,
+    /// The cookie backups the person lists and purges (None: the host
+    /// state directory's, crate::cookie_backups::shared).
+    cookie_backups: Option<Arc<crate::cookie_backups::CookieBackups>>,
+    /// The one purge waiting for the person's confirmation.
+    purge_pending: Mutex<Option<cookie_purge::Pending>>,
+    /// Every private-data op of this host (crate::private_data_log).
+    private_data: Arc<crate::private_data_log::PrivateDataLog>,
+    /// Which destinations this host's browsers may reach (a Cloud machine
+    /// is isolated, crate::egress_scope).
+    egress: crate::egress_scope::EgressScope,
 }
 
 impl Host {
@@ -129,7 +140,27 @@ impl Host {
             connections: std::sync::atomic::AtomicUsize::new(0),
             opening: Mutex::new(()),
             tab_secrets: Arc::default(),
+            cookie_backups: None,
+            purge_pending: Mutex::new(None),
+            private_data: Arc::default(),
+            egress: crate::egress_scope::EgressScope::Machine,
         }
+    }
+
+    /// The egress scope every session's gate applies (give the engines the
+    /// same scope, so their browsers use its listener).
+    pub fn with_egress(mut self, egress: crate::egress_scope::EgressScope) -> Host {
+        self.egress = egress;
+        self
+    }
+
+    /// The cookie backups this host lists and purges (tests).
+    pub fn with_cookie_backups(
+        mut self,
+        backups: Arc<crate::cookie_backups::CookieBackups>,
+    ) -> Host {
+        self.cookie_backups = Some(backups);
+        self
     }
 
     /// Sessions end after `timeout` without a call (default
@@ -189,6 +220,8 @@ impl Host {
             }
             "browser.repl.list" => Ok(self.list()),
             "browser.repl.guide" => Ok(json!({"guide": bundle::GUIDE})),
+            "browser.cookieBackups.list" => self.cookie_backups_list(caller),
+            "browser.cookieBackups.purge" => self.cookie_backups_purge(caller, params),
             _ => Err(DriverError::unsupported_method(method)),
         }
     }
@@ -289,9 +322,11 @@ impl Host {
                     raw_cdp,
                     remote: caller.locality.refuses_private_ranges(),
                     signed_in_profile: profile != AGENT_PROFILE,
+                    isolated: self.egress.isolated().cloned(),
                 },
             )
             .with_tab_secrets(self.tab_secrets.clone())
+            .with_private_data_log(self.private_data.clone())
             // The session name is the lease session (LeaseCaller.session).
             .with_input_events(&name, sink),
         );

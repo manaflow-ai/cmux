@@ -13,8 +13,11 @@ export type KeyboardActions = {
 /** Commands the app's key dispatcher sends to the focused page. */
 export type PageCommand = "find" | "focusSearch" | "back" | "forward" | "reset";
 
-const rowSelector = "[data-row-key], [data-action-row]";
-const controlSelector = "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)";
+// Rows outside the search filter stay mounted (collapsed) and are skipped.
+const rowSelector = "[data-row-key]:not([data-filtered]), [data-action-row]";
+// A hidden form mirror (aria-hidden) or an inert Reset is never a focus target.
+const controlSelector =
+  ":is(button, input, select, textarea):not(:disabled):not([aria-hidden='true']):not([inert]):not([inert] *)";
 
 export function focusSearch(doc: Document): void {
   focusSearchField(doc, "[data-settings-search]");

@@ -80,6 +80,7 @@ impl Surface {
         // is fine, but keeping it queued makes the locking obvious).
         let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
+        let terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
 
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
@@ -99,6 +100,11 @@ impl Surface {
                 }
             })),
             on_clipboard_read: None,
+            // The daemon owns this terminal's OSC 7501 records, and its
+            // parser answers the support query through `on_pty_write`.
+            on_program_status: Some(crate::program_status::sink(
+                terminal_metadata.program_status(),
+            )),
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
@@ -143,7 +149,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
-                terminal_metadata: Mutex::new(Default::default()),
+                terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),

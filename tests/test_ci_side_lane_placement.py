@@ -153,9 +153,9 @@ class CmuxNextWiring(unittest.TestCase):
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "release": "true", "macos": "true", "scheme": "true",
-                                                            "swift": "true", "daemon": "true", "generated": "true"}},
+                                                            "swift": "true", "daemon": "true", "generated": "true",
+                                                            "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
-                            "same-tree-cmux-tui": {"result": "success", "outputs": {"superseded": "false"}},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 
@@ -198,8 +198,17 @@ class CmuxNextWiring(unittest.TestCase):
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
         jobs = self.workflow()["jobs"]
-        gate = jobs[self.PLACEMENT]["if"]
+        # !cancelled(): a same-tree mode run (path routing skipped) still places its tree jobs.
+        self.assertTrue(jobs[self.PLACEMENT]["if"].startswith("${{ !cancelled() && "))
+        gate = jobs[self.PLACEMENT]["if"].replace("!cancelled() && ", "")
         self.assertTrue(evaluate(gate, self.context()))
+        same_tree = self.context()
+        same_tree["github"].update(event_name="workflow_dispatch", ref="refs/heads/feat-cmux-next")
+        same_tree["inputs"] = {"same_tree_sha": "a" * 40, "same_tree_state": "ready"}
+        same_tree["needs"] = {}
+        self.assertTrue(evaluate(gate, same_tree))
+        same_tree["inputs"]["same_tree_state"] = "failed"
+        self.assertFalse(evaluate(gate, same_tree))
         push = self.context()
         push["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(gate, push))
@@ -240,6 +249,53 @@ class CmuxNextWiring(unittest.TestCase):
         self.assertEqual(upload["with"]["name"], "owned-pool-watch")
         checks = self.workflow()["jobs"]["checks"]["steps"]
         self.assertFalse(any(step.get("with", {}).get("name") == "owned-pool-watch" for step in checks))
+
+
+    def push(self, run_id: str, event_name: str = "push") -> dict:
+        context = self.context()
+        context["github"].update(event_name=event_name, ref="refs/heads/feat-cmux-next", run_id=run_id, event={})
+        return context
+
+    def test_a_newer_push_replaces_only_a_pending_mac_job(self):
+        # 2026-10-07 00:20Z to 01:05Z: pushes about once a minute, and in none of 12
+        # tip runs did "cmux-next swift test" complete. The owned-pool rescue cancelled
+        # each push run whose Mac jobs waited 30 s for a mini while a newer push run
+        # existed, so the newest run was always the next one cancelled. Each Mac job of
+        # a push now holds one group per branch: one runs, one waits, and a newer push
+        # replaces only the waiting job (cancel-in-progress false). Pull request and
+        # dispatch runs keep a group per run.
+        jobs = self.workflow()["jobs"]
+        push_groups = {}
+        for name in JOBS:
+            with self.subTest(job=name):
+                concurrency = jobs[name].get("concurrency")
+                self.assertIsInstance(concurrency, dict, f"{name} has no job-level concurrency")
+                self.assertIs(concurrency["cancel-in-progress"], False)
+                group = concurrency["group"]
+                first, second = evaluate(group, self.push("101")), evaluate(group, self.push("102"))
+                self.assertEqual(first, second)
+                push_groups[name] = first
+                for event_name in ("pull_request", "workflow_dispatch"):
+                    one, other = (evaluate(group, self.push(run_id, event_name)) for run_id in ("101", "102"))
+                    self.assertNotEqual(one, other, event_name)
+                    self.assertNotEqual(one, first, event_name)
+        self.assertEqual(len(set(push_groups.values())), len(JOBS))
+
+    def test_push_runs_upload_no_rescue_watch_marker(self):
+        # The rescue sweeper adopts a run by its owned-pool-watch marker and cancels a
+        # push run with a newer push run behind it, even while its swift test runs.
+        # The per-branch job groups above bound the push queue instead.
+        steps = self.workflow()["jobs"][self.PLACEMENT]["steps"]
+        mark = next(step for step in steps if step.get("id") == "marker")
+
+        def marked(context: dict) -> bool:
+            context["env"]["CMUX_NEXT_SIDE_ROUTE"] = SIDE
+            context["steps"] = {"place": {"outputs": {"watch": "true"}}}
+            return bool(evaluate(mark["if"], context))
+
+        self.assertTrue(marked(self.context()))
+        self.assertTrue(marked(self.push("101", "workflow_dispatch")))
+        self.assertFalse(marked(self.push("101")))
 
 
 if __name__ == "__main__":

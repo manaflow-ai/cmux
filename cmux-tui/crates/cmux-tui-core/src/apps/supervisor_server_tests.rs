@@ -515,3 +515,6 @@ mod cancel;
 
 #[path = "terminal_ops_tests.rs"]
 mod terminal_ops_tests;
+
+#[path = "supervisor_relay_tests.rs"]
+mod relay;

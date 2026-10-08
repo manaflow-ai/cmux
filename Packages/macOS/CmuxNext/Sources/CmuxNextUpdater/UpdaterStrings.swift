@@ -59,13 +59,33 @@ nonisolated enum UpdaterStrings {
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
 
-    static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
 
     /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
     /// the relaunch keeps terminals and agents (browser pages reload).
     static var restartKeepsSessions: String {
         text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
     }
+
+    // The update card (UPDATE-CARD)
+    static func cardReady(_ version: String) -> String { format("updater.card.ready", "cmux %@ is ready", version) }
+    static var cardReadyNoVersion: String { text("updater.card.readyNoVersion", "An update is ready") }
+    static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
+    static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
+    static func downloadedHeadline(_ version: String) -> String {
+        format("updater.card.downloaded", "Update %@ downloaded. Click to restart and install.", version)
+    }
+    static var downloadedHeadlineNoVersion: String {
+        text("updater.card.downloadedNoVersion", "Update downloaded. Click to restart and install.")
+    }
+    static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
+    static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
+    static func moreChanges(_ count: Int) -> String {
+        count == 1 ? text("updater.card.oneMoreChange", "1 more change") : format("updater.card.moreChanges", "%ld more changes", count)
+    }
+
+    // The tips card (BOTTOM-LEFT-CARDS K1)
+    static var tipEyebrow: String { text("updater.tip.eyebrow", "Did you know?") }
+    static var tipDismiss: String { text("updater.tip.dismiss", "Hide This Tip") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 
@@ -27,6 +28,10 @@ struct WorkspaceSpawn: Sendable {
     /// with a `command` get a terminal. Also a terminal where the page
     /// cannot run (a Cloud machine, a build without the agent page).
     var opensNewTabPage = false
+    /// A person's New Agent Chat: the workspace's only tab is a chat
+    /// seeded with this (the cwd and draft of the tab it came from), with
+    /// no terminal. Wins over `opensNewTabPage`.
+    var firstChat: AgentPaneSeed?
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil, newTabPage: Bool = false) {

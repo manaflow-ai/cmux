@@ -7,7 +7,7 @@ extension SidebarListView {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
-        guard let row = displayed.row(for: press.key) else { return }
+        guard displayed.row(for: press.key) != nil else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
         let origin: DropTarget?
@@ -29,20 +29,18 @@ extension SidebarListView {
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
-        let rowFrame = frame(for: row)
+        // A group lifts as one block: its header and the member rows under it (cx-bp40).
+        let rows = SidebarListLift.rows(self, for: press.key, hidden: hidden)
+        guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
         let count: Int
         if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
-        let content = dequeue(press.key)
-        configure(content, row: row, animated: false)
-        content.isHovered = false
-        (content as? WorkspaceRowView)?.isSecondarySelected = false
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
             payload: payload,
             grabbedKey: press.key,
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
-            gapHeight: row.height,
+            gapHeight: rowFrame.height,
             lift: lift,
             target: origin
         )
@@ -56,6 +54,7 @@ extension SidebarListView {
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
+        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         if offerHandoff(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
@@ -78,6 +77,7 @@ extension SidebarListView {
     func finishDrag() {
         guard let drag else { return }
         autoscroll.stop()
+        if SidebarListPinDrop.finish(self, drag) { return }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
         switch (drag.payload, target) {
@@ -88,20 +88,19 @@ extension SidebarListView {
         case let (.group(group), .position(position)):
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
-            // The target first, then the dragged rows (the Arc/Dia order).
-            SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
+            SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin) // The target first, then the dragged rows (Arc/Dia).
             drag.renameOnLand = anchor
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
-        // Rows land under the lifted view, stay hidden until it arrives.
-        suppressed = drag.hiddenKeys
+        suppressed = drag.hiddenKeys // Rows land under the lifted view, stay hidden until it arrives.
         reload(animated: true)
         land(drag)
     }
     func cancelDrag() {
         guard let drag else { return }
         autoscroll.stop()
+        SidebarListPinDrop.end(self)
         self.drag = nil
         press?.cancelled = true
         suppressed = drag.hiddenKeys
@@ -110,12 +109,11 @@ extension SidebarListView {
     }
     /// Flies the lifted view to its row's current frame, then swaps it out.
     func land(_ drag: Drag) {
-        let destination = displayed.row(for: drag.grabbedKey).map(frame(for:)) ?? drag.lift.frame
+        let destination = SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             guard let self else { return }
             self.suppressed.subtract(drag.hiddenKeys)
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
-            self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
             if let anchor = drag.renameOnLand { self.inlineRename.beginGroup(of: anchor) }
         }

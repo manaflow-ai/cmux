@@ -1,6 +1,6 @@
 import AppKit
 
-/// The chats list as the flow shows it: title, one sentence, the list, the footer.
+/// The chats list as the flow shows it: title, the list, the footer.
 struct StandardChats: OnboardingScreenVariant {
     static let id = "chats.standard"
     static let step = OnboardingModel.Step.chats
@@ -9,7 +9,7 @@ struct StandardChats: OnboardingScreenVariant {
     static let surface = OnboardingSurface.fullGlass
     static let transition = OnboardingTransition.crossfade
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
-        OnboardingScaffold.make(title: OnboardingStrings.chatsTitle, subtitle: OnboardingStrings.chatsSubtitle,
+        OnboardingScaffold.make(title: OnboardingStrings.chatsTitle, subtitle: nil,
                                 body: ChatsStepView(model: context.model.chats), context: context)
     }
 }

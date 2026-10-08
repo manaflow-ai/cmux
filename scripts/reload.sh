@@ -1023,6 +1023,29 @@ set_plist_url_scheme() {
     || true
 }
 
+# Prints the selected Xcode's version ("26.3"), or nothing when xcodebuild cannot say.
+selected_xcode_version() {
+  xcodebuild -version 2>/dev/null | awk 'NR == 1 && $1 == "Xcode" { print $2 }' || true
+}
+
+# Whether this reload skips the app's separate Swift module emission, given the
+# selected Xcode's version. CMUX_RELOAD_APP_EMIT_MODULE decides when it is set: 1
+# emits the module, 0 skips it. Unset, the module is skipped except on Xcode 26.2
+# and 26.3, where the build without it stops at the module merge with "type
+# mismatch of function ... but used in a swift module as ..." on SwiftUI views
+# whose body goes through an opaque return type.
+reload_skips_app_module_emission() {
+  local xcode_version="${1:-}"
+  case "${CMUX_RELOAD_APP_EMIT_MODULE:-}" in
+    1) return 1 ;;
+    0) return 0 ;;
+  esac
+  case "$xcode_version" in
+    26.2|26.2.*|26.3|26.3.*) return 1 ;;
+  esac
+  return 0
+}
+
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
@@ -1128,7 +1151,30 @@ tag_build_cleanup_paths() {
 # argument is escaped with %q instead of being wrapped in quotes.
 print_tag_cleanup_commands() {
   local tag="$1" derived="${2:-}"
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
+  # Quit the app through its own quit path (scripts/lib/stop-app-instances.sh): exact
+  # PIDs from LaunchServices and the tag's executable, SIGTERM as a requested quit, never a
+  # pattern kill (no pkill or killall, coordinator rule c).
+  printf '  bash -c %q _ %q %q %q\n' 'source "$1" && cmux_stop_app_instances "$2" "$3"' \
+    "$SCRIPT_DIR/lib/stop-app-instances.sh" "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" \
+    "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
+  # keep running from the deleted bundle: stop the owner through the bundle's own binary
+  # before the rm. Never --end-terminals here: a pasted command cannot check that no
+  # terminal runs a job, so the terminal hosts keep running.
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  local -a roots=()
+  [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
+  roots+=("$own")
+  for root in "${roots[@]}"; do
+    for config in Debug Release; do
+      bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
+      printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
+    done
+  done
   printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
   printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
   printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
@@ -1482,6 +1528,16 @@ if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
 fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
+# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# app) are build output, not committed: they are built from the sources before
+# the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
+# tree skips the build in about a second. The Xcode "Verify web bundles" phase
+# refuses an app build that skipped this.
+if [[ -x "$PWD/scripts/cmux-next/build-web-bundles.sh" ]]; then
+  echo "==> cmux-next: web bundles"
+  "$PWD/scripts/cmux-next/build-web-bundles.sh" || exit 1
+fi
+
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
@@ -1727,6 +1783,28 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
+fi
+if reload_skips_app_module_emission "$(selected_xcode_version)"; then
+  # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
+  # which reload never builds) and no Objective-C includes its generated header.
+  # Xcode's integrated driver still emits the module in a separate job that
+  # type-checks every declaration in the app. The standalone driver with
+  # -no-emit-module-separately emits none, the same change #14364 made for
+  # cmuxTests; the app's Debug configuration generates no Objective-C header.
+  # Settings are per target, so packages and the CLI are unchanged. App edits
+  # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
+  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again. Xcode 26.2
+  # and 26.3 emit it without being asked; see reload_skips_app_module_emission.
+  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
+  XCODEBUILD_ARGS+=(
+    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INTEGRATED_DRIVER_cmux=NO
+    'SWIFT_INSTALL_MODULE=$(CMUX_RELOAD_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INSTALL_MODULE_cmux=NO
+  )
+  # shellcheck disable=SC2016
+  SWIFT_OTHER_FLAGS+=' $(CMUX_RELOAD_SWIFT_FLAGS_$(TARGET_NAME))'
+  XCODEBUILD_ARGS+=(CMUX_RELOAD_SWIFT_FLAGS_cmux=-no-emit-module-separately)
 fi
 if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
   XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
@@ -2073,6 +2151,9 @@ else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
 fi
+# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
+# RC, or none. Drop an ad-hoc helper an older build left in this app.
+"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
 # The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
 # with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"

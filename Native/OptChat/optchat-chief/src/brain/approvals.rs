@@ -50,6 +50,7 @@ impl Brain {
             tool,
             request,
             child: None,
+            conversation: self.turn_side(),
         };
         let key = format!(
             "approval:{}:{}",
@@ -75,14 +76,21 @@ impl Brain {
             tool: tool_name(&request),
             request,
             child: Some(child.name.clone()),
+            conversation: None,
         };
         self.ask_person(pending, &key);
     }
 
+    /// Asks in the conversation the request belongs to (G9): the running
+    /// turn's, or the main one for a child.
     fn ask_person(&mut self, pending: Pending, key: &str) {
         let text = question(&pending);
+        let conversation = pending
+            .conversation
+            .clone()
+            .or_else(|| self.state.conversation.clone());
         self.approvals.push_back(pending);
-        if let Some(conversation) = self.state.conversation.clone() {
+        if let Some(conversation) = conversation {
             self.state
                 .outbox
                 .push(reply_entry(conversation, key, &text));
@@ -109,11 +117,13 @@ impl Brain {
     /// the host): `ask` during an ask turn or while an ask child is live,
     /// unless the Mac turned on remote.autoApprove.
     pub fn spawn_policy(&self) -> Option<&'static str> {
-        if self.chief.remote_auto_approve {
-            return None;
-        }
-        (self.turn_ask || self.ask_child_live() || self.ask_subagent_live())
-            .then_some(crate::approval::ASK)
+        // The shared rule (cmux_chief::policy::spawn_floor).
+        cmux_chief::policy::spawn_floor(
+            self.chief.remote_auto_approve,
+            self.turn_ask,
+            self.ask_child_live(),
+            self.ask_subagent_live(),
+        )
     }
 
     /// Drops the running turn's own pending approvals (its session ends);
@@ -122,9 +132,31 @@ impl Brain {
         self.approvals.retain(|p| p.child.is_some());
     }
 
-    /// A person answered the oldest pending approval with `message`.
-    pub(super) fn answer_approval(&mut self, answer: Answer, message: &Message) {
-        let Some(pending) = self.approvals.pop_front() else {
+    /// Whether an approval waits for an answer in `conversation` (None:
+    /// the main one).
+    pub(super) fn has_approval(&self, conversation: Option<&str>) -> bool {
+        self.approvals
+            .iter()
+            .any(|p| p.conversation.as_deref() == conversation)
+    }
+
+    /// A person in `conversation` (None: main) answered that conversation's
+    /// oldest pending approval with `message`; another conversation's
+    /// approvals are never answered from here.
+    pub(super) fn answer_approval(
+        &mut self,
+        answer: Answer,
+        message: &Message,
+        conversation: Option<&str>,
+    ) {
+        let Some(k) = self
+            .approvals
+            .iter()
+            .position(|p| p.conversation.as_deref() == conversation)
+        else {
+            return;
+        };
+        let Some(pending) = self.approvals.remove(k) else {
             return;
         };
         let install = message

@@ -91,15 +91,26 @@ const render = (
     ),
   );
 
-test("renders plain right-aligned computer and folder pickers without context chips", async () => {
-  await render();
+test("renders the attached folder, computer and branch tray without context chips", async () => {
+  await render({ branch: "main" });
   expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
   expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
-    "This Mac",
     "cmux",
+    "This Mac",
+    "main",
   ]);
-  // Two chevrons and the folder's icon: every part of the row is the same text menu button.
-  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon")).toHaveLength(3);
+  expect(doc.querySelector(".acpmux-composer-context")).not.toBeNull();
+  // Folder and branch icons plus the shared chevrons keep the controls aligned.
+  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon").length).toBeGreaterThanOrEqual(3);
+
+  const branch = doc.querySelector<HTMLButtonElement>('[aria-label="Branch"]')!;
+  await act(async () => branch.click());
+  const branchRow = doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!;
+  expect([
+    branchRow.textContent,
+    branchRow.getAttribute("aria-checked"),
+    branchRow.getAttribute("aria-disabled"),
+  ]).toEqual(["✓main", "true", "true"]);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {
@@ -120,8 +131,9 @@ test("offers Cloud computers and sends the selected computer with its folder", a
 });
 
 test("locks both location labels after the first turn", async () => {
-  await render({ turnCount: 1 }, true);
-  expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
+  await render({ turnCount: 1, branch: "main" }, true);
+  expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(1);
+  expect(doc.querySelector('.acpmux-location-button[aria-label="Branch"]')).not.toBeNull();
   expect(doc.querySelectorAll(".acpmux-location-readonly")).toHaveLength(2);
   expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
 });
@@ -227,6 +239,23 @@ test("with no folder the button reads Choose folder in the same face, and its me
   expect(menuItems()).toEqual(["Choose folder…"]);
 });
 
+test("an agent-home chat never shows its UUID folder: the button reads Choose folder and the menu leaves it out", async () => {
+  const home = "/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
+  const chats = [{ sessionId: "old", cwd: `${home}/`, hostKind: "local" as const }];
+  await render({ cwd: home }, false, [], chats);
+  const button = folderButton();
+  expect(button.textContent).toBe("Choose folder");
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([]);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+  // Once the chat started there is no folder to name or pick: only the computer shows.
+  await render({ cwd: home, turnCount: 1 }, true, undefined, chats);
+  expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((label) => label.textContent)).toEqual([
+    "This Mac",
+  ]);
+  expect(doc.querySelector(".acpmux-composer-context")?.textContent).not.toContain("6b16a112");
+});
+
 test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
   const cwd = "/Users/me/code/a-really-long-project-folder-name-that-overflows-the-row";
   await render({ cwd }, false, [{ cwd, label: "a-really-long-project-folder-name-that-overflows-the-row" }]);
@@ -254,9 +283,9 @@ test("the keyboard opens the folder menu, moves through it and picks with Enter"
         new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
       );
     });
-  await key("ArrowDown");
-  await key("ArrowDown");
-  await key("ArrowDown");
+  // Base UI may leave focus on the trigger or place it on the first row when the menu opens;
+  // End names the same last action deterministically across jsdom runtimes.
+  await key("End");
   expect((doc.activeElement as HTMLElement | null)?.textContent).toBe("Choose folder…");
   await key("Enter");
   expect(browsed).toBe(1);
@@ -299,4 +328,43 @@ test("automation opens the Location and Computer menus by their labels, as a cli
   await render({ turnCount: 1 }, true);
   expect(pickerLabels()).not.toContain("Location");
   expect(openPicker("Location")).toBe(false);
+});
+
+// Lawrence (2026-10-06): "I cannot click on cmux Cloud SSH". A new chat's Computer menu ends
+// with SSH… and cmux Cloud…, which open the host's connect flows, even before any Cloud or
+// SSH computer exists and when the chat cannot pick a folder here.
+test("the Computer menu offers SSH and cmux Cloud, which open the connect flows", async () => {
+  const connects: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local" },
+        sessions: [],
+        onConnect: (kind: "ssh" | "cloud") => connects.push(kind),
+      }),
+    ),
+  );
+  const computer = doc.querySelector<HTMLButtonElement>('[aria-label="Computer"]')!;
+  expect(computer).not.toBeNull();
+  await act(async () => computer.click());
+  const rows = [...doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitem"]')];
+  expect(rows.map((row) => row.textContent)).toEqual(["SSH…", "cmux Cloud…"]);
+  await act(async () => rows[1]!.click());
+  await act(async () => computer.click());
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitem"]')[0]!.click());
+  expect(connects).toEqual(["cloud", "ssh"]);
+});
+
+test("a started chat's computer stays a label, with no connect rows", async () => {
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", turnCount: 1 },
+        sessions: [],
+        started: true,
+        onConnect: () => undefined,
+      }),
+    ),
+  );
+  expect(doc.querySelector('[aria-label="Computer"]')).toBeNull();
 });

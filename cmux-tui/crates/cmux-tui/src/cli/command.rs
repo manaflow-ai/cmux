@@ -17,10 +17,12 @@ mod browser;
 pub(in crate::cli) mod cases;
 mod flags;
 mod git;
+mod plan;
 mod screen;
 mod server_ensure;
 mod state;
 
+pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
 use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
@@ -37,65 +39,6 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct RequestPlan {
-    pub operation: WireOperation,
-    pub params: Value,
-    pub idempotency_key: Option<String>,
-    pub stream: bool,
-    /// Reads to run on the same connection before the request is sent.
-    pub resolve: Vec<Resolve>,
-}
-
-/// A parameter the command names indirectly. The CLI fills it with reads on
-/// the request's own connection just before it sends the request, so the
-/// request itself (and its idempotency fingerprint) carries only ids.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Resolve {
-    /// `workspace` becomes the workspace that holds this terminal: the
-    /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
-    /// `--session` the target is that session's `current` workspace.
-    CallerWorkspace { terminal: String },
-    /// `field` names a state record (room or group) by id or exact name; a
-    /// unique name becomes that record's id.
-    StateName { field: &'static str, list: ResourceOperation },
-    /// The request is a terminal's font zoom (`tab.update`). A browser tab's
-    /// page zoom goes to the app instead (cli/resolve.rs).
-    TabZoom { step: ZoomStep },
-}
-
-/// What `tab … zoom` asks for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ZoomStep {
-    In,
-    Out,
-    Reset,
-    /// An exact value (`zoom 1.5`, `update --zoom 1.5`).
-    Value,
-}
-
-#[derive(Clone, Debug)]
-pub(super) enum WireOperation {
-    Typed(ResourceOperation),
-    Raw { name: String, class: OperationClass },
-}
-
-impl WireOperation {
-    pub fn class(&self) -> OperationClass {
-        match self {
-            Self::Typed(operation) => operation.class(),
-            Self::Raw { class, .. } => *class,
-        }
-    }
-
-    pub fn name(&self) -> Result<String, UsageError> {
-        match self {
-            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
-            Self::Raw { name, .. } => Ok(name.clone()),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -925,9 +868,10 @@ fn parse_terminal(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
-        [selector, "show"] => {
+        [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalGet, selectors, flags, Map::new())
+            let plan = request(ResourceOperation::TerminalGet, selectors, flags, Map::new());
+            if *verb == "show" { plan } else { plan.map(CommandPlan::terminal_program_status) }
         }
         [selector, "write"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1913,6 +1857,7 @@ fn finalize_request(
         params,
         idempotency_key: explicit_key,
         resolve: Vec::new(),
+        view: ResponseView::Full,
     })))
 }
 

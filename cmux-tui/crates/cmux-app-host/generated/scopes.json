@@ -1193,6 +1193,14 @@
       "scope": "session:write",
       "class": "mutation"
     },
+    "sidebar_layout.get": {
+      "scope": "sidebar_layout:read",
+      "class": "read"
+    },
+    "sidebar_layout.update": {
+      "scope": "sidebar_layout:write",
+      "class": "mutation"
+    },
     "sidebar_view.ensure": {
       "scope": "sidebar_view:write",
       "class": "mutation"

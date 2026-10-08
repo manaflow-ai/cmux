@@ -33,12 +33,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
     case shellStop(id: String)
+    /// `shell.complete {line, cwd}`: Tab in shell mode. `line` is the text before the caret; the
+    /// user's own shell lists the candidates (``AgentPaneShellCompletion``). Only with a real
+    /// gesture in the pane: completion functions run code.
+    case shellComplete(line: String, cwd: String?)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(agent: String)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
+    /// The identified New Tab field mounted and took DOM focus.
+    case newTabInputReady(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -93,6 +99,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` whose params the bridge refused (no
     /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
+    /// Reads the selected local session's GitHub `origin` for Markdown reference links.
+    case githubRepository(cwd: String)
+    /// `turn.undo`: the edited-files card's host revert (AgentPaneTurnUndo.swift).
+    case turnUndo(AgentPaneTurnUndo)
+    /// `turn.undo` whose params break its contract; nothing is read or written.
+    case invalidTurnUndo
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen
@@ -107,6 +119,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportGesture(AgentPaneGestureIntent?)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
+    /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).
+    case reply(AgentPaneReplyRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -115,7 +129,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A shell mode request: a command can carry secrets and `shell.read` polls, so never logged.
     public var isShell: Bool {
         switch self {
-        case .shellRun, .shellRead, .shellStop: true
+        case .shellRun, .shellRead, .shellStop, .shellComplete: true
         default: false
         }
     }
@@ -208,8 +222,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "shell.complete":
+            if let line = params?["line"] as? String, line.utf8.count <= AgentPaneShellCompletion.maximumLine {
+                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") && $0.utf8.count <= 4096 ? $0 : nil }
+                self = .shellComplete(line: line, cwd: cwd)
+            } else {
+                self = .unsupported(method)
+            }
         case "shell.stop":
             if let id = Self.shellID(params) { self = .shellStop(id: id) } else { self = .unsupported(method) }
+        case "newTab.inputReady":
+            if let token = params?["token"] as? String, !token.isEmpty, token.count <= 128 { self = .newTabInputReady(token) }
+            else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
         case "newTab.remember":
@@ -279,6 +303,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
+        case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
+        case "git.githubRepository":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
+                self = .githubRepository(cwd: cwd)
+            } else {
+                self = .invalidGit(method)
+            }
         case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
@@ -311,6 +342,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case _ where AgentPaneReplyRequest.methods.contains(method):
+            self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:
             self = .unsupported(method)
         }
@@ -361,7 +394,6 @@ public nonisolated enum AgentPaneReply {
         return dictionary
     }
 }
-
 /// What the location bar can jump to (`tab.jump`).
 public nonisolated enum AgentPaneJumpTarget: String, Sendable {
     case tab, workspace

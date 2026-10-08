@@ -12,6 +12,7 @@ pub mod acp;
 pub mod core;
 pub mod corpus;
 pub mod memory;
+pub mod policy;
 pub mod rules;
 pub mod state;
 pub mod tools;

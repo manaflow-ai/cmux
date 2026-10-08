@@ -170,6 +170,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
         | ResourceOperation::WindowRecordDelete
+        | ResourceOperation::SidebarLayoutGet
+        | ResourceOperation::SidebarLayoutUpdate
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear

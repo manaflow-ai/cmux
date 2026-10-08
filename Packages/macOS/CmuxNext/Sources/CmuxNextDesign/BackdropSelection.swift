@@ -50,6 +50,14 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         }
     }
 
+    /// The selected image file.
+    public var imageURL: URL? {
+        switch self {
+        case .art(let art): return art.imageURL
+        case .system(let path): return URL(fileURLWithPath: path)
+        }
+    }
+
     /// Decodes a persisted selection, accepting the legacy `backdropArt` value.
     public init?(id: String) {
         if let art = BackdropArt(rawValue: id) {

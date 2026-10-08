@@ -61,8 +61,15 @@ enum WorkspaceHandlers {
         // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
         let home = services.machines.local
+        // One ticket for the whole creation, opened now: an action run
+        // answers after it (and the barrier covers its echo), so `created`
+        // names the workspace and the tabs `configure` made.
+        let ticket = daemon.openTicket()
         Task {
-            guard let connection = daemon.connection else { return }
+            guard let connection = daemon.connection else {
+                await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
+                return
+            }
             do {
                 let key = workspaceKey ?? WorkspaceKey.generate()
                 windows.claimNew(workspaceID: key.rawValue, window: target)
@@ -74,8 +81,10 @@ enum WorkspaceHandlers {
                     try await configure?(connection, terminal)
                     return created.rawValue
                 }
+                await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                await daemon.closeTicket(ticket, label: "create workspace", error: error)
             }
         }
     }

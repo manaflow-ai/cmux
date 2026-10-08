@@ -19,11 +19,17 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     /// Packet loss over the last feedback window, 0 to 100.
     public var lossPercent: Double
     public var state: RemoteSessionState
+    /// Upstream media (microphone, camera, screen share) of the session.
+    public var upstream: RemoteUpstreamStatus
 
-    public init(path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState) {
+    public init(
+        path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState,
+        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus()
+    ) {
         self.path = path
         self.rttMs = rttMs
         self.lossPercent = lossPercent
         self.state = state
+        self.upstream = upstream
     }
 }

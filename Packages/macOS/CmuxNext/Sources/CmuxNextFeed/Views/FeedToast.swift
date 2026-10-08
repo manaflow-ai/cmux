@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// A small floating notice (a refusal, a late answer). Dismissed by the user.
@@ -10,7 +11,7 @@ struct FeedToast: View {
         HStack(spacing: 8) {
             Text(text).font(.system(size: 11.5)).foregroundStyle(colors.primary).lineLimit(2)
             Button(action: dismiss) {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(colors.tertiary)
+                Icon(.actionClose, size: .iconFloor).foregroundStyle(colors.tertiary)
             }
             .buttonStyle(.plain)
         }
@@ -30,7 +31,8 @@ struct FeedEmptyState: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "tray").font(.system(size: 20, weight: .light)).foregroundStyle(colors.tertiary)
+            // A pack drawing inks about two thirds of its box; 32 matches the 20 pt tray it replaced.
+            Icon(.inboxEmpty, size: 32).foregroundStyle(colors.tertiary)
             Text(text).font(.system(size: 12)).foregroundStyle(colors.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

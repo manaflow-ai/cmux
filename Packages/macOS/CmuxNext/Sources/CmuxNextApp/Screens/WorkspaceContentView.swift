@@ -65,6 +65,11 @@ final class WorkspaceContentView: NSView {
         }
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let emptyView, emptyView.performKeyEquivalent(with: event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func layout() {
         super.layout()
         let barHeight = showsBar ? TabStripView.preferredHeight : 0
