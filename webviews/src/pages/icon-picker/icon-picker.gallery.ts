@@ -47,6 +47,7 @@ export default iconPickerPageEntry({
     "page:cmux.icon-picker",
     "icon-picker/IconPicker.tsx",
     "icon-picker/AssetTab.tsx",
+    "icon-picker/JumpBar.tsx",
     "icon-picker/VirtualGrid.tsx",
   ],
   variants: {
