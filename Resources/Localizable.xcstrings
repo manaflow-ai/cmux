@@ -646937,55 +646937,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep related workspaces together in a group that you can collapse in the sidebar."
+            "value": "Select related workspaces, then put them in a group you can collapse in the sidebar."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اجمع مساحات العمل المرتبطة في مجموعة يمكنك طيّها في الشريط الجانبي."
+            "value": "حدّد مساحات العمل المرتبطة، ثم ضعها في مجموعة يمكنك طيّها في الشريط الجانبي."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fasse zusammengehörige Arbeitsbereiche in einer Gruppe zusammen, die du in der Seitenleiste einklappen kannst."
+            "value": "Wähle zusammengehörige Arbeitsbereiche aus und fasse sie in einer Gruppe zusammen, die du in der Seitenleiste einklappen kannst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reúne los espacios de trabajo relacionados en un grupo que puedas contraer en la barra lateral."
+            "value": "Selecciona espacios de trabajo relacionados y agrúpalos en un grupo que puedas contraer en la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rassemblez les espaces de travail liés dans un groupe que vous pouvez replier dans la barre latérale."
+            "value": "Sélectionnez des espaces de travail liés, puis regroupez-les dans un groupe que vous pouvez replier dans la barre latérale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "関連するワークスペースをグループにまとめると、サイドバーで折りたためます。"
+            "value": "関連するワークスペースを選択して、サイドバーで折りたためるグループにまとめましょう。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "관련 워크스페이스를 그룹으로 묶으면 사이드바에서 접을 수 있습니다."
+            "value": "관련 워크스페이스를 선택한 다음 사이드바에서 접을 수 있는 그룹으로 묶으세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将相关工作区放入同一个分组，还可以在侧边栏中折叠该分组。"
+            "value": "选择相关工作区，再将它们放入可在侧边栏中折叠的分组。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將相關工作區放入同一個群組，還可以在側邊欄中收合該群組。"
+            "value": "選取相關工作區，再將它們放入可在側邊欄中收合的群組。"
           }
         }
       }
@@ -647049,120 +647049,120 @@
         }
       }
     },
-    "sidebar.tips.workspaceStatus.message": {
+    "sidebar.tips.reorderWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Change a workspace’s status to see which tasks still need attention."
+            "value": "Move the current workspace up in the sidebar to keep active tasks close at hand."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "غيّر حالة مساحة العمل لمعرفة المهام التي لا تزال بحاجة إلى اهتمامك."
+            "value": "انقل مساحة العمل الحالية إلى أعلى الشريط الجانبي لتبقى المهام النشطة في متناولك."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ändere den Status eines Arbeitsbereichs, um zu sehen, welche Aufgaben noch Aufmerksamkeit brauchen."
+            "value": "Verschiebe den aktuellen Arbeitsbereich in der Seitenleiste nach oben, damit aktive Aufgaben griffbereit bleiben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambia el estado de un espacio de trabajo para ver qué tareas aún necesitan atención."
+            "value": "Mueve el espacio de trabajo actual hacia arriba en la barra lateral para tener a mano las tareas activas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Changez le statut d’un espace de travail pour repérer les tâches qui demandent encore votre attention."
+            "value": "Déplacez l’espace de travail actuel vers le haut dans la barre latérale pour garder les tâches en cours à portée de main."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースのステータスを変更して、対応が必要なタスクを確認しましょう。"
+            "value": "現在のワークスペースをサイドバーの上に移動して、進行中のタスクにアクセスしやすくしましょう。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스의 상태를 변경해 아직 살펴봐야 할 작업을 확인하세요."
+            "value": "현재 워크스페이스를 사이드바 위쪽으로 옮겨 진행 중인 작업에 쉽게 접근하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "更改工作区状态，查看哪些任务仍需处理。"
+            "value": "将当前工作区在侧边栏中上移，让正在进行的任务触手可及。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "變更工作區狀態，查看哪些任務仍需處理。"
+            "value": "將目前工作區在側邊欄中上移，方便存取正在進行的任務。"
           }
         }
       }
     },
-    "sidebar.tips.workspaceStatus.title": {
+    "sidebar.tips.reorderWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Track your progress"
+            "value": "Reorder your work"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تابع تقدمك"
+            "value": "أعد ترتيب عملك"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fortschritt im Blick behalten"
+            "value": "Arbeit neu anordnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sigue tu progreso"
+            "value": "Reordena tu trabajo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suivez votre progression"
+            "value": "Réorganisez votre travail"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "進捗を把握する"
+            "value": "作業の順序を並べ替える"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "진행 상황 확인하기"
+            "value": "작업 순서 바꾸기"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "跟踪进度"
+            "value": "调整工作区顺序"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "追蹤進度"
+            "value": "調整工作區順序"
           }
         }
       }

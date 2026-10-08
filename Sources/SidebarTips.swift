@@ -136,9 +136,9 @@ enum SidebarTipsCatalog {
                 title: String(localized: "sidebar.tips.workspaceGroups.title", defaultValue: "Group related work"),
                 message: String(
                     localized: "sidebar.tips.workspaceGroups.message",
-                    defaultValue: "Keep related workspaces together in a group that you can collapse in the sidebar."
+                    defaultValue: "Select related workspaces, then put them in a group you can collapse in the sidebar."
                 ),
-                shortcutAction: .newWorkspaceGroup
+                shortcutAction: .groupSelectedWorkspaces
             ),
             SidebarTip(
                 id: "reopenWorkspace",
@@ -150,13 +150,13 @@ enum SidebarTipsCatalog {
                 shortcutAction: .reopenClosedWorkspace
             ),
             SidebarTip(
-                id: "workspaceStatus",
-                title: String(localized: "sidebar.tips.workspaceStatus.title", defaultValue: "Track your progress"),
+                id: "reorderWorkspace",
+                title: String(localized: "sidebar.tips.reorderWorkspace.title", defaultValue: "Reorder your work"),
                 message: String(
-                    localized: "sidebar.tips.workspaceStatus.message",
-                    defaultValue: "Change a workspace’s status to see which tasks still need attention."
+                    localized: "sidebar.tips.reorderWorkspace.message",
+                    defaultValue: "Move the current workspace up in the sidebar to keep active tasks close at hand."
                 ),
-                shortcutAction: .cycleWorkspaceStatus
+                shortcutAction: .moveWorkspaceUp
             ),
             SidebarTip(
                 id: "newTerminalTab",
