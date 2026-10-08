@@ -7,6 +7,7 @@
 //! held, so tree serialization never reads SQLite.
 
 use super::*;
+use crate::Actor;
 use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -819,20 +820,28 @@ impl Mux {
     /// registered durably before the tab commits, under the browser id the
     /// creation then uses, so neither a live daemon nor a restarted one ever
     /// bootstraps a CDP target for it. A failed creation removes the record.
-    pub fn new_frontend_browser_tab(
+    pub fn new_frontend_browser_tab_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: Option<PaneId>,
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_frontend_browser_tab_placed(pane, record, size, FrontendTabPlacement::default())
+        self.new_frontend_browser_tab_placed_as(
+            actor,
+            pane,
+            record,
+            size,
+            FrontendTabPlacement::default(),
+        )
     }
 
-    /// [`Mux::new_frontend_browser_tab`] with a [`FrontendTabPlacement`]: a
+    /// [`Mux::new_frontend_browser_tab_as`] with a [`FrontendTabPlacement`]: a
     /// background tab (`frontend-browser-activate-v1`) and a slot right
     /// after another tab of the pane (`frontend-browser-insert-after-v1`).
-    pub(crate) fn new_frontend_browser_tab_placed(
+    pub(crate) fn new_frontend_browser_tab_placed_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: Option<PaneId>,
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
@@ -846,7 +855,7 @@ impl Mux {
             self.reload_presentation(&registry)?;
         }
         let fields = frontend_browser_fields(&browser_id, placement);
-        match self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields) {
+        match self.new_browser_tab_with_fields_as(actor, record.url.clone(), pane, size, fields) {
             Ok(surface) => {
                 if let Some(runtime) = surface.as_browser()
                     && runtime.set_frontend_location(None, record.title)

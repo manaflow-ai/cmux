@@ -43,7 +43,8 @@ import Testing
     @Test func aSectionHeadersNameKeepsItsWidthOnHover() throws {
         let h = Harness()
         defer { h.window.close() }
-        let view = try h.view(.section(cloudSection), as: SectionHeaderRowView.self)
+        // The one list's "Projects" header (`sidebar.groupByComputer` off).
+        let view = try h.view(.section(local), as: SectionHeaderRowView.self)
         let rest = view.nameFrame
         view.isHovered = true
         view.layoutSubtreeIfNeeded()
