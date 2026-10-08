@@ -178,7 +178,7 @@ struct BrowserReplRenderHostTests {
     /// hierarchy, its presentability signal releases the host without another
     /// pane visibility-state transition.
     @Test func renderHostStaysWhenPaneHidesBeforeWindowBecomesKey() async throws {
-        let (window, _, panel, paneHost) = try makePane(key: false)
+        let (window, anchor, panel, paneHost) = try makePane(key: false)
         defer { window.orderOut(nil) }
         defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
         let sessionID = "render-host-test-\(UUID().uuidString)"
@@ -186,8 +186,17 @@ struct BrowserReplRenderHostTests {
         let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
 
         #expect(attachment.isInRenderWindow)
+        // Hide the portal's anchor as well as its slot. A full portal sync is
+        // queued by makePane; keeping both hidden makes that pending pass part
+        // of the same inactive-workspace transition instead of allowing it to
+        // reveal the slot while this test waits for the key notification.
+        anchor.isHidden = true
         paneHost.isHidden = true
-        defer { paneHost.isHidden = false }
+        defer {
+            anchor.isHidden = false
+            paneHost.isHidden = false
+        }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
 
         window.reportsKey = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
@@ -197,7 +206,8 @@ struct BrowserReplRenderHostTests {
         #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
         #expect(attachment.isMirroringPane)
 
-        paneHost.isHidden = false
+        anchor.isHidden = false
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         await Task.yield()
 
         #expect(!attachment.isInRenderWindow)
