@@ -133,6 +133,38 @@ import Testing
         #expect(await executor.callCount() == 1)
     }
 
+    @Test func explicitReadbackResolvesPendingWithoutExecutingAgain() async throws {
+        let store = Store()
+        let execution = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-1"))
+        let readback = try #require(SSHTmuxLifecycleExecution(
+            value: .object(["window_id": .string("@12")]), revision: "r-2"))
+        let executor = Executor(result: execution)
+        await executor.failNext()
+        let owner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: executor)
+
+        #expect(throws: SSHTmuxLifecycleOwnerError.malformedRecord) {
+            try await owner.submit(mutation(), idempotencyKey: "rename-reconcile")
+        }
+        let resolved = try await owner.reconcilePending(mutation(), idempotencyKey: "rename-reconcile", readback: readback)
+        #expect(resolved.replayed)
+        #expect(resolved.value == readback.value)
+        #expect(resolved.revision == readback.revision)
+        #expect(await store.phase(for: "rename-reconcile") == .applied)
+        let replay = try await owner.submit(mutation(), idempotencyKey: "rename-reconcile")
+        #expect(replay.replayed)
+        #expect(replay.value == readback.value)
+        #expect(await executor.callCount() == 1)
+    }
+
+    @Test func readbackWithoutAReservationIsRefused() async throws {
+        let store = Store()
+        let execution = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-1"))
+        let owner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: Executor(result: execution))
+        #expect(throws: SSHTmuxLifecycleOwnerError.noPendingRecord) {
+            try await owner.reconcilePending(mutation(), idempotencyKey: "rename-missing", readback: execution)
+        }
+    }
+
     @Test func atomicReservationPreventsTwoOwnersExecutingTheSameKey() async throws {
         let store = Store()
         let execution = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-race"))

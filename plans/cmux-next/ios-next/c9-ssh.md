@@ -310,14 +310,23 @@ while a different fingerprint is an idempotency conflict. The executor remains r
 checking the server PID/start epoch immediately before issuing the command. This is a host-side
 contract and has no D1b app wiring or SSH I/O.
 
-Five focused tests cover applied replay, key reuse conflict, the pending barrier after an uncertain
+Seven focused tests cover applied replay, key reuse conflict, the pending barrier after an uncertain
 executor failure, concurrent two-owner reservation, and invalid input refusal. The store contract
 requires a durable conditional insert (`reserve`) so a SQLite/DO implementation cannot fall back to
 a racy read-then-write. Swift parsing and source-level checks pass; native
 package execution, durable store integration, live tmux create/rename/kill, and simulator/device
-verification remain unverified. The adapter intentionally does not clear a pending record: an
-owner needs an explicit reconciliation/readback operation before it can safely resolve an unknown
-command outcome.
+verification remain unverified. A pending record remains a barrier until the owner explicitly reads
+back the resulting tmux state and calls `reconcilePending`; that path persists the readback receipt
+without issuing a second command and refuses a missing or mismatched reservation.
+
+### Pending lifecycle readback reconciliation (2026-10-08)
+
+`SSHTmuxLifecycleOwnerAdapter.reconcilePending` closes the safe recovery step after an executor
+loses its SSH result. It requires the same idempotency key and canonical mutation fingerprint,
+accepts only a caller-supplied `SSHTmuxLifecycleExecution` from an explicit host readback, and
+commits the applied record before returning a replay receipt. It returns an existing applied record
+without overwriting it, and a missing reservation is refused. The adapter never infers success from
+the original command error or executes tmux during reconciliation.
 
 ### On-demand history page contract (2026-10-08)
 

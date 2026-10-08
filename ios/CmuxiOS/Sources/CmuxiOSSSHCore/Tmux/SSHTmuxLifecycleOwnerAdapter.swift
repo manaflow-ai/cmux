@@ -3,6 +3,7 @@ import Foundation
 /// Errors raised before a lifecycle command can be safely submitted.
 public enum SSHTmuxLifecycleOwnerError: Error, Equatable, Sendable {
     case invalidRequest
+    case noPendingRecord
     case idempotencyConflict
     case indeterminate
     case malformedRecord
@@ -75,5 +76,37 @@ public actor SSHTmuxLifecycleOwnerAdapter: SSHTmuxLifecycleMutating {
         try await store.put(applied)
         return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: mutation,
                                        value: execution.value, revision: execution.revision, replayed: false)
+    }
+
+    /// Resolves a pending operation after the host has read the current tmux
+    /// state and proved that the requested mutation already took effect. The
+    /// readback is supplied by the owner, so this method never runs a second
+    /// command. An applied record is returned as the existing replay and a
+    /// missing record is refused rather than creating a receipt without the
+    /// original durable reservation.
+    public func reconcilePending(_ mutation: SSHTmuxLifecycleMutation, idempotencyKey: String,
+                                 readback: SSHTmuxLifecycleExecution) async throws -> SSHTmuxLifecycleReceipt {
+        guard SSHTmuxLifecycleMutation.validIdempotencyKey(idempotencyKey), mutation.isValid else {
+            throw SSHTmuxLifecycleOwnerError.invalidRequest
+        }
+        guard let existing = try await store.record(for: idempotencyKey) else {
+            throw SSHTmuxLifecycleOwnerError.noPendingRecord
+        }
+        guard existing.idempotencyKey == idempotencyKey,
+              existing.op == mutation.op, existing.params == mutation.params else {
+            throw SSHTmuxLifecycleOwnerError.idempotencyConflict
+        }
+        switch existing.phase {
+        case .applied:
+            return try replay(existing, mutation: mutation, idempotencyKey: idempotencyKey)
+        case .pending:
+            guard let applied = SSHTmuxLifecycleRecord(applied: idempotencyKey, mutation: mutation,
+                                                       value: readback.value, revision: readback.revision) else {
+                throw SSHTmuxLifecycleOwnerError.malformedRecord
+            }
+            try await store.put(applied)
+            return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: mutation,
+                                           value: readback.value, revision: readback.revision, replayed: true)
+        }
     }
 }
