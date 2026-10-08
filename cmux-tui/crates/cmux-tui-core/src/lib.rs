@@ -74,6 +74,7 @@ mod terminal_end;
 #[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
+pub mod terminal_respawn_text;
 #[cfg(windows)]
 mod windows_processes;
 mod workspace_registry;

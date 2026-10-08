@@ -91,6 +91,24 @@ pub(crate) fn launch_terminal_host_from(
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
 ) -> anyhow::Result<HostAttachment> {
+    let presentation = (default_colors, cell_pixels, kitty_graphics_limits);
+    launch_terminal_host_seeded(options, root, presentation, terminal_id, standby, &[])
+}
+
+/// The default colors, cell pixel size and Kitty limits a host starts with.
+pub(crate) type HostPresentation = (DefaultColors, (u16, u16), KittyGraphicsLimits);
+
+/// [`launch_terminal_host_from`] whose host applies `seed` (VT replay) to
+/// its parser before the child's first byte and never writes it to the PTY
+/// (cx-6so.49 L2: a respawned terminal shows its previous screen).
+pub(crate) fn launch_terminal_host_seeded(
+    options: &SurfaceOptions,
+    root: &Path,
+    (default_colors, cell_pixels, kitty_graphics_limits): HostPresentation,
+    terminal_id: TerminalId,
+    standby: Option<StandbyTerminalHost>,
+    seed: &[u8],
+) -> anyhow::Result<HostAttachment> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     crate::debug_spans::mark("host.publication_reserved");
     let owner_token = CapabilityToken::random()?;
@@ -131,6 +149,7 @@ pub(crate) fn launch_terminal_host_from(
         extra_env: shell_launch.env,
         default_colors,
         kitty_graphics_limits,
+        seed: seed.to_vec(),
     };
 
     let StandbyTerminalHost { process, mut stdin, mut stdout, host_pid } = match standby {

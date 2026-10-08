@@ -232,7 +232,8 @@ impl Mux {
                     .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
         // Invariant 3: only a process end detaches views. A host loss or a
         // failed launch commits the same exit latch and leaves every tab in
-        // place, dead (no respawn policy exists in the owner).
+        // place, dead until a respawn (L2, `terminal_respawn.rs`) replaces
+        // the shell.
         let detach_proof = end.detach_proof();
         let detach_projection = match (detach_proof, public_terminal_id.as_ref()) {
             _ if matches!(
@@ -313,6 +314,12 @@ impl Mux {
                     end,
                 );
             }
+            // cx-6so.49 L2: a placed terminal whose shell was lost with its
+            // host gets a new shell under the same id (it decides and marks
+            // the tabs respawning before the tree push below).
+            if settle_until_ms.is_none() {
+                self.schedule_terminal_respawn(terminal_id, incarnation, end);
+            }
             if let Some(public_terminal_id) = public_terminal_id.as_ref() {
                 self.terminal_exit_waiters.notify(public_terminal_id);
             }
@@ -344,10 +351,11 @@ impl Mux {
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             return Ok(false);
         }
-        anyhow::ensure!(
-            terminal.lifecycle == TerminalLifecycle::Exited,
-            "terminal {terminal_id} is not exited"
-        );
+        if terminal.lifecycle != TerminalLifecycle::Exited {
+            // Nothing to detach: a respawn (L2) already reopened the row the
+            // caller saw exited.
+            return Ok(false);
+        }
         // Invariant 3: a receipt of a host loss (outcome unknown) keeps the
         // tabs, dead; only a recorded exit status or signal detaches them,
         // and a signal during a session shutdown counts as a host loss. A
