@@ -88,8 +88,16 @@ fn a_local_agent_connection_cannot_approve_a_pairing() {
 
     let reply = send(&mux, &agent, &legacy(challenge.id, true));
     assert_eq!(reply["ok"], false, "legacy approve: {reply}");
+    assert!(reply.to_string().contains("can approve a pairing"), "legacy refusal reason: {reply}");
     let reply = send(&mux, &agent, &resolve(challenge.id, "accept", "pairing-gate-accept"));
     assert_eq!(reply["ok"], false, "resource accept: {reply}");
+    assert_eq!(reply["error"]["code"], "origin.forbidden", "{reply}");
+    assert_eq!(reply["error"]["details"]["reason"], "pairing_approval_needs_human", "{reply}");
+    // A role-main hello without the app's proof is still not the app.
+    let unproven = connect(&mux);
+    set_role_for_test(&mux, unproven.client, "main");
+    let reply = send(&mux, &unproven, &resolve(challenge.id, "accept", "pairing-gate-unproven"));
+    assert_eq!(reply["error"]["details"]["reason"], "pairing_approval_needs_human", "{reply}");
     assert_eq!(mux.pending_pairings().len(), 1, "the request must stay pending");
     assert!(decision.try_recv().is_err(), "an agent connection approved a pairing");
 

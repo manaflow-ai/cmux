@@ -243,6 +243,8 @@ cmux --ws 127.0.0.1:7681
 cmux --headless --ws 127.0.0.1:7681
 ```
 
+A headless daemon has no TUI to approve a pairing, so give it `--ws-token`, or approve from the verified cmux app. On unsigned DEV builds the app's install-key prover is a same-user file, so a same-user process can pass as the app; the approval rule holds against agents only on signed builds (identity.md threat model).
+
 The equivalent config is:
 
 ```json
