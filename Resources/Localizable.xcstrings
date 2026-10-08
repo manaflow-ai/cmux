@@ -624414,55 +624414,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your work, wherever you go"
+            "value": "Work wherever you go"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عملك، أينما ذهبت"
+            "value": "اعمل أينما ذهبت"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Arbeit, wo auch immer du bist"
+            "value": "Arbeite, wo immer du bist"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu trabajo, estés donde estés"
+            "value": "Trabaja dondequiera que vayas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre travail, où que vous soyez"
+            "value": "Travaillez où que vous soyez"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どこにいても、あなたの仕事を"
+            "value": "どこにいても作業できる"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어디서든 이어지는 작업"
+            "value": "어디서든 작업하세요"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "随时随地，继续你的工作"
+            "value": "随时随地工作"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隨時隨地，繼續你的工作"
+            "value": "隨時隨地工作"
           }
         }
       }
@@ -640952,6 +640952,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンのデスクトップを表示"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.invite.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add teammates by email so they can use your team’s Cloud machines."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge Teammitglieder per E-Mail hinzu, damit sie die Cloud-Maschinen deines Teams nutzen können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez des coéquipiers par e-mail pour qu’ils puissent utiliser les machines Cloud de votre équipe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف زملاءك عبر البريد الإلكتروني ليتمكنوا من استخدام أجهزة Cloud الخاصة بفريقك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrega a tus compañeros por correo para que puedan usar las máquinas Cloud de tu equipo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透過電子郵件新增團隊成員，讓他們使用團隊的 Cloud 機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过电子邮件添加团队成员，让他们使用团队的 Cloud 机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일로 팀원을 추가하면 팀의 Cloud 머신을 함께 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールでチームメンバーを追加すると、チームの Cloud マシンを使えるようになります。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.invite.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invite your team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade dein Team ein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitez votre équipe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ادعُ فريقك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invita a tu equipo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀請你的團隊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀请你的团队"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 초대하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを招待"
           }
         }
       }

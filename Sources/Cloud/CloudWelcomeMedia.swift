@@ -51,6 +51,15 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
                 defaultValue: "Invite teammates to the same machine and collaborate in a shared workspace."
             )
         ),
+        CloudWelcomeSlide(
+            id: "invite",
+            symbol: "person.badge.plus",
+            title: String(localized: "cloud.welcome.slide.invite.title", defaultValue: "Invite your team"),
+            caption: String(
+                localized: "cloud.welcome.slide.invite.caption",
+                defaultValue: "Add teammates by email so they can use your team’s Cloud machines."
+            )
+        ),
     ]
 }
 
