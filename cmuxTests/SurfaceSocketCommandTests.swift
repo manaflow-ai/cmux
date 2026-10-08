@@ -81,6 +81,26 @@ struct SurfaceSocketCommandTests {
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
         #expect((error["message"] as? String)?.contains("cmux-tui") == false)
+        #expect((error["message"] as? String)?.contains("Cloud VM connection is unavailable") == true)
+        #expect((error["message"] as? String)?.contains("cmux vm workspace new") == false)
+    }
+
+    @Test func workspaceDaemonFailureUsesWorkspaceRecoveryCopy() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(
+                id: "tui-daemon-workspace",
+                timeoutSeconds: 5,
+                daemonUnavailableMessage: String(
+                    localized: "socket.cloudVM.tuiDaemonUnavailable",
+                    defaultValue: "Could not create a workspace on this Cloud VM. Wake the machine or retry `cmux vm workspace new`."
+                )
+            ) {
+                throw CloudMachineLink.LinkError.timedOut
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
         #expect((error["message"] as? String)?.contains("Could not create a workspace") == true)
         #expect((error["message"] as? String)?.contains("cmux vm workspace new") == true)
     }
@@ -94,6 +114,8 @@ struct SurfaceSocketCommandTests {
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
+        #expect((error["message"] as? String)?.contains("Cloud VM connection is unavailable") == true)
+        #expect((error["message"] as? String)?.contains("cmux vm workspace new") == false)
     }
 
     @Test func unrelatedLinkFailuresDoNotUseDaemonCategory() async throws {

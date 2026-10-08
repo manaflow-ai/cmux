@@ -644637,7 +644637,66 @@
             }
           }
         }
+      },
+    "socket.cloudVM.daemonUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud VM connection is unavailable. Wake the machine or retry the command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال Cloud VM غير متاح. أيقظ الجهاز أو أعد محاولة الأمر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zur Cloud-VM ist nicht verfügbar. Wecken Sie die Maschine auf oder versuchen Sie den Befehl erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con la VM de Cloud no está disponible. Activa la máquina o vuelve a intentar el comando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à la VM Cloud est indisponible. Réveillez la machine ou réessayez la commande."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 接続を利用できません。マシンを起動するか、コマンドを再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 연결을 사용할 수 없습니다. 머신을 깨운 후 명령을 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 连接不可用。请唤醒机器，或重试该命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 連線無法使用。請喚醒機器，或重試此指令。"
+          }
+        }
       }
+    }
   },
   "version": "1.0"
 }
