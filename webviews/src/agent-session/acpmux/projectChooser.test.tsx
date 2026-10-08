@@ -239,6 +239,23 @@ test("with no folder the button reads Choose folder in the same face, and its me
   expect(menuItems()).toEqual(["Choose folder…"]);
 });
 
+test("an agent-home chat never shows its UUID folder: the button reads Choose folder and the menu leaves it out", async () => {
+  const home = "/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
+  const chats = [{ sessionId: "old", cwd: `${home}/`, hostKind: "local" as const }];
+  await render({ cwd: home }, false, [], chats);
+  const button = folderButton();
+  expect(button.textContent).toBe("Choose folder");
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([]);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+  // Once the chat started there is no folder to name or pick: only the computer shows.
+  await render({ cwd: home, turnCount: 1 }, true, undefined, chats);
+  expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((label) => label.textContent)).toEqual([
+    "This Mac",
+  ]);
+  expect(doc.querySelector(".acpmux-composer-context")?.textContent).not.toContain("6b16a112");
+});
+
 test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
   const cwd = "/Users/me/code/a-really-long-project-folder-name-that-overflows-the-row";
   await render({ cwd }, false, [{ cwd, label: "a-really-long-project-folder-name-that-overflows-the-row" }]);

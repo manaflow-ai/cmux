@@ -63,7 +63,6 @@ final class SidebarBackButton: NSButton {
         wantsLayer = true
         target = self
         action = #selector(pressed)
-        refusesFirstResponder = true
         _ = hover
         restyle()
     }
