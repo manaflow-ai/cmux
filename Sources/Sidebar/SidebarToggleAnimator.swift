@@ -52,7 +52,16 @@ final class SidebarToggleAnimator: ObservableObject {
         self.canSlide = canSlide
         self.trailingStillWidth = trailingStillWidth
         self.isPeekPresenting = isPeekPresenting
-        machine = SidebarToggleSlideMachine(docked: sidebarState.isVisible)
+        // A re-install drops any running slide; `reset` keeps the generation
+        // counting, so a late stop from the old slide stays stale.
+        if session != nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            removeSlideAnimations()
+            CATransaction.commit()
+        }
+        queuedRequests.removeAll()
+        machine.reset(visible: sidebarState.isVisible)
         layout.docksSidebar = sidebarState.isVisible
         sidebarState.animatedVisibilityOrchestrator = { [weak self] targetVisible in
             self?.request(visible: targetVisible) ?? false
@@ -69,6 +78,13 @@ final class SidebarToggleAnimator: ObservableObject {
     /// back to the instant path.
     private func request(visible: Bool) -> Bool {
         guard let sidebarState, let layout else { return false }
+        // A slide whose spring is long over but never reported its stop (its
+        // layer left the tree) lands before this press, so a lost callback
+        // cannot strand the toggle in retarget-only mode.
+        if !isExecuting, let slide = machine.slide,
+           CACurrentMediaTime() > slide.begin + slide.duration / Double(Self.speed) + 0.1 {
+            land(generation: slide.generation)
+        }
         let isSliding = machine.slide != nil
         guard sidebarState.presentationMode == .docked,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
@@ -268,13 +284,14 @@ final class SidebarToggleAnimator: ObservableObject {
         let landingCPU = SidebarToggleSlideProbe.threadCPU()
 #endif
         execute(effects, in: window)
-        drainQueuedRequests(in: window)
-        syncPendingVisibility()
 #if DEBUG
         SidebarToggleSlideProbe.current?.didLand(cpu: SidebarToggleSlideProbe.threadCPU() - landingCPU)
         assert(session == nil)
         assert(layout?.docksSidebar == machine.docked)
 #endif
+        // After the asserts: a queued press may start the next slide.
+        drainQueuedRequests(in: window)
+        syncPendingVisibility()
     }
 
     private func commitVisibility(_ visible: Bool) {

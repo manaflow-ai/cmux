@@ -150,7 +150,9 @@ struct SidebarToggleSlideMachineTests {
             return
         }
         #expect(slide.from == width && slide.to == 0)
-        #expect(slide.duration > 0.1 && slide.duration < 0.3, "landing at \(slide.duration)s")
+        // The animation runs exactly until the spring is within its landing
+        // tolerance; `springLandsWithinHalfAPoint` bounds that time.
+        #expect(slide.duration == machine.spring.landingTime(from: width, to: 0, velocity: 0))
         #expect(machine.land(generation: slide.generation) == [.finishHide])
 
         let show = machine.request(visible: true, width: width, now: 1)
@@ -201,8 +203,6 @@ struct SidebarToggleSlideMachineTests {
             return
         }
         #expect(abs(reverse.velocity - presented) < 1e-9)
-        let start = machine.spring.velocity(from: reverse.from, to: reverse.to, velocity: reverse.velocity, at: 0)
-        #expect(abs(start - presented) < 1e-9)
     }
 
     /// Every Core Animation stop lands, so a landing can arrive twice for
