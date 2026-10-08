@@ -102,6 +102,7 @@ public struct CloudHubConnector: Sendable {
         discard: @escaping @Sendable (Value) -> Void
     ) async throws -> Value {
         guard candidates > 0 else { throw CancellationError() }
+        let deadline = clock.now.advanced(by: timeout)
         return try await withThrowingTaskGroup(of: CloudHubHedgeEvent<Value>.self) { group in
             var started = Array(repeating: false, count: candidates)
             var inFlight = Array(repeating: 0, count: candidates)
@@ -173,7 +174,7 @@ public struct CloudHubConnector: Sendable {
                 switch event {
                 case .success(let index, let value):
                     inFlight[index] -= 1
-                    if expired {
+                    if expired || clock.now >= deadline {
                         discard(value)
                     } else if winner == nil {
                         winner = value

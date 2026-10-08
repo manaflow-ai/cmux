@@ -217,9 +217,9 @@ struct CloudPrivateRouteSelectionTests {
                 timeout: .seconds(3.5)
             )
         }
-        // The 3 s refresh leaves the connect ~1 s (the floor) of the 3.5 s
-        // budget: ~4 s in total. Restarting the budget after the refresh
-        // would take ~6.5 s.
+        // The 3 s refresh leaves only the remainder of the 3.5 s budget for
+        // the connect. Restarting the budget after the refresh would take
+        // roughly 6.5 s and overrun the caller's deadline.
         #expect(state.refreshes == 1)
         #expect(ContinuousClock.now - started < .seconds(5.5))
         await hub.stop()
