@@ -971,6 +971,10 @@ impl Mux {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
         let surface = self.new_screen_named_as(actor, workspace, spec.name.clone(), spawn, size)?;
+        #[cfg(test)]
+        if let Some(hook) = self.screen_created_hook.lock().unwrap().take() {
+            hook(surface.id);
+        }
         let screen = self
             .with_state(|state| {
                 let pane = state.pane_of(surface.id)?;

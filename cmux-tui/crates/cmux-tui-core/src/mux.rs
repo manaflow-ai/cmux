@@ -2648,6 +2648,10 @@ pub struct Mux {
     pending_diagnostics: Mutex<Vec<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Runs in `new_screen_with_spec_as` right after the create returns,
+    /// where a terminal that exits at once can already close its screen.
+    #[cfg(test)]
+    screen_created_hook: Mutex<Option<Box<dyn FnOnce(SurfaceId) + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
@@ -3108,6 +3112,8 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            #[cfg(test)]
+            screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
@@ -7232,6 +7238,14 @@ impl Mux {
             }
         }
         anyhow::bail!("journal segment boundary changed repeatedly during sealing")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_screen_created_hook_for_test(
+        &self,
+        hook: impl FnOnce(SurfaceId) + Send + 'static,
+    ) {
+        *self.screen_created_hook.lock().unwrap() = Some(Box::new(hook));
     }
 
     #[cfg(test)]
