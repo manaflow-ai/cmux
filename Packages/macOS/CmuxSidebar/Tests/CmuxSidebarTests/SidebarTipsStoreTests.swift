@@ -1,4 +1,6 @@
 import Foundation
+import os
+import SwiftUI
 import Testing
 @testable import CmuxSidebar
 
@@ -6,6 +8,22 @@ import Testing
 @Suite
 struct SidebarTipsStoreTests {
     private let now = Date(timeIntervalSince1970: 1_791_417_600)
+
+    @Test func dynamicPropertyUpdateDoesNotRequireTheMainActorExecutor() async throws {
+        let name = "SidebarTipsStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        // The test hands exclusive ownership to the detached task through this
+        // lock, matching the repository's LiveSetting isolation regression.
+        let property = OSAllocatedUnfairLock(
+            uncheckedState: (SidebarTipsStore(defaults: defaults) as any DynamicProperty)
+        )
+        let didUpdate = await Task.detached {
+            property.withLock { $0.update() }
+            return true
+        }.value
+        #expect(didUpdate)
+    }
 
     @Test func legacyOptOutAndHistorySurviveManualOpening() throws {
         let name = "SidebarTipsStoreTests.\(UUID())"
