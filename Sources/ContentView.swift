@@ -1731,7 +1731,6 @@ struct ContentView: View {
             },
             observedWindowReference: observedWindowReference,
             chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
-            selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         return Group {
@@ -11457,7 +11456,10 @@ struct VerticalTabsSidebar: View, Equatable {
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
-    @Binding var selection: SidebarSelection
+    // Read from the environment, not a projected binding: in its own hosting
+    // view a fresh `$state.selection` per push re-ran this body every time.
+    @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    var selection: SidebarSelection { get { sidebarSelectionState.selection } nonmutating set { sidebarSelectionState.selection = newValue } }
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
@@ -13152,7 +13154,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
                         SidebarEmptyArea(
                             rowSpacing: tabRowSpacing,
-                            selection: $selection,
+                            selection: $sidebarSelectionState.selection,
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                             dragAutoScrollController: dragAutoScrollController,
@@ -14285,7 +14287,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .background(alignment: .top) {
                 SidebarEmptyArea(
                     rowSpacing: tabRowSpacing,
-                    selection: $selection,
+                    selection: $sidebarSelectionState.selection,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                     dragAutoScrollController: dragAutoScrollController,

@@ -81,7 +81,6 @@ struct SidebarSnapshotOwnerTests {
             onTogglePresentationMode: {},
             observedWindowReference: WeakWindowReference(),
             chromeBackgroundColor: .black,
-            selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
             sidebarRenderWorkerClient: .constant(nil),
