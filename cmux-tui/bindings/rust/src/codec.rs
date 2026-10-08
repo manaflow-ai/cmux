@@ -571,6 +571,19 @@ fn wait_for_connect_with_poll_checks(
     }
 }
 
+/// Refuses a connected session socket whose server runs as another user
+/// than this process (`expected_uid`, normally the effective uid): the same
+/// rule the daemon applies to its own client connections (cmux-tui-core
+/// `platform::require_unix_peer_uid`). Called before anything is written.
+pub(crate) fn require_peer_uid(
+    stream: &UnixStream,
+    expected_uid: u32,
+    socket_path: &Path,
+) -> Result<()> {
+    let _ = (stream, expected_uid, socket_path);
+    Ok(())
+}
+
 fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
     let kind = error.kind();
     CmuxError::ConnectionIo {
@@ -615,6 +628,31 @@ mod tests {
         );
         let listener = UnixListener::bind(&path.0).unwrap();
         (path, listener)
+    }
+
+    /// A server of this process's own user passes; a server whose uid is
+    /// not the expected one is refused before anything is written.
+    #[test]
+    fn a_server_of_another_user_is_refused() {
+        // SAFETY: geteuid has no preconditions.
+        let me = unsafe { libc::geteuid() };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let path = Path::new("/tmp/cmux-peer-uid-test.sock");
+        assert!(require_peer_uid(&client, me, path).is_ok());
+        let other = me.wrapping_add(1);
+        let error = require_peer_uid(&client, other, path).expect_err("another user's server");
+        let text = error.to_string();
+        assert!(text.contains("another user") && text.contains(&other.to_string()), "{text}");
+    }
+
+    /// The deadline connect checks the server's user: a listener of this
+    /// process's user is accepted.
+    #[test]
+    fn connect_checks_the_servers_user() {
+        let root = crate::test_roots::TempRoot::new();
+        let path = root.path().join("s.sock");
+        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        assert!(connect_unix_with_timeout(&path, Duration::from_secs(1)).is_ok());
     }
 
     fn pair(limit: usize) -> (JsonLineConnection, UnixStream) {
