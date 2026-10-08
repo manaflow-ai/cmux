@@ -19,6 +19,34 @@ export const TeamVmLeaseId = Schema.String.check(Schema.isMinLength(1), Schema.i
 
 export const TeamVmError = Schema.Struct({ code: Schema.String, message: Schema.String, at: Schema.Int }).annotate({ identifier: "TeamVmError" })
 
+/**
+ * A removed member held a team SSH certificate while this VM existed (cx-q4f3). Members are root on
+ * the VM (sudo, docker), so nothing proves the VM clean: until an owner or admin accepts the risk
+ * or rebuilds, only owners and admins get new certificates and the VM's install cannot bind again.
+ */
+export const TeamVmTaint = Schema.Struct({
+  epoch: Schema.Int,
+  /** When the first removal tainted this epoch. */
+  at: Schema.Int,
+  /** The removed members (user ids). */
+  users: Schema.Array(Schema.String),
+  accepted_by: Schema.NullOr(Schema.String),
+  accepted_at: Schema.NullOr(Schema.Int)
+}).annotate({ identifier: "TeamVmTaint" })
+
+/** A VM a rebuild replaced: paused and kept (its data can be copied off) until an owner deletes it. */
+export const TeamVmRetired = Schema.Struct({
+  vm: Schema.String,
+  epoch: Schema.Int,
+  /** `pausing` until the provider confirmed the pause. */
+  state: Schema.Literals(["pausing", "paused"]),
+  at: Schema.Int,
+  /** The owner or admin who rebuilt. */
+  by: Schema.String,
+  /** The removed members whose taint led to the rebuild (empty for a plain rebuild). */
+  tainted_by: Schema.Array(Schema.String)
+}).annotate({ identifier: "TeamVmRetired" })
+
 export const TeamVmView = Schema.Struct({
   team: TeamId,
   status: TeamVmStatus,
@@ -29,7 +57,11 @@ export const TeamVmView = Schema.Struct({
   /** Active wake leases (expired ones are not listed). */
   leases: Schema.Array(Schema.Struct({ lease: TeamVmLeaseId, holder: Schema.String, reason: Schema.String, expires_at: Schema.Int })),
   last_error: Schema.NullOr(TeamVmError),
-  updated_at: Schema.Int
+  updated_at: Schema.Int,
+  /** Set while the current epoch is tainted by a member removal; null otherwise. */
+  taint: Schema.NullOr(TeamVmTaint),
+  /** VMs replaced by a rebuild that an owner has not deleted yet. */
+  retired: Schema.Array(TeamVmRetired)
 }).annotate({ identifier: "TeamVmView" })
 
 export const TeamVmStatusRead = def({
@@ -145,7 +177,57 @@ export const TeamVmJournalRead = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const teamVmOps = [TeamVmStatusRead, TeamVmEnsureAwake, TeamVmLeaseRelease, TeamVmJournalAppend, TeamVmJournalHighWater, TeamVmJournalRead] as const satisfies readonly CloudOpDef[]
+const adminErrors = [...mutationErrors, "team_vm.not_tainted", "team_vm.stale_taint", "team_vm.retired_full", "team_vm.stale_epoch", "selector.not_found", "team_vm.not_configured", "team_vm.plan_gate_missing", "team_vm.in_use", "team_vm.not_in_ledger", "owner.unreachable"] as const
+
+export const TeamVmTaintAccept = def({
+  name: "team_vm.taint.accept",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "team",
+  principals: ["session"],
+  /** The tainted epoch and exactly the removed members `team_vm.status` showed (a removal since then is refused). */
+  params: Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))).check(Schema.isMaxLength(1000)) }),
+  result: Schema.Struct({ epoch: Schema.Int, accepted_by: Schema.String, accepted_at: Schema.Int }),
+  errors: [...adminErrors],
+  docs: "Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.",
+  cli: { path: "team vm taint accept", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const TeamVmRebuild = def({
+  name: "team_vm.rebuild",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "team",
+  principals: ["session"],
+  params: Schema.Struct({ epoch: Schema.Int }),
+  result: Schema.Struct({ retired: Schema.String, epoch: Schema.Int }),
+  errors: [...adminErrors],
+  docs: "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
+  cli: { path: "team vm rebuild", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const TeamVmRetiredDelete = def({
+  name: "team_vm.retired.delete",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "team",
+  principals: ["session"],
+  params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),
+  result: Schema.Struct({ vm: Schema.String, deleted: Schema.Boolean }),
+  errors: [...adminErrors],
+  docs: "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited.",
+  cli: { path: "team vm retired delete", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const teamVmAdminOps = [TeamVmTaintAccept, TeamVmRebuild, TeamVmRetiredDelete] as const satisfies readonly CloudOpDef[]
+
+export const teamVmOps = [TeamVmStatusRead, TeamVmEnsureAwake, TeamVmLeaseRelease, TeamVmJournalAppend, TeamVmJournalHighWater, TeamVmJournalRead, ...teamVmAdminOps] as const satisfies readonly CloudOpDef[]
 
 export const TeamVmDriverResultParams = Schema.Struct({
   /** Which provider call finished. */
@@ -169,6 +251,17 @@ export const TeamVmLeasesExpireParams = Schema.Struct({ now: Schema.Int })
 /** The install of the VM's own `cmux` (after bind) for one epoch; only that install may append to the journal. */
 export const TeamVmBindInstallParams = Schema.Struct({ install: InstallId, epoch: Schema.Int, vm: Schema.optionalKey(Schema.String) })
 
+export const TeamVmMemberRemovedParams = Schema.Struct({
+  user: Schema.String,
+  /** The removal time. */
+  at: Schema.Int,
+  /** The latest `valid_before` of any team SSH certificate the member got (ms). */
+  cert_valid_before: Schema.Int
+})
+export const TeamVmTaintAcceptedParams = Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String), by: Schema.String })
+export const TeamVmRebuildRequestedParams = Schema.Struct({ epoch: Schema.Int, by: Schema.String })
+export const TeamVmRetiredParams = Schema.Struct({ vm: Schema.String })
+
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
   ({
     name,
@@ -189,5 +282,11 @@ const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
 export const teamVmInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("team_vm.driver_result", TeamVmDriverResultParams, "Internal: a provider call (create or start) finished."),
   internal("team_vm.leases_expire", TeamVmLeasesExpireParams, "Internal: drop wake leases that expired before `now`."),
-  internal("team_vm.bind_install", TeamVmBindInstallParams, "Internal: the VM's own install for the current epoch (journal writer).")
+  internal("team_vm.bind_install", TeamVmBindInstallParams, "Internal: the VM's own install for the current epoch (journal writer)."),
+  internal("team_vm.member_removed", TeamVmMemberRemovedParams, "Internal: the team's TeamDO removed a member who held a team SSH certificate (taints the current VM when that certificate outlived its creation)."),
+  internal("team_vm.taint_accepted", TeamVmTaintAcceptedParams, "Internal: an owner or admin accepted the taint of this epoch (checked and audited by TeamDO)."),
+  internal("team_vm.rebuild_requested", TeamVmRebuildRequestedParams, "Internal: an owner or admin asked for a new VM at the next epoch (checked and audited by TeamDO)."),
+  internal("team_vm.retired_paused", TeamVmRetiredParams, "Internal: the provider paused a retired VM."),
+  internal("team_vm.retired_pause_failed", TeamVmRetiredParams, "Internal: pausing a retired VM failed; the alarm retries with backoff."),
+  internal("team_vm.retired_deleted", TeamVmRetiredParams, "Internal: an owner deleted a retired VM.")
 ]
