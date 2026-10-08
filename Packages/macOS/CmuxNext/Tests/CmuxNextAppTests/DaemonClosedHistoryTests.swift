@@ -95,6 +95,22 @@ import Testing
         #expect(!daemon.operations.contains("closed.reopen"))
     }
 
+    @Test func reopenClosedWorkspaceCreatesAWindowWhenTheLastWindowWasClosed() async throws {
+        let daemon = try StateDaemon(state: Self.state, reply: Self.reopenReply)
+        defer { daemon.stop() }
+        let services = try await services(daemon)
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            services.daemon.shutdownConnection()
+        }
+        #expect(services.windows.controllers.isEmpty)
+        let workspace = try #require(services.daemon.store.workspace(resourceID: ResourceID(rawValue: "ws_w")))
+
+        await run(services, "reopenClosedWorkspace")
+        #expect(services.windows.controllers.count == 1)
+        #expect(services.windows.registry.value.owner(of: workspace.id) != nil)
+    }
+
     @Test func aWorkspaceReopenedByAnotherClientProducesALocalizedRefusal() async throws {
         let daemon = try StateDaemon(state: Self.state, failure: { operation in
             operation == "closed.reopen" ? #"{"code":"resource.not_found","message":"gone","retryable":false}"# : nil
