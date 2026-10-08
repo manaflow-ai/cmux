@@ -18,6 +18,19 @@
 //!   `preview_open` handed it;
 //! - console/network CDP events tee into a bounded ring served by the
 //!   `preview_console_tail` verb (Pi-readable).
+//!
+//! Access (every request, before any byte reaches the dev server):
+//!
+//! - `Host` must be a loopback name (`localhost`, `*.localhost`), an
+//!   address literal, or a name under one of the registry's public preview
+//!   suffixes (the tunnel forwards its `<name>.preview.chatmux.dev` Host
+//!   verbatim). Every other name is a DNS-rebound page and gets a 403.
+//! - Proxied paths and upstream WebSocket upgrades need the per-preview
+//!   capability: the `__chatmux_preview_<proxy port>` cookie, the
+//!   `x-chatmux-capability` header, or a one-time
+//!   `?__chatmux_capability=` navigation, which answers a 302 that sets the
+//!   HttpOnly cookie and drops the parameter from the URL. The proxy strips
+//!   the credential before it forwards. A missing or wrong one gets a 401.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -271,6 +284,7 @@ fn tee_cdp_frame(ring: &ConsoleRing, raw: &str) -> Option<i64> {
 
 pub struct PreviewRegistry {
     ring: Arc<ConsoleRing>,
+    public_host_suffixes: Arc<[String]>,
     proxies: tokio::sync::Mutex<HashMap<i64, ProxyRuntime>>,
     order: tokio::sync::Mutex<VecDeque<i64>>,
 }
@@ -295,10 +309,39 @@ impl Default for PreviewRegistry {
     }
 }
 
+/// The public preview domain the chatmux tunnel serves proxies under.
+pub const DEFAULT_PUBLIC_HOST_SUFFIX: &str = "preview.chatmux.dev";
+/// Comma-separated extra public preview suffixes (self-hosted tunnels).
+pub const PUBLIC_HOST_SUFFIXES_ENV: &str = "CHATMUX_PREVIEW_HOST_SUFFIXES";
+
 impl PreviewRegistry {
+    /// A registry whose proxies accept the default public preview suffix
+    /// plus any listed in `CHATMUX_PREVIEW_HOST_SUFFIXES`.
     pub fn new() -> PreviewRegistry {
+        let mut suffixes = vec![DEFAULT_PUBLIC_HOST_SUFFIX.to_owned()];
+        if let Ok(extra) = std::env::var(PUBLIC_HOST_SUFFIXES_ENV) {
+            suffixes.extend(extra.split(',').map(str::to_owned));
+        }
+        PreviewRegistry::with_public_host_suffixes(suffixes)
+    }
+
+    /// A registry whose proxies accept `Host` names equal to or under
+    /// exactly these suffixes (besides loopback names and address
+    /// literals).
+    pub fn with_public_host_suffixes(
+        suffixes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> PreviewRegistry {
+        let mut normalized: Vec<String> = Vec::new();
+        for suffix in suffixes {
+            let suffix: String = suffix.into();
+            let suffix = suffix.trim().trim_matches('.').to_ascii_lowercase();
+            if !suffix.is_empty() && !normalized.contains(&suffix) {
+                normalized.push(suffix);
+            }
+        }
         PreviewRegistry {
             ring: Arc::new(ConsoleRing::new()),
+            public_host_suffixes: normalized.into(),
             proxies: tokio::sync::Mutex::new(HashMap::new()),
             order: tokio::sync::Mutex::new(VecDeque::new()),
         }
@@ -318,14 +361,24 @@ impl PreviewRegistry {
                 // hand out the stale port from a finished runtime.
                 proxies.remove(&target_port);
                 let target = u16::try_from(target_port).unwrap_or_default();
-                let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
+                let runtime = spawn_proxy(
+                    target,
+                    Arc::clone(&self.ring),
+                    Arc::clone(&self.public_host_suffixes),
+                )
+                .await?;
                 let port = runtime.port;
                 proxies.insert(target_port, runtime);
                 port
             }
             None => {
                 let target = u16::try_from(target_port).unwrap_or_default();
-                let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
+                let runtime = spawn_proxy(
+                    target,
+                    Arc::clone(&self.ring),
+                    Arc::clone(&self.public_host_suffixes),
+                )
+                .await?;
                 let port = runtime.port;
                 proxies.insert(target_port, runtime);
                 let mut order = self.order.lock().await;
@@ -400,6 +453,10 @@ struct Peer {
 struct ProxyShared {
     target_port: u16,
     capability: String,
+    /// Name of the HttpOnly cookie that carries the capability. Cookies are
+    /// not port-scoped, so the proxy port keeps loopback proxies apart.
+    capability_cookie: String,
+    public_host_suffixes: Arc<[String]>,
     ring: Arc<ConsoleRing>,
     page: Mutex<Option<Peer>>,
     devtools: Mutex<Option<Peer>>,
@@ -437,7 +494,11 @@ fn text_response(status: u16, message: &str) -> hyper::Response<ProxyBody> {
     response
 }
 
-async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRuntime, Refusal> {
+async fn spawn_proxy(
+    target_port: u16,
+    ring: Arc<ConsoleRing>,
+    public_host_suffixes: Arc<[String]>,
+) -> Result<ProxyRuntime, Refusal> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|error| {
         Refusal::new(
             wire::WorkspaceErrorCode::PortUnavailable,
@@ -458,6 +519,8 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
     let shared = Arc::new(ProxyShared {
         target_port,
         capability: capability.clone(),
+        capability_cookie: format!("{CAPABILITY_COOKIE_PREFIX}{proxy_port}"),
+        public_host_suffixes,
         ring,
         page: Mutex::new(None),
         devtools: Mutex::new(None),
@@ -539,6 +602,9 @@ async fn handle_request(
     shared: Arc<ProxyShared>,
     request: hyper::Request<hyper::body::Incoming>,
 ) -> hyper::Response<ProxyBody> {
+    if !request_host_allowed(request.headers(), &shared.public_host_suffixes) {
+        return text_response(403, "host not allowed");
+    }
     match request.uri().path() {
         "/__chatmux__/status" => status_response(&shared, &request),
         "/__chatmux__/target.js" => {
@@ -562,9 +628,187 @@ async fn handle_request(
         "/__chatmux__/page" | "/__chatmux__/devtools" => {
             text_response(400, "websocket upgrade required")
         }
-        _ if wants_websocket(&request) => forward_upgrade(shared, request).await,
-        _ => forward_plain(shared, request).await,
+        _ => match proxied_access(&shared, &request) {
+            ProxiedAccess::Denied => text_response(401, "preview capability required"),
+            ProxiedAccess::Bootstrap
+                if !wants_websocket(&request)
+                    && matches!(*request.method(), hyper::Method::GET | hyper::Method::HEAD) =>
+            {
+                bootstrap_response(&shared, &request)
+            }
+            ProxiedAccess::Granted | ProxiedAccess::Bootstrap => {
+                if wants_websocket(&request) {
+                    forward_upgrade(shared, request).await
+                } else {
+                    forward_plain(shared, request).await
+                }
+            }
+        },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Access: Host allowlist and the proxied-path capability
+// ---------------------------------------------------------------------------
+
+const CAPABILITY_QUERY: &str = "__chatmux_capability";
+const CAPABILITY_HEADER: &str = "x-chatmux-capability";
+const CAPABILITY_COOKIE_PREFIX: &str = "__chatmux_preview_";
+
+/// The `Host` rule (module docs). Exactly one `Host` value; it must be a
+/// bare `name[:port]` (no userinfo, path or whitespace). Address literals
+/// pass: a rebound page always sends the domain name it loaded from.
+fn request_host_allowed(headers: &hyper::HeaderMap, public_suffixes: &[String]) -> bool {
+    let mut values = headers.get_all(hyper::header::HOST).iter();
+    let (Some(value), None) = (values.next(), values.next()) else { return false };
+    let Ok(value) = value.to_str() else { return false };
+    let value = value.trim();
+    if value.is_empty()
+        || value.bytes().any(|byte| {
+            matches!(byte, b'/' | b'\\' | b'@' | b'?' | b'#' | b'%') || byte.is_ascii_whitespace()
+        })
+    {
+        return false;
+    }
+    let Ok(url) = url::Url::parse(&format!("http://{value}/")) else { return false };
+    match url.host() {
+        Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => true,
+        Some(url::Host::Domain(name)) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            name == "localhost"
+                || name.ends_with(".localhost")
+                || public_suffixes.iter().any(|suffix| {
+                    name.strip_suffix(suffix.as_str())
+                        .is_some_and(|rest| rest.is_empty() || rest.ends_with('.'))
+                })
+        }
+        None => false,
+    }
+}
+
+enum ProxiedAccess {
+    /// A valid cookie or header.
+    Granted,
+    /// A valid `?__chatmux_capability=` (and nothing invalid).
+    Bootstrap,
+    Denied,
+}
+
+fn capability_matches(presented: &str, expected: &str) -> bool {
+    use subtle::ConstantTimeEq as _;
+    !expected.is_empty() && bool::from(presented.as_bytes().ct_eq(expected.as_bytes()))
+}
+
+/// Raw `name=value` items of a query (no decoding: the capability is hex).
+fn query_items(query: &str) -> impl Iterator<Item = (&str, &str)> {
+    query
+        .split('&')
+        .filter(|item| !item.is_empty())
+        .map(|item| item.split_once('=').unwrap_or((item, "")))
+}
+
+/// `name=value` items of every `Cookie` header.
+fn cookie_items(headers: &hyper::HeaderMap) -> impl Iterator<Item = (&str, &str)> {
+    headers
+        .get_all(hyper::header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| {
+            item.split_once('=')
+                .map(|(name, value)| (name.trim(), value.trim()))
+                .unwrap_or((item, ""))
+        })
+}
+
+fn proxied_access(
+    shared: &ProxyShared,
+    request: &hyper::Request<hyper::body::Incoming>,
+) -> ProxiedAccess {
+    let expected = shared.capability.as_str();
+    // A presented query capability must be right: a wrong one never falls
+    // back to a cookie, so a link cannot carry a stale or forged value.
+    let mut query_presented = false;
+    for (name, value) in query_items(request.uri().query().unwrap_or_default()) {
+        if name == CAPABILITY_QUERY {
+            if !capability_matches(value, expected) {
+                return ProxiedAccess::Denied;
+            }
+            query_presented = true;
+        }
+    }
+    let header_ok = request
+        .headers()
+        .get_all(CAPABILITY_HEADER)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|value| capability_matches(value.trim(), expected));
+    let cookie_ok = cookie_items(request.headers()).any(|(name, value)| {
+        name == shared.capability_cookie && capability_matches(value, expected)
+    });
+    if header_ok || cookie_ok {
+        ProxiedAccess::Granted
+    } else if query_presented {
+        ProxiedAccess::Bootstrap
+    } else {
+        ProxiedAccess::Denied
+    }
+}
+
+/// The request's path and query without the capability parameter.
+fn path_without_capability(uri: &hyper::Uri) -> String {
+    let path = uri.path();
+    let Some(query) = uri.query() else { return path.to_owned() };
+    let kept = query
+        .split('&')
+        .filter(|item| !item.is_empty() && item.split('=').next() != Some(CAPABILITY_QUERY))
+        .collect::<Vec<_>>();
+    if kept.is_empty() { path.to_owned() } else { format!("{path}?{}", kept.join("&")) }
+}
+
+/// 302 to the same URL without the capability, setting the HttpOnly
+/// cookie. `Secure` rides public (tunnel) names, which are always https.
+fn bootstrap_response(
+    shared: &ProxyShared,
+    request: &hyper::Request<hyper::body::Incoming>,
+) -> hyper::Response<ProxyBody> {
+    let secure = request
+        .headers()
+        .get(hyper::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| url::Url::parse(&format!("http://{value}/")).ok())
+        .is_some_and(|url| match url.host() {
+            Some(url::Host::Domain(name)) => {
+                let name = name.trim_end_matches('.').to_ascii_lowercase();
+                name != "localhost" && !name.ends_with(".localhost")
+            }
+            _ => false,
+        });
+    let cookie = format!(
+        "{}={}; Path=/; HttpOnly; SameSite=Lax{}",
+        shared.capability_cookie,
+        shared.capability,
+        if secure { "; Secure" } else { "" },
+    );
+    let mut response = hyper::Response::new(full_body(Vec::new()));
+    *response.status_mut() = hyper::StatusCode::FOUND;
+    let headers = response.headers_mut();
+    if let (Ok(location), Ok(cookie)) = (
+        hyper::header::HeaderValue::from_str(&path_without_capability(request.uri())),
+        hyper::header::HeaderValue::from_str(&cookie),
+    ) {
+        headers.insert(hyper::header::LOCATION, location);
+        headers.insert(hyper::header::SET_COOKIE, cookie);
+    }
+    headers
+        .insert(hyper::header::CACHE_CONTROL, hyper::header::HeaderValue::from_static("no-store"));
+    headers.insert(
+        hyper::header::REFERRER_POLICY,
+        hyper::header::HeaderValue::from_static("no-referrer"),
+    );
+    response
 }
 
 /// {"targetConnected": bool}. The web devtools drawer polls this endpoint
@@ -960,17 +1204,40 @@ async fn connect_target(
 /// the TCP-level tunnel this proxy fronts forwarded it verbatim, so
 /// dev-server host allowlists keep working identically.
 fn copy_request(
+    shared: &ProxyShared,
     parts: &http::request::Parts,
     body: hyper::body::Incoming,
 ) -> Result<hyper::Request<hyper::body::Incoming>, String> {
-    let uri = parts.uri.path_and_query().map(|value| value.as_str()).unwrap_or("/");
+    // The preview capability never reaches the dev server: not in the
+    // query, the capability header, or the Cookie header.
+    let uri = path_without_capability(&parts.uri);
     let mut builder = hyper::Request::builder().method(parts.method.clone()).uri(uri);
     if let Some(headers) = builder.headers_mut() {
         for (name, value) in &parts.headers {
-            if name == hyper::header::ACCEPT_ENCODING {
+            if name == hyper::header::ACCEPT_ENCODING
+                || name == CAPABILITY_HEADER
+                || name == hyper::header::COOKIE
+            {
                 continue;
             }
             headers.append(name.clone(), value.clone());
+        }
+        let kept = parts
+            .headers
+            .get_all(hyper::header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(';'))
+            .map(str::trim)
+            .filter(|item| {
+                !item.is_empty()
+                    && item.split('=').next().map(str::trim) != Some(&shared.capability_cookie)
+            })
+            .collect::<Vec<_>>();
+        if !kept.is_empty()
+            && let Ok(cookie) = hyper::header::HeaderValue::from_str(&kept.join("; "))
+        {
+            headers.insert(hyper::header::COOKIE, cookie);
         }
     }
     builder.body(body).map_err(|error| format!("could not rebuild the proxied request: {error}"))
@@ -992,7 +1259,7 @@ async fn forward_plain(
     };
     let skip_inject = header_is_one(request.headers(), NO_INJECT_HEADER);
     let (parts, body) = request.into_parts();
-    let outbound = match copy_request(&parts, body) {
+    let outbound = match copy_request(&shared, &parts, body) {
         Ok(outbound) => outbound,
         Err(message) => return text_response(502, &message),
     };
@@ -1055,7 +1322,7 @@ async fn forward_upgrade(
     let Some(server_upgrade) = parts.extensions.remove::<hyper::upgrade::OnUpgrade>() else {
         return text_response(502, "upgrade requested without an upgradable connection");
     };
-    let outbound = match copy_request(&parts, body) {
+    let outbound = match copy_request(&shared, &parts, body) {
         Ok(outbound) => outbound,
         Err(message) => return text_response(502, &message),
     };
@@ -1182,10 +1449,8 @@ mod tests {
                             // What the dev server sees of the request: the
                             // query, every Cookie value and the capability
                             // header, one per line.
-                            let mut seen = format!(
-                                "query={}\n",
-                                request.uri().query().unwrap_or_default()
-                            );
+                            let mut seen =
+                                format!("query={}\n", request.uri().query().unwrap_or_default());
                             for value in request.headers().get_all(hyper::header::COOKIE) {
                                 seen.push_str(&format!(
                                     "cookie={}\n",
@@ -1306,12 +1571,12 @@ mod tests {
         (status, headers, response.text().await.expect("body"))
     }
 
-    async fn open_upgrade(port: u16, key: &str) -> tokio::net::TcpStream {
+    async fn open_upgrade(port: u16, key: &str, capability: &str) -> tokio::net::TcpStream {
         let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
             .await
             .expect("connect preview proxy");
         let request = format!(
-            "GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+            "GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n{CAPABILITY_HEADER}: {capability}\r\n\r\n"
         );
         stream.write_all(request.as_bytes()).await.expect("write upgrade request");
         let mut response = Vec::new();
@@ -1337,7 +1602,7 @@ mod tests {
         let registry = PreviewRegistry::new();
         let target = spawn_target().await;
         let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let (status, _, body) = http_get(proxy, "/", &[]).await;
+        let (status, _, body) = http_get(proxy, "/", &[(CAPABILITY_HEADER, &capability)]).await;
         assert_eq!(status, 200);
         let tag_at =
             body.find("<script src=\"/__chatmux__/target.js?capability=").expect("tag injected");
@@ -1345,22 +1610,25 @@ mod tests {
         let head_at = body.find("</head>").expect("head kept");
         assert!(tag_at < head_at, "before </head>");
 
-        let (_, _, body) = http_get(proxy, "/body-only", &[]).await;
+        let (_, _, body) = http_get(proxy, "/body-only", &[(CAPABILITY_HEADER, &capability)]).await;
         let tag_at =
             body.find("<script src=\"/__chatmux__/target.js?capability=").expect("tag injected");
         assert!(body[..tag_at].contains("<body>"), "after the <body> tag");
 
-        let (_, _, body) = http_get(proxy, "/plain", &[]).await;
+        let (_, _, body) = http_get(proxy, "/plain", &[(CAPABILITY_HEADER, &capability)]).await;
         assert!(!body.contains("/__chatmux__/target.js?capability="), "non-HTML passes through");
 
-        let (_, _, body) = http_get(proxy, "/opt-out", &[]).await;
+        let (_, _, body) = http_get(proxy, "/opt-out", &[(CAPABILITY_HEADER, &capability)]).await;
         assert!(!body.contains("/__chatmux__/target.js?capability="), "response header opts out");
 
-        let (status, _, body) = http_get(proxy, "/oversized", &[]).await;
+        let (status, _, body) =
+            http_get(proxy, "/oversized", &[(CAPABILITY_HEADER, &capability)]).await;
         assert_eq!(status, 502);
         assert!(body.contains("target HTML response exceeds"));
 
-        let (_, _, body) = http_get(proxy, "/", &[(NO_INJECT_HEADER, "1")]).await;
+        let (_, _, body) =
+            http_get(proxy, "/", &[(NO_INJECT_HEADER, "1"), (CAPABILITY_HEADER, &capability)])
+                .await;
         assert!(!body.contains("/__chatmux__/target.js?capability="), "request header opts out");
 
         // Reuse: the same target port keeps its proxy port.
@@ -1416,10 +1684,12 @@ mod tests {
     async fn rejects_upgrades_after_the_copy_task_cap() {
         let registry = PreviewRegistry::new();
         let target = spawn_upgrade_target().await;
-        let proxy = open_proxy(&registry, target).await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
         let mut held = Vec::with_capacity(PREVIEW_PROXY_UPGRADE_CAP);
         for index in 0..PREVIEW_PROXY_UPGRADE_CAP {
-            held.push(open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}")).await);
+            held.push(
+                open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}"), &capability).await,
+            );
         }
 
         let mut over_cap = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
@@ -1427,7 +1697,10 @@ mod tests {
             .expect("connect over-cap upgrade");
         over_cap
             .write_all(
-                b"GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSA2NA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+                format!(
+                    "GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSA2NA==\r\nSec-WebSocket-Version: 13\r\n{CAPABILITY_HEADER}: {capability}\r\n\r\n"
+                )
+                .as_bytes(),
             )
             .await
             .expect("write over-cap upgrade");
@@ -1476,7 +1749,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_cors_grant_requires_the_preview_capability() {
-        let registry = PreviewRegistry::new();
+        let registry = PreviewRegistry::with_public_host_suffixes(["preview.test"]);
         let target = spawn_target().await;
         let (proxy, capability) = open_proxy_credentials(&registry, target).await;
         let origin = "http://localhost:3000";
@@ -1760,7 +2033,7 @@ mod tests {
 
     #[tokio::test]
     async fn control_sockets_refuse_cross_site_browser_origins() {
-        let registry = PreviewRegistry::new();
+        let registry = PreviewRegistry::with_public_host_suffixes(["preview.test"]);
         let target = spawn_target().await;
         let (proxy, capability) = open_proxy_credentials(&registry, target).await;
 
@@ -2020,7 +2293,8 @@ mod tests {
         .await;
         assert!(head.starts_with("http/1.1 403"), "hmr upgrade: {head}");
         for path in ["/__chatmux__/page", "/__chatmux__/devtools"] {
-            let outcome = ws_handshake(proxy, path, Some(&capability), &[("host", &rebinding)]).await;
+            let outcome =
+                ws_handshake(proxy, path, Some(&capability), &[("host", &rebinding)]).await;
             assert!(refused_with_forbidden(outcome), "{path} accepted a rebinding Host");
         }
 
@@ -2040,6 +2314,50 @@ mod tests {
             .await;
             assert!(response.starts_with("HTTP/1.1 200"), "{host}: {response}");
         }
+        registry.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn public_preview_hosts_pass_only_under_the_configured_suffixes() {
+        let registry = PreviewRegistry::with_public_host_suffixes([".Preview.Test."]);
+        let target = spawn_target().await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
+        let credential = format!("{CAPABILITY_HEADER}: {capability}\r\n");
+        for host in ["p1.preview.test", "P1.Preview.Test:443", "preview.test", "p1.preview.test."] {
+            let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
+            assert!(response.starts_with("HTTP/1.1 200"), "{host}: {response}");
+        }
+        for host in ["xpreview.test", "p1.preview.test.evil.example", "preview.chatmux.dev"] {
+            let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
+            assert!(response.starts_with("HTTP/1.1 403"), "{host}: {response}");
+        }
+        // The tunnel bootstrap marks the cookie Secure (the tunnel is https).
+        let response = raw_exchange(
+            proxy,
+            &get_request(&format!("/?{CAPABILITY_QUERY}={capability}"), "p1.preview.test", ""),
+        )
+        .await
+        .to_ascii_lowercase();
+        assert!(response.starts_with("http/1.1 302"), "{response}");
+        assert!(response.contains("\r\nlocation: /\r\n"), "{response}");
+        let set_cookie =
+            response.lines().find(|line| line.starts_with("set-cookie:")).expect("cookie");
+        assert!(set_cookie.contains("; secure"), "{set_cookie}");
+        assert!(set_cookie.contains("samesite=lax"), "{set_cookie}");
+        registry.shutdown().await;
+        // The default registry serves the chatmux tunnel's domain.
+        let registry = PreviewRegistry::new();
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
+        let response = raw_exchange(
+            proxy,
+            &get_request(
+                "/",
+                "abc.preview.chatmux.dev",
+                &format!("{CAPABILITY_HEADER}: {capability}\r\n"),
+            ),
+        )
+        .await;
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         registry.shutdown().await;
     }
 
