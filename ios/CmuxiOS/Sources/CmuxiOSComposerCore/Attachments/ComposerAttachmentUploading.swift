@@ -8,6 +8,8 @@ import Foundation
 public protocol ComposerAttachmentUploading: Sendable {
     /// Uploads a local file (already copied out of the picker) to `host`;
     /// yields the attachment as it progresses, last with `.ready` (and its
-    /// upload id) or `.failed`.
+    /// upload id) or `.failed`. Implementations must observe cancellation:
+    /// return promptly when the calling task is cancelled and finish the
+    /// stream so an upload row cannot retain a suspended iterator.
     func upload(localURL: URL, name: String, mime: String, to host: HostID) async -> AsyncStream<ComposerAttachment>
 }

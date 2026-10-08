@@ -215,3 +215,31 @@ unknown/successful dispatch races. Swift parsing and `git diff --check` passed. 
 Swift test command did not execute: `nx-remote` job `1007-165217-271b07` exited 255 because
 `cmux-lawrence-2` could not resolve (known HQ REPAIR.md build-host alias/DNS symptom). No simulator
 or phone verification was performed.
+
+### 8.1 Bounded picker/upload state
+
+`CmuxiOSComposerCore` now provides `ComposerAttachmentUploadModel`, the
+UI-independent state owner for C4 picker results. A picker adapter hands it a
+`ComposerPickedAttachment` containing an app-owned URL, a stable `TransferID`,
+display metadata and the exact byte count. Admission happens before any upload
+starts: at most 32 items, 1 GiB per item and 2 GiB total by default (limits are
+injectable for host-advertised caps and tests). Empty names, negative sizes,
+duplicate IDs and overflowing totals are refused locally, and picker batches
+are atomic. Malformed remote limit configuration is clamped to safe values;
+opening the composer never traps on a bad cap.
+
+The model normalizes C4 progress to the admitted ID and metadata, accepts only
+owner-shaped `up_` references, and fails closed when a stream ends without a
+ready result or returns an invalid reference. Cancellation removes the row and
+invalidates its token so late progress cannot resurrect it. A failed item keeps
+its local picker copy and can retry with the same `TransferID`; a ready item is
+terminal. This keeps `TaskDraft.attachments` identity stable through retries.
+The `ComposerAttachmentUploading` seam requires its implementation to observe
+task cancellation and finish its `AsyncStream`; the model also checks
+cancellation before and after opening the stream.
+
+The native PhotosUI/document picker still needs to instantiate this model and
+own temporary-file cleanup. `ComposerAttachmentUploading` remains an injected
+seam until D1 supplies the real `FileSendCoordinator` adapter, so this core-only
+slice does not enable a UI button. Focused tests cover identity normalization,
+count/size limits, atomic batches, cancellation, retry and fail-closed IDs.
