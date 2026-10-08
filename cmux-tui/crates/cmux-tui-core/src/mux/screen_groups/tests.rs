@@ -290,10 +290,9 @@ fn cmux_next_new_screen_with_spec_applies_name_metadata_position_and_directory()
 /// call reports its ids instead of failing with "new screen disappeared".
 #[test]
 fn a_screen_closed_by_its_exit_right_after_create_still_reports_its_ids() {
-    for spec in [
-        ScreenSpec::default(),
-        ScreenSpec { color: Some("green".into()), ..ScreenSpec::default() },
-    ] {
+    for spec in
+        [ScreenSpec::default(), ScreenSpec { color: Some("green".into()), ..ScreenSpec::default() }]
+    {
         let session = Session::new("exit-after-create");
         let mux = session.open();
         mux.new_workspace(None, None).unwrap();
@@ -305,9 +304,14 @@ fn a_screen_closed_by_its_exit_right_after_create_still_reports_its_ids() {
                 .resource_terminal_host_identity(&mux.surface(surface).unwrap())
                 .unwrap()
                 .terminal_id;
-            let terminal =
-                mux.workspace_registry.lock().unwrap().terminal_resource_id(&host).unwrap().unwrap();
-            let exit = crate::terminal_host_protocol::TerminalExit {
+            let terminal = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_resource_id(&host)
+                .unwrap()
+                .unwrap();
+            let exit = TerminalExit {
                 outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
                 exited_at_ms: 1,
             };

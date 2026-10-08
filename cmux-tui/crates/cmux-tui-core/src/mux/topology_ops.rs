@@ -212,6 +212,20 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        Ok(self.new_screen_created_as(actor, workspace, name, spawn, size)?.0)
+    }
+
+    /// `new_screen_named_as` that also returns the new screen. Both ids are
+    /// resolved under the creation handoff, which an exit-close also takes,
+    /// so a terminal that exits at once cannot close the screen first.
+    pub(crate) fn new_screen_created_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        workspace: Option<WorkspaceId>,
+        name: Option<String>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
@@ -237,7 +251,15 @@ impl Mux {
             fields,
         )?;
         self.emit_resource_topology_legacy_events(ResourceOperation::ScreenCreate, &commit);
-        self.ordinary_created_surface(&commit)
+        let surface = self.ordinary_created_surface(&commit)?;
+        let screen = self
+            .with_state(|state| {
+                let pane = state.pane_of(surface.id)?;
+                let (wi, si) = state.screen_of(pane)?;
+                Some(state.workspaces[wi].screens[si].id)
+            })
+            .context("created screen disappeared")?;
+        Ok((surface, screen))
     }
 
     /// `new_tab` with a directory, extra environment, and an optional

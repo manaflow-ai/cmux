@@ -2475,6 +2475,9 @@ struct ClientFocusRecord {
 /// Bounded size of the per-client focus memory.
 const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
 
+#[cfg(test)]
+type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -2651,7 +2654,7 @@ pub struct Mux {
     /// Runs in `new_screen_with_spec_as` right after the create returns,
     /// where a terminal that exits at once can already close its screen.
     #[cfg(test)]
-    screen_created_hook: Mutex<Option<Box<dyn FnOnce(SurfaceId) + Send>>>,
+    screen_created_hook: Mutex<Option<ScreenCreatedHook>>,
     terminal_exit_waiters: TerminalExitWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
