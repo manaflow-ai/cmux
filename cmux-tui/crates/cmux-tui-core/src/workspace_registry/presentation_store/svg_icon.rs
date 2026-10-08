@@ -17,6 +17,15 @@
 //! attribute value that could reach outside the icon (`url()` other than
 //! `url(#id)`, any CSS escape or function outside a small paint and transform
 //! set). No `href` of any kind survives.
+//!
+//! Containment: every `id` is rewritten into the [`ID_PREFIX`] namespace and
+//! every `url(#id)` with it, an attribute whose `url(#id)` names no id of the
+//! same icon is dropped, `mask`/`clip-path` inside a mask or clip path are
+//! dropped (reference depth at most one), dash patterns and `pathLength` are
+//! dropped (renderer CPU), and the root keeps no `width`/`height` (the
+//! frontend sizes icons). Frontends still render icons as an isolated image
+//! (`<img>`, a data URL, or a native image), never inlined into a DOM
+//! (plans/cmux-next/icons.md 1).
 
 use anyhow::{Context, bail};
 use quick_xml::Reader;
@@ -34,6 +43,8 @@ pub(crate) const MAX_SVG_ICON_DEPTH: usize = 32;
 pub(crate) const MAX_SVG_ICON_ELEMENTS: usize = 4096;
 
 const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
+/// Every kept `id` and `url(#id)` target starts with this prefix.
+const ID_PREFIX: &str = "cmux-icon-";
 
 /// Static shapes, grouping, gradients, clipping, masking and text. No
 /// scripting, links, `use`, images, filters, patterns, styles, animation,
@@ -90,7 +101,6 @@ const ALLOWED_ATTRIBUTES: &[&str] = &[
     "viewBox",
     "preserveAspectRatio",
     "points",
-    "pathLength",
     "transform",
     "offset",
     "gradientUnits",
@@ -107,8 +117,6 @@ const ALLOWED_ATTRIBUTES: &[&str] = &[
     "stroke-linecap",
     "stroke-linejoin",
     "stroke-miterlimit",
-    "stroke-dasharray",
-    "stroke-dashoffset",
     "stroke-opacity",
     "opacity",
     "color",
@@ -150,6 +158,23 @@ struct Frame {
     /// The canonical element name when it is written to the output.
     kept: Option<&'static str>,
     keeps_text: bool,
+    /// Inside a `mask` or `clipPath` (including the element itself).
+    in_reference: bool,
+}
+
+/// Output under construction: literal markup, or an attribute holding
+/// `url(#id)` references that is written only when every target exists.
+enum Piece {
+    Markup(String),
+    Reference { key: &'static str, value: String, targets: Vec<String> },
+}
+
+fn push_markup(pieces: &mut Vec<Piece>, text: &str) {
+    if let Some(Piece::Markup(last)) = pieces.last_mut() {
+        last.push_str(text);
+    } else {
+        pieces.push(Piece::Markup(text.to_owned()));
+    }
 }
 
 /// Sanitize an SVG icon into its canonical stored form (see the module docs).
@@ -169,7 +194,8 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
     config.allow_dangling_amp = false;
     config.allow_unmatched_ends = false;
 
-    let mut output = String::with_capacity(text.len());
+    let mut pieces: Vec<Piece> = Vec::new();
+    let mut ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut stack: Vec<Frame> = Vec::new();
     let mut elements = 0usize;
     let mut root_seen = false;
@@ -218,27 +244,48 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                 let attributes = read_attributes(&start)?;
                 let parent_kept = stack.last().is_none_or(|frame| frame.kept.is_some());
                 let kept = parent_kept.then(|| allowed_element(start.name().as_ref())).flatten();
+                let in_reference = stack.last().is_some_and(|frame| frame.in_reference)
+                    || matches!(kept, Some("mask" | "clipPath"));
                 if let Some(name) = kept {
-                    output.push('<');
-                    output.push_str(name);
-                    if stack.is_empty() {
-                        let _ = write!(output, r#" xmlns="{SVG_NAMESPACE}""#);
+                    let root = stack.is_empty();
+                    let mut open = format!("<{name}");
+                    if root {
+                        let _ = write!(open, r#" xmlns="{SVG_NAMESPACE}""#);
                     }
-                    for (key, value) in attributes {
-                        let _ = write!(output, r#" {key}="{}""#, escape(value.as_str()));
+                    push_markup(&mut pieces, &open);
+                    for attribute in attributes {
+                        let key = attribute.key;
+                        if (root && matches!(key, "width" | "height"))
+                            || (in_reference && matches!(key, "mask" | "clip-path"))
+                        {
+                            continue;
+                        }
+                        if key == "id" {
+                            ids.insert(attribute.value.clone());
+                        }
+                        if attribute.targets.is_empty() {
+                            push_markup(&mut pieces, &format!(r#" {key}="{}""#, attribute.value));
+                        } else {
+                            pieces.push(Piece::Reference {
+                                key,
+                                value: attribute.value,
+                                targets: attribute.targets,
+                            });
+                        }
                     }
-                    output.push('>');
+                    push_markup(&mut pieces, ">");
                 }
                 stack.push(Frame {
                     kept,
                     keeps_text: kept.is_some_and(|name| TEXT_ELEMENTS.contains(&name)),
+                    in_reference,
                 });
             }
             Event::End(_) => {
                 let frame =
                     stack.pop().context("bad request: svg icon has an unmatched end tag")?;
                 if let Some(name) = frame.kept {
-                    let _ = write!(output, "</{name}>");
+                    push_markup(&mut pieces, &format!("</{name}>"));
                 }
             }
             Event::Empty(_) => bail!("bad request: svg icon parser returned an unexpanded element"),
@@ -246,7 +293,7 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                 let text = text
                     .xml10_content()
                     .map_err(|error| anyhow::anyhow!("bad request: svg icon text: {error}"))?;
-                push_text(&mut output, stack.last(), &text)?;
+                push_text(&mut pieces, stack.last(), &text)?;
             }
             Event::CData(data) => {
                 let data = data
@@ -256,11 +303,11 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                     !stack.is_empty(),
                     "bad request: svg icon has CDATA outside the root"
                 );
-                push_text(&mut output, stack.last(), &data)?;
+                push_text(&mut pieces, stack.last(), &data)?;
             }
             Event::GeneralRef(reference) => {
                 let ch = resolve_reference(&reference)?;
-                push_text(&mut output, stack.last(), ch.encode_utf8(&mut [0; 4]))?;
+                push_text(&mut pieces, stack.last(), ch.encode_utf8(&mut [0; 4]))?;
             }
             Event::Eof => break,
         }
@@ -269,6 +316,17 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
         root_seen && stack.is_empty(),
         "bad request: svg icon has no complete <svg> root"
     );
+    let mut output = String::with_capacity(text.len());
+    for piece in pieces {
+        match piece {
+            Piece::Markup(markup) => output.push_str(&markup),
+            Piece::Reference { key, value, targets } => {
+                if targets.iter().all(|target| ids.contains(target)) {
+                    let _ = write!(output, r#" {key}="{value}""#);
+                }
+            }
+        }
+    }
     anyhow::ensure!(
         output.len() <= MAX_SVG_ICON_BYTES,
         "bad request: sanitized svg icon exceeds 64 KiB ({} bytes)",
@@ -292,10 +350,19 @@ fn allowed_element(name: &[u8]) -> Option<&'static str> {
     ALLOWED_ELEMENTS.iter().copied().find(|allowed| allowed.as_bytes() == name)
 }
 
+/// One kept attribute in canonical form: `value` needs no escaping (it is
+/// printable ASCII without `<>"'&`), ids and `url(#id)` targets carry
+/// [`ID_PREFIX`], and `targets` lists the ids its `url()`s name.
+struct KeptAttribute {
+    key: &'static str,
+    value: String,
+    targets: Vec<String>,
+}
+
 /// Every attribute is parsed (so a duplicate, malformed value or unknown
 /// entity anywhere refuses the icon); only allowlisted ones with safe values
 /// are returned, in document order.
-fn read_attributes(start: &BytesStart<'_>) -> anyhow::Result<Vec<(&'static str, String)>> {
+fn read_attributes(start: &BytesStart<'_>) -> anyhow::Result<Vec<KeptAttribute>> {
     let mut kept = Vec::new();
     for attribute in start.attributes() {
         let attribute = attribute.map_err(|error| {
@@ -312,23 +379,47 @@ fn read_attributes(start: &BytesStart<'_>) -> anyhow::Result<Vec<(&'static str, 
         else {
             continue;
         };
-        if attribute_value_is_safe(&value) {
-            kept.push((name, value.into_owned()));
+        if name == "id" {
+            if is_icon_id(&value) {
+                kept.push(KeptAttribute { key: name, value: prefixed_id(&value), targets: vec![] });
+            }
+        } else if let Some((value, targets)) = canonical_attribute_value(&value) {
+            kept.push(KeptAttribute { key: name, value, targets });
         }
     }
     Ok(kept)
 }
 
+/// `[A-Za-z_][A-Za-z0-9_.-]*`: an id that is also a valid `url(#id)` target.
+fn is_icon_id(id: &str) -> bool {
+    id.bytes().next().is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+/// The id in the icon namespace; already prefixed ids stay as they are, so
+/// the output is a fixed point.
+fn prefixed_id(id: &str) -> String {
+    if id.starts_with(ID_PREFIX) { id.to_owned() } else { format!("{ID_PREFIX}{id}") }
+}
+
 /// A presentation or geometry value that cannot reach outside the icon:
 /// printable ASCII without quotes, CSS escapes, declarations or at-rules, and
 /// only [`ALLOWED_FUNCTIONS`], with `url()` naming a same-document fragment.
-fn attribute_value_is_safe(value: &str) -> bool {
+/// Returns the value with every `url(...)` rewritten to `url(#<prefixed id>)`
+/// and the prefixed ids it names, or `None` to drop the attribute.
+fn canonical_attribute_value(value: &str) -> Option<(String, Vec<String>)> {
     if value.len() > MAX_SVG_ICON_BYTES
         || !value.bytes().all(|byte| (0x20..0x7f).contains(&byte))
         || value.bytes().any(|byte| b"\\<>\"'`;{}@!&".contains(&byte))
     {
-        return false;
+        return None;
     }
+    // Each `(` must consume one `)`, so a surplus `)` is unbalanced.
+    if value.matches(')').count() != value.matches('(').count() {
+        return None;
+    }
+    let mut output = String::with_capacity(value.len());
+    let mut targets = Vec::new();
     let mut index = 0;
     while let Some(offset) = value[index..].find('(') {
         let open = index + offset;
@@ -337,32 +428,29 @@ fn attribute_value_is_safe(value: &str) -> bool {
             .map_or(0, |at| at + 1);
         let name = value[name_start..open].to_ascii_lowercase();
         if !ALLOWED_FUNCTIONS.contains(&name.as_str()) {
-            return false;
+            return None;
         }
-        let Some(close) = value[open..].find(')').map(|at| open + at) else {
-            return false;
-        };
+        let close = value[open..].find(')').map(|at| open + at)?;
         let argument = &value[open + 1..close];
         if argument.contains('(') {
-            return false;
+            return None;
         }
         if name == "url" {
-            let target = argument.trim_matches(' ');
-            let Some(id) = target.strip_prefix('#') else {
-                return false;
-            };
-            if id.is_empty()
-                || !id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
-            {
-                return false;
+            let id = argument.trim_matches(' ').strip_prefix('#')?;
+            if !is_icon_id(id) {
+                return None;
             }
+            let target = prefixed_id(id);
+            output.push_str(&value[index..name_start]);
+            let _ = write!(output, "url(#{target})");
+            targets.push(target);
+        } else {
+            output.push_str(&value[index..=close]);
         }
         index = close + 1;
     }
-    // Each `(` consumed one `)`, so a surplus `)` is unbalanced.
-    value.matches(')').count() == value.matches('(').count()
+    output.push_str(&value[index..]);
+    Some((output, targets))
 }
 
 /// The five XML entities and character references; anything else (an entity a
@@ -387,19 +475,30 @@ fn resolve_reference(reference: &quick_xml::events::BytesRef<'_>) -> anyhow::Res
     }
 }
 
+/// A character that may appear in icon text: an XML 1.0 `Char` other than a
+/// control character (tab, LF and CR excepted), and no bidi override or
+/// isolate (the text can become a tooltip or accessibility label).
+fn is_allowed_text_char(ch: char) -> bool {
+    (!ch.is_control() || matches!(ch, '\t' | '\n' | '\r'))
+        && !matches!(ch, '\u{FFFE}' | '\u{FFFF}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
 /// Character data: whitespace only outside the root, kept (escaped) only in a
-/// kept text element, and never a control character other than tab, CR or LF.
-fn push_text(output: &mut String, frame: Option<&Frame>, text: &str) -> anyhow::Result<()> {
+/// kept text element. A CR is written as `&#13;`, because a raw CR would be
+/// normalized to LF when the output is parsed again.
+fn push_text(pieces: &mut Vec<Piece>, frame: Option<&Frame>, text: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
-        !text.chars().any(|ch| ch.is_control() && !matches!(ch, '\t' | '\n' | '\r')),
-        "bad request: svg icon text contains a control character"
+        text.chars().all(is_allowed_text_char),
+        "bad request: svg icon text contains a control, noncharacter or bidi override character"
     );
     match frame {
         None => anyhow::ensure!(
             text.chars().all(|ch| ch.is_ascii_whitespace()),
             "bad request: svg icon has text outside the root element"
         ),
-        Some(frame) if frame.keeps_text && frame.kept.is_some() => output.push_str(&escape(text)),
+        Some(frame) if frame.keeps_text && frame.kept.is_some() => {
+            push_markup(pieces, &escape(text).replace('\r', "&#13;"));
+        }
         Some(_) => {}
     }
     Ok(())

@@ -49,7 +49,8 @@ fn sanitized_output_is_a_fixed_point() {
         ),
         "{once}"
     );
-    assert!(once.contains(r##"fill="url(#g)""##), "{once}");
+    assert!(once.contains(r##"fill="url(#cmux-icon-g)""##), "{once}");
+    assert!(once.contains(r#"<linearGradient id="cmux-icon-g""#), "{once}");
 }
 
 #[test]
@@ -98,7 +99,7 @@ fn removes_external_and_internal_references() {
             "pattern",
         ],
     );
-    assert!(output.contains(r#"<linearGradient id="g"></linearGradient>"#), "{output}");
+    assert!(output.contains(r#"<linearGradient id="cmux-icon-g"></linearGradient>"#), "{output}");
 }
 
 #[test]
@@ -122,6 +123,7 @@ fn removes_animation_that_could_rewrite_attributes() {
 fn css_url_only_names_a_fragment_in_the_same_icon() {
     let output = clean(&format!(
         r##"<svg {SVG_NS}>
+<defs><linearGradient id="ok"/><linearGradient id="w"/><clipPath id="clip"/></defs>
 <rect id="a" fill="url(https://evil.example/x.svg#p)" stroke="url( #ok )" width="1"/>
 <rect id="b" fill="URL(//evil.example/p)" clip-path="url(#clip)" mask="url('#m')"/>
 <rect id="c" fill="u\rl(https://evil.example/)" stroke="\75 rl(https://evil.example/)"/>
@@ -132,10 +134,17 @@ fn css_url_only_names_a_fragment_in_the_same_icon() {
 </svg>"##
     ));
     assert_absent(&output, &["evil", "style", "image(", "expression", "\\", "'"]);
-    assert!(output.contains(r##"<rect id="a" stroke="url( #ok )" width="1"></rect>"##), "{output}");
-    assert!(output.contains(r##"<rect id="b" clip-path="url(#clip)"></rect>"##), "{output}");
     assert!(
-        output.contains(r##"<rect id="f" fill="#00f" stroke="currentColor"></rect>"##),
+        output
+            .contains(r##"<rect id="cmux-icon-a" stroke="url(#cmux-icon-ok)" width="1"></rect>"##),
+        "{output}"
+    );
+    assert!(
+        output.contains(r##"<rect id="cmux-icon-b" clip-path="url(#cmux-icon-clip)"></rect>"##),
+        "{output}"
+    );
+    assert!(
+        output.contains(r##"<rect id="cmux-icon-f" fill="#00f" stroke="currentColor"></rect>"##),
         "{output}"
     );
 }
@@ -260,4 +269,62 @@ fn icon_wire_names_the_sanitized_bytes() {
     // Until the asset store exists, a bare reference is refused.
     assert!(validate_presentation_icon(&wire).is_err());
     validate_presentation_icon("star.fill").expect("symbol still valid");
+}
+
+#[test]
+fn carriage_return_references_stay_a_fixed_point() {
+    for input in [
+        format!("<svg {SVG_NS}><title>a&#13;b</title></svg>"),
+        format!("<svg {SVG_NS}><text>a&#xD;\nb\r\nc</text></svg>"),
+    ] {
+        let once = clean(&input);
+        assert_eq!(clean(&once), once, "{input}");
+        validate_presentation_icon_asset(&svg_icon_wire(&once), once.as_bytes())
+            .expect("owner accepts its own output");
+    }
+    assert_eq!(
+        clean(&format!("<svg {SVG_NS}><title>a&#13;b</title></svg>")),
+        format!("<svg {SVG_NS}><title>a&#13;b</title></svg>")
+    );
+}
+
+#[test]
+fn ids_live_in_the_icon_namespace_and_dangling_references_drop() {
+    let output = clean(&format!(
+        r##"<svg {SVG_NS}><clipPath id="clip0_1_2"><rect width="1"/></clipPath>
+<rect id="9bad" clip-path="url(#clip0_1_2)" fill="url(#paint0) red" stroke="url(#cmux-icon-clip0_1_2)"/>
+<rect id="cmux-icon-x" id2="y"/></svg>"##
+    ));
+    assert_eq!(
+        output,
+        format!(
+            r##"<svg {SVG_NS}><clipPath id="cmux-icon-clip0_1_2"><rect width="1"></rect></clipPath><rect clip-path="url(#cmux-icon-clip0_1_2)" stroke="url(#cmux-icon-clip0_1_2)"></rect><rect id="cmux-icon-x"></rect></svg>"##
+        )
+    );
+    assert_eq!(clean(&output), output);
+}
+
+#[test]
+fn drops_renderer_cost_and_layout_attributes() {
+    let output = clean(&format!(
+        r##"<svg {SVG_NS} width="100000" height="100000" viewBox="0 0 8 8">
+<path d="M0 0L1000000 0" pathLength="1e30" stroke-dasharray="0.000001" stroke-dashoffset="1" stroke="red"/>
+<mask id="m" mask="url(#m)"><rect width="1" clip-path="url(#c)" mask="url(#m)"/><g><rect width="2" mask="url(#m)"/></g></mask>
+<clipPath id="c" clip-path="url(#c)"><rect width="3" clip-path="url(#c)"/></clipPath>
+<rect width="4" mask="url(#m)" clip-path="url(#c)"/></svg>"##
+    ));
+    assert_eq!(
+        output,
+        format!(
+            r##"<svg {SVG_NS} viewBox="0 0 8 8"><path d="M0 0L1000000 0" stroke="red"></path><mask id="cmux-icon-m"><rect width="1"></rect><g><rect width="2"></rect></g></mask><clipPath id="cmux-icon-c"><rect width="3"></rect></clipPath><rect width="4" mask="url(#cmux-icon-m)" clip-path="url(#cmux-icon-c)"></rect></svg>"##
+        )
+    );
+}
+
+#[test]
+fn refuses_noncharacters_and_bidi_overrides_in_text() {
+    for text in ["&#xFFFE;", "&#xFFFF;", "\u{FFFE}", "a\u{202E}b", "&#x2067;", "&#x85;"] {
+        let input = format!("<svg {SVG_NS}><title>{text}</title></svg>");
+        assert!(sanitize_svg_icon(input.as_bytes()).is_err(), "accepted {text:?}");
+    }
 }
