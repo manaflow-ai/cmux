@@ -360,10 +360,8 @@ struct SidebarHiddenPresentationTests {
         )
         let hiddenRowCells = descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer)
         #expect(!hiddenRowCells.isEmpty)
-        #expect(
-            hiddenRowCells.allSatisfy { !$0.isPresentationActive },
-            "While hidden, row spinners and status pulses must not run."
-        )
+        let hiddenRowsAnimate = hiddenRowCells.contains { $0.isPresentationActive }
+        #expect(!hiddenRowsAnimate, "While hidden, row spinners and status pulses must not run.")
         var cloudChangeIterator = focusedWorkspace.cloudBindingState.changes().makeAsyncIterator()
         _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
@@ -425,10 +423,9 @@ struct SidebarHiddenPresentationTests {
             initialContainer.tableView.numberOfRows > initialRowCount,
             "Reopening must reconcile the retained table from the current workspace model."
         )
-        #expect(
-            descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer).allSatisfy(\.isPresentationActive),
-            "Revealing resumes row spinners and status pulses."
-        )
+        let revealedRowsAnimate = descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer)
+            .allSatisfy { $0.isPresentationActive }
+        #expect(revealedRowsAnimate, "Revealing resumes row spinners and status pulses.")
         #expect(
             revealRowInputProjections <= tabManager.tabs.count,
             """
