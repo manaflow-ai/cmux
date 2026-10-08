@@ -1530,6 +1530,16 @@
       "title" : "Spaces Position",
       "type" : "string"
     },
+    "sidebar.spacesVisibility" : {
+      "default" : "hover",
+      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Show Spaces",
+      "type" : "string"
+    },
     "sidebar.stepping" : {
       "default" : "allItems",
       "description" : "What Command-Control-] and Command-Control-[ step through.",

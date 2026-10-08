@@ -114,6 +114,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `sidebar.side` and `sidebar.spacesPosition` (R109).
     public var sidebarSide: SidebarSide = .left
     public var spacesPosition: SpacesPosition = .bottom
+    /// `sidebar.spacesVisibility` (cx-5k3r); "hover" when unset or invalid.
+    public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).

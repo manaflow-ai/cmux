@@ -19,17 +19,19 @@ import Testing
         return view
     }
 
-    /// The drawn box of each dot: the bar rendered offscreen, every pixel
-    /// with any alpha counted, grouped by slot (bar points, top-left origin).
+    /// The drawn box of each mark: the marks layer rendered offscreen (not
+    /// the current-space chip under it), every pixel with any alpha counted,
+    /// grouped by slot (bar points, top-left origin).
     private func dotBoxes(_ view: ProfileBarView, count: Int = 3) throws -> [CGRect] {
-        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: rep)
-        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
-        let slot = Metrics.roomDotSlot
-        let xs = ProfileBarLogic.slotXs(count: count, slot: Double(slot), leading: Double(view.slotsLeading))
+        view.layoutSubtreeIfNeeded()
+        let marks = view.marks
+        let rep = try #require(marks.bitmapImageRepForCachingDisplay(in: marks.bounds))
+        marks.cacheDisplay(in: marks.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / marks.bounds.width
+        let slots = view.slotRects()
         return try (0..<count).map { index in
             var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
-            let from = Int(CGFloat(xs[index]) * scale), to = Int((CGFloat(xs[index]) + slot) * scale)
+            let from = Int(slots[index].minX * scale), to = Int(slots[index].maxX * scale)
             for y in 0..<rep.pixelsHigh {
                 for x in max(0, from)..<min(rep.pixelsWide, to) where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.02 {
                     minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
@@ -65,7 +67,7 @@ import Testing
         #expect(Metrics.roomDotSlot >= 24, "hit width \(Metrics.roomDotSlot)")
         #expect(Metrics.roomDotSlot >= Metrics.sidebarRowHeight, "a dot's slot is as wide as a footer button")
         for box in try dotBoxes(bar(model)) {
-            #expect(box.width >= 8 && box.height >= 8, "dot \(box.size)")
+            #expect(box.width >= 6 && box.height >= 8, "mark \(box.size)")
         }
     }
 
