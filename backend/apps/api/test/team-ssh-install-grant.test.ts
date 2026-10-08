@@ -33,4 +33,22 @@ describe("team SSH certificates for install tokens (grant gate, workerd)", () =>
       expect((await t.op(t.install(t.owner, ["read", "mutate-own", "mutate-shared"], kind, "inst_00000000000000000044"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("auth.forbidden")
     }
   })
+
+  it("cloud-link covers only the certificate itself, and a replay after the grant narrowed is refused", async () => {
+    const t = await setup("stack-ssh-0000000045")
+    const key = await sshLine("ed25519")
+    const link = ["read", "mutate-own", "cloud-link"]
+    const p = t.install(t.owner, link, "ios", "inst_00000000000000000045")
+    expect((await t.op(p, "team_vm.ssh_cert.challenge", { public_key: key, presence_install: "inst_00000000000000000045", request: "r1" })).error!.code).toBe("auth.forbidden")
+    expect((await t.op(p, "team_vm.ssh_cert.revoke", { serial: 1 })).error!.code).toBe("auth.forbidden")
+    expect((await t.op(p, "team_vm.ssh_ca.rotate", {})).error!.code).toBe("auth.forbidden")
+    const idem = crypto.randomUUID()
+    const first = await t.op(p, "team_vm.ssh_cert", { public_key: key }, idem)
+    expect(first.ok).toBe(true)
+    expect((await t.op(p, "team_vm.ssh_cert", { public_key: key }, idem)).replayed).toBe(true)
+    // The user narrowed the grant (cloud-link removed): the same key does not return the certificate again.
+    const narrowed = await t.op(t.install(t.owner, ["read", "mutate-own"], "ios", "inst_00000000000000000045"), "team_vm.ssh_cert", { public_key: key }, idem)
+    expect(narrowed.ok).toBe(false)
+    expect(narrowed.error!.code).toBe("auth.forbidden")
+  })
 })
