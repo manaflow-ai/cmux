@@ -15,12 +15,16 @@ pub struct TerminalRespawnText {
     /// The marker of a respawned terminal that ran a command which is not
     /// offered again; `{program}` is the command's program name.
     pub restored_command: &'static str,
+    /// Name of the workspace that holds terminals whose hosts outlived the
+    /// owner's registry (cx-0tgl LC).
+    pub recovered_workspace: &'static str,
 }
 
 /// The English text, used until [`install`] runs.
 pub const ENGLISH: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} session restored (previous process ended) \u{2014}",
     restored_command: "\u{2014} session restored (previous process ended; it ran {program}) \u{2014}",
+    recovered_workspace: "Recovered terminals",
 };
 
 static TEXT: OnceLock<&'static TerminalRespawnText> = OnceLock::new();

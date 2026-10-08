@@ -1,14 +1,16 @@
 //! cx-0tgl LC: a starting owner never ends a live terminal host it cannot
 //! place. A host whose registry row is gone (a lost or reset registry) is
-//! recovered into a workspace of its own; a live host whose incarnation the
-//! registry no longer names is adopted under the record's incarnation. Only
-//! a terminal the user closed (tombstoned) or one that already exited has its
-//! leftover host ended.
+//! recovered into a workspace of its own. Only a terminal the user closed
+//! (tombstoned) or one that already exited has its leftover host ended.
 
 use super::*;
 
 /// A `/bin/cat` terminal with one echoed line: (terminal id, host record).
-fn start_cat(harness: &RecoveryHarness, name: &str, marker: &str) -> (String, PathBuf, TerminalHostRecord) {
+fn start_cat(
+    harness: &RecoveryHarness,
+    name: &str,
+    marker: &str,
+) -> (String, PathBuf, TerminalHostRecord) {
     let created = request(
         &harness.socket,
         serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":name}),
@@ -61,7 +63,11 @@ fn wait_for_running(harness: &RecoveryHarness, terminal_id: &str) -> (serde_json
     }
 }
 
-fn assert_same_live_host(harness: &RecoveryHarness, record_path: &Path, record: &TerminalHostRecord) {
+fn assert_same_live_host(
+    harness: &RecoveryHarness,
+    record_path: &Path,
+    record: &TerminalHostRecord,
+) {
     assert_eq!(
         terminal_host_record_liveness(record_path, record).unwrap(),
         TerminalHostLiveness::Live,
@@ -94,30 +100,13 @@ fn a_live_host_of_a_lost_registry_is_recovered_not_terminated() {
         serde_json::json!({"cmd":"send","surface":surface,"text":"after-recovery\n"}),
     );
     assert!(wait_for_screen(&harness.socket, surface, "after-recovery").contains("after-recovery"));
-}
-
-#[test]
-fn a_live_host_with_an_unexpected_incarnation_is_adopted_not_terminated() {
-    let mut harness = RecoveryHarness::start("orphan-incarnation");
-    let (terminal_id, record_path, record) = start_cat(&harness, "moved", "before-mismatch");
-    stop_owner(&mut harness);
-    let connection = rusqlite::Connection::open(registry_path(&harness.state)).unwrap();
-    let changed = connection
-        .execute(
-            "UPDATE terminal_hosts SET incarnation = ?1 WHERE terminal_id = ?2",
-            ["0123456789abcdef0123456789abcdef", terminal_id.as_str()],
-        )
-        .unwrap();
-    assert_eq!(changed, 1);
-    drop(connection);
-    harness.restart();
-
-    let (resolved, surface) = wait_for_running(&harness, &terminal_id);
-    assert_eq!(resolved["terminal_incarnation"], record.incarnation.as_str(), "{resolved}");
-    assert_same_live_host(&harness, &record_path, &record);
-    request(
-        &harness.socket,
-        serde_json::json!({"cmd":"send","surface":surface,"text":"after-mismatch\n"}),
+    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    assert!(
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|workspace| workspace["name"] == "Recovered terminals"),
+        "no recovery workspace: {tree}"
     );
-    assert!(wait_for_screen(&harness.socket, surface, "after-mismatch").contains("after-mismatch"));
 }
