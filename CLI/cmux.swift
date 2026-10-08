@@ -27994,7 +27994,11 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-l", "-t"],
                 boolFlags: ["-P", "-b", "-d", "-f", "-h", "-v"]
             )
-            let isOMXHud = tmuxCommandLooksLikeOMXHud(parsed.positional)
+            // tmux joins these arguments and hands the text to a shell, so
+            // classify the words that shell would see.
+            let isOMXHud = tmuxCommandLooksLikeOMXHud(
+                tmuxShellWords(tmuxStartCommand(commandTokens: parsed.positional) ?? "")
+            )
             if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
                 tmuxWriteDebugDiagnostic(
                     "OMX HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
