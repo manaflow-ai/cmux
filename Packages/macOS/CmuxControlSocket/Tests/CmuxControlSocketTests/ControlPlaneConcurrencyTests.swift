@@ -297,10 +297,29 @@ struct ControlPlaneConcurrencyTests {
         store.publishResponse(
             method: "workspace.list",
             params: [:],
-            result: replacement
+            result: replacement,
+            expectedGeneration: store.read().generation
         )
         #expect(store.response(method: "workspace.list", params: [:]) == replacement)
         #expect(store.read().generation == 2)
+    }
+
+    @Test func invalidatingReadSnapshotForcesLiveResolutionUntilRefresh() {
+        let store = ControlReadSnapshotStore()
+        let cached = ControlCallResult.ok(.object(["workspace_count": .int(1)]))
+        store.publish(
+            ControlReadSnapshot(
+                generation: 4,
+                responses: [
+                    ControlReadSnapshot.key(method: "workspace.list", params: [:]): cached,
+                ]
+            )
+        )
+
+        store.invalidate()
+
+        #expect(store.read().generation == 5)
+        #expect(store.response(method: "workspace.list", params: [:]) == nil)
     }
 
     @Test func readAndPollingPoliciesShareOneClassification() {

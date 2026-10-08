@@ -210,7 +210,8 @@ extension TerminalController {
                 if worker.handled { return worker.response }
             }
             return try await self.v2MainAsync {
-                self.processCommand(command)
+                defer { self.scheduleSocketReadSnapshotRefresh() }
+                return self.processCommand(command)
             }
         }
     }
@@ -248,6 +249,7 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return try await agentRestoreAdmissionReleaseResponse(request)
         }
+        let snapshotGeneration = socketReadSnapshotStore.read().generation
         if request.method == "agent.hibernate" {
             return try await agentHibernateResponse(request)
         }
@@ -287,17 +289,16 @@ extension TerminalController {
             socketReadSnapshotStore.publishResponse(
                 method: request.method,
                 params: request.params,
-                result: coordinatorResult
+                result: coordinatorResult,
+                expectedGeneration: snapshotGeneration
             )
             return Self.v2Encoder.response(id: request.id, coordinatorResult)
         }
 
         if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
             let response = try await v2MainAsync {
-                self.socketWorkerV2Response(handling: request)
-            }
-            Task { @MainActor [weak self] in
-                self?.scheduleSocketReadSnapshotRefresh()
+                defer { self.scheduleSocketReadSnapshotRefresh() }
+                return self.socketWorkerV2Response(handling: request)
             }
             return response
         }
@@ -308,7 +309,8 @@ extension TerminalController {
                 socketReadSnapshotStore.publishResponse(
                     method: request.method,
                     params: request.params,
-                    result: result
+                    result: result,
+                    expectedGeneration: snapshotGeneration
                 )
             }
             return response
@@ -319,7 +321,8 @@ extension TerminalController {
             socketReadSnapshotStore.publishResponse(
                 method: request.method,
                 params: request.params,
-                result: typedResult
+                result: typedResult,
+                expectedGeneration: snapshotGeneration
             )
             return Self.v2Encoder.response(id: request.id, typedResult)
         }
@@ -357,7 +360,8 @@ extension TerminalController {
                 socketReadSnapshotStore.publishResponse(
                     method: request.method,
                     params: request.params,
-                    result: result
+                    result: result,
+                    expectedGeneration: snapshotGeneration
                 )
             }
             return response
@@ -515,6 +519,7 @@ extension TerminalController {
             ? v2PrepareDiffViewerRegistration(params: bridgedParams)
             : .notNeeded
         let outcome = try await v2MainAsync {
+            defer { self.scheduleSocketReadSnapshotRefresh() }
             let mainParams = request.params.mapValues(\.foundationObject)
             let mainID = request.id?.foundationObject
             return self.v2MainActorResponse(
@@ -524,9 +529,6 @@ extension TerminalController {
                 params: mainParams,
                 diffViewerRegistration: diffViewerRegistration
             )
-        }
-        Task { @MainActor [weak self] in
-            self?.scheduleSocketReadSnapshotRefresh()
         }
         switch outcome {
         case .callResult(let result):
@@ -547,21 +549,6 @@ extension TerminalController {
         return trimmed.split(separator: " ", maxSplits: 1)
             .first
             .map { String($0).lowercased() }
-    }
-
-    private nonisolated static func snapshotMaximumAgeNanoseconds(
-        for method: String
-    ) -> UInt64? {
-        switch method {
-        case "surface.read_text":
-            return 100_000_000
-        case "system.top":
-            return 500_000_000
-        case "system.memory":
-            return 2_000_000_000
-        default:
-            return nil
-        }
     }
 
     private nonisolated static func socketRateLimitedResponse(
