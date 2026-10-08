@@ -172,8 +172,14 @@ fi
 
 write_notary_state() {
   local state_tmp="$NOTARY_SUBMISSION_FILE.tmp.$$" dmg_sha256=""
-  if command -v shasum >/dev/null 2>&1; then
-    dmg_sha256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
+  if ! command -v shasum >/dev/null 2>&1; then
+    echo "Cannot preserve notarization state without shasum" >&2
+    return 1
+  fi
+  dmg_sha256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
+  if [[ ! "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]]; then
+    echo "Cannot preserve notarization state without a valid DMG SHA-256" >&2
+    return 1
   fi
   umask 077
   {
@@ -181,6 +187,11 @@ write_notary_state() {
     printf 'status=%s\n' "$DMG_STATUS"
     printf 'dmg_path=%s\n' "$DMG_RELEASE"
     printf 'dmg_sha256=%s\n' "$dmg_sha256"
+    printf 'immutable_path=%s\n' "$DMG_IMMUTABLE"
+    printf 'release_tag=%s\n' "${CHANNEL_RELEASE_TAG:-}"
+    printf 'dmg_prefix=%s\n' "${CHANNEL_DMG_PREFIX:-}"
+    printf 'variant=%s\n' "${NIGHTLY_VARIANT:-}"
+    printf 'channel=%s\n' "$CHANNEL"
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
   } > "$state_tmp"
   /bin/mv "$state_tmp" "$NOTARY_SUBMISSION_FILE"

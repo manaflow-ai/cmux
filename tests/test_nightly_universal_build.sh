@@ -424,6 +424,7 @@ fi
 if ! python3 - "$WORKFLOW_FILE" <<'PY'
 import re
 import sys
+from pathlib import Path
 
 workflow = open(sys.argv[1], encoding="utf-8").read()
 
@@ -453,11 +454,26 @@ assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
 assert "id: notarize-nightly" in notarize
 
 recovery = step("Upload pending notarization recovery artifact")
-assert "failure() && needs.decide.outputs.fast_build != 'true' && steps.notarize-nightly.outcome == 'failure'" in recovery
+prepare_recovery = step("Prepare pending notarization recovery artifact")
+assert "failure() && steps.notarize-nightly.outcome == 'failure'" in prepare_recovery
+assert "submission_id" in prepare_recovery and "dmg_sha256" in prepare_recovery
+assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in recovery
 assert "NIGHTLY_DMG_RELEASE" in recovery
 assert ".notarization.state" in recovery
 assert ".notarization.log" in recovery
-assert "CHANNEL_APP_PATH" in recovery
+assert "CHANNEL_APP_PATH" in prepare_recovery
+assert "cmux-nightly-notarization-recovery-app.tar.gz" in prepare_recovery
+assert "cmux-nightly-notarization-recovery.json" in recovery
+assert "if-no-files-found: error" in recovery
+
+notarize_timeout = re.search(
+    r"^      - name: Notarize app ticket through final DMG\n(.*?)(?=^      - name:)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+)
+assert notarize_timeout, "missing notarization step"
+assert "timeout-minutes: 50" in notarize_timeout.group(1)
+assert "CMUX_NOTARY_WAIT_TIMEOUT: 40m" in notarize_timeout.group(1)
 
 fast_package = step("Package signed fast dogfood DMG")
 assert "if: needs.decide.outputs.fast_build == 'true'" in fast_package
@@ -466,6 +482,23 @@ assert "NIGHTLY_DMG_IMMUTABLE" in fast_package
 
 syspolicy = step("Gate distribution with syspolicy_check")
 assert "if: needs.decide.outputs.fast_build != 'true'" in syspolicy
+
+resume = Path(sys.argv[1]).with_name("resume-nightly-notarization.yml").read_text(encoding="utf-8")
+assert "workflow_dispatch:" in resume
+assert "gh run download \"$SOURCE_RUN_ID\"" in resume
+assert "Verify trusted source workflow run" in resume
+assert "SOURCE_HEAD_SHA" in resume
+assert "app_archive_path" in resume
+assert "release-publish-${{ inputs.channel }}" in resume
+assert "immutable_path" in resume and "release_tag" in resume and "variant" in resume
+assert "if: inputs.publish" in resume
+assert "--release-id \"$RELEASE_ID\"" in resume and "--alias \"recovery/$ALIAS_NAME\"" in resume
+assert "scripts/ci/resume-nightly-notarization.sh" in resume
+resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
+assert "notarytool submit" not in resume_script
+assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
+assert "SYSPOLICY_TOOL" in resume_script
+assert "refusing to staple or publish" in resume_script
 PY
 then
   echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"

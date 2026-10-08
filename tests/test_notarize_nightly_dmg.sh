@@ -3,11 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh"
+RESUME_SCRIPT="$ROOT_DIR/scripts/ci/resume-nightly-notarization.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 if [ ! -x "$SCRIPT" ]; then
   echo "FAIL: executable nightly notarization helper is required" >&2
+  exit 1
+fi
+if [ ! -x "$RESUME_SCRIPT" ]; then
+  echo "FAIL: executable nightly notarization resume helper is required" >&2
   exit 1
 fi
 
@@ -66,8 +71,15 @@ if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
   fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
+if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "wait" ]; then
+  printf '{"id":"fixture-id","status":"Accepted"}\n'
+fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
-  printf '{"id":"fixture-id","status":"In Progress","message":"still processing"}\n' >&2
+  log_status="${CMUX_TEST_NOTARY_LOG_STATUS:-In Progress}"
+  log_message="still processing"
+  [ "$log_status" = Accepted ] && log_message="fixture log"
+  printf '{"id":"fixture-id","status":"%s","message":"%s"}\n' "$log_status" "$log_message" >&2
+  exit "${CMUX_TEST_NOTARY_LOG_EXIT:-0}"
 fi
 EOF
 
@@ -98,7 +110,7 @@ case "${1:-}" in
 esac
 EOF
 
-for tool in spctl smoke metadata licenses; do
+for tool in spctl smoke metadata licenses syspolicy; do
   cat > "$FAKE_BIN/$tool" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -126,6 +138,7 @@ run_helper() {
   CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
   CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
   CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+  CMUX_SYSPOLICY_TOOL="$FAKE_BIN/syspolicy" \
   CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
@@ -137,6 +150,27 @@ run_helper() {
   ASC_API_KEY_P8_BASE64="${TEST_ASC_API_KEY_P8_BASE64-$FIXTURE_P8_BASE64}" \
   APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
   "$SCRIPT" "$app" "$dmg" "$immutable"
+}
+
+run_resume() {
+  CMUX_TEST_CALL_LOG="$LOG" \
+  CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_TEST_DETACH_STATE="$TMP_DIR/resume-detach-retried" \
+  CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/resume-mount" \
+  CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+  CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+  CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+  CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+  CMUX_SYSPOLICY_TOOL="$FAKE_BIN/syspolicy" \
+  CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+  CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+  CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+  CMUX_TEST_NOTARY_LOG_STATUS="${RESUME_LOG_STATUS:-Accepted}" \
+  CMUX_TEST_NOTARY_LOG_EXIT="${RESUME_LOG_EXIT:-0}" \
+  ASC_API_KEY_ID=FIXTUREKEY \
+  ASC_API_ISSUER_ID=fixture-issuer \
+  ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
+  "$RESUME_SCRIPT" "$@"
 }
 
 run_helper
@@ -294,6 +328,53 @@ if ! grep -q '^xcrun notarytool log fixture-id ' "$LOG"; then
 fi
 if grep -Fq 'xcrun stapler staple' "$LOG"; then
   echo "FAIL: a timed-out DMG must not be stapled" >&2
+  exit 1
+fi
+
+# The exact recovery artifact can be resumed without rebuilding or submitting
+# a second Apple request. The saved SHA and submission id gate all stapling and
+# publication work.
+: > "$LOG"
+rm -f "$IMMUTABLE"
+if ! run_resume "$TIMEOUT_STATE" "$APP" "$DMG" "$IMMUTABLE" >/dev/null 2>"$TMP_DIR/resume.err"; then
+  echo "FAIL: accepted recovery submission did not resume" >&2
+  cat "$TMP_DIR/resume.err" >&2
+  exit 1
+fi
+if grep -q '^xcrun notarytool submit ' "$LOG" \
+  || ! grep -q '^xcrun notarytool wait fixture-id ' "$LOG" \
+  || ! grep -q '^xcrun notarytool log fixture-id ' "$LOG"; then
+  echo "FAIL: recovery path must wait on the saved id without re-submitting" >&2
+  exit 1
+fi
+if ! grep -q '^xcrun stapler staple ' "$LOG" || [ ! -f "$IMMUTABLE" ]; then
+  echo "FAIL: recovery path did not staple and preserve the verified immutable DMG" >&2
+  exit 1
+fi
+if ! grep -Fxq "syspolicy distribution $APP" "$LOG"; then
+  echo "FAIL: recovery path did not run the published-artifact policy gate" >&2
+  exit 1
+fi
+
+: > "$LOG"
+rm -f "$IMMUTABLE"
+if RESUME_LOG_STATUS=In\ Progress run_resume "$TIMEOUT_STATE" "$APP" "$DMG" "$IMMUTABLE" >/dev/null 2>"$TMP_DIR/resume-rejected.err"; then
+  echo "FAIL: recovery path accepted a non-Accepted Apple log" >&2
+  exit 1
+fi
+if grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: non-Accepted Apple log must block stapling and publication" >&2
+  exit 1
+fi
+
+: > "$LOG"
+rm -f "$IMMUTABLE"
+if RESUME_LOG_EXIT=1 run_resume "$TIMEOUT_STATE" "$APP" "$DMG" "$IMMUTABLE" >/dev/null 2>"$TMP_DIR/resume-log-failed.err"; then
+  echo "FAIL: recovery path accepted a failed Apple log request" >&2
+  exit 1
+fi
+if grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: failed Apple log request must block stapling and publication" >&2
   exit 1
 fi
 

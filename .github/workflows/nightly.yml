@@ -2022,11 +2022,13 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true'
+        timeout-minutes: 50
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_NOTARY_WAIT_TIMEOUT: 40m
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
@@ -2037,18 +2039,102 @@ jobs:
 
       # A timed-out Apple submission remains usable, but only with the exact
       # signed DMG that produced its ID. Retain that image, app, and sidecars
-      # for a follow-up workflow; this artifact is never part of publication.
+      # for a follow-up workflow; this source artifact is never published directly.
+      - name: Prepare pending notarization recovery artifact
+        id: prepare-notarization-recovery
+        if: failure() && steps.notarize-nightly.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          for required in \
+            "$NIGHTLY_DMG_RELEASE" \
+            "$NIGHTLY_DMG_RELEASE.notarization.state" \
+            "$NIGHTLY_DMG_RELEASE.notarization.log" \
+            "$CHANNEL_APP_PATH"; do
+            if [ ! -e "$required" ]; then
+              echo "Missing notarization recovery input: $required" >&2
+              exit 1
+            fi
+          done
+          recovery_app_archive="cmux-nightly-notarization-recovery-app.tar.gz"
+          rm -f "$recovery_app_archive"
+          tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf "$recovery_app_archive" "$(basename "$CHANNEL_APP_PATH")"
+          dmg_sha256="$(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | awk '{print $1}')"
+          [[ "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]] || {
+            echo "Could not record a SHA-256 for $NIGHTLY_DMG_RELEASE" >&2
+            exit 1
+          }
+          python3 - \
+            "$NIGHTLY_DMG_RELEASE.notarization.state" \
+            "$dmg_sha256" \
+            "$NIGHTLY_DMG_RELEASE" \
+            "$CHANNEL_APP_PATH" \
+            "$CHANNEL" \
+            "$NIGHTLY_VARIANT" \
+            "$CHANNEL_RELEASE_TAG" \
+            "$NIGHTLY_BUILD" \
+            "${{ needs.decide.outputs.head_sha }}" \
+            "${{ needs.decide.outputs.short_sha }}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          state_path, actual_sha, dmg_path, app_path, channel, variant, release_tag, build, head_sha, short_sha = sys.argv[1:]
+          state = {}
+          for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
+              if not line:
+                  continue
+              key, sep, value = line.partition("=")
+              if not sep or key in state:
+                  raise SystemExit(f"invalid notarization state line: {line!r}")
+              state[key] = value
+          if state.get("dmg_sha256") != actual_sha:
+              raise SystemExit("notarization state SHA-256 does not match the signed DMG")
+          submission_id = state.get("submission_id", "")
+          if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
+              raise SystemExit("notarization state has no valid Apple submission id")
+          for key in ("immutable_path", "release_tag", "dmg_prefix", "variant", "channel"):
+              if not state.get(key):
+                  raise SystemExit(f"notarization state is missing {key}")
+          if state["channel"] != channel or state["variant"] != variant or state["release_tag"] != release_tag:
+              raise SystemExit("notarization state metadata does not match the build")
+          if state.get("dmg_path", "").split("/")[-1] != pathlib.Path(dmg_path).name:
+              raise SystemExit("notarization state points at a different DMG")
+          pathlib.Path("cmux-nightly-notarization-recovery.json").write_text(
+              json.dumps({
+                  "schema": 1,
+                  "source_run_id": "${{ github.run_id }}",
+                  "channel": channel,
+                  "variant": variant,
+                  "release_tag": release_tag,
+                  "build": build,
+                  "head_sha": head_sha,
+                  "short_sha": short_sha,
+                  "dmg_path": dmg_path,
+                  "app_path": f"cmux-nightly-notarization-recovery-app/{pathlib.Path(app_path).name}",
+                  "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
+                  "state_path": state_path,
+                  "log_path": f"{dmg_path}.notarization.log",
+                  "immutable_path": state.get("immutable_path", ""),
+                  "dmg_prefix": state.get("dmg_prefix", ""),
+                  "dmg_sha256": actual_sha,
+                  "submission_id": submission_id,
+              }, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Upload pending notarization recovery artifact
-        if: failure() && needs.decide.outputs.fast_build != 'true' && steps.notarize-nightly.outcome == 'failure'
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
           path: |
             ${{ env.NIGHTLY_DMG_RELEASE }}
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.log
-            ${{ env.CHANNEL_APP_PATH }}
-          if-no-files-found: warn
+            cmux-nightly-notarization-recovery-app.tar.gz
+            cmux-nightly-notarization-recovery.json
+          if-no-files-found: error
           retention-days: 3
 
       - name: Package signed fast dogfood DMG
