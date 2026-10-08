@@ -38,7 +38,10 @@ struct AgentFeedQuestionComposer: View {
                         AgentFeedQuestionCard(
                             question: question,
                             index: index,
-                            draft: $drafts[question.id, default: AgentFeedQuestionAnswerBuilder.Draft()],
+                            draft: Binding(
+                                get: { drafts[question.id] ?? AgentFeedQuestionAnswerBuilder.Draft() },
+                                set: { drafts[question.id] = $0 }
+                            ),
                             focusedCustomAnswerID: $focusedCustomAnswerID
                         )
                     }
