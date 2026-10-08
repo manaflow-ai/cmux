@@ -370,6 +370,23 @@ mod tests {
         assert_ne!(fs::read_to_string(paths.at(MACHINE_ID_FILE)).unwrap(), first);
     }
 
+    /// The image identity contract (devboxIdentityCheckCommand): the host key
+    /// comment is `root@<hostname>`, as `ssh-keygen -A` writes it, never the
+    /// platform instance id.
+    #[test]
+    fn rekey_ssh_comment_is_root_at_the_hostname() {
+        if which("ssh-keygen").is_none() {
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::new(root.path());
+        fs::create_dir_all(paths.at(SSH_DIR)).unwrap();
+        fs::write(paths.at("/etc/hostname"), "cmux\n").unwrap();
+        rekey(&paths, "vm-1").unwrap();
+        let public = fs::read_to_string(paths.at("/etc/ssh/ssh_host_ed25519_key.pub")).unwrap();
+        assert_eq!(public.split_whitespace().nth(2), Some("root@cmux"), "{public}");
+    }
+
     #[test]
     fn clone_started_never_follows_a_symlink() {
         let root = tempfile::tempdir().unwrap();
