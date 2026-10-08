@@ -104,3 +104,45 @@ fn a_connection_with_no_record_is_never_the_local_user() {
     let actor = origin_gate::connection_actor(&mux, gone.client);
     assert_eq!(actor.wire(), "peer:unregistered");
 }
+
+/// A close runs as an effect from its stored receipt, so the actor is
+/// stored with the receipt and survives a daemon restart.
+#[test]
+fn a_close_records_the_actor_of_its_connection() {
+    let mux = mux("actor-close");
+    let plain = connect(&mux);
+    let created = send(&mux, &plain, &create("close-create"));
+    let workspace = created["result"]["value"]["workspace_id"].clone();
+    assert!(workspace.is_string(), "{created}");
+    let close = v2(
+        "workspace.close",
+        json!({"machine": "current", "session": "current", "workspace": workspace}),
+        Some("close-it"),
+        None,
+    );
+    let closed = send(&mux, &plain, &close);
+    assert_eq!(closed["ok"], true, "{closed}");
+    // A close is recorded by its effect receipt, not in resource_mutations.
+    let registry = mux.workspace_registry.lock().unwrap();
+    let sql = "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = 'close-it'";
+    let actor = registry.connection.query_row(sql, [], |row| row.get::<_, String>(0));
+    assert_eq!(actor.ok().as_deref(), Some("user:user_local"));
+}
+
+#[test]
+fn a_link_peer_is_its_install_and_a_bare_remote_connection_is_remote() {
+    let mux = mux("actor-link");
+    mux.record_remote_check("inst_7").unwrap();
+    let linked = connect(&mux);
+    let peer = crate::remote_relay_state::LinkPeer {
+        install: "inst_7".into(),
+        user: "user_7".into(),
+        team: "team_7".into(),
+    };
+    mux.bind_remote_peer(linked.client, &peer).unwrap();
+    assert_eq!(origin_gate::connection_actor(&mux, linked.client).wire(), "peer:link:inst_7");
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound, control: None });
+    let bare = mux.control_clients.register(ClientTransport::Remote, writer);
+    assert_eq!(origin_gate::connection_actor(&mux, bare).wire(), "peer:remote");
+}
