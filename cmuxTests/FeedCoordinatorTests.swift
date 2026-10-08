@@ -882,7 +882,7 @@ struct FeedCoordinatorTests {
             hookEventName: .askUserQuestion,
             source: "claude",
             requestId: requestId,
-            ppid: Int(ProcessInfo.processIdentifier)
+            ppid: Int(ProcessInfo.processInfo.processIdentifier)
         )
         let resultBox = IngestResultBox()
         DispatchQueue.global(qos: .userInitiated).async {
