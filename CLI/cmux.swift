@@ -27046,7 +27046,23 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-openagent"
     private static let legacyOmoPluginName = "oh-my-opencode"
-    private static let openCodeSessionPluginConfigSpec = "./plugins"
+    private static let openCodeSessionPluginConfigSpec = "./plugins/cmux"
+    private static let openCodeTUIPluginDirectoryName = "cmux"
+    private static let openCodeTUIPluginPackageSource = #"""
+{
+  "name": "cmux-opencode-plugin",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./tui": "./tui.js"
+  }
+}
+"""#
+    private static let openCodeTUIPluginServerSource = #"""
+// cmux-opencode-tui-plugin-server-marker v1
+// The V2 server entry is intentionally inert. The bridge runs in ./tui.
+export default { id: "cmux.server", setup() {} };
+"""#
 
     func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
         let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
@@ -34414,7 +34430,7 @@ struct CMUXCLI {
 // Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -34610,13 +34626,18 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "enqueue", "opencode", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
+    const child = spawn(cmux, ["hooks", "enqueue", "opencode", subcommand], {
       env: { ...hookEnvironment(cwd), CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
       stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
+      detached: true,
     });
+    // Admission must never block OpenCode's shared service.
+    child.on("error", () => {});
+    child.stdin?.on("error", () => {}).end(JSON.stringify(payload));
+    const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
+    timeout.unref?.();
+    child.once("close", () => clearTimeout(timeout));
+    child.unref();
   } catch (_) {}
 }
 
@@ -34697,23 +34718,40 @@ export const CMUXSessionRestore = async (ctx) => {
 };
 
 export default {
-  id: "cmux.session",
-  async setup(ctx) {
-    const controller = new AbortController();
-    const hooks = await createCMUXSessionRestore(ctx);
-    void (async () => {
-      try {
-        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-          await hooks.event({ event });
-        }
-      } catch (_) {
-        // Abort is the normal plugin shutdown path.
-      }
-    })();
-    return () => controller.abort();
-  },
+  id: "cmux.server",
+  // V2 loads the per-TUI bridge through the package's ./tui export.
+  setup() { return () => {}; },
 };
 """#
+
+    private func openCodeTUIPluginDirectory(in configDir: URL) -> URL {
+        configDir.appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(Self.openCodeTUIPluginDirectoryName, isDirectory: true)
+    }
+
+    private func bundledOpenCodeTUIPluginSource() throws -> String {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        if let url = Bundle.main.url(forResource: "opencode-tui-plugin", withExtension: "js") { candidates.append(url) }
+        if let root = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"], !root.isEmpty {
+            candidates.append(URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent("src/Resources/opencode-tui-plugin.js"))
+        }
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/opencode-tui-plugin.js")
+        candidates.append(sourceURL)
+        for url in candidates where fileManager.fileExists(atPath: url.path) {
+            if let source = try? String(contentsOf: url, encoding: .utf8) { return source }
+        }
+        throw CLIError(message: "bundled opencode-tui-plugin.js not found")
+    }
+
+    private func writeOpenCodeTUIPlugin(in configDir: URL) throws {
+        let directory = openCodeTUIPluginDirectory(in: configDir)
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Self.openCodeTUIPluginPackageSource.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try Self.openCodeTUIPluginServerSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        try bundledOpenCodeTUIPluginSource().write(to: directory.appendingPathComponent("tui.js"), atomically: true, encoding: .utf8)
+    }
 
     private func openCodeSessionPluginURL(for def: AgentHookDef) -> URL {
         URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
@@ -34749,6 +34787,7 @@ export default {
             if allowVersionSuffix, value.hasPrefix("\(spec)@") { return true }
             if spec == Self.openCodeSessionPluginConfigSpec {
                 return value == "./plugins"
+                    || value == Self.openCodeSessionPluginConfigSpec
                     || value == "./plugins/\(Self.openCodeSessionPluginFilename)"
                     || value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
                     || value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
@@ -34860,6 +34899,8 @@ export default {
                 return true
             }
             return value != Self.openCodeSessionPluginConfigSpec
+                && value != "./plugins"
+                && value != "./plugins/\(Self.openCodeTUIPluginDirectoryName)"
                 && value != "cmux-session"
                 && value != "./plugins/\(Self.openCodeSessionPluginFilename)"
                 && !value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
@@ -34900,6 +34941,7 @@ export default {
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         if existing == Self.openCodeSessionPluginSource {
+            try writeOpenCodeTUIPlugin(in: configDir)
             print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
             return
         }
@@ -34914,6 +34956,7 @@ export default {
             }
         }
         try writeOpenCodeSessionPlugin(in: configDir)
+        try writeOpenCodeTUIPlugin(in: configDir)
         _ = try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
@@ -41499,6 +41542,10 @@ export default {
             }
         }
         try source.write(toFile: path, atomically: true, encoding: .utf8)
+        let pluginConfigDir = projectLocal
+            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
+            : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
+        try writeOpenCodeTUIPlugin(in: pluginConfigDir)
         print("OpenCode plugin installed at \(path)")
     }
 

@@ -2710,6 +2710,7 @@
 		A5001670 /* OneShotTerminalLauncherStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* OneShotTerminalLauncherStore.swift */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
 		FEED0000000000000000F007 /* opencode-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F006 /* opencode-plugin.js */; };
+		FEED0000000000000000F015 /* opencode-tui-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F014 /* opencode-tui-plugin.js */; };
 		A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000017 /* OpenCodeEventStreamParser.swift */; };
 		A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */; };
 		A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */; };
@@ -7154,6 +7155,7 @@
 		A5001671 /* OneShotTerminalLauncherStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotTerminalLauncherStore.swift; sourceTree = "<group>"; };
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/open; sourceTree = SOURCE_ROOT; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
+		FEED0000000000000000F014 /* opencode-tui-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-tui-plugin.js"; sourceTree = "<group>"; };
 		A9F100000000000000000017 /* OpenCodeEventStreamParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventStreamParser.swift; sourceTree = "<group>"; };
 		A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventTextAccumulator.swift; sourceTree = "<group>"; };
 		A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeHookRegressionTests.swift; sourceTree = "<group>"; };
@@ -9217,6 +9219,7 @@
 					C0F1A002C0F1A002C0F1A002 /* ConfigPackErrors.xcstrings */,
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
 				FEED0000000000000000F006 /* opencode-plugin.js */,
+				FEED0000000000000000F014 /* opencode-tui-plugin.js */,
 				9313CB72497F3EA572B409A8 /* cloud-agent-skill.md */,
 				FEED0A00000000000000F006 /* feed-tui */,
 				A9D9000000000000000F0016 /* markdown-viewer */,
@@ -14059,6 +14062,7 @@
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
 				A9D9000000000000000F0017 /* markdown-viewer in Resources */,
 				FEED0000000000000000F007 /* opencode-plugin.js in Resources */,
+				FEED0000000000000000F015 /* opencode-tui-plugin.js in Resources */,
 				A5002000 /* THIRD_PARTY_LICENSES.md in Resources */,
 				84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */,
 			);

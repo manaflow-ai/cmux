@@ -822,19 +822,7 @@ const createCMUXFeed = async (ctx) => {
 export const CMUXFeed = createCMUXFeed;
 
 export default {
-  id: "cmux.feed",
-  async setup(ctx) {
-    const controller = new AbortController();
-    const hooks = await createCMUXFeed(ctx);
-    void (async () => {
-      try {
-        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-          await hooks.event({ event });
-        }
-      } catch (_) {
-        // Abort is the normal plugin shutdown path.
-      }
-    })();
-    return () => controller.abort();
-  },
+  id: "cmux.server",
+  // V2 uses the package's ./tui export; never subscribe in the shared service.
+  setup() { return () => {}; },
 };
