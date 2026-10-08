@@ -1,0 +1,114 @@
+import { env, exports } from "cloudflare:workers"
+import { runInDurableObject } from "cloudflare:test"
+import { importJWK, SignJWT, type JWK } from "jose"
+import { describe, expect, it } from "vitest"
+import type { Principal } from "@cmux/ownership"
+import { memberUpsert } from "../src/domains/team-members.ts"
+import { approvalDigest } from "../src/integrations/approval-gate.ts"
+import { approvalByRequest, insertApproval, APPROVAL_TTL_MS } from "../src/integrations/approvals.ts"
+import { fireAlarm } from "./setup/alarm.ts"
+
+/**
+ * cx-44j.47: removing a member from a team revokes that member's installs bound to the team and
+ * ends their pending integration approvals there (denied, params deleted). Nothing of another
+ * member or another team changes, and a personal team's owner cannot be removed.
+ */
+const testEnv = env as unknown as Record<string, any>
+const worker = (exports as unknown as { default: Fetcher }).default
+const inDO = runInDurableObject as unknown as <T>(stub: unknown, cb: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
+
+const sessionToken = async (stackUser: string) =>
+  new SignJWT({ email: `${stackUser}@example.com`, name: stackUser })
+    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
+    .setAudience(testEnv.STACK_PROJECT_ID)
+    .setSubject(stackUser)
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
+const signIn = async (who: string) => {
+  const token = await sessionToken(who)
+  const res = await worker.fetch("https://api.test/v1/ops", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" }) })
+  const v = ((await res.json()) as any).value
+  return { user: v.id as string, team: v.personal_team as string, name: who }
+}
+const team = (id: string) => testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(id))
+const userDO = (id: string) => testEnv.USER_DO.get(testEnv.USER_DO.idFromName(id))
+const connections = (id: string) => testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(id))
+
+const join = (teamId: string, user: string) => inDO(team(teamId), async (instance) => instance.boundEngine.rows.apply([memberUpsert({ user, role: "member", display_name: user })]))
+
+/** A server install of `user` bound to `bound` (as pairing creates it); returns its id. */
+const boundInstall = (user: string, bound: string | undefined, name: string) =>
+  inDO(userDO(user), async (instance) => {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const principal: Principal = { identity: `system:pairing:${bound ?? "none"}`, kind: "system", user, ...(bound ? { team: bound } : {}) }
+    const frames: Array<any> = []
+    instance.boundEngine.submit(principal, { t: "op", op: "install.register_server", params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "daemon", name, device_name: name, platform: "linux", op_classes: ["read", "mutate-own"], ...(bound ? { bound_team: bound } : {}) }, idempotency_key: crypto.randomUUID(), origin: "script" }, (_t: unknown, f: any) => frames.push(f))
+    const result = frames.find((f) => f.t === "result")
+    expect(result, JSON.stringify(frames)).toBeDefined()
+    return result.value.id as string
+  })
+const installOf = (user: string, install: string) => inDO(userDO(user), async (instance) => instance.boundEngine.currentState.installs[install])
+
+const pending = (teamId: string, user: string) =>
+  inDO(connections(teamId), async (_i, st) => {
+    const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+    const params = { connection: "conn_team", channel: "C9", text: "member secret text" }
+    const digest = approvalDigest("slack.post_as_bot", params)
+    const now = Date.now()
+    insertApproval(st.storage.sql, { request, identity: `install:agent-${request}`, idempotency_key: `k-${request}`, user, connection: "conn_team", op: "slack.post_as_bot", params, params_hash: digest, digest, principal: { identity: `install:agent-${request}`, kind: "install", user, team: teamId }, target: "C9", summary: "", created_at: now, expires_at: now + APPROVAL_TTL_MS })
+    return request
+  })
+const approval = (teamId: string, request: string) => inDO(connections(teamId), async (_i, st) => approvalByRequest(st.storage.sql, request))
+
+const removeMember = async (teamId: string, user: string) => {
+  const r = await inDO(team(teamId), async (instance) => instance.submitSystem("team.member.remove", { user }, `remove:${teamId}:${user}:${crypto.randomUUID()}`))
+  // Deliver the outbox (UserDO, ConnectionDO) now.
+  await fireAlarm(team(teamId))
+  return r
+}
+
+describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
+  it("revokes the member's installs bound to the team and ends their pending approvals there; nothing else changes", async () => {
+    const owner = await signIn("rm-owner")
+    const member = await signIn("rm-member")
+    const other = await signIn("rm-other")
+    await join(owner.team, member.user)
+    await join(owner.team, other.user)
+    const bound = await boundInstall(member.user, owner.team, "team box")
+    const unbound = await boundInstall(member.user, undefined, "own box")
+    const otherBound = await boundInstall(other.user, owner.team, "other box")
+    const mine = await pending(owner.team, member.user)
+    const theirs = await pending(owner.team, other.user)
+    const elsewhere = await pending(member.team, member.user)
+
+    const r = await removeMember(owner.team, member.user)
+    expect(r.frames.find((f: any) => f.t === "reject")).toBeUndefined()
+
+    expect((await installOf(member.user, bound)).revoked_at).not.toBeNull()
+    expect((await installOf(member.user, unbound)).revoked_at).toBeNull()
+    expect((await installOf(other.user, otherBound)).revoked_at).toBeNull()
+    expect(await approval(owner.team, mine)).toMatchObject({ state: "denied", params: {} })
+    expect((await approval(owner.team, theirs))?.state).toBe("pending")
+    expect((await approval(member.team, elsewhere))?.state).toBe("pending")
+    // The membership and the user's team index are gone.
+    const probe: Principal = { identity: `session:${member.user}`, kind: "session", user: member.user, team: owner.team }
+    expect((await team(owner.team).readOp(owner.team, probe, "team.members.list", { limit: 1 })).ok).toBe(false)
+    expect(await inDO(userDO(member.user), async (instance) => instance.boundEngine.currentState.team_index?.[owner.team])).toBeUndefined()
+  })
+
+  it("refuses to remove a personal team's owner, and a removal from another team's stream ends nothing", async () => {
+    const owner = await signIn("rm-owner2")
+    const member = await signIn("rm-member2")
+    const r = await removeMember(owner.team, owner.user)
+    expect(r.frames.find((f: any) => f.t === "reject")?.code).toBe("auth.forbidden")
+    const request = await pending(owner.team, member.user)
+    // A ConnectionDO honors member_left only from its own team's TeamDO.
+    await inDO(connections(owner.team), async (instance) =>
+      instance.systemDeliver(owner.team, `team:${member.team}`, [{ id: 7, op: "connections.member_left", key: "forged", params: { team: member.team, user: member.user } }])
+    )
+    expect((await approval(owner.team, request))?.state).toBe("pending")
+  })
+})
