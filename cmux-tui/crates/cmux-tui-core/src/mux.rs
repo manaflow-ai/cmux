@@ -18,6 +18,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod journal_plugin_host;
+mod journal_retention;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
@@ -2682,6 +2683,7 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    journal_retention: journal_retention::JournalRetention,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
@@ -3141,6 +3143,7 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            journal_retention: Default::default(),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostic: Mutex::new(None),
             #[cfg(test)]

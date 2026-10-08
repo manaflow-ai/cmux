@@ -329,6 +329,9 @@ impl Mux {
     }
 
     fn end_terminals(&self, keep_layout: bool) -> anyhow::Result<Vec<String>> {
+        // Reconnects of terminals that are about to end must not schedule a
+        // session checkpoint (nx-scale S4); see mux/journal_retention.rs.
+        let _teardown = self.begin_terminal_teardown();
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of

@@ -3180,7 +3180,6 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3380,46 +3379,20 @@ impl Surface {
                             }
                             continue;
                         }
+                        // Bytes the host wrote while no daemon tap existed are
+                        // not in the journal. Record that gap in the terminal
+                        // lane before any new output; the journal retention
+                        // worker coalesces one checkpoint for the whole wave
+                        // (mux/journal_retention.rs). Capturing a session
+                        // checkpoint here made a wave of N reconnects O(N^2).
                         if reconnect_mux.terminal_journal_enabled()
                             && pty.journal_capture_supported
+                            && let Some(terminal_id) = pty.terminal_public_id.clone()
                         {
-                            let checkpoint_key = format!(
-                                "host-reconnect:{}:{}:{}",
-                                identity.terminal_id,
-                                identity.incarnation,
-                                replacement_sequence_boundary
+                            reconnect_mux.journal_terminal_host_reconnect(
+                                terminal_id,
+                                pty.journal_generation.clone(),
                             );
-                            // The checkpoint is a journal-replay optimization:
-                            // failing to capture one only means the next replay
-                            // starts from an older boundary. Capture races with
-                            // every other terminal's concurrent reconnect
-                            // appends, so retry it in place a few times - and
-                            // never tear down the freshly reconnected, healthy
-                            // host over it. The old path disconnected and re-ran
-                            // the full reconnect up to 16 times per terminal,
-                            // each attempt's journal writes re-poisoning the
-                            // other terminals' captures.
-                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
-                                "terminal_host_reconnect",
-                                &checkpoint_key,
-                            );
-                            for attempt in 1u32..4 {
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(25 << attempt));
-                                checkpoint = reconnect_mux.create_journal_checkpoint(
-                                    "terminal_host_reconnect",
-                                    &checkpoint_key,
-                                );
-                            }
-                            match checkpoint {
-                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
-                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
-                                    &identity.terminal_id,
-                                    &error,
-                                ),
-                            }
                         }
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,

@@ -590,7 +590,9 @@ shutdown deadline, or an active parser update exceeds its shutdown grace, the
 old daemon appends a required `terminal.output.gap` record after its reader
 stops and before the terminal ingress barrier. The record names the terminal
 runtime generation and uses `cmux.terminal-output-gap.v1` with reason
-`detach_fence_failed` or `active_update_timeout`. A restore preview treats this
+`detach_fence_failed` or `active_update_timeout`. A live daemon appends the
+same record with reason `host_reconnect` when it reconnects to a terminal host
+after its tap was lost (see `terminal-host.md`, "Durability boundary"). A restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins
