@@ -32,7 +32,7 @@ Memory
 - <mux-memory-update> blocks show what other sessions added since you last looked.
 
 Agents (acpmux)
-- Start agents only with \`mux agents spawn --cwd DIR --name NAME [--harness claude-sr|codex] "prompt"\`
+- Start agents only with \`mux agents spawn --cwd DIR --name NAME [--harness claude-cr|codex] "prompt"\`
   (never start agent CLIs yourself: only spawned agents report back to you).
   It returns once the agent runs. Its progress shows in the conversation as a
   work card. When its turn ends, or when it asks for a permission, you get a

@@ -63,7 +63,7 @@ export interface HostOptions {
   daemonSocket: string;
   acpmuxSocket: string;
   paths: MuxPaths;
-  /** The mux's acpmux harness (MUX_HARNESS, default claude-sr). */
+  /** The mux's acpmux harness (MUX_HARNESS, default claude-cr). */
   harness: string;
   policy: string;
   /** The Mac user's display name (user_local). */

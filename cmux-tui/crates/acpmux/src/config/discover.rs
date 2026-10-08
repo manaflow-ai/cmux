@@ -55,8 +55,14 @@ pub fn discover_harnesses_from(
         // pi (earendil-works/pi) speaks ACP through the pi-acp adapter,
         // which spawns `pi --mode rpc`: `bun add -g pi-acp`.
         ("pi", "pi-acp"),
-        // Claude through the subrouter account pool: `sr claude proxy`
-        // picks the account with the most quota and fails over on limits.
+        // Claude through CodeRouter's Bedrock route: `cr claude-david` runs
+        // the local Claude Code against the metered Bedrock gateway. The
+        // default Claude route (Lawrence 2026-10-08); `coderouter` is the
+        // long name of the same CLI.
+        ("claude-cr", "cr"),
+        ("claude-cr", "coderouter"),
+        // Claude through the subrouter account pool: `sr claude proxy`.
+        // Only when a user asks for `claude-sr` by name; never a default.
         ("claude-sr", "sr"),
         // oh-my-pi (can1357/oh-my-pi), a pi fork with a native ACP server.
         ("omp", "omp"),
@@ -67,8 +73,14 @@ pub fn discover_harnesses_from(
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
         // whenever their binary is on PATH (an ~/.acpx `claude` is usually
         // the claude-acp ACP adapter). Only config.json can rebind them.
-        let reserved = matches!(name, "claude" | "claude-sr");
+        let reserved = matches!(name, "claude" | "claude-sr" | "claude-cr");
         if agents.contains_key(name) && !reserved {
+            continue;
+        }
+        // `cr` and `coderouter` are one CLI: the first one found serves.
+        if name == "claude-cr"
+            && agents.get(name).is_some_and(|p: &HarnessProfile| p.kind == HarnessKind::ClaudeStdio)
+        {
             continue;
         }
         if let Some(path) = which(bin) {
@@ -81,6 +93,9 @@ pub fn discover_harnesses_from(
             let (kind, argv) = match bin {
                 "claude" => (HarnessKind::ClaudeStdio, vec![path]),
                 "sr" => (HarnessKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
+                "cr" | "coderouter" => {
+                    (HarnessKind::ClaudeStdio, vec![path, CODEROUTER_CLAUDE_COMMAND.into()])
+                }
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
@@ -94,10 +109,10 @@ pub fn discover_harnesses_from(
                     kind,
                     argv,
                     env: BTreeMap::new(),
-                    description: Some(if bin == "sr" {
-                        "Claude through the subrouter account pool".into()
-                    } else {
-                        "found on PATH".into()
+                    description: Some(match bin {
+                        "sr" => "Claude through the subrouter account pool".into(),
+                        "cr" | "coderouter" => "Claude through CodeRouter's Bedrock route".into(),
+                        _ => "found on PATH".into(),
                     }),
                     fallback: None,
                     family: if matches!(bin, "dsh" | "opencode2") {
@@ -121,12 +136,17 @@ pub fn discover_harnesses_from(
     {
         agents.insert("codex".to_owned(), profile);
     }
-    // A direct Claude falls over to the pool when its account is exhausted.
-    if agents.contains_key("claude-sr")
+    // A direct Claude falls over to CodeRouter when its account is exhausted.
+    // Never to the subrouter: that pool is only an explicit choice.
+    if agents.contains_key("claude-cr")
         && let Some(c) = agents.get_mut("claude")
         && c.fallback.is_none()
     {
-        c.fallback = Some("claude-sr".into());
+        c.fallback = Some("claude-cr".into());
     }
     agents
 }
+
+/// The `cr` subcommand that runs Claude Code through CodeRouter's Bedrock
+/// route (coderouter `run_claude_david`).
+pub const CODEROUTER_CLAUDE_COMMAND: &str = "claude-david";

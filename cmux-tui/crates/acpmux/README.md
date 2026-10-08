@@ -431,9 +431,10 @@ build that includes this command; installing a newer binary does not restart the
 
 **A family resolves to exactly one profile, or fails.** Its `prefer` list, else its only
 profile, else the profile named like it. Two profiles and no preference is an error naming
-both, never a guess. Discovery sets `claude` to prefer `claude-sr` then `claude` when
-`sr claude proxy` works, so `-m claude` uses the account pool and falls back to the direct
-login. Write your own with `acpmux defaults claude prefer=claude,claude-sr`.
+both, never a guess. Discovery sets `claude` to prefer `claude-cr` then `claude` when
+`cr claude-david` works, so `-m claude` uses CodeRouter's Bedrock route and falls back to the
+direct login. The subrouter pool (`claude-sr`) is never preferred automatically; choose it with
+`acpmux defaults claude prefer=claude-sr,claude` or `-m claude-sr`.
 
 **Defaults** fill in what the flag leaves out, per family or profile: model, effort, policy,
 env. Precedence: explicit flags, then the preset, then the profile's entry, then the family's.
@@ -514,7 +515,7 @@ configured entry always wins over a discovered one. A complete entry:
       "model": "gemini-2.5-flash"
     }
   },
-  "defaults": {"claude": {"prefer": ["claude-sr", "claude"], "effort": "high"}},
+  "defaults": {"claude": {"prefer": ["claude-cr", "claude"], "effort": "high"}},
   "presets": {
     "deepseek": {"harness": "deepseek", "model": "deepseek-v4.1-flash", "effort": "high"},
     "opencode-v2-deepseek": {"harness": "opencode-v2", "model": "opencode-go/deepseek-v4.1-flash"}
@@ -732,9 +733,10 @@ what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `cla
 in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
 `=1` forces it for a daemon started by hand. Claude Code keeps its login in the macOS keychain,
 so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
-discovered `claude-sr` launcher is checked at daemon start (`sr claude proxy --version`) and
-dropped, with a log line, when the installed subrouter cannot run it; `claude` then has no
-fallback instead of failing over into a launcher that dies at once. When a subrouter server is
+discovered `claude-cr` or `claude-sr` launcher is checked at daemon start
+(`cr claude-david --version`, `sr claude proxy --version`) and dropped, with a log line, when
+the installed CLI cannot run it (no `claude-david` route, no Chatmux login, an old subrouter);
+`claude` then has no fallback instead of failing over into a launcher that dies at once. When a subrouter server is
 known, the launcher instead becomes a copy of `claude` routed through that server, but only when
 `claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never
 falls back onto one.
@@ -777,20 +779,27 @@ Stopping a session kills the agent's whole process group, so background shells t
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
 processes.
 
-## Subrouter: Claude across many accounts
+## CodeRouter: the default Claude route
+
+When the CodeRouter CLI (`cr` or `coderouter`) is installed, acpmux discovers a `claude-cr`
+profile that runs Claude Code through CodeRouter's metered Bedrock route (`cr claude-david`).
+It is the `fallback` of the direct `claude` profile and the first `claude` preference. The CLI
+reads the user's own Chatmux login on this Mac; acpmux never sees or copies a credential.
+
+## Subrouter: Claude across many accounts (explicit choice only)
 
 [Subrouter](https://github.com/manaflow-ai/subrouter) is a local proxy that spreads Claude and
 Codex traffic across subscription accounts and fails over when one hits its limit. When `sr`
 is installed, acpmux discovers a `claude-sr` profile that launches Claude through the pool
-(`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`),
-and sets it as the `fallback` of the direct `claude` profile.
+(`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`).
+It is used only when asked for by name or in a `prefer`/`fallback` the user writes.
 
 - `acpmux run -m claude-sr "…"` always uses the pool; the pool picks the account with the
   most quota and keeps the conversation sticky to it.
 - A direct `claude` session whose account reports a usage or rate limit mid-turn is moved
-  onto `claude-sr` automatically: the agent process is replaced by a pooled one that resumes
-  the same Claude session, the prompt runs once more, and a `failover {from, to, reason}`
-  event is logged. `session info` then shows `harness: claude-sr`.
+  onto its `fallback` (`claude-cr` when discovered) automatically: the agent process is
+  replaced by one that resumes the same Claude session, the prompt runs once more, and a
+  `failover {from, to, reason}` event is logged. `session info` then shows the new harness.
 - Any profile can name a `fallback` in `~/.acpmux/config.json`; the same rule applies to
   every harness, keyed on the error text (`reached your … limit`, `rate limit`, `quota`,
   `429`, `out of credits`).
@@ -816,7 +825,7 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 }
 ```
 
-When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH, an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
+When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude`, `cr` or `sr` is on PATH, an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with

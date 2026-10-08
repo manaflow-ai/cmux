@@ -86,7 +86,7 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
 /// The text the Chief posts for a refused turn.
 pub fn refusal(reason: &str) -> String {
     format!(
-        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; `sr claude proxy --version` must succeed for claude-sr) and send the message again."
+        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; `cr claude-david --version` must succeed for claude-cr, `sr claude proxy --version` for claude-sr) and send the message again."
     )
 }
 

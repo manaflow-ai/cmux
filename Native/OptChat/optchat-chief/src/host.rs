@@ -54,7 +54,7 @@ const BUILD: &str = match option_env!("OPTCHAT_BUILD_COMMIT") {
 };
 
 /// The turn harness and the compactor harness: `OPTCHAT_CHIEF_HARNESS`, else
-/// `MUX_HARNESS`, else claude-sr; the compactor's `OPTCHAT_COMPACTOR_HARNESS`.
+/// `MUX_HARNESS`, else claude-cr; the compactor's `OPTCHAT_COMPACTOR_HARNESS`.
 pub fn harness_choice(
     chief: Option<&str>,
     mux: Option<&str>,
@@ -66,8 +66,10 @@ pub fn harness_choice(
 }
 
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
-/// launched through `sr claude proxy`, the team subrouter's account pool.
-pub const DEFAULT_HARNESS: &str = "claude-sr";
+/// launched through `cr claude-david`, CodeRouter's Bedrock route
+/// (Lawrence 2026-10-08: agent traffic uses cr + Bedrock). The subrouter
+/// pool (`claude-sr`) is only an explicit choice.
+pub const DEFAULT_HARNESS: &str = "claude-cr";
 
 /// The turn sessions' acpmux preset, or None when a turn needs none: on
 /// a Claude harness it carries each turn's system prompt (the cached
@@ -94,7 +96,8 @@ pub fn turn_preset(
         );
     }
     if family == Family::Claude {
-        // claude-sr: every turn of this Chief on one sticky subrouter account.
+        // claude-sr (when chosen): every turn of this Chief on one sticky
+        // subrouter account. Other Claude routes ignore the variable.
         env.insert(
             crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
@@ -945,7 +948,7 @@ fn spawn_probe(
                 Err(e) => {
                     let remedy = match route {
                         CompactRoute::Acpmux => {
-                            "Check that acpmux runs and that its claude-sr harness signs in, or set \
+                            "Check that acpmux runs and that its claude-cr harness signs in, or set \
                              OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY for an endpoint \
                              that takes Messages API calls."
                         }

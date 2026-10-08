@@ -1,10 +1,12 @@
-//! Owns launcher probing and subrouter fallback profile verification.
+//! Owns launcher probing (`sr claude proxy`, `cr claude-david`) and the
+//! subrouter fallback profile verification.
 
 use super::*;
 
 /// Drop discovered launcher profiles whose binary cannot actually run the
-/// harness: an older subrouter without `claude proxy`, or one whose proxy
-/// setup fails before Claude starts. Runs once at daemon start, so a
+/// harness: an older subrouter without `claude proxy`, one whose proxy
+/// setup fails before Claude starts, or a CodeRouter CLI without the
+/// `claude-david` Bedrock route (or without the login it needs). Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
     let servers =
@@ -47,17 +49,17 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
-        .filter(|(_, p)| {
-            p.argv.get(1).map(String::as_str) == Some("claude")
-                && p.argv.get(2).map(String::as_str) == Some("proxy")
-        })
+        .filter(|(_, p)| is_launcher(&p.argv))
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
     for (name, argv) in candidates {
         if let Err(reason) = launcher_ok(&argv) {
             // Only acpmux's own adapter takes over: claude-sr never becomes
-            // an ACP adapter (`claude` imported from ~/.acpx, say).
-            if let Some(url) = &route
+            // an ACP adapter (`claude` imported from ~/.acpx, say). Only a
+            // subrouter proxy reroutes to the subrouter server; a failing
+            // CodeRouter launcher is just unavailable.
+            if is_subrouter_proxy(&argv)
+                && let Some(url) = &route
                 && let Some(claude) = cfg
                     .harnesses
                     .get("claude")
@@ -102,7 +104,27 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
     }
 }
 
+/// `sr claude proxy` (the subrouter account pool).
+fn is_subrouter_proxy(argv: &[String]) -> bool {
+    argv.get(1).map(String::as_str) == Some("claude")
+        && argv.get(2).map(String::as_str) == Some("proxy")
+}
+
+/// A launcher whose `--version` must be checked before it serves: a
+/// subrouter proxy or `cr claude-david` (CodeRouter's Bedrock route).
+fn is_launcher(argv: &[String]) -> bool {
+    is_subrouter_proxy(argv)
+        || (argv.len() == 2
+            && argv.get(1).map(String::as_str) == Some(super::discover::CODEROUTER_CLAUDE_COMMAND))
+}
+
 pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
+    let shown = argv
+        .iter()
+        .enumerate()
+        .map(|(i, w)| if i == 0 { w.rsplit('/').next().unwrap_or(w) } else { w.as_str() })
+        .collect::<Vec<_>>()
+        .join(" ");
     let mut cmd = std::process::Command::new(&argv[0]);
     crate::login_env::apply_std(&mut cmd);
     cmd.args(&argv[1..])
@@ -119,7 +141,7 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
         Ok(None) => {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
+            return Err(format!("`{shown} --version` did not finish in 20s"));
         }
         Err(e) => return Err(e.to_string()),
     }
@@ -138,8 +160,7 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
         || text.to_lowercase().contains("unknown command")
     {
         return Err(format!(
-            "`{} claude proxy --version` failed: {}",
-            argv[0],
+            "`{shown} --version` failed: {}",
             if first.is_empty() { out.status.to_string() } else { first }
         ));
     }

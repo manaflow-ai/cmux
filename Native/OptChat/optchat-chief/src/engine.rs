@@ -40,7 +40,7 @@ pub struct TurnEngine {
 }
 
 impl TurnEngine {
-    /// `harness=claude-sr model=claude-opus-5-5 effort=high` (default when unset).
+    /// `harness=claude-cr model=claude-opus-5-5 effort=high` (default when unset).
     pub fn describe(&self) -> String {
         format!(
             "harness={} model={} effort={}",

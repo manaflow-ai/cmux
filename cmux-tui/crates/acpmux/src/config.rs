@@ -88,8 +88,8 @@ pub struct HarnessProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Profile to move a session onto when this one's account reports a
-    /// usage or rate limit mid-turn. Discovery sets `claude-sr` (the
-    /// subrouter account pool) for `claude` when `sr` is installed.
+    /// usage or rate limit mid-turn. Discovery sets `claude-cr` (CodeRouter's
+    /// Bedrock route) for `claude` when `cr` is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
@@ -152,7 +152,7 @@ pub struct SessionDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
     /// Profiles to use, in order, when a session asks for this family:
-    /// `["claude-sr", "claude"]` sends `-m claude` to the account pool
+    /// `["claude-cr", "claude"]` sends `-m claude` to CodeRouter
     /// first. Absent: the family's only profile, else the profile named
     /// like the family, else the request is refused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -382,7 +382,7 @@ pub struct Config {
     pub default_harness: Option<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
-    /// "policy": "approve-edits", "prefer": ["claude-sr", "claude"]}}`.
+    /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
@@ -623,23 +623,27 @@ impl Config {
                 cfg.harnesses.insert(name, profile);
             }
         }
-        if cfg.harnesses.contains_key("claude-sr") {
+        // The default Claude route is CodeRouter's Bedrock route (`claude-cr`,
+        // Lawrence 2026-10-08). The subrouter pool (`claude-sr`) stays a
+        // profile a user names; nothing prefers it or falls back onto it.
+        let route = "claude-cr";
+        if cfg.harnesses.contains_key(route) {
             if let Some(c) = cfg.harnesses.get_mut("claude")
                 && c.fallback.is_none()
                 && c.kind == HarnessKind::ClaudeStdio
             {
-                c.fallback = Some("claude-sr".into());
-                cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
+                c.fallback = Some(route.into());
+                cfg.auto_fallback = Some(("claude".into(), route.into()));
             }
-            // `-m claude` goes to the pool first, then the direct login, and
-            // the pool falls back to the direct login. Only when the user
+            // `-m claude` goes to CodeRouter first, then the direct login, and
+            // CodeRouter falls back to the direct login. Only when the user
             // wrote no preference of their own.
-            if cfg.discovered.contains("claude-sr") {
-                // The pool falls back to, and `-m claude` prefers, a direct
+            if cfg.discovered.contains(route) {
+                // CodeRouter falls back to, and `-m claude` prefers, a direct
                 // login only on acpmux's own adapter, never an ACP `claude`.
                 let has_direct =
                     cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
-                if let Some(p) = cfg.harnesses.get_mut("claude-sr")
+                if let Some(p) = cfg.harnesses.get_mut(route)
                     && p.fallback.is_none()
                     && has_direct
                 {
@@ -647,7 +651,7 @@ impl Config {
                 }
                 let entry = cfg.defaults.entry("claude".into()).or_default();
                 if entry.prefer.is_empty() {
-                    entry.prefer = ["claude-sr", "claude"]
+                    entry.prefer = [route, "claude"]
                         .iter()
                         .filter(|n| has_direct || **n != "claude")
                         .map(|n| n.to_string())
