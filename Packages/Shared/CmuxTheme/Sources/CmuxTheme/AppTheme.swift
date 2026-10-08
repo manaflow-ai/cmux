@@ -7,9 +7,9 @@ import Foundation
 /// web module's output for a sample of themes, and the Swift tests replay it.
 ///
 /// Every token is opaque `#rrggbb`. Each pair in ``contract`` meets its WCAG 2
-/// minimum: 4.5:1 for text, 3:1 for UI marks. The accent hue comes from the
-/// palette (ANSI 4 when it has color, else the most colorful slot); a
-/// palette with no color gets a neutral accent. No hue is hard-coded.
+/// minimum: 4.5:1 for text, 3:1 for UI marks. The accent is neutral: the
+/// foreground's lightness without hue (the no-blue rule; never a palette
+/// slot such as ANSI 4). No hue is hard-coded.
 ///
 /// ```swift
 /// let app = AppTheme.derive(from: ThemeInput(terminalTheme: .monokai))
@@ -40,8 +40,6 @@ public struct AppTheme: Hashable, Sendable {
 
     /// Whether the palette is dark (its background darker than its foreground).
     public let isDark: Bool
-    /// The palette slot the accent hue came from; nil for a palette without color.
-    public let accentSource: Int?
     /// Every token, opaque.
     public let tokens: [Token: ThemeRGB]
 
@@ -55,8 +53,6 @@ public struct AppTheme: Hashable, Sendable {
 
     public static let textMinimum = 4.5
     public static let uiMinimum = 3.0
-    /// A slot "has color" from this OKLCH chroma up.
-    public static let accentMinimumChroma = 0.05
 
     private static let plainSurfaces: [Token] = [.window, .sidebar, .content, .elevated]
     private static let textSurfaces: [Token] = plainSurfaces + [.control, .hover, .pressed, .selection]
@@ -85,8 +81,6 @@ public struct AppTheme: Hashable, Sendable {
         0x1D1F21, 0xCC6666, 0xB5BD68, 0xF0C674, 0x81A2BE, 0xB294BB, 0x8ABEB7, 0xC5C8C6,
         0x666666, 0xD54E53, 0xB9CA4A, 0xE7C547, 0x7AA6DA, 0xC397D8, 0x70C0B1, 0xEAEAEA,
     ]
-    /// ANSI 4 first, then the most colorful of these.
-    private static let accentFallbackSlots = [12, 5, 13, 6, 14, 2, 10, 3, 11]
     /// Surface tint strengths, tried in order until every pair passes (mid-luminance backgrounds).
     private static let tintScales: [Double] = [1, 0.7, 0.45, 0.25, 0.1, 0]
 
@@ -117,21 +111,6 @@ public struct AppTheme: Hashable, Sendable {
         derive(background: background, foreground: foreground, palette: palette.map { Optional($0) })
     }
 
-    /// The palette slot that gives the accent its hue, or nil when no slot has color.
-    public static func accentSlot(_ palette: [ThemeRGB]) -> Int? {
-        if AppColor.oklch(palette[4]).c >= accentMinimumChroma { return 4 }
-        var best: Int?
-        var bestChroma = accentMinimumChroma
-        for slot in accentFallbackSlots {
-            let chroma = AppColor.oklch(palette[slot]).c
-            if chroma >= bestChroma + 1e-9 {
-                best = slot
-                bestChroma = chroma
-            }
-        }
-        return best
-    }
-
     private static func derive(_ bg: ThemeRGB, _ fg: ThemeRGB, _ palette: [ThemeRGB], tint: Double) -> AppTheme {
         let isDark = AppColor.luminance(bg) < AppColor.luminance(fg)
         var t: [Token: ThemeRGB] = [:]
@@ -148,9 +127,9 @@ public struct AppTheme: Hashable, Sendable {
             names.map { AppColor.Constraint(on: t[$0]!, minimum: minimum) }
         }
 
-        let slot = accentSlot(palette)
         let onAccentWanted = isDark ? t[.window]! : ThemeRGB.white
-        let seed = slot.map { palette[$0] } ?? fg
+        let fgLightness = AppColor.oklch(fg).l
+        let seed = AppColor.fromOKLCH(AppColor.OKLCH(l: fgLightness, c: 0, h: 0))
         let accent = AppColor.fit(seed, on(plainSurfaces, uiMinimum) + [AppColor.Constraint(on: onAccentWanted, minimum: textMinimum)],
                                   prefer: isDark ? .lighter : .darker)
         t[.accent] = accent
@@ -171,7 +150,7 @@ public struct AppTheme: Hashable, Sendable {
         t[.danger] = AppColor.fit(colorful(palette, 1, 9), on(statusSurfaces, textMinimum), prefer: away)
         t[.warning] = AppColor.fit(colorful(palette, 3, 11), on(statusSurfaces, textMinimum), prefer: away)
         t[.success] = AppColor.fit(colorful(palette, 2, 10), on(statusSurfaces, textMinimum), prefer: away)
-        return AppTheme(isDark: isDark, accentSource: slot, tokens: t)
+        return AppTheme(isDark: isDark, tokens: t)
     }
 
     /// The more colorful of a normal and a bright slot.

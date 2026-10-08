@@ -16,11 +16,18 @@ const grants = (element: HTMLElement) =>
 
 test("the card shows each grant and follows a change without a reload", async () => {
   const page = await renderPage({ path: "/settings/agents" });
-  const ready: ComputerUseState = { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" };
+  const ready: ComputerUseState = {
+    phase: "ready",
+    accessibility: true,
+    screen_recording: false,
+    helper: "cmux Computer Use",
+  };
   await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: ready }));
   await settle();
   expect(grants(card(page.container)!)).toEqual(["true", "false"]);
-  await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: { ...ready, screen_recording: true } }));
+  await act(async () =>
+    page.provider.setHost({ ...page.provider.host, computer_use: { ...ready, screen_recording: true } }),
+  );
   await settle();
   expect(grants(card(page.container)!)).toEqual(["true", "true"]);
   page.unmount();
@@ -41,10 +48,18 @@ test("off, the grants are unknown and the card says to turn Computer Use on", as
 test("the buttons run the shared actions; a policy lock hides the card", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
-  for (const action of ["palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.setup"]) {
+  for (const action of [
+    "palette.computerUse.accessibility",
+    "palette.computerUse.screenRecording",
+    "palette.computerUse.setup",
+  ]) {
     await act(async () => card(page.container)!.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!.click());
     await settle();
-    expect(page.provider.log.some((entry) => entry.op === "cmux.app.action.run" && (entry.params as { action: string }).action === action)).toBe(true);
+    expect(
+      page.provider.log.some(
+        (entry) => entry.op === "cmux.app.action.run" && (entry.params as { action: string }).action === action,
+      ),
+    ).toBe(true);
   }
   await act(async () =>
     page.provider.setHost({

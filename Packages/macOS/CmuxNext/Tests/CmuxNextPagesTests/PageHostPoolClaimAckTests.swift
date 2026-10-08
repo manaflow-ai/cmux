@@ -91,9 +91,16 @@ struct PageHostPoolClaimAckTests {
         let pool = Self.pool(window)
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         let spare = try #require(await Self.settledSpare(pool))
+        // The first claim must be acknowledged, not timed out: a timeout reloads the document, and a
+        // host released mid-reload is parked unloaded, so the second claim takes the plain-load path.
+        // The off-window page can miss the 50 ms wall-clock budget on a loaded runner; a manual clock
+        // leaves the acknowledgement as the only way the first claim ends.
+        spare.claimState.clock = ClaimTestClock()
         let first = PageHostPoolSettingsClaimTests.RecordingProvider()
         let page = try #require(pool.claim(.settings, routes: [PageRoute(prefix: "cmux.settings.", provider: first)],
                                            window: window, focus: false))
+        await page.waitUntilLoaded()
+        #expect(page.lastClaim?.path == .acknowledged)
         #expect(await Self.readAndListened(first) == true)
         // Released untouched: parked again with the document that already ran.
         pool.dropSpare()
