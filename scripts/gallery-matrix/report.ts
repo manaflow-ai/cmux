@@ -36,6 +36,11 @@ export function counts(outcomes: Outcome[]): Record<Status, number> {
   return out;
 }
 
+/** Counts the states that remain after the diff page's entry filter is selected. */
+export function filteredCounts(outcomes: Outcome[], entry?: string): Record<Status, number> {
+  return counts(entry ? outcomes.filter((outcome) => outcome.entry === entry) : outcomes);
+}
+
 const plural = (n: number, status: Status) => `${n} ${LABELS[status][n === 1 ? 0 : 1]}`;
 
 /** `entry/variant`, with the theme and engine only where the matrix varies them. */
@@ -365,11 +370,28 @@ for (const entry of [...new Set(outcomes.map((o) => o.entry))].sort()) entryFilt
 const applyEntryFilter = () => {
   const selected = entryFilter.value;
   for (const node of main.querySelectorAll("[data-entry]")) node.hidden = Boolean(selected && node.dataset.entry !== selected);
+  const filtered = selected ? outcomes.filter((o) => o.entry === selected) : outcomes;
+  const filteredCounts = Object.fromEntries(order.map((status) => [status, filtered.filter((o) => o.status === status).length]));
+  document.getElementById("summary").textContent = order.filter((status) => filteredCounts[status]).map((status) => filteredCounts[status] + " " + status).join(" · ") + " · base ${meta.base.slice(0, 11)} · head ${meta.head.slice(0, 11)}";
   for (const section of main.querySelectorAll("[data-status]")) {
-    const visible = [...section.querySelectorAll("[data-entry]")].filter((node) => !node.hidden);
-    section.hidden = visible.length === 0;
-    const summary = section.querySelector("[data-summary='unchanged']");
-    if (summary) summary.textContent = visible.length + " unchanged";
+    const status = section.dataset.status;
+    if (status === "unchanged") {
+      const failed = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
+      const unchanged = [...section.querySelectorAll("ul.plain [data-entry]")].filter((node) => !node.hidden);
+      const heading = section.querySelector("h2");
+      if (heading) {
+        heading.hidden = failed.length === 0;
+        heading.textContent = "Play checks failed (" + failed.length + ")";
+      }
+      const summary = section.querySelector("[data-summary='unchanged']");
+      if (summary) summary.textContent = unchanged.length + " unchanged";
+      section.hidden = failed.length === 0 && unchanged.length === 0;
+    } else {
+      const visible = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
+      const heading = section.querySelector("h2");
+      if (heading) heading.textContent = titles[status] + " (" + visible.length + ")";
+      section.hidden = visible.length === 0;
+    }
   }
 };
 entryFilter.addEventListener("change", applyEntryFilter);

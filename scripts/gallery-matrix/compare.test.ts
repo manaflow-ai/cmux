@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAfterThumb, changedBoxes, compareRuns, diffMask, type Outcome } from "./compare";
-import { COMMENT_MARKER, commentMarkdown, diffPage, feedSummary, liveBase, summaryLine } from "./report";
+import { COMMENT_MARKER, commentMarkdown, diffPage, feedSummary, filteredCounts, liveBase, summaryLine } from "./report";
 
 const root = mkdtempSync(join(tmpdir(), "gallery-pr-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -273,9 +273,27 @@ test("the diff page embeds its data safely and lists changed states first", () =
   expect(html).toContain('id="entry-filter"');
   expect(html).toContain('{id: o.key, "data-entry": o.entry}');
   expect(html).toContain("applyEntryFilter");
-  expect(html).toContain('summary.textContent = visible.length + " unchanged"');
+  expect(html).toContain('ul.plain [data-entry]');
+  expect(html).toContain('article[data-entry]');
+  expect(html).toContain('filteredCounts[status]');
   expect(html.indexOf('"status":"changed"')).toBeLessThan(html.indexOf('"status":"unchanged"'));
   expect(readFileSync(new URL("./report.ts", import.meta.url), "utf8")).toContain("onion");
+});
+
+test("entry-filter counts only outcomes belonging to the selected entry", () => {
+  const outcomes = [
+    outcome({ entry: "agent-pane.composer", status: "unchanged" }),
+    outcome({ entry: "agent-pane.composer", status: "broken" }),
+    outcome({ entry: "pages.markdown", status: "changed" }),
+  ];
+  expect(filteredCounts(outcomes, "agent-pane.composer")).toEqual({
+    changed: 0,
+    new: 0,
+    removed: 0,
+    broken: 1,
+    nondeterministic: 0,
+    unchanged: 1,
+  });
 });
 
 test("a played state gets a filmstrip; a step that moved changes the state even when the final still holds", () => {

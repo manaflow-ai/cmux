@@ -280,10 +280,16 @@ jobs:
           prefix="gallery-${HEAD_SHA:0:11}-"
           thumb_base="https://raw.githubusercontent.com/$REPOSITORY/pr-media/$PR/$prefix"
           report="$RUNNER_TEMP/report"
+          branch_args=()
+          if grep -Eq 'branch:[[:space:]]*\{[[:space:]]*type:[[:space:]]*"string"' scripts/gallery-matrix/pr.ts; then
+            branch_args=(--branch "$BRANCH")
+          else
+            echo "Base publisher has no --branch option; omitting the live-preview link."
+          fi
           (cd scripts/gallery-matrix && bun install --frozen-lockfile --ignore-scripts && \
             bun pr.ts --outcomes "$RUNNER_TEMP/render/diff/outcomes.json" --out "$report" --pr "$PR" \
               --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base" \
-              --branch "$BRANCH")
+              "${branch_args[@]}")
           upload="$RUNNER_TEMP/upload"
           mkdir -p "$upload"
           while IFS= read -r key; do
