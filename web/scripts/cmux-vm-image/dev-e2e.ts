@@ -158,7 +158,7 @@ export async function main(argv = process.argv): Promise<number> {
       const r = await post(`${STACK_API}/api/v1/auth/password/sign-in`, { email: creds.CMUX_DOGFOOD_STACK_EMAIL, password: creds.CMUX_DOGFOOD_STACK_PASSWORD }, {
         "x-stack-access-type": "client",
         "x-stack-project-id": DEV_STACK_PROJECT,
-        "x-stack-publishable-client-key": creds.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ?? "",
+        ...(creds.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ? { "x-stack-publishable-client-key": creds.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY } : {}),
       });
       if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
       return { value: r.body.access_token as string, detail: "Stack session" };
