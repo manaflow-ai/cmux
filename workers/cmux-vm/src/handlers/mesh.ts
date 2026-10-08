@@ -12,7 +12,7 @@ import { HttpApiBuilder } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Duration, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { Acl, AclApplied, Device, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, PeerMap, TunnelConfig } from "../api/mesh.ts";
+import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, PeerMap, TunnelConfig } from "../api/mesh.ts";
 import { TeamMembership } from "../auth/credentials.ts";
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
@@ -49,13 +49,13 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { compileAcl, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { compileAcl, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
-import { ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
+import { ownedDeviceAddressRules, ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -204,6 +204,7 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
     const config = yield* MeshConfig;
     const devices = yield* store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
     const members = yield* store.listMembers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listMembers")));
+    const deviceIpv6 = yield* store.deviceAddresses(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")));
     const deviceIds = devices.map((device) => device.deviceId);
     const vmIds = members.map((member) => member.vmId);
     const known = new Set([...deviceIds, ...vmIds]);
@@ -222,6 +223,7 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
       document: effective,
       deviceIds,
       vmIds,
+      deviceIpv6,
       rulesPerResource: config.budgets.rulesPerResource,
       rulesPerMesh: config.budgets.rulesPerMesh,
     });
@@ -278,7 +280,7 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
                 return yield* Effect.fail(new Conflict({ message: "A device or VM left the mesh during the change; apply again" }));
               }
               const created = yield* upstream
-                .createRule(mesh, source, destination, { source: sourceProof, destination: destinationProof }, { protocol: rule.protocol, port: rule.port })
+                .createRule(mesh, source, destination, { source: sourceProof, destination: destinationProof }, { protocol: rule.protocol, port: rule.port, sourceCidr: rule.cidr })
                 .pipe(Effect.mapError(ruleCreateError));
               const at = yield* now;
               yield* store
@@ -409,6 +411,24 @@ const closeDevice = <C, D>(
       Effect.catchIf((error) => error.status === 404, () => Effect.void),
       Effect.mapError(() => unavailable()),
     );
+    // Address rules name a cidr, not the tunnel, so the tunnel delete leaves them: delete them by their recorded ids.
+    const parsedMesh = parseMeshId(row.meshId);
+    if (Option.isSome(parsedMesh)) {
+      yield* name(parsedMesh.value, (mesh) =>
+        Effect.gen(function* () {
+          const addressRules = yield* ownedDeviceAddressRules(caller, mesh, proofs.owns, device).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
+          yield* Effect.forEach(
+            addressRules,
+            (rule) =>
+              upstream.deleteRule(rule).pipe(
+                Effect.catchIf((error) => error.status === 404, () => Effect.void),
+                Effect.mapError(() => unavailable()),
+              ),
+            { concurrency: 8, discard: true },
+          );
+        }),
+      );
+    }
     const at = yield* now;
     const rules = yield* store.listRules(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
     yield* Effect.forEach(
@@ -1120,9 +1140,11 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
 );
 
 interface SignedDeviceFields {
-  readonly purpose: "peers" | "tunnel" | "rotate-key";
-  /** The WireGuard key the request registers: the new key on rotate-key, empty for reads. */
+  readonly purpose: "peers" | "tunnel" | "rotate-key" | "address";
+  /** The WireGuard key the request registers: the new key on rotate-key, empty for the others. */
   readonly wgPublicKey: string;
+  /** The message's name line: the address exactly as sent for address, empty for the others. */
+  readonly name: string;
   readonly signedAt: number;
   readonly nonce: string;
   readonly signature: string;
@@ -1188,7 +1210,7 @@ const withSignedDevice = <A, E, R>(
         const held = yield* deviceHoldsKey(
           caller,
           device,
-          { purpose: request.purpose, wgPublicKey: request.wgPublicKey, installPublicKey, name: "", signedAt: request.signedAt, nonce: request.nonce },
+          { purpose: request.purpose, wgPublicKey: request.wgPublicKey, installPublicKey, name: request.name, signedAt: request.signedAt, nonce: request.nonce },
           request.signature,
           installPublicKey,
         ).pipe(Effect.catchAll(dependencyDown("mesh.claimSignedRequest")));
@@ -1210,12 +1232,12 @@ const withSignedDevice = <A, E, R>(
 export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", (handlers) =>
   handlers
     .handle("signedDevicePeers", ({ path, payload }) =>
-      withSignedDevice(path.deviceId, { purpose: "peers", wgPublicKey: "", ...payload }, "read", (caller, device, _proofs, row) =>
+      withSignedDevice(path.deviceId, { purpose: "peers", wgPublicKey: "", name: "", ...payload }, "read", (caller, device, _proofs, row) =>
         peerMapOf(caller.value.tenantId, device.value, row),
       ),
     )
     .handle("signedDeviceTunnel", ({ path, payload }) =>
-      withSignedDevice(path.deviceId, { purpose: "tunnel", wgPublicKey: "", ...payload }, "read", (caller, _device, proofs, row) =>
+      withSignedDevice(path.deviceId, { purpose: "tunnel", wgPublicKey: "", name: "", ...payload }, "read", (caller, _device, proofs, row) =>
         Effect.gen(function* () {
           const parsed = parseTunnelId(row.tunnelId);
           if (Option.isNone(parsed)) return yield* Effect.fail(experimentOff());
@@ -1226,12 +1248,68 @@ export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", 
     .handle("signedDeviceRotateKey", ({ path, payload }) =>
       withSignedDevice(
         path.deviceId,
-        { purpose: "rotate-key", wgPublicKey: payload.newPublicKey, signedAt: payload.signedAt, nonce: payload.nonce, signature: payload.signature },
+        { purpose: "rotate-key", wgPublicKey: payload.newPublicKey, name: "", signedAt: payload.signedAt, nonce: payload.nonce, signature: payload.signature },
         "write",
         (caller, device, proofs, row) => audited("device.rotate_key", device.value, rotateWith(caller, device, proofs, row, payload.newPublicKey)),
       ),
+    )
+    .handle("signedDeviceAddress", ({ path, payload }) =>
+      Effect.gen(function* () {
+        // Checked before the signature: a refused address never spends the request's nonce.
+        const address = payload.publicIpv6 === null ? null : parseDeviceIpv6(payload.publicIpv6);
+        if (payload.publicIpv6 !== null && address === null) {
+          return yield* Effect.fail(new BadRequest({ message: "publicIpv6 must be one global unicast IPv6 address (no prefix, zone or IPv4 form), or null" }));
+        }
+        return yield* withSignedDevice(
+          path.deviceId,
+          { purpose: "address", wgPublicKey: "", name: payload.publicIpv6 ?? "", signedAt: payload.signedAt, nonce: payload.nonce, signature: payload.signature },
+          "write",
+          (caller, device, _proofs, row) => audited("device.publish_address", device.value, publishAddress(caller, device, row, address)),
+        );
+      }),
     ),
 );
+
+/**
+ * Stores the device's address and re-applies its mesh's ACL under the mesh's
+ * writer lock, so the address rules follow it: a new address's rules are
+ * created before the old ones are deleted (reconcile's order), and a cleared
+ * address deletes them. Always reconciles, so a publish after a failed apply
+ * heals; an unchanged address makes no provider call.
+ */
+const publishAddress = <C, D>(caller: Named<C, Principal>, device: Named<D, DeviceId>, row: MeshDeviceRow, address: string | null) =>
+  Effect.gen(function* () {
+    const tenantId = caller.value.tenantId;
+    const parsedMesh = parseMeshId(row.meshId);
+    if (Option.isNone(parsedMesh)) return yield* Effect.fail(experimentOff());
+    // The device's signature allows it only itself; the mesh's own reconcile acts for the device's owner, as a revocation does.
+    const owner: Principal = { ...caller.value, scopes: new Set<Scope>(["mesh:join", "mesh:read", "mesh:write"]), resourceAllowlist: null };
+    return yield* name(owner, parsedMesh.value, (ownerCaller, mesh) =>
+      withMeshWriter(
+        tenantId,
+        mesh.value,
+        Effect.gen(function* () {
+          const store = yield* MeshStore;
+          const ownsMesh = yield* tenantOwnsMesh(ownerCaller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+          if (ownsMesh === null) return yield* Effect.fail(experimentOff());
+          const previous = (yield* store.deviceAddresses(tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")))).get(device.value) ?? null;
+          const stored = yield* store.setDeviceAddress(tenantId, device.value, address, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.setDeviceAddress")));
+          if (!stored) return yield* Effect.fail(experimentOff());
+          // A refused apply (a rule budget, the provider) puts the previous address back, so one device's address never blocks
+          // its mesh's later reconciles; rules this attempt created are surplus to the next reconcile, which deletes them.
+          yield* reconcileCurrent(ownerCaller, mesh, ownsMesh).pipe(
+            Effect.tapError(() =>
+              Effect.gen(function* () {
+                const restored = yield* store.setDeviceAddress(tenantId, device.value, previous, yield* now).pipe(Effect.either);
+                if (restored._tag === "Left") yield* logEvent("mesh_address_restore_failed", { deviceId: device.value });
+              }),
+            ),
+          );
+          return new DeviceAddress({ deviceId: DeviceId_(device.value), publicIpv6: address });
+        }),
+      ),
+    );
+  });
 
 /** The audit actor of a revocation the Stack team-membership webhook made (G1). */
 export const MEMBERSHIP_WEBHOOK_ACTOR = "system:stack-membership-webhook";

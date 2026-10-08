@@ -5573,6 +5573,116 @@
           "required": true
         }
       }
+    },
+    "/v1/devices/{deviceId}/signed/address": {
+      "post": {
+        "tags": [
+          "meshDevice"
+        ],
+        "operationId": "meshDevice.signedDeviceAddress",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAddress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Opens the direct IPv6 path to the device's VMs: one firewall rule per VM the ACL allows, UDP 4101 from this one /128, replaced (new rule first, then the old one deleted) when the address changes and deleted when it is cleared or the device is closed. Publish again after every network change. An address that is not one global unicast IPv6 address is 400. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "A device publishes its public IPv6 address",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishAddressRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
     }
   },
   "components": {
@@ -7606,6 +7716,76 @@
         },
         "additionalProperties": false,
         "description": "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use."
+      },
+      "PublishAddressRequest": {
+        "type": "object",
+        "required": [
+          "publicIpv6",
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "publicIpv6": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string at most 64 character(s) long",
+                "title": "maxLength(64)",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The device's current global unicast IPv6 address (one address: no prefix, zone or IPv4 form; not Teredo, 6to4 or documentation space), or null to clear it."
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A device publishes its own public IPv6 address, authenticated only by its install key: the cmux-mesh-v1 message with purpose address, the device id as target, an empty WireGuard key, the address exactly as sent as the name line (empty for null), and the device's recorded install public key. Fresh (120 s) and single use."
+      },
+      "DeviceAddress": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "publicIpv6"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "publicIpv6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stored address in canonical form (RFC 5952), or null."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened."
       }
     },
     "securitySchemes": {

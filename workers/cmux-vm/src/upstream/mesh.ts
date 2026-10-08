@@ -128,13 +128,17 @@ export interface UpstreamMeshService {
     proofs: { readonly ownsVm: TenantOwnsResource<C, V>; readonly vmScope: KeyHasScope<C, "vm:write"> },
   ) => Effect.Effect<void, UpstreamError>;
 
-  /** `{device's tunnel} -> {vm, protocol, port}`; both ends proven members of the same mesh of the caller's tenant. */
+  /**
+   * `{device's tunnel} -> {vm, protocol, port}`, or with `sourceCidr` the
+   * device's published address `{cidr} -> {vm, protocol, port}` (an address
+   * rule); both ends proven members of the same mesh of the caller's tenant.
+   */
   readonly createRule: <C, M, S, D>(
     mesh: Named<M, MeshId>,
     source: Named<S, DeviceId>,
     destination: Named<D, VmId>,
     proofs: { readonly source: SameMesh<C, M, S>; readonly destination: SameMesh<C, M, D> },
-    matcher: { readonly protocol: MeshProtocol | null; readonly port: number | null },
+    matcher: { readonly protocol: MeshProtocol | null; readonly port: number | null; readonly sourceCidr: string | null },
   ) => Effect.Effect<CreatedRule, UpstreamError>;
   readonly deleteRule: <C, M>(rule: OwnedMeshRule<C, M>) => Effect.Effect<void, UpstreamError>;
 }

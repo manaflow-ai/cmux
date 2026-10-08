@@ -99,6 +99,33 @@ export class SignedDeviceRequest extends Schema.Class<SignedDeviceRequest>("Sign
   },
 ) {}
 
+export class PublishAddressRequest extends Schema.Class<PublishAddressRequest>("PublishAddressRequest")(
+  {
+    publicIpv6: Schema.NullOr(Schema.String.pipe(Schema.maxLength(64))).annotations({
+      description:
+        "The device's current global unicast IPv6 address (one address: no prefix, zone or IPv4 form; not Teredo, 6to4 or documentation space), or null to clear it.",
+    }),
+    signedAt: SignedAt,
+    nonce: Nonce,
+    signature: Signature,
+  },
+  {
+    description:
+      "A device publishes its own public IPv6 address, authenticated only by its install key: the cmux-mesh-v1 message with purpose address, the device id as target, an empty WireGuard key, the address exactly as sent as the name line (empty for null), and the device's recorded install public key. Fresh (120 s) and single use.",
+  },
+) {}
+
+export class DeviceAddress extends Schema.Class<DeviceAddress>("DeviceAddress")(
+  {
+    deviceId: DeviceId,
+    publicIpv6: Schema.NullOr(Schema.String).annotations({ description: "The stored address in canonical form (RFC 5952), or null." }),
+  },
+  {
+    description:
+      "The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened.",
+  },
+) {}
+
 export class Device extends Schema.Class<Device>("Device")({
   id: DeviceId,
   meshId: MeshId,
@@ -287,6 +314,24 @@ export class MeshDeviceGroupDefinition extends HttpApiGroup.make("meshDevice")
         OpenApi.annotations({
           summary: "A device rotates its own WireGuard key",
           description: `The same signed body as POST /v1/devices/{deviceId}/rotate-key (purpose rotate-key), without a credential. Switch to the returned config at once. ${DEVICE_SIGNED} ${EXPERIMENT}`,
+        }),
+      ),
+  )
+  .add(
+    HttpApiEndpoint.post("signedDeviceAddress", "/v1/devices/:deviceId/signed/address")
+      .setPath(DevicePath)
+      .setPayload(PublishAddressRequest)
+      .addSuccess(DeviceAddress)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        OpenApi.annotations({
+          summary: "A device publishes its public IPv6 address",
+          description: `Opens the direct IPv6 path to the device's VMs: one firewall rule per VM the ACL allows, UDP 4101 from this one /128, replaced (new rule first, then the old one deleted) when the address changes and deleted when it is cleared or the device is closed. Publish again after every network change. An address that is not one global unicast IPv6 address is 400. ${DEVICE_SIGNED} ${EXPERIMENT}`,
         }),
       ),
   ) {}

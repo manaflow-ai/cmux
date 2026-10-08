@@ -85,6 +85,10 @@ export interface MeshStoreService {
   readonly listTenantsWithDevicesCreatedBy: (createdBy: string) => Effect.Effect<ReadonlyArray<TenantId>, StoreError>;
   /** Records a rotated WireGuard key; false when another live device of the mesh holds it. */
   readonly updateDeviceKey: (tenantId: TenantId, deviceId: string, wgPublicKey: string, at: Date) => Effect.Effect<boolean, StoreError>;
+  /** Sets (or with null clears) a live device's published public IPv6 address (migration 0009); false when the device is not live in this tenant. */
+  readonly setDeviceAddress: (tenantId: TenantId, deviceId: string, publicIpv6: string | null, at: Date) => Effect.Effect<boolean, StoreError>;
+  /** The published public IPv6 address of every live device of the mesh that has one, by device id. */
+  readonly deviceAddresses: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyMap<string, string>, StoreError>;
 
   /** Stores an accepted signed message (and prunes expired ones); false when it was stored before (a replay). */
   readonly claimSignedRequest: (tenantId: TenantId, messageSha256: string, purpose: string, expiresAt: Date, now: Date) => Effect.Effect<boolean, StoreError>;
@@ -176,6 +180,7 @@ const CidrRow = Schema.Struct({ cidr: Schema.String });
 const TenantRow = Schema.Struct({ tenant_id: Schema.String });
 const WhenRow = Schema.Struct({ created_at: When });
 const ClaimedRow = Schema.Struct({ claimed: Count });
+const DeviceAddressRow = Schema.Struct({ device_cmux_id: Schema.String, public_ipv6: Schema.String });
 
 const decode = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(schema))(rows).pipe(Effect.mapError((cause) => new StoreError({ operation, cause })));
@@ -329,6 +334,31 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [deviceId, tenantId, wgPublicKey, at.toISOString()],
           )
           .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.updateDeviceKey")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
+      setDeviceAddress: (tenantId, deviceId, publicIpv6, at) =>
+        sql
+          .query(
+            "mesh.setDeviceAddress",
+            `WITH updated AS (
+               UPDATE cmux_vm.mesh_devices SET public_ipv6 = $3, public_ipv6_at = $4::timestamptz
+                WHERE device_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+               RETURNING 1)
+             SELECT count(*)::int AS claimed FROM updated`,
+            [deviceId, tenantId, publicIpv6, at.toISOString()],
+          )
+          .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.setDeviceAddress")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
+      deviceAddresses: (tenantId, meshId) =>
+        sql
+          .query(
+            "mesh.deviceAddresses",
+            `SELECT device_cmux_id, public_ipv6 FROM cmux_vm.mesh_devices
+              WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND public_ipv6 IS NOT NULL
+              ORDER BY device_cmux_id`,
+            [meshId, tenantId],
+          )
+          .pipe(
+            Effect.flatMap(decode(DeviceAddressRow, "mesh.deviceAddresses")),
+            Effect.map((rows) => new Map(rows.map((row) => [row.device_cmux_id, row.public_ipv6]))),
+          ),
       claimSignedRequest: (tenantId, messageSha256, purpose, expiresAt, now) =>
         sql
           .query(

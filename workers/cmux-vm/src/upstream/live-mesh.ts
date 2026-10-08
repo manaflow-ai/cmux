@@ -192,7 +192,7 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
       http
         .json("createRule", "POST", "/v5/firewall/rules", {
           action: "allow",
-          source: { tunnelId: endpointOf(proofs.source) },
+          source: matcher.sourceCidr === null ? { tunnelId: endpointOf(proofs.source) } : { cidr: matcher.sourceCidr },
           destination: {
             vmId: endpointOf(proofs.destination),
             ...(matcher.protocol === null ? {} : { protocol: matcher.protocol }),
