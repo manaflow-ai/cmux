@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 import Testing
 import CmuxTerminal
@@ -78,16 +79,18 @@ struct GhosttyDECCKMArrowKeyTests {
         #expect(readyText.contains(captureReadyMarker), "Expected DECCKM capture harness to become ready")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
-        let arrows: [(name: String, characters: String, keyCode: UInt16)] = [
+        let navigationKeys: [(name: String, characters: String, keyCode: UInt16)] = [
             ("up", String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
             ("down", String(UnicodeScalar(NSDownArrowFunctionKey)!), 125),
             ("right", String(UnicodeScalar(NSRightArrowFunctionKey)!), 124),
             ("left", String(UnicodeScalar(NSLeftArrowFunctionKey)!), 123),
+            ("home", String(UnicodeScalar(NSHomeFunctionKey)!), UInt16(kVK_Home)),
+            ("end", String(UnicodeScalar(NSEndFunctionKey)!), UInt16(kVK_End)),
         ]
         let timestamp = ProcessInfo.processInfo.systemUptime
 
         try withExtendedLifetime(hostedTerminal.surface) {
-            for (index, arrow) in arrows.enumerated() {
+            for (index, key) in navigationKeys.enumerated() {
                 let event = try #require(NSEvent.keyEvent(
                     with: .keyDown,
                     location: .zero,
@@ -95,15 +98,15 @@ struct GhosttyDECCKMArrowKeyTests {
                     timestamp: timestamp + (Double(index) * 0.001),
                     windowNumber: window.windowNumber,
                     context: nil,
-                    characters: arrow.characters,
-                    charactersIgnoringModifiers: arrow.characters,
+                    characters: key.characters,
+                    charactersIgnoringModifiers: key.characters,
                     isARepeat: false,
-                    keyCode: arrow.keyCode
+                    keyCode: key.keyCode
                 ))
 
                 #expect(
                     window.performKeyEquivalent(with: event),
-                    "Terminal \(arrow.name) arrow should be consumed by direct keyDown routing"
+                    "Terminal \(key.name) navigation key should be consumed by direct keyDown routing"
                 )
             }
         }
@@ -117,14 +120,14 @@ struct GhosttyDECCKMArrowKeyTests {
             .prefix { hexCharacters.contains($0) }
 
         #expect(
-            String(capturedHex) == "1b4f411b4f421b4f431b4f44",
-            "Terminal arrows in DECCKM must reach the PTY as application cursor sequences, not a bare Escape or missing keyDown"
+            String(capturedHex) == "1b4f411b4f421b4f431b4f441b4f481b4f46",
+            "Terminal navigation keys in DECCKM must reach the PTY as application sequences, not a bare Escape or missing keyDown"
         )
     }
 
     @Test(arguments: [123, 124, 125, 126] as [UInt16])
     func terminalArrowPredicateAcceptsUnmodifiedTerminalArrows(keyCode: UInt16) {
-        #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
             keyCode: keyCode,
             firstResponderIsTerminal: true,
             flags: [.numericPad, .function]
@@ -133,7 +136,7 @@ struct GhosttyDECCKMArrowKeyTests {
 
     @Test(arguments: [115, 119] as [UInt16])
     func terminalHomeEndPredicateAcceptsFnNavigationKeys(keyCode: UInt16) {
-        #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
             keyCode: keyCode,
             firstResponderIsTerminal: true,
             flags: [.numericPad, .function]
@@ -142,7 +145,7 @@ struct GhosttyDECCKMArrowKeyTests {
 
     @Test
     func terminalArrowPredicateRequiresTerminalContext() {
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
             keyCode: 126,
             firstResponderIsTerminal: false,
             flags: [.numericPad, .function]
@@ -151,13 +154,13 @@ struct GhosttyDECCKMArrowKeyTests {
 
     @Test
     func terminalArrowPredicateLeavesMarkedTextAndCommandArrowsAlone() {
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
             keyCode: 126,
             firstResponderIsTerminal: true,
             firstResponderHasMarkedText: true,
             flags: [.numericPad, .function]
         ))
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
             keyCode: 126,
             firstResponderIsTerminal: true,
             flags: [.command, .numericPad, .function]
@@ -166,7 +169,7 @@ struct GhosttyDECCKMArrowKeyTests {
 
     @Test
     func terminalArrowPredicateRejectsNonArrowKeys() {
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
             keyCode: 36,
             firstResponderIsTerminal: true,
             flags: [.numericPad, .function]
