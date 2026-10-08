@@ -112,7 +112,13 @@ The active wave is intentionally independent:
   does not execute SSH commands; the host adapter and live lifecycle verification remain open.
 - `5e1af976a5` sizes the default reliable terminal render credit from the latest RTT (2.5 MB/s target,
   2 MiB cap, 256 KiB baseline), wakes blocked render senders when the path changes, and preserves
-  explicit channel budgets. Pure tests and the CmuxLink package build pass; device/WAN evidence remains open.
+  explicit channel budgets. `1cd8a1e0e6` connects that mode to the real terminal path: its 64 KiB
+  input declaration is promoted to a directional render budget on the Mac bridge, with an integration
+  test. Pure tests and the CmuxLink package build pass; device/WAN evidence remains open.
+- `312264890a` distinguishes failed attachments from active uploads, and `1be496c976` adds explicit
+  upload teardown plus a weak-model regression so an unfinished stream cannot retain a dismissed
+  composer. `2dd297a2fb` preserves string-entry paths in D2 manifests and tests that string and object
+  entries group identically without mixing experiments.
 
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
