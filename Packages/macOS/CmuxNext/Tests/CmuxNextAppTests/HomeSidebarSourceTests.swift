@@ -53,6 +53,43 @@ import Testing
         #expect(relaunched.model(now: Self.at).pinned.isEmpty)
     }
 
+    /// A dragged tile's new place is kept with the pins (this Mac's defaults, per account) and survives a relaunch.
+    @Test func aDraggedOrderSurvivesARelaunch() {
+        let defaults = Self.defaults()
+        let rows = [Self.row("a", "Austin", minutesAgo: 1), Self.row("b", "Aziz", minutesAgo: 2), Self.row("c", "Lucas", minutesAgo: 3)]
+        func source() -> HomeSidebarSource {
+            HomeSidebarSource(store: HomePinStore(defaults: defaults), account: { "user_1" }, rows: { rows }, me: { Self.me },
+                              contacts: { [] })
+        }
+        let first = source()
+        first.reloadPins()
+        for id in ["a", "b", "c"] { first.setPinned(true, ConversationID(id)) }
+        first.place(ConversationID("a"), at: 2)
+        #expect(first.model(now: Self.at).pinned.map(\.id.rawValue) == ["b", "c", "a"])
+        let relaunched = source()
+        relaunched.reloadPins()
+        #expect(relaunched.model(now: Self.at).pinned.map(\.id.rawValue) == ["b", "c", "a"])
+        relaunched.place(ConversationID("c"), at: 0)
+        let again = source()
+        again.reloadPins()
+        #expect(again.model(now: Self.at).pinned.map(\.id.rawValue) == ["c", "b", "a"])
+    }
+
+    /// A row dropped into the grid is pinned at the drop position, also after a relaunch.
+    @Test func aRowDroppedIntoTheGridIsPinnedThere() {
+        let defaults = Self.defaults()
+        let rows = [Self.row("a", "Austin", minutesAgo: 1), Self.row("b", "Aziz", minutesAgo: 2), Self.row("c", "Lucas", minutesAgo: 3)]
+        let source = HomeSidebarSource(store: HomePinStore(defaults: defaults), account: { "user_1" }, rows: { rows },
+                                       me: { Self.me }, contacts: { [] })
+        source.reloadPins()
+        source.setPinned(true, ConversationID("a"))
+        source.setPinned(true, ConversationID("b"))
+        source.place(ConversationID("c"), at: 1)
+        #expect(source.model(now: Self.at).pinned.map(\.id.rawValue) == ["a", "c", "b"])
+        #expect(source.model(now: Self.at).rows.isEmpty)
+        #expect(HomePinStore(defaults: defaults).pins(account: "user_1").pinned.map(\.rawValue) == ["a", "c", "b"])
+    }
+
     @Test func choicesReachThePageAndSearchFilters() {
         let rows = [Self.row("a", "Austin", minutesAgo: 1), Self.row("b", "Aziz", minutesAgo: 2)]
         let zoe = HomeContact(id: ParticipantID("user_zoe"), name: "Zoe", source: .team)
