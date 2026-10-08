@@ -71,8 +71,8 @@ extension CmuxTuiSurfaceProviderRegistry {
     /// attempt. Persisted tunnel identity remains available for the next
     /// retry; no Cloud operation is left running while the marker is off.
     func cancelActivationPreparation() async {
-        // Release only this activation's account-level claim. Other Cloud
-        // links and external clients may be using the shared hub already.
-        await wireGuardHub?.releasePrewarm()
+        // Cancel and await this activation's background task before releasing
+        // its claim. Other Cloud link leases remain owned by the shared hub.
+        await wireGuardHub?.cancelPreparation()
     }
 }
