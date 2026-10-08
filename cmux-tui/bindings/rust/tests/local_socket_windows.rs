@@ -353,3 +353,50 @@ fn private_directory_then_explicit_listen() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&shared);
 }
+
+/// Where the other-user test meets its peer: a directory any account can
+/// use (the hosted Windows runner's step makes it and runs the peer).
+const OTHER_USER_DIR: &str = r"C:\cls-peer";
+
+/// A peer running as another account (LocalService, started by the hosted
+/// runner's step through a scheduled task) is refused for its user. Run only
+/// by that step (`--ignored`): it needs a second principal, which no test
+/// creates in-process. The socket file grants everyone so the OS lets the
+/// peer connect and the refusal is ours.
+#[test]
+#[ignore = "hosted Windows runner only: the step starts the LocalService peer"]
+fn other_user_peer_is_refused() {
+    let dir = std::path::Path::new(OTHER_USER_DIR);
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join("s.sock");
+    let _ = std::fs::remove_file(&path);
+    let listener = cmux::local_socket::listen_explicit(&path).unwrap();
+    grant_everyone(&path);
+    std::fs::write(dir.join("ready"), b"1").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let outcome = loop {
+        match listener.accept() {
+            Ok(_) => break Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(Instant::now() < deadline, "the LocalService peer never connected");
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => break Err(e.to_string()),
+        }
+    };
+    let err = outcome.expect_err("a peer of another user must be refused");
+    assert!(err.contains("another user"), "refused for its user: {err}");
+}
+
+/// The LocalService peer's body: connects to the waiting listener.
+#[test]
+#[ignore = "run by the hosted runner's LocalService scheduled task"]
+fn other_user_child() {
+    let path = std::path::Path::new(OTHER_USER_DIR).join("s.sock");
+    let identity = win::current_identity().unwrap();
+    std::fs::write(std::path::Path::new(OTHER_USER_DIR).join("child-user"), identity.user_sid)
+        .unwrap();
+    let mut stream = cmux::local_socket::connect(&path).expect("peer connect");
+    let _ = stream.write_all(b"peer");
+}
