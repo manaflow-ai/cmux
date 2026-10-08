@@ -254,8 +254,8 @@ private struct CloudTreeDevicesMenuButton: View {
         .fixedSize()
         .onHover { isHovered = $0 }
         .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
         .accessibilityIdentifier("DevicesOptionsMenu")
-        .accessibilityElement(children: .ignore)
     }
 }
