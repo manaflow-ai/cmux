@@ -1440,6 +1440,8 @@ jobs:
         with:
           name: cmux-nightly-unsigned-app
           path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
+          # The tar.gz is already compressed; avoid wasting runner CPU on outer deflate.
+          compression-level: 0
           if-no-files-found: error
           retention-days: 1
 
