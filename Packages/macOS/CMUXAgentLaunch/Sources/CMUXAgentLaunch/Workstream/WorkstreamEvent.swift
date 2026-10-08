@@ -24,6 +24,10 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let ppid: Int?
     public let receivedAt: Date
     public let extraFieldsJSON: String?
+    /// Whether this notification is the provider's structured idle reminder.
+    /// The marker is extracted while decoding the socket frame so main-actor
+    /// lifecycle reducers do not parse arbitrary agent JSON.
+    public let isIdleReminder: Bool
 
     public init(
         sessionId: String,
@@ -40,7 +44,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         requestId: String? = nil,
         ppid: Int? = nil,
         receivedAt: Date = Date(),
-        extraFieldsJSON: String? = nil
+        extraFieldsJSON: String? = nil,
+        isIdleReminder: Bool = false
     ) {
         self.sessionId = sessionId
         self.hookEventName = hookEventName
@@ -57,6 +62,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.ppid = ppid
         self.receivedAt = receivedAt
         self.extraFieldsJSON = extraFieldsJSON
+        self.isIdleReminder = isIdleReminder
     }
 
     /// Hook event discriminator. Values match the strings Vibe Island and
@@ -124,6 +130,11 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
             extra[key.stringValue] = try dynamic.decode(AnyJSON.self, forKey: key)
         }
         self.extraFieldsJSON = extra.isEmpty ? nil : AnyJSON.object(extra).asJSONString
+        self.isIdleReminder = hookEventName == .notification
+            && ["notification_type", "reason"].contains { key in
+                guard case .string(let value) = extra[key] else { return false }
+                return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
+            }
         // tool_input can be any JSON shape (object, array, scalar, string).
         // We normalize to a string: incoming objects/arrays are re-serialized
         // via JSONSerialization; incoming strings are stored verbatim so

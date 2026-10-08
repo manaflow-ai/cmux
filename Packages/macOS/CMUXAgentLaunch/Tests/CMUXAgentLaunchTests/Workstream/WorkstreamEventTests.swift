@@ -93,6 +93,24 @@ struct WorkstreamEventTests {
         #expect(event.ppid == nil)
     }
 
+    @Test("Decodes structured idle reminders without retaining a JSON parser in reducers")
+    func decodesIdleReminderMarker() throws {
+        for (field, value) in [("notification_type", "idle_prompt"), ("reason", "IDLE_PROMPT")] {
+            let json = """
+            {
+              "session_id": "grok-session",
+              "hook_event_name": "Notification",
+              "_source": "grok",
+              "\(field)": "\(value)",
+              "message": "Waiting for input"
+            }
+            """.data(using: .utf8)!
+
+            let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+            #expect(event.isIdleReminder)
+        }
+    }
+
     @Test("Codex CLI lifecycle feed events decode at the app boundary")
     func codexLifecycleFeedEventsDecode() throws {
         let cases: [(String, WorkstreamEvent.HookEventName)] = [

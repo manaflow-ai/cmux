@@ -3226,6 +3226,41 @@ extension CLINotifyProcessIntegrationRegressionTests {
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["runtimeStatus"] as? String, "idle")
 
+        let resumedSessionID = "grok-resumed-after-stop"
+        let resumedCommandStart = state.commands.count
+        _ = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        _ = runGrokHook(
+            "user-prompt-submit",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"first turn"}"#
+        )
+        _ = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        _ = runGrokHook(
+            "user-prompt-submit",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"second turn"}"#
+        )
+        let resumedReminder = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"Stale waiting reminder"}"#
+        )
+        XCTAssertFalse(resumedReminder.timedOut, resumedReminder.stderr)
+        XCTAssertEqual(resumedReminder.status, 0, resumedReminder.stderr)
+        let resumedCommands = Array(state.commands.dropFirst(resumedCommandStart))
+        XCTAssertFalse(
+            resumedCommands.contains { $0.contains("set_status grok Grok needs input") },
+            "A stale idle reminder after a new prompt must not revive Grok, saw \(resumedCommands)"
+        )
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let resumedSession = try XCTUnwrap(sessions[resumedSessionID] as? [String: Any])
+        XCTAssertEqual(resumedSession["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(resumedSession["runtimeStatus"] as? String, "running")
+
         let endedSessionID = "grok-session-end-order"
         _ = runGrokHook(
             "session-start",
@@ -3244,10 +3279,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-end",
             input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionEnd"}"#
         )
-        _ = runGrokHook(
+        let lateReminder = runGrokHook(
             "notification",
             input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"Late waiting reminder"}"#
         )
+        XCTAssertFalse(lateReminder.timedOut, lateReminder.stderr)
+        XCTAssertEqual(lateReminder.status, 0, lateReminder.stderr)
         let endedReminderCommands = Array(state.commands.dropFirst(endedReminderStart))
         XCTAssertFalse(
             endedReminderCommands.contains { $0.contains("set_status grok Grok needs input") },

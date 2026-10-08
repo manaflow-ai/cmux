@@ -38974,12 +38974,16 @@ export default {
             // reminder visible while preserving the completed session's idle
             // lifecycle; otherwise this late event revives the pane as Needs
             // input. The Claude-specific path applies the same rule above.
-            let idleReminderForCompletedSession = summary.notifyCategory == .idleReminder
+            let idleReminderForSettledSession = summary.notifyCategory == .idleReminder
                 && summary.status == .needsInput
+                && (mapped?.agentLifecycle == .idle || mapped?.agentLifecycle == .running)
+            let idleReminderForCompletedSession = idleReminderForSettledSession
                 && mapped?.agentLifecycle == .idle
+            let idleReminderForActiveSession = idleReminderForSettledSession
+                && mapped?.agentLifecycle == .running
             let idleReminderAfterSessionEnd = idleReminderForCompletedSession
                 && mapped?.hookEventName == "SessionEnd"
-            let suppressIdleReminderState = suppressPendingWaitingState || idleReminderForCompletedSession
+            let suppressIdleReminderState = suppressPendingWaitingState || idleReminderForSettledSession
 
 #if DEBUG
             agentHookDebugLog(
@@ -39080,10 +39084,12 @@ export default {
                 )
                 let lifecycle = idleReminderForCompletedSession
                     ? .idle
-                    : (suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status))
-                let storedRuntimeStatus: AgentHookRuntimeStatus? = idleReminderForCompletedSession
+                    : (idleReminderForActiveSession ? .running :
+                        (suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)))
+                let storedRuntimeStatus = idleReminderForCompletedSession
                     ? .idle
-                    : (suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status))
+                    : (idleReminderForActiveSession ? .running :
+                        (suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)))
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (notificationCompletesTurn
@@ -39104,7 +39110,8 @@ export default {
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
-                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle),
+                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle)
+                            && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
@@ -39128,7 +39135,8 @@ export default {
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
-                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle),
+                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle)
+                            && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,
                         deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil

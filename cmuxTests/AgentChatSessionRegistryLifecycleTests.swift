@@ -54,7 +54,8 @@ struct AgentChatSessionRegistryLifecycleTests {
                 source: source,
                 surfaceId: surfaceID,
                 receivedAt: times.idle,
-                extraFieldsJSON: extraFields
+                extraFieldsJSON: extraFields,
+                isIdleReminder: true
             ))
             #expect(delayedIdle.state == .idle)
 
@@ -73,9 +74,45 @@ struct AgentChatSessionRegistryLifecycleTests {
                 source: source,
                 surfaceId: surfaceID,
                 receivedAt: times.lateIdle,
-                extraFieldsJSON: extraFields
+                extraFieldsJSON: extraFields,
+                isIdleReminder: true
             ))
             #expect(lateIdle.state == .ended)
+
+            let resumedSessionID = "\(source)-resumed-session"
+            let resumed = AgentChatSessionRegistry()
+            resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .sessionStart,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.start
+            ))
+            resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .stop,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.stop
+            ))
+            let resumedPrompt = resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .userPromptSubmit,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.idle
+            ))
+            #expect(resumedPrompt.state == .working)
+            let lateAfterResume = resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .notification,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.lateIdle,
+                extraFieldsJSON: extraFields,
+                isIdleReminder: true
+            ))
+            #expect(lateAfterResume.state == .working)
         }
     }
 
