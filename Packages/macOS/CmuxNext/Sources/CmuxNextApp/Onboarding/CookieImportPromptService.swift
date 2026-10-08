@@ -57,7 +57,7 @@ final class CookieImportPromptService {
     private func page(_ url: URL, _ entry: BrowserEntry) -> CookieImportPage {
         let tab = entry.tab
         let personal = !OffTheRecordProfiles.shared.isOffTheRecord(tab.profileID) && !tab.isAgentDriven
-            && tab.profileID.rawValue != AgentBrowserProfile.id
+            && tab.profileID.rawValue.uuidString.lowercased() != AgentBrowserProfile.id.lowercased()
         return CookieImportPage(url: url, isChromium: tab.engineKind == .cef, isPersonal: personal,
                                 showsOtherNotice: entry.chrome.noticeText != nil)
     }
