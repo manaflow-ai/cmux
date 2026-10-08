@@ -23,8 +23,8 @@ private final class RevealSignalLog {
     }
 }
 
-@Suite(.serialized)
 @MainActor
+@Suite(.serialized, .exclusiveAppContext)
 struct SidebarHiddenPresentationTests {
     @Test
     func focusBoundaryUsesScrollableRespondersVisibleRect() throws {
