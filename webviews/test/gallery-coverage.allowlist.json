@@ -69,7 +69,6 @@
     "agent-session/acpmux/changes/FileMenu.tsx#FileMenu",
     "agent-session/acpmux/changes/HunkActions.tsx#HunkActions",
     "agent-session/acpmux/changes/LoadState.tsx#LoadState",
-    "agent-session/acpmux/changes/OptionsMenu.tsx#OptionsMenu",
     "agent-session/acpmux/changes/RevertBar.tsx#RevertBar",
     "agent-session/acpmux/changes/ScopeMenu.tsx#ScopeMenu",
     "agent-session/acpmux/changes/TrackedOnlyBanner.tsx#TrackedOnlyBanner",
