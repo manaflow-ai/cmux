@@ -173,6 +173,36 @@ struct BrowserReplRenderHostTests {
         #expect(panel.isWebViewVisibleInPane)
     }
 
+    /// A key-window transition must not release a render host while the
+    /// original pane hierarchy is still hidden.
+    @Test func renderHostStaysWhenPaneHidesBeforeWindowBecomesKey() async throws {
+        let (window, _, panel, paneHost) = try makePane(key: false)
+        defer { window.orderOut(nil) }
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        #expect(attachment.isInRenderWindow)
+        paneHost.isHidden = true
+        defer { paneHost.isHidden = false }
+
+        window.reportsKey = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        await Task.yield()
+
+        #expect(attachment.isInRenderWindow)
+        #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
+        #expect(attachment.isMirroringPane)
+
+        paneHost.isHidden = false
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        await Task.yield()
+
+        #expect(!attachment.isInRenderWindow)
+        #expect(panel.webView.window === window)
+    }
+
     @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() async throws {
         // The user works in another app: the page needs a key window for
         // focus and hover, and the pane must not go blank meanwhile.

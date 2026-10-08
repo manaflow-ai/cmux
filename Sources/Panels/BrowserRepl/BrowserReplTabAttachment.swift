@@ -386,9 +386,14 @@ final class BrowserReplTabAttachment {
         let shown = panel.isWebViewVisibleInPane
         let paneWindow = renderHostWebView === webView ? renderHost?.paneWindow : webView.window
         // The pane flag can lead the hierarchy while a workspace is changing.
-        // Never route native input back into a hidden WebView during that gap.
+        // Once a host is active, use its retained pane hierarchy because the
+        // WebView itself now belongs to the render window.
+        let paneHierarchyIsVisible = renderHost?.paneHierarchyIsVisible
+            ?? webView.cmuxBrowserViewportAttachmentSuperview.map {
+                !$0.isHiddenOrHasHiddenAncestor
+            }
         if shown,
-           !webView.isHiddenOrHasHiddenAncestor,
+           paneHierarchyIsVisible == true,
            paneWindow?.isKeyWindow == true {
             releaseRenderHost()
             return
@@ -422,7 +427,7 @@ final class BrowserReplTabAttachment {
                 object: window,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.releaseRenderHost() }
+                Task { @MainActor [weak self] in self?.keepRendering() }
             }
             pageDidChange()
         }
