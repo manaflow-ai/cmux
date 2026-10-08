@@ -6,10 +6,27 @@ import Testing
 @Suite struct ProfileBarTests {
     private let a = ProfileKey("default"), b = ProfileKey("prof_b"), c = ProfileKey("prof_c")
 
-    @Test func dotsAreAnchoredLeadingAndThePlusTrailsThem() {
-        // Anchored leading (amendment 2): a new space never moves the others.
-        #expect(ProfileBarLogic.slotXs(count: 2, slot: 10, leading: 8) == [8, 18, 28])
-        #expect(ProfileBarLogic.slotXs(count: 3, slot: 10, leading: 8) == [8, 18, 28, 38])
+    /// cx-5k3r: the strip centers on `center`, clamped into the bar; the
+    /// "+" sits at the trailing edge and is not part of the centering.
+    @Test func theStripCentersAndThePlusStaysAtTheTrailingEdge() {
+        func strip(_ count: Int, center: Double, width: Double = 200, active: Int? = 0) -> SpaceStrip {
+            ProfileBarLogic.strip(count: count, active: active, width: width, center: center, slot: 20, plus: 20,
+                                  fullMinimum: 15, compactMinimum: 8)
+        }
+        let three = strip(3, center: 100)
+        #expect(three.slots.map(\.x) == [70, 90, 110] && three.slots.allSatisfy { $0.width == 20 })
+        #expect(three.midX == 100 && !three.compact)
+        #expect(three.plus.x == 180 && three.plus.width == 20)
+        // Clamped: a center near an edge never pushes a dot out or under the "+".
+        #expect(strip(3, center: 10).slots.first?.x == 0)
+        #expect(strip(3, center: 190).slots.last.map { $0.x + $0.width } == 180)
+        // Too many for full slots: every slot narrows evenly while it can.
+        let ten = strip(10, center: 100)
+        #expect(!ten.compact && ten.slots.allSatisfy { $0.width == 18 } && ten.slots.first?.x == 0)
+        // Then compact: the active space keeps a full slot, the others share the rest.
+        let many = strip(19, center: 100, active: 4)
+        #expect(many.compact && many.slots[4].width == 20 && many.slots[0].width == 160.0 / 18)
+        #expect(abs((many.slots.last.map { $0.x + $0.width } ?? 0) - 180) < 0.001)
     }
 
     @Test func hiddenWithOneRoom() {

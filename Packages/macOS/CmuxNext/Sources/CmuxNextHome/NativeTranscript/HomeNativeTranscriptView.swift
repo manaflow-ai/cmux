@@ -233,8 +233,8 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         // The header's band: a light fade of the window background, shown only
         // near the top; the design system's fades, none under Reduce Motion.
-        let fade = performWithTheme { Palette.surfaceBackground.withAlphaComponent(1) }
-        transcript.setHeaderFade(color: fade, maxAlpha: Palette.legibilityScrimOpacity) { shown in
+        let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
+        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in
             Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
         }
         performWithTheme {
