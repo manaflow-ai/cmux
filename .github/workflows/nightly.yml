@@ -1887,6 +1887,7 @@ jobs:
           security list-keychains -d user -s build.keychain
 
       - name: Start Computer Use helper notarization
+        if: needs.decide.outputs.fast_build != 'true'
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -1971,7 +1972,15 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          CMUX_SIGN_MODE=all-except-computer-use \
+          # Published Nightly and RC builds preserve the split helper ticket.
+          # Fast dogfood has no Apple ticket, so sign the nested helper in the
+          # normal inside-out pass instead of leaving it unsigned.
+          if [ "$NIGHTLY_FAST_BUILD" = "true" ]; then
+            sign_mode=all
+          else
+            sign_mode=all-except-computer-use
+          fi
+          CMUX_SIGN_MODE="$sign_mode" \
             ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
             "$CHANNEL_ENTITLEMENTS" \
@@ -2011,6 +2020,8 @@ jobs:
             "$CHANNEL_APP_PATH"
 
       - name: Notarize app ticket through final DMG
+        id: notarize-nightly
+        if: needs.decide.outputs.fast_build != 'true'
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -2024,7 +2035,36 @@ jobs:
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
 
+      # A timed-out Apple submission remains usable, but only with the exact
+      # signed DMG that produced its ID. Retain that image, app, and sidecars
+      # for a follow-up workflow; this artifact is never part of publication.
+      - name: Upload pending notarization recovery artifact
+        if: failure() && needs.decide.outputs.fast_build != 'true' && steps.notarize-nightly.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          path: |
+            ${{ env.NIGHTLY_DMG_RELEASE }}
+            ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
+            ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.log
+            ${{ env.CHANNEL_APP_PATH }}
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Package signed fast dogfood DMG
+        if: needs.decide.outputs.fast_build == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
+          CMUX_SKIP_NOTARIZATION: "true"
+        run: |
+          ./scripts/ci/notarize-nightly-dmg.sh \
+            "$CHANNEL_APP_PATH" \
+            "$NIGHTLY_DMG_RELEASE" \
+            "$NIGHTLY_DMG_IMMUTABLE"
+
       - name: Gate distribution with syspolicy_check
+        if: needs.decide.outputs.fast_build != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)

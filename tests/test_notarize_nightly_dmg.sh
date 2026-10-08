@@ -58,7 +58,16 @@ if [ "${1:-}" = "notarytool" ]; then
   printf 'notary-key %s\n' "$key" >> "$CMUX_TEST_CALL_LOG"
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
+  if [ "${CMUX_TEST_NOTARY_TIMEOUT:-0}" = 1 ]; then
+    # notarytool writes a timeout response to stderr. The submission remains
+    # In Progress and must never reach the stapling or publication path.
+    printf '{"message":"Timeout of 25m reached before processing completed.","id":"fixture-id"}\n' >&2
+    exit 1
+  fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
+fi
+if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
+  printf '{"id":"fixture-id","status":"In Progress","message":"still processing"}\n' >&2
 fi
 EOF
 
@@ -107,8 +116,9 @@ chmod +x "$FAKE_BIN"/*
 FIXTURE_P8_BASE64="$(printf 'fixture-p8' | base64)"
 
 run_helper() {
+  local app="${1:-$APP}" dmg="${2:-$DMG}" immutable="${3:-$IMMUTABLE}"
   CMUX_TEST_CALL_LOG="$LOG" \
-  CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_TEST_SOURCE_APP="$app" \
   CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried" \
   CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
   CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
@@ -126,10 +136,15 @@ run_helper() {
   ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
   ASC_API_KEY_P8_BASE64="${TEST_ASC_API_KEY_P8_BASE64-$FIXTURE_P8_BASE64}" \
   APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
-  "$SCRIPT" "$APP" "$DMG" "$IMMUTABLE"
+  "$SCRIPT" "$app" "$dmg" "$immutable"
 }
 
 run_helper
+
+if [ -e "$DMG.notarization.state" ] || [ -e "$DMG.notarization.log" ]; then
+  echo "FAIL: accepted notarization must not leave resumable sidecars" >&2
+  exit 1
+fi
 
 if ! grep -Fxq \
   "notarize-helper --finish $HELPER_STATE $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
@@ -159,6 +174,18 @@ for missing in TEST_ASC_API_KEY_ID TEST_ASC_API_ISSUER_ID TEST_ASC_API_KEY_P8_BA
     exit 1
   fi
 done
+before_custom_sidecar_submit="$(grep -c '^xcrun notarytool submit ' "$LOG" || true)"
+if CMUX_NOTARY_SUBMISSION_FILE="$TMP_DIR/missing-notary/state" \
+  CMUX_NOTARY_OUTPUT_FILE="$TMP_DIR/missing-notary/output" \
+  run_helper >/dev/null 2>&1; then
+  echo "FAIL: missing custom notary sidecar directory unexpectedly succeeded" >&2
+  exit 1
+fi
+after_custom_sidecar_submit="$(grep -c '^xcrun notarytool submit ' "$LOG" || true)"
+if [ "$after_custom_sidecar_submit" != "$before_custom_sidecar_submit" ]; then
+  echo "FAIL: custom sidecar path must be validated before submission" >&2
+  exit 1
+fi
 echo "PASS: nightly notarization uses the team API key and deletes it"
 if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 1 ]; then
   echo "FAIL: expected exactly one notarization submission" >&2
@@ -232,6 +259,44 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
+# A timeout response is emitted on stderr by notarytool. Preserve that output,
+# extract its submission id, and retain a state file for a follow-up wait. The
+# current job must still fail closed because no Accepted ticket exists yet.
+: > "$LOG"
+TIMEOUT_STATE="$TMP_DIR/cmux-nightly-timeout.state"
+TIMEOUT_OUTPUT="$TMP_DIR/cmux-nightly-timeout.log"
+rm -f "$TIMEOUT_STATE" "$TIMEOUT_OUTPUT"
+rm -rf "$TMP_DIR/cmux-nightly-mount"
+if CMUX_TEST_NOTARY_TIMEOUT=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$TIMEOUT_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$TIMEOUT_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/timeout.err"; then
+  echo "FAIL: a timed-out notarization unexpectedly succeeded" >&2
+  exit 1
+fi
+if ! grep -q "submission fixture-id" "$TMP_DIR/timeout.err" \
+  || ! grep -q "Timeout of 25m reached" "$TIMEOUT_OUTPUT" \
+  || ! grep -q "still processing" "$TIMEOUT_OUTPUT"; then
+  echo "FAIL: timed-out notarization did not preserve its id and diagnostics" >&2
+  cat "$TMP_DIR/timeout.err" "$TIMEOUT_OUTPUT" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_id=fixture-id" "$TIMEOUT_STATE" \
+  || ! grep -Fxq "status=unknown" "$TIMEOUT_STATE" \
+  || ! grep -Fxq "dmg_path=$DMG" "$TIMEOUT_STATE"; then
+  echo "FAIL: timed-out notarization state was not persisted" >&2
+  cat "$TIMEOUT_STATE" >&2
+  exit 1
+fi
+if ! grep -q '^xcrun notarytool log fixture-id ' "$LOG"; then
+  echo "FAIL: timeout path did not request the Apple notarization log" >&2
+  exit 1
+fi
+if grep -Fq 'xcrun stapler staple' "$LOG"; then
+  echo "FAIL: a timed-out DMG must not be stapled" >&2
+  exit 1
+fi
+
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
 
 # The RC channel reuses the same packaging path and only switches the
@@ -273,3 +338,33 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
   exit 1
 fi
 echo "PASS: rc channel packaging selects rc entitlements and metadata checks"
+
+# Fast dogfood keeps Developer ID signing and DMG creation but bypasses both
+# Computer Use and outer notarization. It must work without Apple API secrets,
+# and the signed image still becomes the internal immutable artifact.
+: > "$LOG"
+FAST_DMG="$TMP_DIR/cmux-fast-dogfood.dmg"
+FAST_IMMUTABLE="$TMP_DIR/cmux-fast-dogfood-immutable.dmg"
+if ! (
+  CMUX_SKIP_NOTARIZATION=true \
+  TEST_ASC_API_KEY_ID= \
+  TEST_ASC_API_ISSUER_ID= \
+  TEST_ASC_API_KEY_P8_BASE64= \
+  run_helper "$APP" "$FAST_DMG" "$FAST_IMMUTABLE"
+); then
+  echo "FAIL: fast dogfood packaging should sign without notarization secrets" >&2
+  exit 1
+fi
+if grep -q '^xcrun notarytool ' "$LOG" || grep -q '^notarize-helper ' "$LOG"; then
+  echo "FAIL: fast dogfood packaging must skip helper and outer notarization" >&2
+  exit 1
+fi
+if ! grep -q "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $FAST_DMG" "$LOG"; then
+  echo "FAIL: fast dogfood packaging must still codesign the DMG" >&2
+  exit 1
+fi
+if [ ! -f "$FAST_IMMUTABLE" ] || ! cmp -s "$FAST_DMG" "$FAST_IMMUTABLE"; then
+  echo "FAIL: fast dogfood packaging did not preserve the immutable DMG" >&2
+  exit 1
+fi
+echo "PASS: fast dogfood packaging skips notarization but retains signing"
