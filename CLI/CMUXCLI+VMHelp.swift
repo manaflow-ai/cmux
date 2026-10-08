@@ -96,7 +96,7 @@ extension CMUXCLI {
         switch failure {
         case .planLimit(let resource, let requested, let maximum):
             return cloudVMResizePlanError(planID: planID, resource: resource, requested: requested, maximum: maximum)
-        case .notLarger(let resource, let requested, let current):
+        case .notLarger(let resource, _, let current):
             let resourceName = cloudVMResizeResourceLabel(resource)
             return CLIError(message: String(
                 format: String(

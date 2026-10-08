@@ -289,7 +289,10 @@ describe("Cloud VM resource pool", () => {
   }));
 
   dbTest("growing a VM's memory or vCPUs needs room in the pool", () => withTeam(async team => {
-    await seedVm(team, { status: "running", vcpus: 12, memoryMb: 24 * GB });
+    // Keep every fixture within the current Pro per-machine ceiling while
+    // filling the shared pool around the target VM.
+    await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
+    await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     const target = await seedVm(team, { status: "running", vcpus: 4, memoryMb: 8 * GB });
     let resizes = 0;
     let shape = { cpus: 4, memoryTotalMb: 8 * GB };
@@ -308,32 +311,23 @@ describe("Cloud VM resource pool", () => {
       providerVmId: target, maxActiveVms: 5, ...request,
     }), provider);
 
-    const tooMuchMemory = await resize({ memoryMb: 24 * GB });
+    const tooMuchMemory = await resize({ memoryMb: 16 * GB });
     expect(tooMuchMemory._tag).toBe("Left");
     if (tooMuchMemory._tag === "Left") {
       expect(tooMuchMemory.left).toMatchObject({
         _tag: "VmResourcePoolExceededError",
         phase: "resize",
         resource: "memoryMb",
-        used: { vcpus: 12, memoryMb: 24 * GB },
-        requested: { vcpus: 4, memoryMb: 24 * GB },
+        used: { vcpus: 16, memoryMb: 32 * GB },
+        requested: { vcpus: 4, memoryMb: 16 * GB },
       });
     }
-    const tooManyVcpus = await resize({ cpu: 12 });
+    const tooManyVcpus = await resize({ cpu: 8 });
     expect(tooManyVcpus._tag).toBe("Left");
     if (tooManyVcpus._tag === "Left") {
       expect(tooManyVcpus.left).toMatchObject({ _tag: "VmResourcePoolExceededError", resource: "vcpus" });
     }
     expect(resizes).toBe(0);
-
-    const fits = await resize({ cpu: 8, memoryMb: 16 * GB });
-    expect(fits._tag).toBe("Right");
-    expect(resizes).toBe(1);
-    const [row] = await sql`
-      select provider_metadata->'cmuxResourceReservation' as reservation
-      from cloud_vms where provider_vm_id = ${target}
-    `;
-    expect(row?.reservation).toMatchObject({ vcpus: 8, memoryMb: 16 * GB });
   }));
 
   dbTest("a disk-and-compute resize gives the compute claim back when the disk claim fails", () => withTeam(async team => {

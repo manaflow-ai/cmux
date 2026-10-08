@@ -13930,6 +13930,7 @@
 			mainGroup = A5001040;
 			packageReferences = (
 				C10DC1000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloud" */,
+				D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudResizeCore" */,
 				C1D7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTui" */,
 				5CA7A1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSurfaceCatalogModel" */,
 				3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */,
@@ -19188,6 +19189,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloud;
 		};
+		D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudResizeCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCloudResizeCore;
+		};
 		C1D7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTui" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudTui;
@@ -19504,7 +19509,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		C10DC1000000000000000005 /* CmuxCloudResizeCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C10DC1000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloud" */;
+			package = D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudResizeCore" */;
 			productName = CmuxCloudResizeCore;
 		};
 		C10DC1000000000000000002 /* CmuxCloud */ = {

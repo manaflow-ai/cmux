@@ -249,12 +249,17 @@ public struct CloudVMResizePlanValidator: Sendable {
     /// Converts a JSON-compatible numeric value to a nonnegative integer.
     private func nonNegativeLimit(_ raw: Any?) -> Int? {
         let value: Int?
-        if raw is Bool {
+        if let number = raw as? NSNumber {
+            // JSONSerialization bridges both JSON numbers and booleans to
+            // NSNumber on Darwin. Check the Core Foundation type before
+            // converting so false/true cannot become 0/1, while numeric 0/1
+            // remain valid capacity values.
+            guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else {
+                return nil
+            }
+            value = Int(exactly: number.doubleValue)
+        } else if raw is Bool {
             value = nil
-        } else if let raw = raw as? NSNumber,
-                  CFGetTypeID(raw) != CFBooleanGetTypeID(),
-                  raw.doubleValue.isFinite {
-            value = Int(exactly: raw.doubleValue)
         } else if let raw = raw as? Int {
             value = raw
         } else if let raw = raw as? Int64 {

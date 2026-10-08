@@ -168,6 +168,31 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func jsonSerializationKeepsNumericZeroAndOneDistinctFromBooleans() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "trueValue": true,
+            "falseValue": false,
+            "zero": 0,
+            "one": 1,
+            "poolVcpus": 20,
+            "poolMemoryMb": 40960,
+            "usedVcpus": 0,
+            "usedMemoryMb": 0,
+        ])
+        let decoded = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let validator = CloudVMResizePlanValidator()
+
+        #expect(validator.positiveLimit(decoded["trueValue"]) == nil)
+        #expect(validator.positiveLimit(decoded["falseValue"]) == nil)
+        #expect(validator.positiveLimit(decoded["zero"]) == nil)
+        #expect(validator.positiveLimit(decoded["one"]) == 1)
+
+        let pool = try #require(CloudVMResourcePool(limits: decoded))
+        #expect(pool.usedVcpus == 0)
+        #expect(pool.usedMemoryMb == 0)
+    }
+
+    @Test
     func memoryOverflowIsReportedBeforeVcpus() throws {
         let pool = try #require(CloudVMResourcePool(limits: Self.proLimits))
         #expect(pool.shortfall(vcpus: 4, memoryMb: 8192) == nil)

@@ -6,7 +6,6 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "CmuxCloud", targets: ["CmuxCloud"]),
-        .library(name: "CmuxCloudResizeCore", targets: ["CmuxCloudResizeCore"])
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXAuthCore"),
@@ -25,17 +24,14 @@ let package = Package(
         .package(path: "../CmuxPhonePush"),
         .package(path: "../CmuxSettings"),
         .package(path: "../CmuxSurfaceCatalogModel"),
+        .package(path: "../CmuxCloudResizeCore"),
         .package(path: "../CmuxTerminal")
     ],
     targets: [
         .target(
-            name: "CmuxCloudResizeCore",
-            swiftSettings: [.swiftLanguageMode(.v5)]
-        ),
-        .target(
             name: "CmuxCloud",
             dependencies: [
-                "CmuxCloudResizeCore",
+                .product(name: "CmuxCloudResizeCore", package: "CmuxCloudResizeCore"),
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CMUXMobileCore",
@@ -66,7 +62,7 @@ let package = Package(
                 "CMUXMobileCore",
                 "CmuxPhonePush",
                 "CmuxSurfaceCatalogModel",
-                "CmuxCloudResizeCore",
+                .product(name: "CmuxCloudResizeCore", package: "CmuxCloudResizeCore"),
                 // CmuxTerminal binds libghostty, which SwiftPM cannot link here.
                 .product(name: "CmuxTerminalGhosttyRuntimeTestStubs", package: "CmuxTerminal")
             ],

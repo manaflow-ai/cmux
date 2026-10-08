@@ -139,14 +139,24 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     /// Parses a nonnegative integer from an untyped response value.
     private static func nonNegativeInt(_ raw: Any?) -> Int? {
         let value: Int?
-        if raw is Bool {
+        if let number = raw as? NSNumber {
+            // JSONSerialization bridges both JSON numbers and booleans to
+            // NSNumber on Darwin. Check the Core Foundation type before
+            // converting so false/true cannot become 0/1, while numeric 0/1
+            // remain valid usage values.
+            guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else {
+                return nil
+            }
+            value = Int(exactly: number.doubleValue)
+        } else if raw is Bool {
             value = nil
-        } else if let number = raw as? NSNumber,
-                  CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  number.doubleValue.isFinite { value = Int(exactly: number.doubleValue) }
-        else if let int = raw as? Int { value = int }
-        else if let double = raw as? Double, double.isFinite { value = Int(exactly: double) }
-        else { value = nil }
+        } else if let int = raw as? Int {
+            value = int
+        } else if let double = raw as? Double, double.isFinite {
+            value = Int(exactly: double)
+        } else {
+            value = nil
+        }
         guard let value, value >= 0 else { return nil }
         return value
     }
