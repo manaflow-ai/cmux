@@ -86,6 +86,8 @@ Cases:
       row, so option-level contract drift fails instead of staying invisible.
  (ao) The high-level `vm exec` row spells out argv semantics and the explicit
       `sh -c` escape hatch, so it cannot regress to describing a shell fragment.
+ (ap) The family-level VM help keeps the same argv/shell contract visible even
+      before a user asks for `vm exec --help`.
 """
 
 import os
@@ -818,6 +820,17 @@ def case_ao_vm_exec_contract_wording():
         assert required in row, "vm exec row missing {!r}: {}".format(required, row)
 
 
+def case_ap_vm_family_help_contract():
+    contract = open(os.path.join(ROOT_DIR, DOC_RELATIVE), encoding="utf-8").read()
+    probes = [line for line in contract.splitlines() if line.startswith("- `cmux vm --help`")]
+    assert any("intentional argv semantics" in line for line in probes), (
+        "vm family help is missing argv semantics probe"
+    )
+    assert any("sh -c '<script>'" in line for line in probes), (
+        "vm family help is missing explicit shell probe"
+    )
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="cli-contract-verb-guard-") as tmp:
         case_a_real_repo()
@@ -861,6 +874,7 @@ def main():
         case_am_unrelated_type_in_route_file(tmp)
         case_an_option_missing_from_contract_row(tmp)
         case_ao_vm_exec_contract_wording()
+        case_ap_vm_family_help_contract()
     print("test_ci_cli_contract_verb_guard: ok")
     return 0
 

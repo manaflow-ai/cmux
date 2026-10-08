@@ -19088,7 +19088,9 @@ struct CMUXCLI {
               resume <id>               Wake a paused machine; the daemon and terminals return.
               rm <id>                   Destroy a VM.
               exec [--timeout <s>] <id> -- <command...>
-                                        Run a shell command inside the VM and print stdout;
+                                        Run one command with intentional argv semantics: each
+                                        token after -- is one argv element. Shell syntax needs
+                                        an explicit command, for example `sh -c '<script>'`;
                                         --timeout 1…900 seconds (default 30).
               run [--sync] [--pull <remote>] [--machine <id>] [--new] -- <command...>
                                         Run a command without naming a machine: the router
