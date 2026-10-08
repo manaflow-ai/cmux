@@ -182,3 +182,42 @@ pub fn session_refusal(
         }),
     }
 }
+
+/// The question answers rule (a crate rule, stricter than the Swift host
+/// today; `policy.json` `question_answers`): a frame of that method that
+/// carries the answers param breaks it unless its `permissionId` is a pending
+/// question (`is_question`, the host's [`crate::gesture::PermissionOptions`])
+/// and the answers are an object of 1 to `maximum_items` item ids, each id and
+/// each value at most `maximum_value_bytes` UTF-8 bytes, each value a string
+/// or a list of strings (a list's strings counted together).
+pub fn breaks_answers_rule(
+    object: &Map<String, Value>,
+    is_question: impl Fn(&str) -> bool,
+) -> bool {
+    let rule = &policy().question_answers;
+    if object.get("method").and_then(Value::as_str) != Some(rule.method.as_str()) {
+        return false;
+    }
+    let Some(params) = object.get("params").and_then(Value::as_object) else { return false };
+    let Some(answers) = params.get(&rule.param) else { return false };
+    if !params.get("permissionId").and_then(Value::as_str).is_some_and(is_question) {
+        return true;
+    }
+    let Some(answers) = answers.as_object() else { return true };
+    if answers.is_empty() || answers.len() > rule.maximum_items {
+        return true;
+    }
+    let bytes = |value: &Value| -> Option<usize> {
+        match value {
+            Value::String(s) => Some(s.len()),
+            Value::Array(items) => {
+                items.iter().map(|i| i.as_str().map(str::len)).sum::<Option<usize>>()
+            }
+            _ => None,
+        }
+    };
+    answers.iter().any(|(id, value)| {
+        id.len() > rule.maximum_value_bytes
+            || bytes(value).is_none_or(|n| n > rule.maximum_value_bytes)
+    })
+}
