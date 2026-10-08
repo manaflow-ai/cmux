@@ -24,6 +24,68 @@ extension Workspace {
         return panels[panelID]?.transferredSurfaceMachine ?? .local
     }
 
+    /// Returns the machine identity for a terminal surface, including a pane
+    /// owned by a nested remote-tmux window mirror.
+    func sshClipboardMachine(
+        for panelID: UUID,
+        ownership: SSHClipboardWriteSurfaceOwnershipIndex
+    ) -> SurfaceMachineID? {
+        if let machine = ownership.machine(for: panelID) {
+            return machine
+        }
+
+        let mirrorContainerID = remoteTmuxWindowMirrors.first(where: { _, mirror in
+            mirror.panelsByPaneId.values.contains { $0.id == panelID }
+        })?.key
+        if let containerID = mirrorContainerID {
+            if let machine = ownership.machine(for: containerID) {
+                return machine
+            }
+            if let configuration = remoteConfiguration,
+               configuration.transport == .ssh {
+                return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+            }
+        }
+
+        guard let panel = panels[panelID] else { return nil }
+        if let configuration = remoteConfiguration,
+           configuration.transport == .ssh,
+           panel.surface.ioMode == .manualMirror {
+            return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+        }
+        if let resource = (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.cloudResource {
+            return resource.machine
+        }
+        if let reservation = cloudPendingCreations[panelID] {
+            return reservation.machine
+        }
+        if activeRemoteTerminalSurfaceIds.contains(panelID),
+           let machine = remoteConfiguration?.managedCloudVMID {
+            return .cloud(machine)
+        }
+        return panel.transferredSurfaceMachine ?? .local
+    }
+
+    /// Reconciles every live terminal surface owned by `machine` from the
+    /// injected trust store, including panes outside `Workspace.panels`.
+    func applySSHClipboardWritePermission(
+        for machine: SurfaceMachineID,
+        ownership: SSHClipboardWriteSurfaceOwnershipIndex
+    ) {
+        let allowed = sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine)
+        for panel in panels.values.compactMap({ $0 as? TerminalPanel })
+        where sshClipboardMachine(for: panel.id, ownership: ownership) == machine {
+            panel.surface.setAllowsRemoteClipboardWrites(allowed)
+        }
+
+        for (containerID, mirror) in remoteTmuxWindowMirrors
+        where sshClipboardMachine(for: containerID, ownership: ownership) == machine {
+            for panel in mirror.panelsByPaneId.values {
+                panel.surface.setAllowsRemoteClipboardWrites(allowed)
+            }
+        }
+    }
+
     func surfaceDropRejection(
         _ transfer: PaneDragTransfer,
         source: PaneTransferSourceResolver.Source

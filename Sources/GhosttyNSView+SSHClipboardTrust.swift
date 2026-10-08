@@ -8,7 +8,7 @@ extension GhosttyNSView {
     @discardableResult
     func appendSSHClipboardWriteTrustMenuItem(to menu: NSMenu) -> Bool {
         guard let machine = currentSSHClipboardMachine else { return false }
-        let store = SSHClipboardWriteTrustStore.shared
+        let store = sshClipboardWriteTrustStore
         let item = menu.addItem(
             withTitle: String(
                 localized: "terminalContextMenu.allowSSHClipboardWrites",
@@ -29,11 +29,10 @@ extension GhosttyNSView {
 
     @objc private func toggleSSHClipboardWriteTrust(_ sender: NSMenuItem) {
         guard let machine = currentSSHClipboardMachine else { return }
-        let store = SSHClipboardWriteTrustStore.shared
+        let store = sshClipboardWriteTrustStore
         let trusted = !store.isTrusted(machine)
         store.setTrusted(trusted, for: machine)
-        let allowed = store.allowsRemoteClipboardWrites(for: machine)
-        applySSHClipboardWritePermission(allowed, for: machine)
+        applySSHClipboardWritePermission(for: machine)
     }
 
     /// Applies a trust change to every live host of an SSH terminal. A surface
@@ -41,36 +40,37 @@ extension GhosttyNSView {
     /// remote projection is still pending; enumerating owners instead of only
     /// catalog projections keeps the current callback policy synchronized in
     /// each case. Newly materialized panes still read the same store at init.
-    private func applySSHClipboardWritePermission(
-        _ allowed: Bool,
-        for machine: SurfaceMachineID
-    ) {
+    private func applySSHClipboardWritePermission(for machine: SurfaceMachineID) {
+        let allowed = sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine)
+        guard let app = AppDelegate.shared else { return }
+        let catalog = SurfaceCatalog.shared
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(catalog: catalog)
+
         // The menu is opened by this view, so update its surface even when the
         // panel has not entered the catalog yet (the restore/pending case).
         terminalSurface?.setAllowsRemoteClipboardWrites(allowed)
 
-        guard let app = AppDelegate.shared else { return }
-        let catalog = SurfaceCatalog.shared
-
         for workspace in app.mainWindowContexts.values.flatMap({ $0.tabManager.tabs }) {
-            for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel })
-            where workspace.machineOwningSurface(panel.id, catalog: catalog) == machine {
-                panel.surface.setAllowsRemoteClipboardWrites(allowed)
-            }
+            workspace.applySSHClipboardWritePermission(for: machine, ownership: ownership)
         }
 
         for dock in DockSplitStore.liveStores {
             for panel in dock.panels.values.compactMap({ $0 as? TerminalPanel })
-            where dock.machineOwningSurface(panel.id) == machine {
+            where ownership.machine(for: panel.id) ?? panel.transferredSurfaceMachine == machine {
                 panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }
         }
     }
 
     private var currentSSHClipboardMachine: SurfaceMachineID? {
-        guard let surfaceID = terminalSurface?.id,
-              let machine = SurfaceCatalog.shared.machineOwningPanel(surfaceID),
-              machine.isSSH else {
+        guard let surfaceID = terminalSurface?.id else { return nil }
+        let catalog = SurfaceCatalog.shared
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(catalog: catalog)
+        let machine = terminalSurface?.owningWorkspace()?.sshClipboardMachine(
+            for: surfaceID,
+            ownership: ownership
+        ) ?? ownership.machine(for: surfaceID)
+        guard let machine, machine.isSSH else {
             return nil
         }
         return machine

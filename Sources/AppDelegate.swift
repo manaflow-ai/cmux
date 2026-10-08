@@ -560,6 +560,8 @@ final class CmuxMainThreadTurnProfiler {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     let cloudBannerDismissalStore: CloudBannerDismissalStore
+    /// Composition-root owner for the persisted per-SSH-machine clipboard-write policy.
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     private(set) var devicesRegistry: DeviceSurfaceProviderRegistry?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -572,7 +574,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     lazy var sshTuiWorkspaceCoordinator = SSHTuiWorkspaceCoordinator(
-        catalog: SurfaceCatalog.shared, clientURL: { CloudTuiClientPaths.clientURL() }, paths: CloudTuiClientPaths()
+        catalog: SurfaceCatalog.shared,
+        clientURL: { CloudTuiClientPaths.clientURL() },
+        paths: CloudTuiClientPaths(),
+        sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
     )
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
@@ -1492,6 +1497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     override init() {
         cloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)
+        sshClipboardWriteTrustStore = SSHClipboardWriteTrustStore()
         let fileManager = FileManager.default
         if let bundleIdentifier = Bundle.main.bundleIdentifier,
            !bundleIdentifier.isEmpty,

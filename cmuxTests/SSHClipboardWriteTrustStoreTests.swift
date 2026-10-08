@@ -42,4 +42,24 @@ struct SSHClipboardWriteTrustStoreTests {
         #expect(!reloaded.isTrusted(trusted))
         #expect(!reloaded.allowsRemoteClipboardWrites(for: trusted))
     }
+
+    @Test("ownership index keeps pending mirror wrappers addressable")
+    @MainActor
+    func ownershipIndexIncludesPendingRestoreIdentity() {
+        let wrapperPanelID = UUID()
+        let machine = SurfaceMachineID.ssh("nested-endpoint")
+        let pending = SurfaceProjection(
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_nested"),
+            workspaceID: UUID(),
+            panelID: wrapperPanelID
+        )
+
+        let index = SSHClipboardWriteSurfaceOwnershipIndex(
+            projections: [],
+            pendingRestores: [pending]
+        )
+
+        #expect(index.machine(for: wrapperPanelID) == machine)
+        #expect(index.machine(for: UUID()) == nil)
+    }
 }

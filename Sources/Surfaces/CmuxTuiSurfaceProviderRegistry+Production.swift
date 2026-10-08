@@ -26,6 +26,8 @@ extension CmuxTuiSurfaceProviderRegistry {
                 },
                 breadcrumb: { event, fields in StartupBreadcrumbLog.append(event, fields: fields) }
             ),
+            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
+                ?? SSHClipboardWriteTrustStore(),
             wireGuardHub: hub,
             isCloudEnabled: { CloudMachinesFeature.isEnabled },
             allowsBackgroundWork: {

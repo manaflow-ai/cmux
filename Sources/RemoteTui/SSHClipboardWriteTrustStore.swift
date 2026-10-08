@@ -11,8 +11,6 @@ import Foundation
 /// name. Clipboard reads are intentionally never admitted by this store.
 @MainActor
 final class SSHClipboardWriteTrustStore {
-    static let shared = SSHClipboardWriteTrustStore()
-
     private static let trustedIdentitiesKey = "terminal.sshClipboardWriteTrustedIdentities"
 
     private let defaults: UserDefaults

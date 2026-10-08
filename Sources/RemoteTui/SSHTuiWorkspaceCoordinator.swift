@@ -11,13 +11,20 @@ private let sshTuiWorkspaceLogger = Logger(subsystem: "com.cmuxterm.app", catego
 @MainActor
 final class SSHTuiWorkspaceCoordinator {
     private let catalog: SurfaceCatalog
+    private let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     private let clientURL: () -> URL?
     private let paths: CloudTuiClientPaths
     private var attempts: [UUID: Task<Void, Never>] = [:]
     private let agentStatus: SSHTuiAgentStatusProjector
 
-    init(catalog: SurfaceCatalog, clientURL: @escaping () -> URL?, paths: CloudTuiClientPaths) {
+    init(
+        catalog: SurfaceCatalog,
+        clientURL: @escaping () -> URL?,
+        paths: CloudTuiClientPaths,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
+    ) {
         self.catalog = catalog
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
         self.clientURL = clientURL
         self.paths = paths
         agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
@@ -67,7 +74,10 @@ final class SSHTuiWorkspaceCoordinator {
         let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
                                      isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled },
                                      agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) })
-        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
+        let provider = CmuxTuiSurfaceProvider(
+            summary: .ssh(connection), links: links, catalog: catalog,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
+        )
         catalog.register(provider)
         return provider
     }
