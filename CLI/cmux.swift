@@ -39104,7 +39104,7 @@ export default {
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
-                        updateLastNotificationStatus: !rebuiltFromStoredSummary,
+                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle),
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
@@ -39128,7 +39128,7 @@ export default {
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
-                        updateLastNotificationStatus: !rebuiltFromStoredSummary,
+                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle),
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,
                         deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil
