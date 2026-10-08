@@ -1003,9 +1003,7 @@ impl Mux {
                 |_, state, screens| {
                     // A terminal that exited at once may have closed the screen
                     // already: it was created, and there is nothing to dress.
-                    if locate_screen(state, screen).is_none() {
-                        return Ok(false);
-                    }
+                    let Some((wi, _)) = locate_screen(state, screen) else { return Ok(false) };
                     let public = screen_public_id(state, screen)?;
                     screens.edit(&public, |record| {
                         record.color = spec.color.clone();
@@ -1017,8 +1015,6 @@ impl Mux {
                             .groups
                             .get(group)
                             .with_context(|| format!("unknown screen group {group}"))?;
-                        let (wi, _) =
-                            locate_screen(state, screen).context("new screen disappeared")?;
                         anyhow::ensure!(
                             record.workspace_key == state.workspaces[wi].key,
                             "bad request: a screen can join only a group of its own workspace"
@@ -1026,8 +1022,6 @@ impl Mux {
                         screens.members.insert(public, group.clone());
                     }
                     if let Some(index) = spec.index {
-                        let (wi, _) =
-                            locate_screen(state, screen).context("new screen disappeared")?;
                         place_screens(state, &[screen], wi, wi, Some(index))?;
                     }
                     Ok(true)
