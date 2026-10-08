@@ -94,8 +94,8 @@ final class TabContentCache {
     var findTab: ((String) -> TabModel?)?
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
-    /// Presentation changed (for the blank-pane invariant).
-    var onPresentationChange: (() -> Void)?
+    /// Presentation changed: the blank-pane invariant, the input monitor and the browser host subscribe.
+    let presentationChanges = PresentationChangeSubscribers()
     weak var sessionDelegate: (any TerminalSessionDelegate)?
     /// Routes app shortcuts before a Chromium page window sees them (a CEF
     /// page window is key, so `ShellWindow` never gets the key).
@@ -376,7 +376,7 @@ final class TabContentCache {
         previews.remove(key)
         pageThumbnails.remove(key)
         shownPages.remove(key)
-        onPresentationChange?()
+        presentationChanges.notify()
     }
 }
 

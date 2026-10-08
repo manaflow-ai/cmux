@@ -66,7 +66,13 @@ pub(super) fn move_tab_to_column(
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
             let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, dock };
-            mux.move_tab_to_column_respawning(surface, destination, respawn, transaction)?
+            mux.move_tab_to_column_respawning_as(
+                &origin_gate::connection_actor(mux, client),
+                surface,
+                destination,
+                respawn,
+                transaction,
+            )?
         }
     };
     Ok(tab_drag_outcome_json(&outcome))

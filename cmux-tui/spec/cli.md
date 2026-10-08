@@ -434,7 +434,7 @@ notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface
 agent list|report
 agent plugin list|install|use|update|remove
 pairing request list
-pairing request <selector> respond <accept|reject>
+pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)
 projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload

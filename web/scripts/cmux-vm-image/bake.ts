@@ -63,7 +63,7 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
+import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -334,8 +334,8 @@ async function installMetadataGuard(ctx: Ctx): Promise<void> {
 async function configureSshd(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, SSHD_DROP_IN, sshdDropIn(DEVBOX_WORK_USER), 0o644);
-  const { effective, ss } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
-  const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss)];
+  const { effective, ss, pam } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
+  const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss), ...sshdPamProblems(pam)];
   if (problems.length > 0) throw new Error(`sshd policy:\n${problems.join("\n")}`);
 }
 

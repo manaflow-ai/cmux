@@ -158,7 +158,8 @@ type ChallengeParams = { public_key: string; validity_minutes?: number; presence
 /**
  * Which class this caller may have. A person's signed-in session: either, but `human` only with a
  * fresh presence proof (decision SSH-1). An install token: only `agent` (force-command), with
- * mutate-own, because a token does not show whether a person or an agent holds it (D28). An agent
+ * mutate-own, because a token does not show whether a person or an agent holds it (D28); sshExternal
+ * has already required execute or cloud-link (cx-wb5.66). An agent
  * principal: `agent` only. A team server: nothing (server.md: servers never get SSH access).
  */
 const classFor = (s: TeamState, p: Principal, params: CertParams, rows?: RowReader): "human" | "agent" => {
@@ -424,7 +425,10 @@ export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: st
   const defs = { "team_vm.ssh_cert": TeamVmSshCert, "team_vm.ssh_cert.challenge": TeamVmSshCertChallenge, "team_vm.ssh_cert.revoke": TeamVmSshCertRevoke, "team_vm.ssh_ca.rotate": TeamVmSshCaRotate } as const
   const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
-  if (p.kind === "install" && !p.grant_classes?.includes(def.risk) && frame.op !== "team_vm.ssh_cert") return fail("auth.forbidden", `grant does not cover ${def.risk}`)
+  // No exemption (cx-wb5.66): an install token's certificate request needs execute (the op's risk) or the
+  // explicit cloud-link class (the iPhone and Mac defaults); the certificate it gets is force-command restricted.
+  const covered = p.grant_classes?.includes(def.risk) || (frame.op === "team_vm.ssh_cert" && p.grant_classes?.includes("cloud-link"))
+  if (p.kind === "install" && !covered) return fail("auth.forbidden", frame.op === "team_vm.ssh_cert" ? "grant does not cover execute or cloud-link" : `grant does not cover ${def.risk}`)
   const d = decodeParams<Record<string, unknown>>(def, frame.params)
   if (!d.ok) return fail(d.code, d.message)
   ensureSshTables(deps.sql)

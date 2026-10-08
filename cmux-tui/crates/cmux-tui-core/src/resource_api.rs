@@ -82,6 +82,8 @@ pub struct ResourceMachineRequest {
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
     pub idempotency_key: Option<String>,
+    /// Who sends it, set by the daemon's dispatcher.
+    pub actor: crate::Actor,
 }
 
 pub trait ResourceMachineService: Send + Sync {
@@ -194,7 +196,8 @@ impl LocalResourceMachineService {
         let intent = json!({"session_id":context.session_id});
         let preparation = mux
             .prepare_resource_effect(
-                key,
+                &crate::WorkspaceMutation::new(key, "resource-api", request.actor.clone())
+                    .map_err(operation_failed)?,
                 "session.open",
                 &fingerprint,
                 &intent,
@@ -495,7 +498,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
-        let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
+        let journal_head = registry.session_journal_head()?;
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;

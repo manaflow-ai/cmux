@@ -23,6 +23,9 @@ public nonisolated struct AgentProjectScan: Sendable {
     public var codex: URL
     public var pi: URL
     public var opencode: URL
+    /// cmux's private agent-home folders (`AgentHome.standard`): a folderless workspace's chats
+    /// run in `<workspace-id>` here, which is never a project to pick.
+    public var cmuxAgentHome: URL
     /// The newest session files read per app; older ones add nothing a user would pick.
     public var filesPerApp = 2000
     /// The probes of project folders (existence, listing, symlinks).
@@ -34,6 +37,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         codex = home.appending(path: ".codex")
         pi = home.appending(path: ".pi/agent")
         opencode = home.appending(path: ".local/share/opencode")
+        cmuxAgentHome = home.appending(path: "Library/Application Support/cmux/agent-home")
     }
 
     /// The live locations, honoring `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `PI_CODING_AGENT_DIR`.
@@ -138,7 +142,7 @@ public nonisolated struct AgentProjectScan: Sendable {
     private func keeps(_ project: AgentProject) -> Bool { keeps(folder: project.folder) }
 
     /// False for the home folder, temporary folders, an agent's own folders
-    /// and folders that are gone; privacy-protected folders are kept unlooked-at.
+    /// (cmux's agent-home ones too) and folders that are gone; privacy-protected folders are kept unlooked-at.
     func keeps(folder: URL) -> Bool {
         let path = folder.standardizedFileURL.path
         let homePath = home.standardizedFileURL.path
@@ -148,7 +152,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         where !inHome && (path == temporary || path.hasPrefix(temporary + "/")) {
             return false
         }
-        for agentHome in [claude, codex, pi, opencode] where path.hasPrefix(agentHome.standardizedFileURL.path + "/") {
+        for agentHome in [claude, codex, pi, opencode, cmuxAgentHome] where path.hasPrefix(agentHome.standardizedFileURL.path + "/") {
             return false
         }
         if protectedFolder(of: folder) != nil { return true }

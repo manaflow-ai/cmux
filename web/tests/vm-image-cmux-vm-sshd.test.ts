@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { SSH_CA_FILE, SSH_KRL_FILE, SSH_PRINCIPALS_DIR, sshdDropIn, sshdListenProblems, sshdPolicyProblems } from "../scripts/cmux-vm-image/sshd";
+import {
+  SSHD_PAM_LINE,
+  SSHD_PRINCIPALS_COMMAND,
+  SSH_CA_FILE,
+  SSH_KRL_FILE,
+  splitSshdBakeOutput,
+  sshdDropIn,
+  sshdListenProblems,
+  sshdPamProblems,
+  sshdPolicyProblems,
+} from "../scripts/cmux-vm-image/sshd";
 
 // `sshd -T` prints lowercase keys; this is the effective config the drop-in must produce
 // (OpenSSH 9.6p1 on the Freestyle Ubuntu 24.04 base, cloud-automation.md section 5).
@@ -13,8 +23,11 @@ const GOOD = [
   "pubkeyauthentication yes",
   "authorizedkeysfile none",
   `trustedusercakeys ${SSH_CA_FILE}`,
-  `authorizedprincipalsfile ${SSH_PRINCIPALS_DIR}/%u`,
+  "authorizedprincipalsfile none",
+  `authorizedprincipalscommand ${SSHD_PRINCIPALS_COMMAND}`,
+  "authorizedprincipalscommanduser nobody",
   `revokedkeys ${SSH_KRL_FILE}`,
+  "usepam yes",
   "allowusers cmux",
 ].join("\n");
 
@@ -41,7 +54,18 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
     );
     expect(sshdPolicyProblems(edit("trustedusercakeys", "none"), "cmux")).toContain(`trustedusercakeys is none, want ${SSH_CA_FILE}`);
     expect(sshdPolicyProblems(edit("revokedkeys", null), "cmux")).toContain(`revokedkeys is missing, want ${SSH_KRL_FILE}`);
-    expect(sshdPolicyProblems(edit("authorizedprincipalsfile", "none"), "cmux")).toContain(`authorizedprincipalsfile is none, want ${SSH_PRINCIPALS_DIR}/%u`);
+  });
+
+  test("principals come only from the fail-closed command, never from a static file", () => {
+    expect(SSHD_PRINCIPALS_COMMAND).toBe("/opt/cmux/current/bin/cmux host team-ssh principals %u");
+    expect(sshdPolicyProblems(edit("authorizedprincipalsfile", "/etc/cmux/ssh/principals/%u"), "cmux")).toContain(
+      "authorizedprincipalsfile is /etc/cmux/ssh/principals/%u, want none",
+    );
+    expect(sshdPolicyProblems(edit("authorizedprincipalscommand", null), "cmux")).toContain(
+      `authorizedprincipalscommand is missing, want ${SSHD_PRINCIPALS_COMMAND}`,
+    );
+    expect(sshdPolicyProblems(edit("authorizedprincipalscommanduser", "root"), "cmux")).toContain("authorizedprincipalscommanduser is root, want nobody");
+    expect(sshdPolicyProblems(edit("usepam", "no"), "cmux")).toContain("usepam is no, want yes");
   });
 
   test("only the work user may log in", () => {
@@ -59,6 +83,28 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
     expect(sshdListenProblems("LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\n")).toEqual(["port 22 listens on 0.0.0.0:22"]);
     expect(sshdListenProblems("LISTEN 0 128 *:22 *:*\n")).toEqual(["port 22 listens on *:22"]);
     expect(sshdListenProblems("LISTEN 0 4096 127.0.0.1:5432 0.0.0.0:*\n")).toEqual(["nothing listens on port 22"]);
+  });
+
+  test("PAM records every certificate session after logind set the session id (last session line, exactly once)", () => {
+    const ubuntu = ["@include common-auth", "account required pam_nologin.so", "@include common-account", "session required pam_loginuid.so", "@include common-session", "@include common-password"];
+    expect(sshdPamProblems([...ubuntu, SSHD_PAM_LINE].join("\n"))).toEqual([]);
+    expect(sshdPamProblems(ubuntu.join("\n"))).toEqual(["the certificate session recorder is missing from the sshd PAM stack"]);
+    expect(sshdPamProblems([...ubuntu, SSHD_PAM_LINE, SSHD_PAM_LINE].join("\n"))).toEqual(["the certificate session recorder appears more than once"]);
+    const early = [ubuntu[0], SSHD_PAM_LINE, ...ubuntu.slice(1)];
+    expect(sshdPamProblems(early.join("\n"))).toEqual(["the certificate session recorder is not the last session line"]);
+    expect(sshdPamProblems(`# ${SSHD_PAM_LINE}\n${ubuntu.join("\n")}`)).toEqual(["the certificate session recorder is missing from the sshd PAM stack"]);
+    const readenv = ["session required pam_env.so user_readenv=1", ...ubuntu, SSHD_PAM_LINE];
+    expect(sshdPamProblems(readenv.join("\n"))).toEqual(["a PAM module reads the user's environment (user_readenv=1)"]);
+  });
+
+  test("the bake output splits into sshd -T, ss and the PAM file; a missing part fails the policy", () => {
+    const out = `noise\n--- sshd -T\n${GOOD}\n--- ss\nLISTEN 0 128 127.0.0.1:22 0.0.0.0:*\n--- pam\n${SSHD_PAM_LINE}\n`;
+    const parts = splitSshdBakeOutput(out);
+    expect(sshdPolicyProblems(parts.effective, "cmux")).toEqual([]);
+    expect(sshdListenProblems(parts.ss)).toEqual([]);
+    expect(sshdPamProblems(parts.pam)).toEqual([]);
+    const cut = splitSshdBakeOutput(out.slice(0, out.indexOf("--- pam")));
+    expect(sshdPamProblems(cut.pam)).not.toEqual([]);
   });
 
   test("the drop-in, read as sshd would, satisfies the policy", () => {
