@@ -273,6 +273,7 @@ test("the diff page embeds its data safely and lists changed states first", () =
   expect(html).toContain('id="entry-filter"');
   expect(html).toContain('{id: o.key, "data-entry": o.entry}');
   expect(html).toContain("applyEntryFilter");
+  expect(html).toContain('summary.textContent = visible.length + " unchanged"');
   expect(html.indexOf('"status":"changed"')).toBeLessThan(html.indexOf('"status":"unchanged"'));
   expect(readFileSync(new URL("./report.ts", import.meta.url), "utf8")).toContain("onion");
 });

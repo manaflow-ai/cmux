@@ -366,10 +366,10 @@ const applyEntryFilter = () => {
   const selected = entryFilter.value;
   for (const node of main.querySelectorAll("[data-entry]")) node.hidden = Boolean(selected && node.dataset.entry !== selected);
   for (const section of main.querySelectorAll("[data-status]")) {
-    const visible = new Set([...section.querySelectorAll("[data-entry]")].filter((node) => !node.hidden).map((node) => node.dataset.entry));
-    section.hidden = visible.size === 0;
+    const visible = [...section.querySelectorAll("[data-entry]")].filter((node) => !node.hidden);
+    section.hidden = visible.length === 0;
     const summary = section.querySelector("[data-summary='unchanged']");
-    if (summary) summary.textContent = visible.size + " unchanged";
+    if (summary) summary.textContent = visible.length + " unchanged";
   }
 };
 entryFilter.addEventListener("change", applyEntryFilter);
