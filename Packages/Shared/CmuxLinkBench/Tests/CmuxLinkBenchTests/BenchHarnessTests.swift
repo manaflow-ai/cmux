@@ -188,6 +188,12 @@ struct BenchHarnessTests {
 
     @Test("accepting host constructs and owns V1 and V2 listeners")
     func acceptingHostWiring() async throws {
+        for rig in [BenchRigKind.v1, .v2WebRTC] {
+            try await connectAcceptingHost(rig)
+        }
+    }
+
+    private func connectAcceptingHost(_ rig: BenchRigKind) async throws {
         let hub = InMemorySignalingHub()
         let deviceWebRTC = SoftwareWebRTCIdentity()
         let deviceWireGuard = WireGuardPrivateKey()
@@ -204,12 +210,35 @@ struct BenchHarnessTests {
         #expect(!host.webrtcHostKey.isEmpty)
         #expect(!host.wireGuardHostKey.isEmpty)
 
-        let v1 = try host.makeAcceptor(for: .v1)
-        await v1.start()
-        await v1.stop()
-        let v2 = try host.makeAcceptor(for: .v2WebRTC)
-        await v2.start()
-        await v2.stop()
+        let acceptor = try host.makeAcceptor(for: rig)
+        await acceptor.start()
+        let descriptor = BenchServeDescriptor(
+            hostID: "accept-host", address: "", port: 0,
+            hostKey: DirectIdentity().publicKey,
+            webrtcHostKey: host.webrtcHostKey,
+            wireGuardHostKey: host.wireGuardHostKey,
+            carriers: [rig == .v1 ? .webrtc : .webrtcWireGuard]
+        )
+        let client = try BenchSignalingAdapters(
+            channel: hub.endpoint(id: "in_device"),
+            iceServers: StaticICEServerProvider(.hostOnly),
+            webrtcIdentity: deviceWebRTC,
+            wireGuardIdentity: deviceWireGuard,
+            wireGuardInstallID: "in_device",
+            webrtcConfiguration: .init(network: .loopbackOnly)
+        )
+        let carrier = try #require(client.carriers(for: descriptor, selecting: rig).first)
+        do {
+            let dialed = try await TimeLimit(.seconds(15)).run {
+                try await carrier.connect(to: descriptor.peer)
+            }
+            let transport = try #require(dialed)
+            await transport.close()
+            await acceptor.stop()
+        } catch {
+            await acceptor.stop()
+            throw error
+        }
     }
 
     @Test("accepting host refuses unpaired devices and unsupported rigs")
@@ -236,6 +265,7 @@ struct BenchHarnessTests {
             allowedWireGuardDevices: [:]
         )
         #expect(throws: BenchSplitError.self) { try host.makeAcceptor(for: .v3) }
+        #expect(throws: BenchSplitError.self) { try host.makeAcceptor(for: .v2WebRTC) }
     }
 
     @Test("signaling descriptor rejects a missing selected host key")
