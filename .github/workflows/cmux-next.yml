@@ -92,6 +92,7 @@ on:
       - Resources/Localizable.xcstrings
       - web/**
       - Resources/InfoPlist.xcstrings
+      - Resources/bin/**
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -192,6 +193,7 @@ on:
       - Resources/Localizable.xcstrings
       - web/**
       - Resources/InfoPlist.xcstrings
+      - Resources/bin/**
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
