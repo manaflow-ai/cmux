@@ -2303,7 +2303,7 @@ def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) 
 def test_computer_use_auth_token_reaches_mcp_child(failures: list[str]) -> None:
     """Launch the configured MCP child with Claude's inherited environment."""
     for source in ("file", "environment", "file-over-stale-environment"):
-        def setup(tmp: Path, env: dict) -> None:
+        def setup(tmp: Path, env: dict, source: str = source) -> None:
             computer_use_sandbox(auth_token_file=source != "environment")(tmp, env)
             if source == "file-over-stale-environment":
                 env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "stale-token"
@@ -2335,7 +2335,7 @@ def test_computer_use_auth_token_reaches_mcp_child(failures: list[str]) -> None:
 
 def test_computer_use_skipped_attachment_does_not_load_credential(failures: list[str]) -> None:
     for reason in ("strict", "disabled", "no-client"):
-        def setup(tmp: Path, env: dict) -> None:
+        def setup(tmp: Path, env: dict, reason: str = reason) -> None:
             computer_use_sandbox(
                 auth_token=False, auth_token_file=True,
                 bundled_driver=reason != "no-client", disabled=reason == "disabled",
