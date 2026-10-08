@@ -183,13 +183,14 @@ pub fn session_refusal(
     }
 }
 
-/// The question answers rule (a crate rule, stricter than the Swift host
-/// today; `policy.json` `question_answers`): a frame of that method that
+/// The question answers rule shared with the Swift host (`policy.json`
+/// `question_answers`): a frame of that method that
 /// carries the answers param breaks it unless its `permissionId` is a pending
 /// question (`is_question`, the host's [`crate::gesture::PermissionOptions`])
 /// and the answers are an object of 1 to `maximum_items` item ids, each id and
 /// each value at most `maximum_value_bytes` UTF-8 bytes, each value a string
-/// or a list of strings (a list's strings counted together).
+/// or a list of strings (a list's strings counted together). Swift also accepts
+/// Codex's `{answers: [string]}` wrapper; that remains the documented gap.
 pub fn breaks_answers_rule(
     object: &Map<String, Value>,
     is_question: impl Fn(&str) -> bool,
