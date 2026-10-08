@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, type Principal } from "@cmux/ownership"
-import type { CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, type CloudOpDef } from "@cmux/protocol"
 // The shared per-tool policy (integrations-core): risky classes default to ask (send-external)
 // or block (money, destructive); only a rule for the exact tool loosens a block.
 import { defaultActionFor, resolveEffectivePolicy } from "../../../../../libs/integrations-core/src/policy.ts"
@@ -13,7 +13,11 @@ import {
   endApproval,
   insertApproval,
   MAX_PENDING_PER_CONNECTION,
+  MAX_PENDING_PER_IDENTITY,
   pendingCount,
+  pendingCountFor,
+  backToPending,
+  startRun,
   RISKY_CLASSES,
   setFeedItem,
   settleExpiry,
@@ -22,6 +26,7 @@ import {
 import type { ExternalReply } from "./external.ts"
 import type { Env } from "../env.ts"
 import { ProviderError } from "./providers.ts"
+import { withGrantClasses } from "../auth.ts"
 
 /** A gate answer: a final refusal or pending state for the caller, or a replay of the approved run. */
 export type GateAnswer =
@@ -34,8 +39,30 @@ export interface GateHost {
   readonly checkUsable: (principal: Principal, op: string, params: Record<string, unknown>) => void
   /** Posts the approve request to the user's feed; returns the feed item id. */
   readonly postApproval: (user: string, key: string, prompt: unknown, expiresInMs: number) => Promise<string>
-  readonly newRequestId: () => string
+  readonly newRequestId?: () => string
+  /** Arms the alarm for the new request's expiry. */
+  readonly armAlarm: () => void
 }
+
+/**
+ * The caller's classes plus the op's risk class: the approval stands in for that one class.
+ * A principal without resolved classes gets none (fail closed).
+ */
+export const withApprovalClass = (p: Principal, risk: string): Principal => (p.grant_classes ? { ...p, grant_classes: [...p.grant_classes, risk] } : p)
+
+/**
+ * The run of an approved request: the stored caller is resolved again (a session stays; an
+ * install's grant is asked again, so a revoked install or a narrowed grant runs nothing) and
+ * authorized again with the approval standing in for the risk class.
+ */
+export const runApproved =
+  (env: Env, allowed: (p: Principal, op: string, params: unknown) => boolean, run: (p: Principal, row: ApprovalRow) => Promise<ExternalReply>) =>
+  async (row: ApprovalRow): Promise<ExternalReply | "refused"> => {
+    const now = await withGrantClasses(env, row.principal)
+    const risk = cloudOpByName.get(row.op)?.risk
+    if (!now || !risk || !allowed(withApprovalClass(now, risk), row.op, row.params)) return "refused"
+    return run(now, row)
+  }
 
 /** sha256 of the canonical op and params: the exact request the person approves. */
 export const approvalDigest = (op: string, params: Record<string, unknown>) => `sha256:${createHash("sha256").update(canonicalJson({ op, params })).digest("hex")}`
@@ -56,7 +83,7 @@ const pendingAnswer = (row: ApprovalRow): GateAnswer => ({
 })
 
 const stateAnswer = (row: ApprovalRow): GateAnswer => {
-  if (row.state === "pending") return pendingAnswer(row)
+  if (row.state === "pending" || row.state === "running") return pendingAnswer(row)
   if (row.state === "done") return { kind: "replay", reply: row.reply }
   if (row.state === "denied") return { kind: "refuse", code: "approval.denied", message: "the user denied this request", details: { request: row.request } }
   return { kind: "refuse", code: "approval.expired", message: "the approval request expired; ask again with a new key", details: { request: row.request } }
@@ -70,7 +97,7 @@ const stateAnswer = (row: ApprovalRow): GateAnswer => {
 export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Principal, params: Record<string, unknown>, identity: string, key: string, now: number): Promise<GateAnswer> => {
   const action = resolveEffectivePolicy(def.name, [], defaultActionFor(def.risk as Parameters<typeof defaultActionFor>[0])).action
   if (action === "block") return { kind: "refuse", code: "policy.denied", message: `${def.name} is blocked for agents, automations and apps` }
-  const paramsHash = canonicalJson({ op: def.name, params })
+  const paramsHash = approvalDigest(def.name, params)
   const prior = approvalByKey(host.sql, identity, key)
   if (prior) {
     if (prior.params_hash !== paramsHash) return { kind: "refuse", code: "idempotency.conflict", message: "idempotency key reused with different params" }
@@ -84,10 +111,10 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
     throw e
   }
   const connection = String(params.connection)
-  if (pendingCount(host.sql, connection, now) >= MAX_PENDING_PER_CONNECTION) {
-    return { kind: "refuse", code: "approval.too_many_pending", message: `at most ${MAX_PENDING_PER_CONNECTION} requests may wait for approval on one connection`, retryable: true }
+  if (pendingCount(host.sql, connection, now) >= MAX_PENDING_PER_CONNECTION || pendingCountFor(host.sql, identity, now) >= MAX_PENDING_PER_IDENTITY) {
+    return { kind: "refuse", code: "approval.too_many_pending", message: `too many requests wait for approval (at most ${MAX_PENDING_PER_IDENTITY} per caller and ${MAX_PENDING_PER_CONNECTION} per connection)`, retryable: true }
   }
-  const request = host.newRequestId()
+  const request = host.newRequestId?.() ?? `apr_${crypto.randomUUID().replace(/-/g, "")}`
   const digest = approvalDigest(def.name, params)
   const { target, summary } = describeRequest(def.name, params)
   insertApproval(host.sql, { request, identity, idempotency_key: key, user: principal.user, connection, op: def.name, params, params_hash: paramsHash, digest, principal, created_at: now, expires_at: now + APPROVAL_TTL_MS })
@@ -101,6 +128,7 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
     },
     scopes: ["once"]
   }
+  host.armAlarm()
   try {
     setFeedItem(host.sql, request, await host.postApproval(principal.user, `approval:${request}`, prompt, APPROVAL_TTL_MS))
   } catch (e) {
@@ -139,15 +167,30 @@ export const takeAnswer = (sql: SqlStorage, source: string, params: { request?: 
  * A retryable failure throws, so the outbox redelivers and the request stays pending. Returns the
  * delivered item ids.
  */
-export const deliverAnswers = async (sql: SqlStorage, source: string, items: ReadonlyArray<{ readonly id: number; readonly params: unknown }>, run: (row: ApprovalRow) => Promise<ExternalReply>): Promise<Array<number>> => {
+export const deliverAnswers = async (
+  sql: SqlStorage,
+  source: string,
+  items: ReadonlyArray<{ readonly id: number; readonly params: unknown }>,
+  run: (row: ApprovalRow) => Promise<ExternalReply | "refused">
+): Promise<Array<number>> => {
   const done: Array<number> = []
   for (const item of items) {
     const outcome = takeAnswer(sql, source, (item.params ?? {}) as Record<string, unknown>, Date.now())
-    if (outcome.kind === "run") {
-      const reply = await run(outcome.row)
-      if (!reply.ok && reply.error?.retryable) throw new Error(`approved ${outcome.row.op} failed retryably`)
-      endApproval(sql, outcome.row.request, "done", Date.now(), reply)
-    } else if (outcome.reason !== "denied") {
+    if (outcome.kind === "run" && startRun(sql, outcome.row.request)) {
+      let reply: ExternalReply | "refused"
+      try {
+        reply = await run(outcome.row)
+      } catch (e) {
+        backToPending(sql, outcome.row.request)
+        throw e
+      }
+      // The caller is no longer allowed (install revoked, grant narrowed): final, nothing ran.
+      if (reply === "refused") endApproval(sql, outcome.row.request, "denied", Date.now(), null, ["running"])
+      else if (!reply.ok && reply.error?.retryable) {
+        backToPending(sql, outcome.row.request)
+        throw new Error(`approved ${outcome.row.op} failed retryably`)
+      } else endApproval(sql, outcome.row.request, "done", Date.now(), reply, ["running"])
+    } else if (outcome.kind === "ignore" && outcome.reason !== "denied") {
       console.warn(JSON.stringify({ msg: "approval answer ignored", reason: outcome.reason }))
     }
     done.push(item.id)

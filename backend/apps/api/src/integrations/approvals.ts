@@ -15,9 +15,11 @@ import type { Principal } from "@cmux/ownership"
 export const RISKY_CLASSES: ReadonlySet<string> = new Set(["send-external", "money", "destructive"])
 export const APPROVAL_TTL_MS = 24 * 3_600_000
 export const MAX_PENDING_PER_CONNECTION = 20
+/** One caller (an agent, an app) may hold at most this many of them, so it cannot crowd out others. */
+export const MAX_PENDING_PER_IDENTITY = 5
 export const APPROVAL_RETENTION_MS = 30 * 24 * 3_600_000
 
-export type ApprovalState = "pending" | "done" | "denied" | "expired"
+export type ApprovalState = "pending" | "running" | "done" | "denied" | "expired"
 
 export interface ApprovalRow {
   readonly request: string
@@ -81,7 +83,10 @@ export const approvalByKey = (sql: Sql, identity: string, key: string): Approval
 
 /** Pending requests for one connection that have not expired (the flood guard counts these). */
 export const pendingCount = (sql: Sql, connection: string, now: number): number =>
-  Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_approvals WHERE connection = ? AND state = 'pending' AND expires_at > ?`, connection, now).toArray()[0]?.n ?? 0)
+  Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_approvals WHERE connection = ? AND state IN ('pending', 'running') AND expires_at > ?`, connection, now).toArray()[0]?.n ?? 0)
+
+export const pendingCountFor = (sql: Sql, identity: string, now: number): number =>
+  Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_approvals WHERE identity = ? AND state IN ('pending', 'running') AND expires_at > ?`, identity, now).toArray()[0]?.n ?? 0)
 
 export const insertApproval = (sql: Sql, row: Omit<ApprovalRow, "feed_item" | "state" | "reply" | "ended_at">) => {
   sql.exec(
@@ -95,13 +100,27 @@ export const insertApproval = (sql: Sql, row: Omit<ApprovalRow, "feed_item" | "s
 export const setFeedItem = (sql: Sql, request: string, item: string) => sql.exec(`UPDATE integration_approvals SET feed_item = ? WHERE request = ?`, item, request)
 export const deleteApproval = (sql: Sql, request: string) => sql.exec(`DELETE FROM integration_approvals WHERE request = ?`, request)
 
-/** Moves a pending request to a final state; returns false when it was no longer pending. */
-export const endApproval = (sql: Sql, request: string, state: Exclude<ApprovalState, "pending">, now: number, reply: unknown = null): boolean => {
-  const before = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_approvals WHERE request = ? AND state = 'pending'`, request).toArray()[0]?.n
-  if (!before) return false
-  sql.exec(`UPDATE integration_approvals SET state = ?, reply = ?, ended_at = ? WHERE request = ? AND state = 'pending'`, state, reply === null ? null : JSON.stringify(reply), now, request)
+/**
+ * Moves a request from one of `from` to a final state; returns false when it was in another state.
+ * A request that ends without running drops its params (only a done run keeps its reply).
+ */
+export const endApproval = (sql: Sql, request: string, state: Exclude<ApprovalState, "pending" | "running">, now: number, reply: unknown = null, from: ReadonlyArray<ApprovalState> = ["pending"]): boolean => {
+  const row = approvalByRequest(sql, request)
+  if (!row || !from.includes(row.state)) return false
+  sql.exec(`UPDATE integration_approvals SET state = ?, reply = ?, ended_at = ?${state === "done" ? "" : ", params = '{}'"} WHERE request = ?`, state, reply === null ? null : JSON.stringify(reply), now, request)
   return true
 }
+
+/** pending -> running before the provider call (expiry never ends a running request); false if it was not pending. */
+export const startRun = (sql: Sql, request: string): boolean => {
+  const row = approvalByRequest(sql, request)
+  if (!row || row.state !== "pending") return false
+  sql.exec(`UPDATE integration_approvals SET state = 'running' WHERE request = ?`, request)
+  return true
+}
+
+/** running -> pending after a retryable failure, so the redelivered answer runs it again. */
+export const backToPending = (sql: Sql, request: string) => sql.exec(`UPDATE integration_approvals SET state = 'pending' WHERE request = ? AND state = 'running'`, request)
 
 /** A pending request past its time becomes expired (final); returns the row as it is now. */
 export const settleExpiry = (sql: Sql, row: ApprovalRow, now: number): ApprovalRow => {
@@ -114,7 +133,7 @@ export const settleExpiry = (sql: Sql, row: ApprovalRow, now: number): ApprovalR
 export const approvalView = (sql: Sql, principal: Principal, params: unknown, now: number) => {
   const row = approvalByRequest(sql, String((params as { request?: unknown } | null)?.request ?? ""))
   if (!row || principal.kind !== "session" || principal.user !== row.user) return { ok: false as const, code: "selector.not_found", message: "no such approval request" }
-  const state = row.state === "pending" && now >= row.expires_at ? "expired" : row.state
+  const state = row.state === "pending" && now >= row.expires_at ? "expired" : row.state === "running" ? "pending" : row.state
   return { ok: true as const, value: { request: row.request, op: row.op, connection: row.connection, params: row.params, digest: row.digest, state, created_at: row.created_at, expires_at: row.expires_at }, revision: "" }
 }
 
@@ -131,7 +150,7 @@ export const nextApprovalAt = (sql: Sql): number | null => {
 
 /** Expires every pending request whose time passed (the alarm calls this). */
 export const expireDue = (sql: Sql, now: number) =>
-  sql.exec(`UPDATE integration_approvals SET state = 'expired', ended_at = ? WHERE state = 'pending' AND expires_at <= ?`, now, now)
+  sql.exec(`UPDATE integration_approvals SET state = 'expired', ended_at = ?, params = '{}' WHERE state = 'pending' AND expires_at <= ?`, now, now)
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "")
 const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [])

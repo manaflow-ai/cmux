@@ -7,7 +7,7 @@ import type { Env } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { runLedgered } from "./integrations/external-ledger.ts"
-import { deliverAnswers, gateRiskyOp, needsApproval, postIntegrationApproval } from "./integrations/approval-gate.ts"
+import { deliverAnswers, gateRiskyOp, type GateHost, needsApproval, postIntegrationApproval, runApproved, withApprovalClass } from "./integrations/approval-gate.ts"
 import { approvalView, createApprovalTable, expireDue, nextApprovalAt, pruneApprovals, APPROVAL_RETENTION_MS } from "./integrations/approvals.ts"
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
@@ -268,7 +268,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // G8: a risky op from anyone but the person's session waits for the person's approval; the
     // approval stands in for the risk class the caller's grant lacks, nothing else.
     const gated = needsApproval(def, principal)
-    const denied = connectionsDomain.authorize!(engine.currentState, frame.op, frame.params, gated ? { ...principal, grant_classes: [...(principal.grant_classes ?? []), def.risk] } : principal)
+    const denied = connectionsDomain.authorize!(engine.currentState, frame.op, frame.params, gated ? withApprovalClass(principal, def.risk) : principal)
     if (denied) return fail(denied.code, denied.message)
     const decoded = decodeParams<Record<string, unknown>>(def, frame.params)
     if (!decoded.ok) return fail(decoded.code, decoded.message)
@@ -281,21 +281,20 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return this.runLedgered(principal, frame, params, identity, key)
   }
 
-  private gateHost() {
-    return {
-      sql: this.ctx.storage.sql,
-      checkUsable: (principal: Principal, op: string, params: Record<string, unknown>) => this.usableFor(principal, op, params),
-      postApproval: (user: string, key: string, prompt: unknown, expiresInMs: number) => postIntegrationApproval(this.env, user, this.boundEntity()!, prompt, expiresInMs, key),
-      newRequestId: () => `apr_${crypto.randomUUID().replace(/-/g, "")}`
-    }
-  }
+  private gateHost = (): GateHost => ({
+    sql: this.ctx.storage.sql,
+    checkUsable: (p, op, params) => this.usableFor(p, op, params),
+    postApproval: (user, key, prompt, ms) => postIntegrationApproval(this.env, user, this.boundEntity()!, prompt, ms, key),
+    armAlarm: () => this.scheduleAlarm()
+  })
 
   /** Answers from the user's FeedDO (G8) run here (they call the provider); other items go to the engine. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
     const answers = items.filter((i) => i.op === "integration.approval.answered")
     const rest = items.filter((i) => i.op !== "integration.approval.answered")
     const done: Array<number> = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : (this.bind(entity), [])
-    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, (row) => this.runLedgered(row.principal, { op: row.op }, row.params, `${row.identity}#approval`, `approval:${row.request}`))))
+    const allowed = (p: Principal, op: string, params: unknown) => !connectionsDomain.authorize!(this.boundEngine!.currentState, op, params, p)
+    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, runApproved(this.env, allowed, (p, row) => this.runLedgered(p, { op: row.op }, row.params, `${row.identity}#approval`, `approval:${row.request}`)))))
     return { done }
   }
 

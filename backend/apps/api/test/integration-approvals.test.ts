@@ -145,4 +145,20 @@ describe("gateway approvals for risky provider ops (G8)", { timeout: 60_000 }, (
     for (let n = 0; n < 25; n++) last = await op(s.agent, "slack.post_as_bot", { connection: s.conn, channel: "C1", text: `m${n}` })
     expect(last.json.error.code).toBe("approval.too_many_pending")
   })
+
+  it("only the person's session answers; a revoked caller's approved request never runs (review fixes)", async () => {
+    const s = await setup("g8-review")
+    const r = await op(s.agent, "slack.post_as_bot", { connection: s.conn, channel: "C1", text: "x" }, "send-6")
+    const [item] = await s.approvals()
+    // The agent's own install cannot approve its request (no self-approval through an install).
+    const self = await op(s.agent, "feed.answer", { item: item.id, answer: { decision: "allow", scope: "once" } }, crypto.randomUUID(), "user")
+    expect(self.json.ok).toBe(false)
+    // Revoke the agent's install, then approve: nothing runs and the request ends.
+    const installs = (await read(s.token, "install.list", {})).json.value.installs as Array<{ id: string; name: string }>
+    expect((await op(s.token, "install.revoke", { install: installs.find((i) => i.name === "agent")!.id })).json.ok).toBe(true)
+    expect((await s.answer(item.id, "allow")).json.ok).toBe(true)
+    await fireAlarm(s.feed)
+    expect(s.posts).toHaveLength(0)
+    expect((await read(s.token, "integration.approval.get", { request: r.json.error.details.request })).json.value.state).toBe("denied")
+  })
 })
