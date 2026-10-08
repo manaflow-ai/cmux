@@ -4,7 +4,7 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead } from "./team-reads.ts"
-import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { firstOwner, homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
@@ -365,6 +365,12 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
+  /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */
+  async teamVmInstallOwner(entity: string): Promise<string | null> {
+    const state = this.bind(entity).currentState
+    return state.team?.id === entity ? (firstOwner(state, this.rows) ?? null) : null
+  }
+
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
     return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows)
   }

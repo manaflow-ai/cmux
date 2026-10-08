@@ -27,9 +27,20 @@ fn write_atomic_checked(
 ) -> io::Result<()> {
     let dir = path.parent().ok_or_else(|| io::Error::other("path has no parent"))?;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-    let tmp = dir.join(format!(".{name}.tmp-{}", std::process::id()));
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let tmp = dir.join(format!(".{name}.tmp-{}-{nanos}", std::process::id()));
     let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            // A new file only (never through a planted file or symlink), created with its final mode.
+            options.mode(mode).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&tmp)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

@@ -83,6 +83,7 @@ mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
+#[cfg(unix)]
 mod process_identity;
 pub mod process_resources;
 pub mod server;
