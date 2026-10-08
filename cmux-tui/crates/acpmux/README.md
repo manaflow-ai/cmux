@@ -75,7 +75,8 @@ draft. Keys: `⌘K`/`Ctrl-K` new session, `Alt-↑`/`Alt-↓` (or `Alt-j`/`Alt-k
 `y`/`n` answer a permission, `Esc` in the composer cancels the turn. On a phone the rail is a
 sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
-firewall in front.
+firewall in front. Clients may then connect by IP address; list every host name they use (a
+tailnet name, for example) in `websocket.allowedHosts`, because any other `Host` is refused.
 
 ### Remote connections (`webRoots`, `webAskingModes`)
 
