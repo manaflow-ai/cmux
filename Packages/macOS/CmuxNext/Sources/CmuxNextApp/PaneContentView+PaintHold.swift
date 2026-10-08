@@ -82,6 +82,26 @@ final class PanePaintHold {
         }
     }
 
+    /// The view this hold keeps on screen, while it holds.
+    var kept: NSView? { holding ? outgoing : nil }
+
+    /// A newer swap that waits too takes over: the incoming view, which never
+    /// showed, leaves through `remove`, and ``kept`` stays on screen for the
+    /// next hold (no empty frame between two pages that have not painted).
+    func handOff(remove: (NSView) -> Void) {
+        guard holding else { return }
+        holding = false
+        deadline.cancel()
+        release = nil
+        if let incoming {
+            remove(incoming)
+            // Page views are reused: one shown later must not stay invisible.
+            incoming.alphaValue = 1
+        }
+        outgoing = nil
+        incoming = nil
+    }
+
     /// Ends the hold (only hold `token`, when given): the outgoing view goes
     /// and the incoming one shows, in one frame.
     func end(_ token: UInt64? = nil) {

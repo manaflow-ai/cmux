@@ -252,13 +252,22 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// stays until then, as in a pane (no-flicker audit).
     func show(_ view: NSView) {
         guard content !== view else { return }
-        let outgoing = content
+        let previous = content
+        // While an earlier swap waits, the view on screen is the one it keeps.
+        let outgoing = paintHold.kept ?? previous
         let holds = PanePaintHold.holds(view, replacing: outgoing)
         content = view
-        // An earlier swap still waiting on a first frame ends now; a view kept
-        // by it that is shown again stays (no detach of its panes).
-        paintHold.end()
-        if !holds { outgoing?.removeFromSuperview() }
+        if holds, paintHold.kept != nil {
+            // The page that never showed leaves; the kept view stays for this hold.
+            paintHold.handOff { $0.removeFromSuperview() }
+        } else {
+            // The earlier swap ends now; a view it kept that is shown again
+            // stays (no detach of its panes).
+            paintHold.end()
+            if !holds {
+                for old in [previous, outgoing] where old !== view { old?.removeFromSuperview() }
+            }
+        }
         if view.superview !== contentHost || view.frame != contentHost.bounds {
             view.frame = contentHost.bounds
             view.autoresizingMask = [.width, .height]
