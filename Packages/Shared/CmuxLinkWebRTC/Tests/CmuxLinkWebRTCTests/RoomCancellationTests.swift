@@ -1,4 +1,5 @@
 import CmuxLink
+@testable import CmuxLinkWebRTC
 @_spi(Testing) import CmuxLinkWebRTC
 import Foundation
 import Testing
