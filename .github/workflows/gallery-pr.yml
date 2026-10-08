@@ -127,8 +127,13 @@ jobs:
             exit 0
           fi
           bun install --frozen-lockfile
-          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json" &&
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build; }; then
+            echo "[]" > "$RUNNER_TEMP/base.json"
+            rm -rf "$RUNNER_TEMP/gallery-base"
+            echo "::warning::The merge-base gallery does not build; every state is compared as new."
+            echo "> The merge-base gallery does not build, so every state is compared as new." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Render the evidence stage
         if: ${{ steps.touched.outputs.count != '0' }}

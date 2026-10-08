@@ -135,16 +135,48 @@ fn item(q: &Value, index: usize, codex: bool) -> Option<Value> {
     Some(item)
 }
 
+/// The most items one answer may hold.
+pub(super) const MAX_ANSWER_ITEMS: usize = 64;
+/// The most strings one item's list may hold.
+pub(super) const MAX_ANSWER_LIST_STRINGS: usize = 64;
+/// The most UTF-8 bytes of one item key, and of each string of an item's value.
+pub(super) const MAX_ANSWER_BYTES: usize = 4096;
+
 /// Checks a client's `answers` for `request`. Answers are accepted only for
 /// a question, in the asking harness's shape: Claude Code (and the Chief) by
 /// question text with one non-empty string each; Codex by item id with
 /// `{answers: [string, ...]}`. Every item must be answered, nothing else.
+/// The daemon bounds them itself (it does not trust a client's relay): at
+/// most [`MAX_ANSWER_ITEMS`] items, [`MAX_ANSWER_LIST_STRINGS`] strings per
+/// list and [`MAX_ANSWER_BYTES`] bytes per key or string, the limits of the
+/// Swift pane relay (`AcpmuxPaneMethods+Answers`).
 pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcError> {
     let invalid = |why: &str| Err(RpcError::invalid_params(format!("answers {why}")));
     let Some(question) = question(request) else {
         return invalid("are accepted only for a question");
     };
     let Some(answers) = answers.as_object() else { return invalid("must be an object") };
+    if answers.len() > MAX_ANSWER_ITEMS {
+        return invalid(&format!("may hold at most {MAX_ANSWER_ITEMS} items"));
+    }
+    let too_long = |text: &str| text.len() > MAX_ANSWER_BYTES;
+    if answers.iter().any(|(key, value)| {
+        too_long(key)
+            || match value {
+                Value::String(text) => too_long(text),
+                Value::Object(codex) => {
+                    codex.get("answers").and_then(Value::as_array).is_some_and(|list| {
+                        list.len() > MAX_ANSWER_LIST_STRINGS
+                            || list.iter().any(|s| s.as_str().is_some_and(too_long))
+                    })
+                }
+                _ => false,
+            }
+    }) {
+        return invalid(&format!(
+            "may hold at most {MAX_ANSWER_LIST_STRINGS} strings per item and {MAX_ANSWER_BYTES} bytes per key or string"
+        ));
+    }
     let items = question["items"].as_array().cloned().unwrap_or_default();
     let codex = question["harness"] == "codex";
     let keys: Vec<String> = items
@@ -159,9 +191,12 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
     for key in &keys {
         let value = &answers[key];
         let ok = if codex {
-            value["answers"]
-                .as_array()
-                .is_some_and(|list| !list.is_empty() && list.iter().all(|s| text(s).is_some()))
+            // `{answers: [...]}` with that one key: nothing else rides along
+            // into the agent's tool input unchecked.
+            value.as_object().is_some_and(|o| o.len() == 1)
+                && value["answers"]
+                    .as_array()
+                    .is_some_and(|list| !list.is_empty() && list.iter().all(|s| text(s).is_some()))
         } else {
             text(value).is_some()
         };
@@ -213,6 +248,10 @@ mod tests {
         assert!(check_answers(&request, &json!({"name": {"answers": ["ledger"]}})).is_ok());
         assert!(check_answers(&request, &json!({"name": {"answers": []}})).is_err());
         assert!(check_answers(&request, &json!({"Name?": "ledger"})).is_err());
+        // Codex's value is `{answers: [...]}` with that one key: an extra key
+        // would ride along unchecked into the agent's tool input.
+        let junk = json!({"name": {"answers": ["ledger"], "junk": "x".repeat(8192)}});
+        assert!(check_answers(&request, &junk).is_err());
     }
 
     #[test]
@@ -274,6 +313,44 @@ mod tests {
         let request = json!({"toolCall": {"kind": "other", "rawInput": {"plan": "x"},
             "_meta": {"claude": {"tool": "ExitPlanMode", "interactive": true}}}});
         assert!(!needs_person(&request));
+    }
+
+    /// The daemon does not trust a client for size: an answer has at most
+    /// 64 items, at most 64 strings per list, and at most 4096 bytes in any
+    /// key or string (the Swift relay's limits, AcpmuxPaneMethods+Answers).
+    #[test]
+    fn answers_are_bounded_in_items_and_bytes() {
+        let mut request = claude_request();
+        normalize(&mut request);
+        let fits = "x".repeat(4096);
+        let over = "x".repeat(4097);
+        assert!(check_answers(&request, &json!({"Which auth?": fits})).is_ok());
+        assert!(check_answers(&request, &json!({"Which auth?": over})).is_err());
+
+        let mut codex = json!({"toolCall": {"rawInput": {"questions": [
+            {"id": "name", "question": "Name?", "options": null}]}, "_meta": {"codex": {}}}});
+        normalize(&mut codex);
+        let list = |n: usize| json!({"name": {"answers": vec!["a"; n]}});
+        assert!(check_answers(&codex, &list(64)).is_ok());
+        assert!(check_answers(&codex, &list(65)).is_err());
+        assert!(check_answers(&codex, &json!({"name": {"answers": [over]}})).is_err());
+
+        let questions: Vec<Value> = (0..65)
+            .map(|i| json!({"id": format!("q{i}"), "question": format!("Q{i}?"), "options": null}))
+            .collect();
+        let mut many =
+            json!({"toolCall": {"rawInput": {"questions": questions}, "_meta": {"codex": {}}}});
+        normalize(&mut many);
+        let every: Map<String, Value> =
+            (0..65).map(|i| (format!("q{i}"), json!({"answers": ["a"]}))).collect();
+        assert!(check_answers(&many, &Value::Object(every)).is_err());
+
+        let long_prompt = "P".repeat(4097);
+        let mut long = json!({"toolCall": {"rawInput": {"questions": [
+            {"question": long_prompt, "options": [{"label": "A"}]}]},
+            "_meta": {"claude": {"tool": "AskUserQuestion"}}}});
+        normalize(&mut long);
+        assert!(check_answers(&long, &json!({long_prompt: "A"})).is_err());
     }
 
     #[test]

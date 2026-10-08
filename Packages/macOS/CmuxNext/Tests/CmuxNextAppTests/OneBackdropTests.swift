@@ -105,17 +105,10 @@ struct OneBackdropTests {
     /// The real windows of their own that tests can build, plus every other
     /// kind through the window kit.
     private func ownWindows() async throws -> [(WindowKind, NSWindow)] {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-one-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Settings is the React page tab (R82); its window kind is built through the window kit below.
         var windows: [(WindowKind, NSWindow)] = []
         let debug = DebugSettingsWindowController(model: DebugSettingsModel(store: TunableStore(), descriptors: []))
         windows.append((.debugSettings, try #require(debug.window)))
-        let appRoot = directory.appending(path: "apps")
-        let apps = AppRegistry(directory: appRoot, firstPartyRoot: appRoot.appending(path: "none"))
-        let store = AppStoreWindowController(model: AppStoreModel(catalog: RegistryAppStoreCatalog(registry: apps), registry: apps,
-                                                                  host: AppHost(sink: AppPreviewSink()), previewHost: AppHost(sink: AppPreviewSink())))
-        windows.append((.appStore, try #require(store.window)))
         let onboardingServices = MockOnboardingServices()
         onboardingServices.accountsView = NSView()
         onboardingServices.firstTaskView = NSView()

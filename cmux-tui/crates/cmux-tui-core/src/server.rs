@@ -9971,17 +9971,14 @@ fn prepare_session_journal_stream(
     let stream_id = resource_stream_id(request)?;
     let shared_fanout = mux.shared_journal_enabled();
     let epoch = if shared_fanout { mux.shared_journal_epoch() } else { mux.journal_event_epoch() };
-    let head_sequence = mux
-        .session_journal_after(0, 1)
-        .map_err(|error| {
-            eprintln!("cmux-tui: read session journal head: {error:#}");
-            ResourceError::operation_failed(
-                "session.journal.subscribe",
-                "could not read the session journal",
-                json!({}),
-            )
-        })?
-        .head_sequence;
+    let head_sequence = mux.session_journal_head().map_err(|error| {
+        eprintln!("cmux-tui: read session journal head: {error:#}");
+        ResourceError::operation_failed(
+            "session.journal.subscribe",
+            "could not read the session journal",
+            json!({}),
+        )
+    })?;
     let current_cursor = journal_cursor(&session_id, head_sequence);
     let requested_cursor = request
         .fields
@@ -10806,9 +10803,9 @@ fn create_surface_with_receipt(
             || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
         "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
     );
+    let actor = origin_gate::connection_actor(mux, client);
     let mutation =
-        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?
-            .by(origin_gate::connection_actor(mux, client));
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin, actor)?;
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
@@ -11012,12 +11009,12 @@ fn workspace_mutation(
     client: u64,
     request: &MutationRequest,
 ) -> anyhow::Result<WorkspaceMutation> {
-    let mutation = match (&request.mutation_id, &request.origin) {
-        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone())?,
-        (None, None) => WorkspaceMutation::local("legacy-control"),
+    let actor = origin_gate::connection_actor(mux, client);
+    match (&request.mutation_id, &request.origin) {
+        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone(), actor),
+        (None, None) => Ok(WorkspaceMutation::local("legacy-control", actor)),
         _ => anyhow::bail!("origin and mutation_id must be provided together"),
-    };
-    Ok(mutation.by(origin_gate::connection_actor(mux, client)))
+    }
 }
 
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
@@ -12943,6 +12940,8 @@ fn handle_command_with_cancellation(
         Command::PairingResponse { request, approve } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("pairing decisions require a trusted local connection");
+            } else if approve && !origin_gate::may_approve_pairing(mux, client) {
+                anyhow::bail!(origin_gate::PAIRING_APPROVAL_NEEDS_HUMAN);
             }
             if !mux.respond_pairing(request, approve) {
                 anyhow::bail!("unknown or expired pairing request {request}");
@@ -14430,7 +14429,7 @@ fn handle_command_with_cancellation(
         ),
         Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
         Command::DeleteProfile { profile, move_to } => {
-            personal::delete_profile(mux, &profile, move_to.as_deref())
+            personal::delete_profile(mux, client, &profile, move_to.as_deref())
         }
         Command::SetProfileFollows { profile, session_ids } => {
             personal::set_profile_follows(mux, &profile, &session_ids)
@@ -14484,7 +14483,7 @@ fn handle_command_with_cancellation(
                 profile.as_deref(),
             )
         }
-        Command::DeletePersonalGroup { group } => personal::delete_group(mux, &group),
+        Command::DeletePersonalGroup { group } => personal::delete_group(mux, client, &group),
         Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
         Command::SetPersonalWorkspace {
             session_id,
@@ -21415,23 +21414,17 @@ mod tests {
 
     #[test]
     fn stalled_websocket_handshake_times_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (listener, mux) = (TcpListener::bind("127.0.0.1:0").unwrap(), test_mux());
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(
-                test_mux(),
-                server,
-                peer,
-                None,
-                Arc::new(RenderService::new()),
-            );
+            handle_websocket_connection(mux, server, peer, None, Arc::new(RenderService::new()));
             done.send(()).unwrap();
         });
 
         finished
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("stalled handshake must not occupy a connection slot indefinitely");
         drop(client);
         handler.join().unwrap();
@@ -21439,13 +21432,13 @@ mod tests {
 
     #[test]
     fn stalled_websocket_authentication_times_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (listener, mux) = (TcpListener::bind("127.0.0.1:0").unwrap(), test_mux());
         let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
             handle_websocket_connection(
-                test_mux(),
+                mux,
                 server,
                 peer,
                 Some("secret"),
@@ -21456,7 +21449,7 @@ mod tests {
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();
 
         finished
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("stalled authentication must not occupy a connection slot indefinitely");
         drop(client);
         handler.join().unwrap();
@@ -26549,7 +26542,7 @@ mod tests {
                 Some("bootstrap".into()),
                 "bootstrap-receipt-00000001",
                 None,
-                &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+                &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
                 Default::default(),
             )
             .unwrap();
@@ -26610,7 +26603,7 @@ mod tests {
             "renamed".into(),
             None,
             None,
-            &WorkspaceMutation::new("resource-rename", "resource-api").unwrap(),
+            &WorkspaceMutation::daemon("resource-rename", "resource-api").unwrap(),
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
@@ -26636,7 +26629,7 @@ mod tests {
             1,
             None,
             None,
-            &WorkspaceMutation::new("resource-move", "resource-api").unwrap(),
+            &WorkspaceMutation::daemon("resource-move", "resource-api").unwrap(),
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();

@@ -16,10 +16,9 @@ final class FilePageOpener: FileOpening {
 
     /// Files the browser tab previews (images, PDFs, media). An explicit list, because the system
     /// types `.ts` (TypeScript) as an MPEG transport stream.
-    nonisolated static let previewExtensions: Set<String> = [
-        "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
-        "mp4", "mov", "m4v", "webm", "mp3", "m4a", "wav", "aac", "flac", "ogg",
-    ]
+    nonisolated static let previewExtensions: Set<String> = Set([
+        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
+    ]).union(AgentPaneFileOpen.mediaExtensions)
 
     /// The page that opens `url`, nil for a file the browser tab previews.
     nonisolated static func kind(for url: URL) -> FilePageKind? {

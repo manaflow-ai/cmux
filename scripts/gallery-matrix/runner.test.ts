@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
 import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
@@ -176,6 +176,41 @@ test("records a hung case after both bounded attempts and captures later cases",
     expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toEqual(results);
   } finally {
     process.exitCode = previousExitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("records a navigation failure and continues the matrix", async () => {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-navigation-failure-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "stuck", path_or_url: "https://example.test/stuck" },
+    { id: "fine", path_or_url: "https://example.test/fine" },
+  ]));
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async () => {},
+        goto: async (url: string) => { if (url.includes("stuck")) throw new Error("goto: Timeout 30000ms exceeded."); },
+        waitForFunction: async () => {},
+        evaluate: async () => null,
+        screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  }) } };
+  const exitCode = process.exitCode;
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results.map((r) => [r.id, r.ready])).toEqual([["stuck", "error"], ["fine", null]]);
+    expect(String(results[0]!.error)).toContain("Timeout");
+    expect(existsSync(join(dir, "fine-chromium.png"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toHaveLength(2);
+    expect(existsSync(join(dir, "index.html"))).toBe(true);
+  } finally {
+    process.exitCode = exitCode;
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -36,6 +36,7 @@ fn local_machine_service_exposes_only_public_opaque_ids() {
             selectors: ResourceSelectors::default(),
             fields: Map::new(),
             idempotency_key: None,
+            actor: crate::Actor::local_user(),
         })
         .unwrap();
     let machine = &result.as_array().unwrap()[0];
@@ -63,6 +64,7 @@ fn injected_machine_service_is_the_router_boundary() {
             selectors: ResourceSelectors::default(),
             fields: Map::new(),
             idempotency_key: None,
+            actor: crate::Actor::local_user(),
         })
         .unwrap();
     assert_eq!(result, json!({"operation":"machine.list"}));
