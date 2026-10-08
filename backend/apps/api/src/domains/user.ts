@@ -150,11 +150,11 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
 
 /**
  * Default grant per install kind, and the most a register may ask for (it may narrow, never widen):
- * - ios: read, mutate-own (L14-1) and the narrow cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5);
+ * - ios: read, mutate-own (L14-1) and the narrow cloud-link class (link_token, and a force-command
+ *   restricted team_vm.ssh_cert agent certificate: cx-wb5.66; CLOUD-LINK-FOLLOWUPS 5);
  * - mac (the cmux Mac app, cx-wb5.64): the phone grant plus mutate-shared (start, pause, rename team
- *   machines through the credential relay); never execute. Exception: team_vm.ssh_cert's agent class
- *   is exempt from the grant check (team-ssh-ca.ts), so an ios or mac token can still get a
- *   restricted-shell certificate (bead cx-wb5.66). The kind is self-declared by the session holder
+ *   machines through the credential relay); never execute. An install with neither execute nor
+ *   cloud-link gets no SSH certificate (team-ssh-ca.ts). The kind is self-declared by the session holder
  *   (a cli or web register keeps execute), so this caps a stolen install token, not the session;
  *   no shipped client registered a mac install before this change, so no grant needs a migration;
  * - vm: vm-self only; every other kind (cli, ...): all install classes.
