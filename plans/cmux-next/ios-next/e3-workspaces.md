@@ -163,3 +163,17 @@ native test execution and live SSH/GUI verification remain unverified. The curre
 supports one pane per window with a matching host-confirmed viewport; multi-pane/window geometry,
 history and complete parser-state restoration remain parity gaps. No D3 row is promoted by this
 source-only verification. Lifecycle mutations remain deferred until owner idempotency exists.
+
+### Host split geometry discovery (2026-10-07)
+
+Modern discovery now reads `L2` window-layout rows alongside `W2` windows and `P2` panes. A bounded
+`SSHTmuxLayout` parser supplies the read-only split tree and cell frames on each discovered window;
+its checksum, exact geometry, unique ids, and pane inventory must agree before geometry is exposed.
+Malformed or conflicting layout rows clear that metadata, while attachment continues to use the
+existing validated server/session/window/active-pane target. Stable workspace/surface ids are
+unchanged. No SSH create, rename, kill, pane selection, or renderer layout mutation is introduced.
+
+The C9 layout tests include discovery regressions for mismatched pane inventories and repeated or
+conflicting rows. Syntax/convention/concurrency/crash-safety checks passed; native Swift test execution
+and live SSH remain unverified because the dedicated build host cannot resolve. This model does not
+promote the multi-pane rendering parity row. See `c9-ssh.md` for bounds and protocol references.

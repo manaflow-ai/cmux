@@ -14,6 +14,8 @@ public struct SSHDiscoveredSession: Hashable, Sendable, Identifiable {
         public var name: String
         public var isActive: Bool
         public var target: SSHSessionTarget
+        /// Validated read-only host geometry; nil for older or inconsistent listings.
+        public var layout: SSHTmuxLayout? = nil
     }
 
     public var kind: Kind

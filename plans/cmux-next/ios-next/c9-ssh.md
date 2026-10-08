@@ -214,3 +214,33 @@ hydration, not its paired-Mac Iroh workload; real SSH attach/reconnect verificat
 This closes one parser-state gap only. tmux's `-P` buffer omits incomplete UTF-8 in the ground state;
 current pen attributes, saved cursor/charset state, pending wrap, on-demand history, multi-pane layout
 composition, and reconnect-safe lifecycle mutations still need follow-up. C9 remains incomplete.
+
+### Read-only split layout model (2026-10-07)
+
+`SSHTmuxLayout` now parses the checksum-prefixed `window_layout` format into a typed split tree
+and an ordered pane inventory. Each frame is in host character cells; `{}` means left/right,
+`[]` means top/bottom, and one border cell separates siblings. The parser follows tmux 3.3a's
+[layout serialization and checksum](https://github.com/tmux/tmux/blob/3.3a/layout-custom.c), checks
+exact child coverage, and rejects gaps, overlap, mismatched axes, duplicate pane ids, absent pane
+ids, trailing data, malformed numbers, and checksum mismatch. Limits are 16 KiB input, 256 panes,
+511 cells, 32 nesting levels, and 65,535 cells per coordinate/dimension; decimal values are parsed
+with overflow checks before arithmetic.
+
+Discovery adds read-only `L2` records from `list-windows -a -F ... #{window_layout}` and exposes
+validated geometry on `SSHDiscoveredSession.Window.layout`. A layout is retained only if its pane
+ids equal the same discovery run's `P2` inventory. Conflicting duplicate or malformed layout rows
+invalidate geometry for that window; absent geometry leaves the existing epoch-checked attachment
+path intact. Layout ids never become shell input. This is the normal, unzoomed layout returned by
+`window_layout`; zoom-aware rendering must separately use `window_visible_layout`.
+
+Eight focused tests cover the published tmux manual fixture, mixed split geometry/order,
+checksum/truncation, invalid geometry and ids, numeric bounds, exact pane/depth budgets, discovery
+inventory mismatch, and conflicting records. Swift syntax, scoped conventions, mobile concurrency,
+crash-safety, and diff checks passed. These new Swift Testing cases have not executed because the
+previously confirmed dedicated build-host DNS failure remains unresolved. No live SSH, simulator,
+or renderer verification is claimed.
+
+The model is an input to future multi-pane rendering, not a renderer. C9 remains incomplete:
+canonical per-pane viewport/input routing and live layout changes still need integration, as do
+remaining parser/history gaps and lifecycle mutations. Create/rename/kill are still deferred because
+the current read-only SSH seams do not provide durable owner mutation receipts.

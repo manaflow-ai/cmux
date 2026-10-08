@@ -26,6 +26,7 @@ public struct SSHSessionDiscovery: Sendable {
       "$T" list-sessions -F 'S\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_activity}' 2>/dev/null
       "$T" list-windows -a -F 'W2\t#{session_name}\t#{window_index}\t#{window_active}\t#{session_id}\t#{window_id}\t#{pid}\t#{start_time}\t#{window_name}' 2>/dev/null
       "$T" list-panes -a -F 'P2\t#{window_id}\t#{pane_id}\t#{pane_active}' 2>/dev/null
+      "$T" list-windows -a -F 'L2\t#{window_id}\t#{window_layout}' 2>/dev/null
     fi
     if command -v screen >/dev/null 2>&1; then
       printf '@screen\\t%s\\n' "$(command -v screen)"
@@ -59,6 +60,9 @@ public struct SSHSessionDiscovery: Sendable {
         var windows: [String: [SSHDiscoveredSession.Window]] = [:]
         var activePanes: [String: String] = [:]
         var ambiguousPanes = Set<String>()
+        var paneIDs: [String: Set<String>] = [:]
+        var layouts: [String: SSHTmuxLayout] = [:]
+        var invalidLayouts = Set<String>()
         var screens: [SSHDiscoveredSession] = []
         var cmuxSessions: [SSHDiscoveredSession] = []
         var seenCmux = Set<String>()
@@ -98,12 +102,23 @@ public struct SSHSessionDiscovery: Sendable {
                           SSHTmuxWindow.validID(fields[1], prefix: "@"),
                           SSHTmuxWindow.validID(fields[2], prefix: "%"),
                           (fields[3] == "0" || fields[3] == "1") {
+                    paneIDs[fields[1], default: []].insert(fields[2])
                     // A split window has several panes. Keep only an
                     // unambiguous active pane so control mode can target the
                     // host-selected pane without guessing by list order.
                     if fields[3] == "1" {
                         if activePanes[fields[1]] != nil { ambiguousPanes.insert(fields[1]) }
                         activePanes[fields[1]] = fields[2]
+                    }
+                } else if fields.first == "L2", fields.count >= 2,
+                          SSHTmuxWindow.validID(fields[1], prefix: "@") {
+                    let id = fields[1]
+                    if fields.count == 3, let layout = SSHTmuxLayout(validating: fields[2]),
+                       layouts[id].map({ $0 == layout }) ?? true, !invalidLayouts.contains(id) {
+                        layouts[id] = layout
+                    } else {
+                        layouts[id] = nil
+                        invalidLayouts.insert(id)
                     }
                 } else if section == "@tmux", fields.first == "W", fields.count >= 5, let name = SSHSessionName(validating: fields[1]),
                           let index = Int(fields[2]), index >= 0 {
@@ -144,6 +159,12 @@ public struct SSHSessionDiscovery: Sendable {
                           let targeted = window.targetingPane(paneID) else { return nil }
                     var item = item
                     item.target = .tmuxControl(binary: binary, window: targeted)
+                    // Discovery commands are separate reads. Do not expose
+                    // geometry when the pane inventory changed between them.
+                    if let layout = layouts[window.windowID],
+                       Set(layout.panes.map(\.id)) == paneIDs[window.windowID] {
+                        item.layout = layout
+                    }
                     return item
                 }
             }
