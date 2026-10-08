@@ -1749,6 +1749,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         clear_inherited_claude_session_identity_env
     fi
     clear_inherited_claude_auth_selection_env
+    unset CMUX_CUA_SOCKET_AUTH_TOKEN
     if [[ "$IN_CMUX" == "1" ]]; then
         reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     fi
