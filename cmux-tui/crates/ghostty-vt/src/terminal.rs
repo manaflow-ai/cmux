@@ -1255,6 +1255,12 @@ impl Terminal {
         self.kitty_inflight.set_max_bytes(bounded);
     }
 
+    /// Whether a Kitty image upload is being assembled. A limit change while
+    /// one is can drop its retained prefix.
+    pub fn kitty_upload_in_progress(&self) -> bool {
+        self.kitty_inflight.upload_in_progress()
+    }
+
     pub fn kitty_inflight_storage_limit(&self) -> u64 {
         self.kitty_inflight.max_bytes() as u64
     }

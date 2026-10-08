@@ -16,8 +16,8 @@
 //! too. On a smart-renderer connection it also resolves
 //! `KittyGraphicsLimitsAck`: a smart host answers a Kitty limits update with
 //! `ResyncRequired` and then the acknowledgement, and the surface's reader
-//! stops reading the stream at `ResyncRequired`, so only this thread can
-//! still deliver it. Older hosts send the replacement replay before the
+//! stops reading the stream at a `ResyncRequired` that needs a reopen, so
+//! only this thread can still deliver it. Older hosts send the replacement replay before the
 //! acknowledgement and keep it in output order.
 //!
 //! Every other frame (including `ClearHistoryAck`, whose replay must stay
