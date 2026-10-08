@@ -818,6 +818,96 @@ extension CMUXCLI {
         return markers
     }
 
+    // MARK: - Kiro CLI V3 global hooks
+
+    /// One lifecycle hook in the Kiro CLI V3 global hook file
+    /// (https://kiro.dev/docs/hooks/).
+    struct KiroGlobalHookEvent: Equatable {
+        let name: String
+        let trigger: String
+        let cmuxSubcommand: String
+    }
+
+    /// Lifecycle events cmux installs for every Kiro CLI V3 agent. The Feed
+    /// permission bridge (pre/post tool use) stays in the `cmux` agent config:
+    /// a global PreToolUse hook would gate tools for every agent.
+    static let kiroGlobalHookEvents: [KiroGlobalHookEvent] = [
+        .init(name: "cmux-session-start", trigger: "SessionStart", cmuxSubcommand: "session-start"),
+        .init(name: "cmux-prompt-submit", trigger: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+        .init(name: "cmux-stop", trigger: "Stop", cmuxSubcommand: "stop"),
+    ]
+
+    static let kiroGlobalHooksFileName = "cmux.json"
+    static let kiroGlobalHookIdentityMarker = "cmux-kiro-global-hook"
+
+    /// Kiro CLI V3 reads global hooks from the `hooks` directory beside
+    /// `agents`: `~/.kiro/hooks`, or `$KIRO_HOME/hooks` when `KIRO_HOME` is set.
+    static func kiroGlobalHooksDirectory(for def: AgentHookDef) -> String {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .deletingLastPathComponent()
+            .appendingPathComponent("hooks", isDirectory: true)
+            .path
+    }
+
+    static func kiroGlobalHooksFilePath(for def: AgentHookDef) -> String {
+        URL(fileURLWithPath: kiroGlobalHooksDirectory(for: def), isDirectory: true)
+            .appendingPathComponent(kiroGlobalHooksFileName, isDirectory: false)
+            .path
+    }
+
+    /// Kiro CLI V3 adds a successful SessionStart/UserPromptSubmit hook's
+    /// stdout to the model context, reads a Stop hook's stdout as a possible
+    /// "keep working" decision, and blocks a prompt on exit 2. The global
+    /// hook runs for every agent, so it discards all output and exits 0.
+    static func kiroGlobalHookCommandString(for def: AgentHookDef, event: KiroGlobalHookEvent) -> String {
+        let dispatch = queuedAgentHookShellCommand(
+            agent: def.name,
+            subcommand: event.cmuxSubcommand,
+            disableEnvironmentVariable: def.disableEnvVar,
+            identityMarker: kiroGlobalHookIdentityMarker
+        )
+        return "{ \(dispatch); } >/dev/null 2>&1; exit 0"
+    }
+
+    static func kiroGlobalHookEntries(for def: AgentHookDef) -> [[String: Any]] {
+        kiroGlobalHookEvents.map { event in
+            [
+                "name": event.name,
+                "trigger": event.trigger,
+                "action": [
+                    "type": "command",
+                    "command": kiroGlobalHookCommandString(for: def, event: event),
+                ] as [String: Any],
+                "timeout": agentHookDeclaredTimeoutSeconds,
+                "enabled": true,
+            ]
+        }
+    }
+
+    /// Left in the global file when uninstall keeps other hooks or keys, so a
+    /// later install still recognizes the file as cmux's. Disabled and a no-op.
+    static let kiroGlobalOwnershipEntryName = "cmux-ownership"
+    static var kiroGlobalOwnershipEntry: [String: Any] {
+        [
+            "name": kiroGlobalOwnershipEntryName,
+            "trigger": "SessionEnd",
+            "action": [
+                "type": "command",
+                "command": ": \(kiroGlobalHookIdentityMarker); exit 0",
+            ] as [String: Any],
+            "timeout": agentHookDeclaredTimeoutSeconds,
+            "enabled": false,
+        ]
+    }
+
+    static func isCmuxOwnedKiroGlobalHookEntry(_ entry: [String: Any]) -> Bool {
+        guard let action = entry["action"] as? [String: Any],
+              let command = action["command"] as? String else {
+            return false
+        }
+        return command.contains(": \(kiroGlobalHookIdentityMarker);")
+    }
+
     /// Marker substrings used when removing / upgrading our own Feed bridge
     /// entries on reinstall or uninstall.
     static func feedHookMarkers(for def: AgentHookDef) -> [String] {
