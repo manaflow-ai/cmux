@@ -143,6 +143,8 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-menu"));
         await ctx.press("ArrowDown");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-model .acpmux-menu"));
       },
     },
     "access-menu": {
