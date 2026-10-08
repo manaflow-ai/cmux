@@ -39,7 +39,7 @@ fn split_root(args: &[String]) -> Result<(Paths, Vec<String>), String> {
 
 fn usage(msg: &str) -> u8 {
     eprintln!(
-        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap [--root DIR]"
+        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap|sync [--once] [--root DIR]"
     );
     2
 }
@@ -61,9 +61,22 @@ pub fn run(args: &[String]) -> u8 {
             0
         }
         ["session-open"] => session_verb(&paths),
+        ["sync"] => sync_verb(&paths, false),
+        ["sync", "--once"] => sync_verb(&paths, true),
         ["reap"] => reap_verb(&paths),
         _ => usage("unknown arguments"),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn sync_verb(paths: &Paths, once: bool) -> u8 {
+    super::sync::run(paths, once)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sync_verb(_paths: &Paths, _once: bool) -> u8 {
+    eprintln!("cmux host team-ssh sync: Linux only");
+    4
 }
 
 fn apply_verb(paths: &Paths) -> u8 {

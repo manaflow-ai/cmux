@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { isMachineInstallKind } from "../machine-installs.ts"
 import type { Domain, OutboxItem, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
@@ -69,7 +70,7 @@ const ALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute", "send-ext
 /** An install's default grant: its own user's interactive rights, minus account management (destructive). */
 const INSTALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute"] as const
 /** Install kinds only the server creates (CLOUD-LINK-FOLLOWUPS 4). */
-const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon"])
+const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "team-vm", "daemon"])
 
 export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.grants[p.grant] : undefined)
 
@@ -113,7 +114,7 @@ export const installActive = (state: UserState, p: Principal) => {
 }
 
 /** installActive, and not a VM install: a VM install (kind vm) never reads or changes its creator's account (review P1). */
-export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || state.installs[p.install]?.kind !== "vm")
+export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || !isMachineInstallKind(state.installs[p.install]?.kind))
 
 /** True for an unarchived chief of this user. */
 export { chiefActive }
@@ -186,6 +187,8 @@ export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTA
       ? ["read", "mutate-own", "mutate-shared", "cloud-link"]
       : kind === "vm"
         ? ["vm-self"]
+        : kind === "team-vm"
+          ? ["read", "mutate-own"]
         : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
@@ -267,6 +270,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (op === "install.register_server" && (!reserved || p.kind !== "system")) return reject("validation.invalid", "install.register_server takes only a server kind from the server")
         // A VM install speaks for exactly one machine; no other install names one.
         if ((v.kind === "vm") !== (v.bound_machine !== undefined) || (v.kind === "vm" && v.bound_team === undefined)) return reject("validation.invalid", "a vm install names its bound team and machine; no other install does")
+        if (v.kind === "team-vm" && v.bound_team === undefined) return reject("validation.invalid", "a team-vm install names its bound team")
         const thumbprint = jwkThumbprint(v.public_jwk)
         if (Object.values(state.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")

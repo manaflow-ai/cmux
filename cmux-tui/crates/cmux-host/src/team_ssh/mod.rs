@@ -36,25 +36,31 @@
 //! - Only Ed25519 and ECDSA user certificates can be recorded; a session
 //!   with another certificate type is refused at session open (the team CA
 //!   is Ed25519 only).
-//! - Until the team VM bind route (vm-image.md 6b) exists, no deployed
-//!   machine fetches `team_vm.ssh_ca` by itself; `apply` reads the snapshot
-//!   on stdin, and the fetcher that calls it lands with the bind.
+//! - The fetcher ([`sync`]) runs only on a team VM that the bind
+//!   ([`enroll`], vm-image.md 6b) gave an install; `apply` also reads a
+//!   snapshot on stdin.
 
 pub mod b64;
 pub mod cert;
 pub mod cli;
+pub mod enroll;
 #[cfg(target_os = "linux")]
 pub mod linux_host;
 pub mod sessions;
 pub mod store;
+pub mod sync;
 pub mod trust;
 
 #[cfg(test)]
 mod cert_tests;
 #[cfg(test)]
+mod enroll_tests;
+#[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod sync_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

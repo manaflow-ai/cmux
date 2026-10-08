@@ -50,6 +50,7 @@ pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChang
 pub(crate) use tab_strip::StripRequest;
 mod loss_causes;
 mod pending_terminals;
+pub(crate) mod terminal_archive;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
@@ -8191,6 +8192,8 @@ impl Mux {
                     Arc::downgrade(self),
                     Some(terminal_id),
                     cell_pixels,
+                    // Reopen Closed of an archived terminal (ARCHIVE-1).
+                    &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
                 ),
             };
             let surface = match spawned {
