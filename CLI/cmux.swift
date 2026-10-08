@@ -11401,9 +11401,24 @@ struct CMUXCLI {
             )
             // A blank handle resolves to nothing and would fall back to the
             // selected workspace or focused surface, so it counts as missing.
-            for option in valueOptions.sorted() {
-                if let value = optionValue(rest, name: option),
-                   value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Check every occurrence: a repeated option is read by its first
+            // value, and a blank later one must not pass unnoticed.
+            var scanIndex = 0
+            while scanIndex < rest.count, rest[scanIndex] != "--" {
+                let arg = rest[scanIndex]
+                var option = arg
+                var value: String?
+                if let equals = arg.firstIndex(of: "="), valueOptions.contains(String(arg[..<equals])) {
+                    option = String(arg[..<equals])
+                    value = String(arg[arg.index(after: equals)...])
+                    scanIndex += 1
+                } else if valueOptions.contains(arg) {
+                    value = rest[scanIndex + 1]
+                    scanIndex += 2
+                } else {
+                    scanIndex += 1
+                }
+                if let value, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     throw missingOptionValueError(option, commandName: "canvas \(sub)")
                 }
             }

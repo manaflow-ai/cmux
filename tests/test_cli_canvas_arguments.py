@@ -123,6 +123,10 @@ class CanvasArgumentTests(unittest.TestCase):
             (["reveal", "--surface", ""], "--surface"),
             (["join", S1, "--target", " "], "--target"),
             (["new-pane", "--type", ""], "--type"),
+            # A repeated option is read by its first value; a blank later one still counts.
+            (["mode", "canvas", "--workspace", WS, "--workspace", ""], "--workspace"),
+            (["info", "--workspace", WS, "--workspace=  "], "--workspace"),
+            (["reveal", "--surface", S1, "--surface", " "], "--surface"),
         ):
             self.assert_rejected(args, f"{option} requires a value")
 
