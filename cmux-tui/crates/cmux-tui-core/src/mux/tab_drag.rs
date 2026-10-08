@@ -375,7 +375,7 @@ impl Mux {
         let mux = Arc::clone(self);
         let mut committed = None;
         let commit = self.commit_resource_mutation_plan(
-            &WorkspaceMutation::local("cmux-tui-tab-drag"),
+            &WorkspaceMutation::daemon_local("cmux-tui-tab-drag"),
             "tab.drag",
             &fingerprint,
             None,
@@ -565,7 +565,7 @@ pub(crate) fn apply_tab_drag(
                     let column = screen
                         .layout_column_for_pane_mut(target_pane)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -590,7 +590,7 @@ pub(crate) fn apply_tab_drag(
                 if in_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             }
             TabDragDestination::Column { after_column, width, .. } => {
@@ -970,7 +970,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("tab-drag-test"),
+            &WorkspaceMutation::daemon_local("tab-drag-test"),
         )
         .unwrap();
         assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None, None).is_err());

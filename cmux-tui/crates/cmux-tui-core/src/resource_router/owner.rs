@@ -123,6 +123,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::WorkspaceUpdate
+        | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate
@@ -169,6 +170,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
         | ResourceOperation::WindowRecordDelete
+        | ResourceOperation::SidebarLayoutGet
+        | ResourceOperation::SidebarLayoutUpdate
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear

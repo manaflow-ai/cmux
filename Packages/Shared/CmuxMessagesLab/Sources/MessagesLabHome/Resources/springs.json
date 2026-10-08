@@ -61,16 +61,16 @@
   "to": 300.0,
   "components": [
    {
-    "delay": -0.015,
-    "duration": 0.4104,
-    "bounce": 0.1434,
-    "delta": -440.0225
+    "delay": 0.0063,
+    "duration": 0.3496,
+    "bounce": 0.2888,
+    "delta": -695.128
    },
    {
-    "delay": 0.0384,
-    "duration": 0.2569,
-    "bounce": 0.4308,
-    "delta": -311.9775
+    "delay": 0.0309,
+    "duration": 0.1403,
+    "bounce": 0.8,
+    "delta": -56.872
    }
   ],
   "residual": {
@@ -90,7 +90,20 @@
    "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
   },
   "frames": 30,
-  "droppedTorn": []
+  "droppedTorn": [],
+  "refit": {
+   "rmsPt": {
+    "send-typed-take1": 8.0,
+    "send-typed-media-take1": 7.0,
+    "typing-unfocused-take1": 5.1
+   },
+   "rmsPtBefore": {
+    "send-typed-take1": 11.0,
+    "send-typed-media-take1": 9.7,
+    "typing-unfocused-take1": 9.2
+   },
+   "method": "2026-10-06: joint refit on the lossless send-typed-take1, send-typed-media-take1 (mid-row left edge, Messages' own new frames 0-0.32 s after its first send frame) and typing-unfocused-take1 (left edge on the row 1030 pt, 0-0.1 s), each take weighted equally. Target width = ours' width (previous springs, takes 81) plus ours' left edge minus Messages' left edge, divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge was within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). A fit to send-typed alone gives 2.4 / 3.2 pt there but 30 pt on typing-unfocused (Messages narrows more slowly in that take)."
+  }
  },
  "bubble.centerY": {
   "event": "send",
@@ -196,24 +209,50 @@
   "to": 1.0,
   "components": [
    {
-    "delay": 0.0422,
-    "duration": 0.328,
-    "bounce": 0.4356,
-    "delta": -2.616
+    "delay": 0.0595,
+    "duration": 0.035,
+    "bounce": 0.0,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": -0.43
    },
    {
-    "delay": 0.087,
-    "duration": 0.2637,
+    "delay": 0.1035,
+    "duration": 0.004,
     "bounce": 0.0,
-    "delta": 2.616
+    "curve": [
+     0.0,
+     0.0,
+     1.0,
+     1.0
+    ],
+    "delta": -0.57
+   },
+   {
+    "delay": 0.1073,
+    "duration": 0.2578,
+    "bounce": 0.0,
+    "curve": [
+     0.4731,
+     0.0885,
+     0.4263,
+     0.5763
+    ],
+    "delta": 1.0
    }
   ],
   "residual": {
-   "rms": 0.033,
-   "max": 0.071
+   "rms": 0.023
   },
-  "frames": 48,
-  "droppedTorn": []
+  "frames": 56,
+  "droppedTorn": [],
+  "fit": {
+   "method": "field fill (median of x 140-165, y 1003-1018 pt, grey frames only) as a fraction between the background and the rest fill, at Messages' own new frames 67-358 ms after its first send frame; send-typed-take1 and send-typed-media-take1 (lossless, 120 Hz); curve time = our first send frame + 11.1 ms (ours-container take ffcontainer-send-typed-take80); every delay then +4.5 ms, because the render-server fade (field container layer) shows the curve at our first send frame + 15.6 ms (takes 84, rms 0.008), so the drop to 0 lands at +88 ms, midway between Messages' frames at +83 and +92 ms. Messages fades to 0.57 by +75 ms, drops to 0 between +83 and +92 ms, and is back by +350 ms. Was a two-spring fit on the lossy 54 fps original (rms 0.10 on these frames)."
+  }
  },
  "transcript.delivered": {
   "event": "delivered",
@@ -415,6 +454,54 @@
     "two": 3.168
    },
    "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  }
+ },
+ "transcript.receiveMedia": {
+  "event": "receive (photo)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -338.0,
+  "components": [
+   {
+    "delay": 0.0341,
+    "duration": 0.306,
+    "curve": [
+     0.3636,
+     0.0,
+     0.6309,
+     1.0353
+    ],
+    "delta": -338.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 0.104,
+   "maxPt": 0.25,
+   "method": "lossless send-typed-media-take1, last outgoing bubble top 7.45-8.1 s, curve fit; time 0 = our receive commit (onset - 20 ms)"
+  }
+ },
+ "transcript.tapback": {
+  "event": "my tapback (rows above the part)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -55.0,
+  "components": [
+   {
+    "delay": 0.0897,
+    "duration": 0.2915,
+    "curve": [
+     0.408,
+     0.0,
+     0.5629,
+     0.9998
+    ],
+    "delta": -55.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 0.251,
+   "maxPt": 0.929,
+   "method": "lossless tapback-menu-heart-take1, rows above Charlie (y 120-280 pt) vertical shift, curve fit; Messages starts at +0.4997 s after the heart click, our react commit at +0.410 s (takes 40, 60, 61: spring fit 0.409-0.411)"
   }
  }
 }

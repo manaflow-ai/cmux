@@ -14,7 +14,8 @@ public struct RegistryKeyBindings {
     ///
     /// Layers (GHOSTTY-CONFIG keybind order): Ghostty fallbacks (every
     /// routed Ghostty keybind), defaults (the tab-switch entries of
-    /// ``KeyBindingDefaults``, then the catalog's default keys), app
+    /// ``KeyBindingDefaults``, then the catalog's default keys, then the
+    /// scoped defaults that replace a global key in their context), app
     /// entries, the keybinds the user's Ghostty config changed (app-wide;
     /// keys it claims lose their default entries), then user entries (cmux.json, then keybindings.json;
     /// ``KeyBindingLayers``). A later entry wins. Inside a layer, entries are ordered by the number
@@ -101,7 +102,8 @@ public struct RegistryKeyBindings {
             }
             entries += ranked.map(\.binding)
             switch source {
-            case .ghosttyFallback, .default: break
+            case .ghosttyFallback: break
+            case .default: entries += KeyBindingDefaults.scopedEntries(registry: registry)
             case .app: entries += extra.app.filter(enabled)
             case .ghostty:
                 claimed = entries.filter(isClaimed)

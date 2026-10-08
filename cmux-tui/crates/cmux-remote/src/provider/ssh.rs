@@ -26,6 +26,10 @@ pub struct SshProviderConfig {
     pub remote_binary: String,
     pub remote_session: String,
     pub remote_state_dir: Option<String>,
+    /// An existing daemon socket on the host that `remote-link` attaches to
+    /// (`--mux-socket`) instead of the session's own derived one; it never
+    /// starts a daemon there (a paired server's Chief brain owns it).
+    pub remote_mux_socket: Option<String>,
     pub extra_args: Vec<String>,
     pub maximum_frame_bytes: usize,
     /// Coding-agent providers whose hooks `remote-link` installs on the host
@@ -40,6 +44,7 @@ impl Default for SshProviderConfig {
             remote_binary: "~/.local/bin/cmux-tui".into(),
             remote_session: "main".into(),
             remote_state_dir: None,
+            remote_mux_socket: None,
             extra_args: Vec::new(),
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
@@ -58,6 +63,9 @@ impl SshProvider {
         validate_remote_word(&config.remote_session)?;
         if let Some(state_dir) = &config.remote_state_dir {
             validate_remote_word(state_dir)?;
+        }
+        if let Some(socket) = &config.remote_mux_socket {
+            validate_remote_word(socket)?;
         }
         for provider in &config.agent_hooks {
             validate_agent_hook_provider(provider)?;
@@ -270,6 +278,9 @@ fn remote_link_command(config: &SshProviderConfig) -> Vec<String> {
     if let Some(state_dir) = &config.remote_state_dir {
         command.extend(["--state-dir".into(), state_dir.clone()]);
     }
+    if let Some(socket) = &config.remote_mux_socket {
+        command.extend(["--mux-socket".into(), socket.clone()]);
+    }
     if !config.agent_hooks.is_empty() {
         command.extend(["--agent-hooks".into(), config.agent_hooks.join(",")]);
     }
@@ -403,6 +414,34 @@ mod tests {
                 "claude,codex",
             ]
         );
+    }
+
+    #[test]
+    fn remote_link_command_attaches_to_an_explicit_mux_socket() {
+        let config = SshProviderConfig {
+            remote_binary: "~/.cmux/brains/chief/bin/cmux-tui".into(),
+            remote_mux_socket: Some("~/.cmux/brains/chief/daemon/cmux.sock".into()),
+            ..SshProviderConfig::default()
+        };
+        assert_eq!(
+            remote_link_command(&config),
+            [
+                "~/.cmux/brains/chief/bin/cmux-tui",
+                "remote-link",
+                "--stdio",
+                "--session",
+                "main",
+                "--mux-socket",
+                "~/.cmux/brains/chief/daemon/cmux.sock",
+            ]
+        );
+        for socket in ["", "a b", "$(x)", "x;rm", "`x`"] {
+            let config = SshProviderConfig {
+                remote_mux_socket: Some(socket.into()),
+                ..SshProviderConfig::default()
+            };
+            assert!(SshProvider::new(config).is_err(), "{socket}");
+        }
     }
 
     #[test]

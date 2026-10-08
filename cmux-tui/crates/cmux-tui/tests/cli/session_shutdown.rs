@@ -4,6 +4,9 @@
 use super::*;
 
 #[test]
+// Quarantined after hosted Linux run 37069452699: the detached-owner client
+// once exited 1 during an orderly shutdown; the rerun passed.
+#[ignore = "hosted lifecycle flake: detached-owner shutdown exit race"]
 fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");

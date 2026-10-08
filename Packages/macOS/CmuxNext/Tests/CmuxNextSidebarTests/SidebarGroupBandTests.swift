@@ -45,8 +45,9 @@ import Testing
         #expect(band.update(nil) == nil)
     }
 
+    /// The first palette color no group uses, never blue or grey (no-blue rule, nxdog70).
     @Test func aNewGroupTakesAColorNoGroupUses() {
-        #expect(SidebarGroupBand.newGroupColor(in: fixture()) == .blue)
-        #expect(SidebarGroupBand.newGroupColor(in: []) == .blue)
+        #expect(SidebarGroupBand.newGroupColor(in: fixture()) == .red)
+        #expect(SidebarGroupBand.newGroupColor(in: []) == .red)
     }
 }

@@ -11,6 +11,8 @@
 //! - [`dial`]: the `link.dial` request and reply on the link's local socket,
 //!   and the service hello on an overlay stream.
 //! - [`overlay_addr`]: the overlay address of an install.
+//! - [`owner_session`]: the owner-only trusted session service of a paired
+//!   server (who may open it, which socket it reaches).
 //! - [`pairing`]: the paired peers the link accepts and dials (slice 1: a
 //!   file written by `cmux link peer add`).
 //! - [`registration`]: `link.json` in the daemon state dir, which names
@@ -32,6 +34,7 @@ pub mod dial;
 pub mod entry_path;
 pub mod keyset;
 pub mod overlay_addr;
+pub mod owner_session;
 pub mod pairing;
 pub mod registration;
 pub mod stamp;

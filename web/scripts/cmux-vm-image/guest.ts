@@ -68,6 +68,36 @@ export function assertResourceName(name: string, allowUnprefixed = false): void 
   if (!allowUnprefixed && !name.startsWith("cmuxnp-dev-")) throw new Error(`resource name ${name} must start with cmuxnp-dev-`);
 }
 
+type LiveVm = { vm: Vm; vmId: string; name: string; ledger: Ledger };
+const liveVms = new Map<string, LiveVm>();
+let signalCleanupInstalled = false;
+
+/** Remembers a VM this process created until deleteVm runs; a signal deletes what is left. */
+export function trackLiveVm(entry: LiveVm): void {
+  liveVms.set(entry.vmId, entry);
+  if (signalCleanupInstalled) return;
+  signalCleanupInstalled = true;
+  // finally blocks do not run when a signal ends the process (a local `timeout`, Ctrl-C).
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.once(signal, () => {
+      void deleteLiveVms().finally(() => process.exit(128 + (signal === "SIGINT" ? 2 : signal === "SIGHUP" ? 1 : 15)));
+    });
+  }
+}
+
+/** Deletes every tracked VM by id (ledger-recorded); returns the ids it deleted. */
+export async function deleteLiveVms(): Promise<string[]> {
+  const ids: string[] = [];
+  for (const entry of [...liveVms.values()]) {
+    await deleteVm(entry.vm, entry.vmId, entry.name, entry.ledger);
+    ids.push(entry.vmId);
+  }
+  return ids;
+}
+
+/** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
+export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
+
 export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
@@ -76,13 +106,19 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     displayName: options.name,
     // Outbound-only: the bake downloads its inputs; nothing dials in.
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
+    // A run that dies without cleanup (lost laptop, killed harness) must not
+    // leave a VM running: Freestyle pauses it after this much network idleness
+    // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
+    idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);
+  trackLiveVm({ vm, vmId, name: options.name, ledger });
   return { vm, vmId, createMs, t0 };
 }
 
 export async function deleteVm(vm: Vm, vmId: string, name: string, ledger: Ledger): Promise<void> {
+  liveVms.delete(vmId);
   try {
     await vm.delete();
     ledger.record(vmId, "vm", name, "deleted");

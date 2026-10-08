@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e'
+IR_SHA256 = 'cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494'
 
 
 @dataclass(frozen=True)
@@ -311,6 +311,18 @@ COMMANDS = {
             'y_px': CommandFieldMetadata(None, None),
         },
     ),
+    'chief-inspect': CommandMetadata(
+        'chief-inspect',
+        'local-admin',
+        12,
+        'chief-inspect-v1',
+        ('local-admin',),
+        None,
+        {
+            'path': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+        },
+    ),
     'clear-history': CommandMetadata(
         'clear-history',
         'control',
@@ -552,6 +564,38 @@ COMMANDS = {
     ),
     'cloud-inbox-unsubscribe': CommandMetadata(
         'cloud-inbox-unsubscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-mux-ack': CommandMetadata(
+        'cloud-mux-ack',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'seq': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-mux-subscribe': CommandMetadata(
+        'cloud-mux-subscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-mux-unsubscribe': CommandMetadata(
+        'cloud-mux-unsubscribe',
         'local-admin',
         12,
         'cloud-conversations-v1',
@@ -1714,6 +1758,7 @@ COMMANDS = {
         None,
         {
             'activate': CommandFieldMetadata(None, None),
+            'after': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'engine': CommandFieldMetadata(None, None),
             'favicon_url': CommandFieldMetadata(None, None),
@@ -2428,6 +2473,8 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'mode': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'permanent': CommandFieldMetadata(None, None),
+            'role': CommandFieldMetadata(12, 'dock-column-role-v1'),
             'transaction': CommandFieldMetadata(None, None),
         },
     ),
@@ -3162,6 +3209,8 @@ EVENTS = {
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-reset': EventMetadata('cloud-inbox-reset', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-mux-resynced': EventMetadata('cloud-mux-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-mux-wake': EventMetadata('cloud-mux-wake', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-session-needed': EventMetadata('cloud-session-needed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-subscription-state': EventMetadata('cloud-subscription-state', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),

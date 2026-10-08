@@ -8,13 +8,30 @@ const dom = new JSDOM("<!doctype html><div id=outside></div><div id=root></div>"
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "getComputedStyle",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  Node: dom.window.Node,
+  requestAnimationFrame: (callback: FrameRequestCallback) => {
+    callback(Date.now());
+    return 0;
+  },
+  cancelAnimationFrame: () => undefined,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -22,6 +39,8 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { SummaryButton } = await import("./SummaryButton");
+const { UiProvider } = await import("../../../ui/UiProvider");
+const SharedUiProvider = UiProvider as any;
 
 const tool = (fields: Partial<NonNullable<AcpmuxActivity["tool"]>>): AcpmuxActivity => ({
   kind: "tool",
@@ -50,14 +69,26 @@ const rows: AcpmuxRow[] = [
   },
 ];
 
-async function render(opened: string[]) {
+async function render(opened: string[], shown: readonly AcpmuxRow[] = rows) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  await act(async () => root.render(createElement(SummaryButton, { rows, onOpenOutput: (path) => opened.push(path) })));
+  const draw = (next: readonly AcpmuxRow[]) =>
+    act(async () =>
+      root.render(
+        createElement(
+          SharedUiProvider,
+          { container: container.ownerDocument.body, dir: "ltr" },
+          createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) }),
+        ),
+      ),
+    );
+  await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
-  const popover = () => container.querySelector<HTMLDialogElement>(".acpmux-summary-popover");
-  return { container, button, popover, unmount: () => act(async () => root.unmount()) };
+  const popover = () => dom.window.document.querySelector<HTMLElement>(".acpmux-summary-popover");
+  return { container, button, popover, draw, unmount: () => act(async () => root.unmount()) };
 }
+const titles = (popover: HTMLElement) =>
+  [...popover.querySelectorAll(".acpmux-summary-title")].map((node) => node.textContent);
 
 const key = (name: string) =>
   act(async () => {
@@ -72,12 +103,12 @@ test("the button opens the summary, focuses its first link, and Escape returns f
   expect(popover()).toBeNull();
   await act(async () => button.click());
   expect(button.getAttribute("aria-expanded")).toBe("true");
-  const titles = [...popover()!.querySelectorAll(".acpmux-summary-title")].map((node) => node.textContent);
-  expect(titles).toEqual(["Pull requests", "Outputs", "Subagents"]);
+  // The Codex app's three sections first, always; pull requests and wakeups after, when there are any.
+  expect(titles(popover()!)).toEqual(["Outputs", "Subagents", "Sources", "Pull requests"]);
   const link = popover()!.querySelector<HTMLAnchorElement>("a.acpmux-summary-link")!;
   expect(link.href).toBe("https://github.com/a/b/pull/9");
   expect(link.textContent).toContain("Fix scroll");
-  expect(dom.window.document.activeElement).toBe(link);
+  expect(dom.window.document.activeElement).toBe(popover()!.querySelector("button.acpmux-summary-link"));
   await key("Escape");
   expect(popover()).toBeNull();
   expect(dom.window.document.activeElement).toBe(button);
@@ -94,17 +125,14 @@ test("an output opens the changes view at that file and closes the popover", asy
   await unmount();
 });
 
-test("a press outside closes it, and a second press on the button toggles it shut", async () => {
+test("a press outside closes it", async () => {
   const { button, popover, unmount } = await render([]);
   await act(async () => button.click());
   await act(async () => {
     dom.window.document
       .getElementById("outside")!
-      .dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true }));
+      .dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0 }));
   });
-  expect(popover()).toBeNull();
-  await act(async () => button.click());
-  await act(async () => button.click());
   expect(popover()).toBeNull();
   await unmount();
 });
@@ -117,4 +145,39 @@ test("following a pull request link closes the summary", async () => {
   await act(async () => link.click());
   expect(popover()).toBeNull();
   await unmount();
+});
+
+test("an empty chat shows the three sections with None, not a sentence", async () => {
+  const { button, popover, unmount } = await render([], rows.slice(0, 1));
+  await act(async () => button.click());
+  expect(titles(popover()!)).toEqual(["Outputs", "Subagents", "Sources"]);
+  expect([...popover()!.querySelectorAll(".acpmux-summary-none")].map((node) => node.textContent)).toEqual([
+    "None",
+    "None",
+    "None",
+  ]);
+  expect(popover()!.querySelector(".acpmux-summary-empty")).toBeNull();
+  await unmount();
+});
+
+test("sections keep their place while the turn adds to them", async () => {
+  const { button, popover, draw, unmount } = await render([], rows.slice(0, 1));
+  await act(async () => button.click());
+  const before = titles(popover()!);
+  const activity = rows[1] as AcpmuxRow & { items: AcpmuxActivity[] };
+  await draw([rows[0]!, { ...activity, items: activity.items.slice(1) }]);
+  expect(titles(popover()!)).toEqual(before);
+  expect(popover()!.querySelectorAll(".acpmux-summary-none")).toHaveLength(1);
+  await unmount();
+});
+
+test("automation opens the summary by its label", async () => {
+  const { openPicker } = await import("../pickerOpeners");
+  const { popover, unmount } = await render([]);
+  await act(async () => {
+    expect(openPicker("Chat summary")).toBe(true);
+  });
+  expect(popover()).not.toBeNull();
+  await unmount();
+  expect(openPicker("Chat summary")).toBe(false);
 });

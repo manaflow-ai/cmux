@@ -58,8 +58,12 @@ enum DebugAgentPane {
         """
 
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
-        guard let services, let (pane, view) = agentPane(params, services: services) else {
-            return .object(["error": .string("no agent tab in the given or focused pane")])
+        guard let services else { return .object(["error": .string("no app services")]) }
+        let pane: String
+        let view: AgentPaneView
+        switch agentPane(params, services: services) {
+        case let .success(target): (pane, view) = target
+        case let .failure(failure): return .object(["error": .string(failure.message), "agent_panes": .array(failure.panes.map(JSONValue.string))])
         }
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
@@ -188,24 +192,46 @@ enum DebugAgentPane {
         }
     }
 
-    /// The agent page shown in `pane`, or in the first window whose focused
-    /// pane shows one.
-    private static func agentPane(_ params: [String: JSONValue], services: AppServices) -> (String, AgentPaneView)? {
+    /// Why `debug.agent_pane` found no target, and the panes that show an agent tab.
+    struct TargetFailure: Error {
+        let message: String
+        let panes: [String]
+    }
+
+    /// The agent page shown in `pane`. Untargeted: the agent tab in a window's focused pane, else
+    /// the only pane that shows one (a new agent tab that took no focus, as an untargeted
+    /// `palette.newAgentChat` in a window that is not key makes). With several such panes and
+    /// none focused it fails and names them, so the caller passes `pane` instead of a guess.
+    static func agentPane(_ params: [String: JSONValue], services: AppServices) -> Result<(String, AgentPaneView), TargetFailure> {
         let requested = params["pane"]?.stringValue
+        func shown(_ pane: PaneController?) -> (String, AgentPaneView)? {
+            guard let pane, let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) else { return nil }
+            return (pane.paneKey, view)
+        }
+        var showing: [(String, AgentPaneView)] = []
         for controller in services.windows.controllers {
             guard let content = controller.content else { continue }
-            let candidate: PaneController?
             if let requested {
-                candidate = content.paneController(key: requested)
-            } else {
-                candidate = content.focusedPane
+                if let target = shown(content.paneController(key: requested)) { return .success(target) }
+                continue
             }
-            guard let paneController = candidate,
-                  let key = paneController.currentTabKey,
-                  let view = services.agentTabs.existingView(key) else { continue }
-            return (paneController.paneKey, view)
+            if let target = shown(content.focusedPane) { return .success(target) }
+            // Layout order, so the report is deterministic.
+            for id in content.layoutModel.screens.flatMap(\.layout.panes) {
+                if let target = shown(content.panes[id]) { showing.append(target) }
+            }
         }
-        return nil
+        if let requested {
+            return .failure(TargetFailure(message: "pane \(requested) shows no agent tab", panes: []))
+        }
+        if showing.count == 1, let only = showing.first { return .success(only) }
+        let panes = showing.map(\.0)
+        return .failure(TargetFailure(
+            message: panes.isEmpty
+                ? "no pane shows an agent tab"
+                : "no focused pane shows an agent tab and \(panes.count) panes do; pass \"pane\"",
+            panes: panes
+        ))
     }
 }
 #endif

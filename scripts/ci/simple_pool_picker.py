@@ -33,24 +33,78 @@ BLACKSMITH = ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "blacks
 CAPACITY = dict(zip(BLACKSMITH, (5, 10, 10)))
 # Public alias retained for callers and table-driven tests.
 BLACKSMITH_CAPACITY = CAPACITY
-OWNED = re.compile(r"^glaeda-(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*$")
+XCODE_VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+)*"
+# The optional namespace keeps pools from different fleets separate.  AWS
+# runners use glaeda-aws-<class>-xcode-<version>; the unnamespaced labels are
+# the owned Mac minis.
+OWNED = re.compile(rf"^glaeda-(?:(?P<namespace>aws)-)?(?:std|light|xl)-xcode-{XCODE_VERSION_PATTERN}$")
 RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
-OWNED_FAMILY = re.compile(r"^glaeda-(?:root-|side-|gui-)?(?P<family>(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*)$")
+XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(?:/|$)")
+# Ten pages of 100 is twice the organization's runners today.
+MAX_RUNNER_PAGES = 10
+OWNED_FAMILY = re.compile(
+    rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-)?"
+    rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION_PATTERN})$"
+)
 
 
 def owned_family(label: str) -> str:
-    """`light-xcode-26.6` for any label of that owned family, else ""."""
+    """Return a namespace-qualified family key for any owned label."""
     match = OWNED_FAMILY.fullmatch(label or "")
-    return match.group("family") if match else ""
+    if not match:
+        return ""
+    namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+    return f"{namespace}{match.group('class')}-xcode-{match.group('version')}"
 
 
-def owned_order(label: str) -> tuple[int, str]:
+def _version_key(version: str) -> tuple[int, ...]:
+    """Compare dotted Xcode versions numerically, ignoring trailing zeroes."""
+    parts = [int(part) for part in version.split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def owned_order(label: str) -> tuple[object, ...]:
+    """Sort owned pools by class, numeric Xcode version, then namespace.
+
+    Class preference remains the first key.  A missing namespace is the local
+    mini fleet and sorts before the explicit ``aws`` namespace when versions
+    match; the namespace and full label keep ties deterministic.
+    """
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return (len(RUN_CLASSES), (), 1, "", label)
+    owned_class = match.group("class")
+    namespace = match.group("namespace") or ""
+    return (
+        RUN_CLASSES.index(owned_class) if owned_class in RUN_CLASSES else len(RUN_CLASSES),
+        _version_key(match.group("version")),
+        0 if not namespace else 1,
+        namespace,
+        label,
+    )
+
+
+def owned_matches_xcode(label: str, xcode_app: str) -> bool:
+    """Whether an owned label belongs to the configured PR Xcode lane."""
     family = owned_family(label)
-    owned_class = family.split("-", 1)[0]
-    return (RUN_CLASSES.index(owned_class) if owned_class in RUN_CLASSES else len(RUN_CLASSES), label)
+    version = XCODE_VERSION.search(xcode_app or "")
+    return bool(family and version and family.endswith(f"-xcode-{version.group('version')}"))
+
+def owned_xcode_app(label: str, configured: str) -> str:
+    """Return the toolchain path matching an owned label's embedded version."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return configured
+    version = match.group("version")
+    configured_match = re.search(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app(?:/|$)", configured or "")
+    if configured_match and _version_key(configured_match.group(1)) == _version_key(version):
+        return configured
+    return f"/Applications/Xcode_{version}.app"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,6 +120,11 @@ class Pool:
     @property
     def available(self) -> int:
         return max(0, self.capacity - self.running if self.free is None else self.free)
+
+    @property
+    def unreserved_available(self) -> int:
+        """Slots a new run can use without delaying queued release/nightly jobs."""
+        return max(0, self.available - self.reserved)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -104,7 +163,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
         return Choice(state.fallback, "no macOS jobs")
 
     def fits(pool: Pool) -> bool:
-        return pool.reserved == 0 and pool.available >= state.jobs
+        return pool.unreserved_available >= state.jobs
 
     blacksmith = _pick_blacksmith(state)
     if state.owned_enabled and not state.fork:
@@ -121,21 +180,23 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
 
 
 def _pick_blacksmith(state: State) -> Choice:
+    """Choose the least-loaded configured Blacksmith fallback pool."""
     if not state.overflow_enabled:
         return Choice(state.fallback, "Blacksmith overflow disabled")
     pools = {pool.label: pool for pool in state.blacksmith}
-    eligible = [pools[label] for label in BLACKSMITH if label in pools and pools[label].reserved == 0]
+    eligible = [pools[label] for label in BLACKSMITH if label in pools]
     for pool in eligible:
-        if pool.capacity - pool.running >= state.jobs:
+        if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))
         return Choice(winner.label, "lowest (queued + running) / per-label cap", winner.xcode_app)
-    return Choice(state.fallback, "every pool protects a queued release or nightly job", blocked=True)
+    return Choice(state.fallback, "no Blacksmith pool in the snapshot", blocked=True)
 
 
 def _pool(item: Pool | Mapping[str, Any]) -> Pool:
+    """Normalize a serialized pool entry into the immutable pool model."""
     if isinstance(item, Pool):
         return item
     return Pool(str(item["label"]), int(item.get("capacity", 0)), int(item.get("running", 0)),
@@ -159,10 +220,15 @@ class LiveState:
 
     def runners(self) -> list[Mapping[str, Any]]:
         owner = self.repository.split("/", 1)[0]
-        # Keep this to one bounded read. The organization has fewer than one
-        # page of routing runners; a partial response is safer than spending
-        # the shared Actions API quota on pagination for every run.
-        return self._get(f"/orgs/{owner}/actions/runners?per_page=100").get("runners") or []
+        # The routing runners can sit behind several pages, so read all pages
+        # that can contain the current fleet while keeping the API usage bounded.
+        runners: list[Mapping[str, Any]] = []
+        for page in range(1, MAX_RUNNER_PAGES + 1):
+            batch = self._get(f"/orgs/{owner}/actions/runners?per_page=100&page={page}").get("runners") or []
+            runners.extend(batch)
+            if len(batch) < 100:
+                break
+        return runners
 
     def snapshot(self) -> Mapping[str, Any] | None:
         """The queue janitor's newest trusted pool snapshot, or None when missing or stale (two API calls)."""
@@ -179,6 +245,7 @@ class LiveState:
 
 
 def _slots(raw: str | None) -> dict[str, int]:
+    """Parse positive, valid owned-pool capacities from CI configuration."""
     try:
         data = json.loads(raw or "{}")
     except (TypeError, ValueError):
@@ -197,6 +264,7 @@ def _slots(raw: str | None) -> dict[str, int]:
 
 
 def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool) -> State:
+    """Read live runner and queue state once, degrading safely when unavailable."""
     fallback = (env.get("MACOS_RUNNER_PR") or BLACKSMITH[1]).strip() or BLACKSMITH[1]
     enabled = (env.get("CI_PR_POOL_OWNED") or "").strip() == "1"
     runners: list[Mapping[str, Any]] | None = None
@@ -231,10 +299,14 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
 
     owned: list[Pool] = []
     if runners is not None:
-        labels = set(_slots(env.get("CI_OWNED_POOL_SLOTS")))
-        for runner in runners:
-            labels.update(str(item.get("name", "")) for item in runner.get("labels", ())
-                          if OWNED.fullmatch(str(item.get("name", ""))))
+        xcode_app = env.get("CMUX_CI_XCODE_APP_PR", "")
+        labels = {label for label in _slots(env.get("CI_OWNED_POOL_SLOTS"))
+                  if owned_matches_xcode(label, xcode_app)}
+        # Only the configured class pools: a runner can carry an owned-looking
+        # label (the aws Macs' glaeda-std-xcode-26.3, five runners per Mac)
+        # that is not a pool PR compiles should land on.
+        # A runner may carry an owned-looking label for another fleet.  Only
+        # labels explicitly listed in CI_OWNED_POOL_SLOTS are candidates.
         for label in sorted(labels, key=owned_order):
             online = [runner for runner in runners if runner.get("status") == "online"
                       and any(item.get("name") == label for item in runner.get("labels", ()))]
@@ -244,7 +316,7 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                              xcode_app=env.get("CMUX_CI_XCODE_APP_PR", "")))
+                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued")} for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
@@ -255,6 +327,7 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
 
 
 def planned_jobs(env: Mapping[str, str]) -> int:
+    """Estimate a run's peak macOS job count from its workflow inputs."""
     if (env.get("RUN_JOBS") or "").isdigit():
         return max(0, int(env["RUN_JOBS"]))
     if not any((env.get(key) or "") == "true" for key in ("RUN_MACOS", "RUN_CLI", "RUN_CLAUDE_WRAPPER", "RUN_REMOTE_DAEMON", "RUN_SWIFT_PACKAGES", "RUN_RELEASE_BUILD")):
@@ -280,9 +353,19 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
             configured = {str(label) for label in raw_slots}
     except (TypeError, ValueError):
         pass
-    root = f"glaeda-root-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
-    side = f"glaeda-side-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
-    gui = f"glaeda-gui-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
+    def role_label(role: str) -> str:
+        """Return the configured role label for the selected owned pool."""
+        if not choice.owned:
+            return ""
+        match = OWNED_FAMILY.fullmatch(choice.label)
+        if not match:
+            return ""
+        namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+        return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+
+    root = role_label("root")
+    side = role_label("side")
+    gui = role_label("gui")
     if root not in configured:
         root = ""
     if side not in configured:

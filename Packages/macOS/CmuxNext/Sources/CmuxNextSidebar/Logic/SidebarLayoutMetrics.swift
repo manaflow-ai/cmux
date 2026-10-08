@@ -1,5 +1,6 @@
+public import CmuxNextDesign
 public import CoreGraphics
-import Foundation
+public import Foundation
 
 /// Row metrics. Values come from CmuxNextDesign `Metrics` tokens; see
 /// `standard`. Kept as a plain value so layout stays pure.
@@ -36,8 +37,8 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    func height(for ws: SidebarWorkspace) -> CGFloat {
-        ws.rowDetail == nil ? rowHeight : rowHeightWithSubtitle
+    func height(for content: WorkspaceRowContent) -> CGFloat {
+        content.detail == nil ? rowHeight : rowHeightWithSubtitle
     }
 }
 
@@ -61,8 +62,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
-    /// Workspace rows show their tab count (`sidebar.showCounts`).
-    public var showCounts = false
+    /// What workspace rows show (`sidebar.workspaceRow.*`).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// The start of today: the last-activity element shows a time for today,
+    /// else a date. A day, not the current time, so options stay equal.
+    public var now = Date(timeIntervalSince1970: 0)
 
     public init() {}
 }

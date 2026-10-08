@@ -16,7 +16,8 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "markdownLink",
                 title: String(localized: "action.markdownLink", defaultValue: "Markdown: Insert Link", bundle: .module),
-                keywords: ["markdown", "link", "url"], defaultShortcut: Shortcut("k", modifiers: [.command]),
+                // Decision K1: Cmd-K is Clear Screen and Scrollback only; Cmd-Shift-K inserts a link.
+                keywords: ["markdown", "link", "url"], defaultShortcut: Shortcut("k", modifiers: [.command, .shift]),
                 category: .browser, symbol: "link", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-link"
             ),

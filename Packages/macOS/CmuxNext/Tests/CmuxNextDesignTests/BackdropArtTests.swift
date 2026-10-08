@@ -41,11 +41,12 @@ struct BackdropArtTests {
         #expect(crop.midY < 0.65)
     }
 
-    @Test func windowMaterialUsesThePaintingFocalCrop() throws {
+    @Test func windowMaterialUsesThePaintingFocalCrop() async throws {
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 2_000, height: 800))
         var backdrop = WindowBackdrop(backgroundOpacity: 0, backgroundBlur: 0)
         backdrop.art = .wheatField
         view.apply(backdrop, tint: .white)
+        await view.artLoaded()
         view.layoutSubtreeIfNeeded()
         let artLayer = try #require(view.subviews.first?.layer)
         let image = try #require(BackdropArt.wheatField.image())
@@ -97,7 +98,7 @@ struct BackdropArtTests {
     /// does not attach the art view's layer to the view's layer, and
     /// `render(in:)` draws no NSImage contents, so that measure was all
     /// zero with or without a painting (fleet probe, 2026-10-05).
-    @Test func paintingRendersAndClearsButOpaqueModeHidesIt() throws {
+    @Test func paintingRendersAndClearsButOpaqueModeHidesIt() async throws {
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 160, height: 100))
         view.wantsLayer = true
         var backdrop = WindowBackdrop(backgroundOpacity: 0, backgroundBlur: 0)
@@ -105,6 +106,7 @@ struct BackdropArtTests {
         #expect(try shownArt(view) == nil)
         backdrop.art = .wheatField
         view.apply(backdrop, tint: .white)
+        await view.artLoaded()
         let painting = try #require(try shownArt(view), "the painting is shown")
         #expect(painting.contains { $0 != 0 }, "the shown painting has pixels")
         backdrop.art = nil
@@ -114,6 +116,34 @@ struct BackdropArtTests {
         opaque.art = .wheatField
         view.apply(opaque, tint: .white)
         #expect(try shownArt(view) == nil)
+    }
+
+    /// Launch's first frame draws the theme's colors at once; the painting
+    /// decodes off the main actor and shows on a later frame (sweep 4a: the
+    /// 2400 px painting cost the first frame about 50 ms).
+    @Test func theFirstWindowsPaintingDecodesOffTheMainActorThenShows() async throws {
+        let images = BackdropImageStore()
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 160, height: 100), images: images)
+        view.wantsLayer = true
+        var backdrop = WindowBackdrop(backgroundOpacity: 0, backgroundBlur: 0)
+        backdrop.art = .wheatField
+        view.apply(backdrop, tint: .white)
+        #expect(try shownArt(view) == nil, "apply does not decode the painting")
+        await view.artLoaded()
+        let painting = try #require(try shownArt(view), "the decoded painting is shown")
+        #expect(painting.contains { $0 != 0 })
+        #expect(images.cached(.art(.wheatField)) != nil)
+    }
+
+    @Test func aLaterWindowShowsTheDecodedPaintingAtOnce() async throws {
+        let images = BackdropImageStore()
+        var backdrop = WindowBackdrop(backgroundOpacity: 0, backgroundBlur: 0)
+        backdrop.art = .wheatField
+        _ = await images.image(.art(.wheatField))
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 160, height: 100), images: images)
+        view.wantsLayer = true
+        view.apply(backdrop, tint: .white)
+        #expect(try shownArt(view) != nil)
     }
 
     @Test(arguments: WindowKind.allCases)

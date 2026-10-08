@@ -874,43 +874,6 @@ fn push_unique_installation(
     candidates.push(GhosttyInstallation { binary, resources_dir });
 }
 
-/// Persistent profile directory for launched Chrome/Chromium sessions.
-pub fn chrome_user_data_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        home_dir().map(|home| {
-            home.join("Library").join("Application Support").join("cmux-tui").join("chrome-profile")
-        })
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        env_path("XDG_DATA_HOME")
-            .map(|data_home| data_home.join("cmux-tui").join("chrome-profile"))
-            .or_else(|| {
-                home_dir().map(|home| {
-                    home.join(".local").join("share").join("cmux-tui").join("chrome-profile")
-                })
-            })
-    }
-
-    #[cfg(windows)]
-    {
-        env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("chrome-profile"))
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
-    {
-        env_path("XDG_DATA_HOME").map(|dir| dir.join("cmux-tui").join("chrome-profile")).or_else(
-            || {
-                home_dir().map(|home| {
-                    home.join(".local").join("share").join("cmux-tui").join("chrome-profile")
-                })
-            },
-        )
-    }
-}
-
 pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }
@@ -1006,8 +969,8 @@ fn process_name(pid: u32) -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_name(_pid: u32) -> Option<String> {
-    None
+fn process_name(pid: u32) -> Option<String> {
+    crate::windows_processes::image_path(pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -1073,13 +1036,13 @@ fn process_cwd(pid: u32) -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn foreground_process_group(_pid: u32) -> Option<u32> {
-    None
+fn foreground_process_group(pid: u32) -> Option<u32> {
+    crate::windows_processes::foreground(pid)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_cwd(_pid: u32) -> Option<String> {
-    None
+fn process_cwd(pid: u32) -> Option<String> {
+    crate::windows_processes::cwd(pid)
 }
 
 #[cfg(not(windows))]
@@ -1209,6 +1172,9 @@ fn kitty_shell_cwd_to_local_path(value: &str, allow_hostless: bool) -> Option<Op
     let Some(slash) = rest.find('/') else { return Some(None) };
     let (host, path) = rest.split_at(slash);
     let host_ok = if host.is_empty() { allow_hostless } else { terminal_pwd_host_is_local(host) };
+    if path.contains('\0') {
+        return Some(None);
+    }
     let path = Path::new(path);
     Some((host_ok && terminal_pwd_path_is_safe(path)).then(|| path.to_owned()))
 }

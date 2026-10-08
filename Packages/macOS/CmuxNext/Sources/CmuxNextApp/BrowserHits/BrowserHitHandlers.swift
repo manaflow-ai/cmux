@@ -18,6 +18,7 @@ enum BrowserHitHandlers {
         bindCopy(registry, context, pasteboard)
         bindSave(registry, context)
         bindSelection(registry, context)
+        DefaultBrowserLink.bind(into: registry)
     }
 
     // MARK: Arguments

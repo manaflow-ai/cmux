@@ -219,10 +219,12 @@ jobs:
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
-    # Saves the iOS compilation cache. Every R2 cache writer declares this
-    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
-    # enforces it.
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    # Signs with the iOS distribution certificate and the App Store Connect
+    # key, which live only in the release environment (main and v* tags), and
+    # saves the iOS compilation cache, so release also holds a copy of the R2
+    # cache write credentials. Guards: test_ci_signing_secrets_need_release_environment.py
+    # and test_ci_pull_request_caches_are_read_only.py.
+    environment: ${{ github.ref == 'refs/heads/main' && 'release' || '' }}
     outputs:
       build_number: ${{ steps.upload.outputs.final_build_number }}
       notes_artifact_id: ${{ steps.notes_request.outputs.artifact-id }}
@@ -262,6 +264,12 @@ jobs:
         env:
           CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
 
       - name: Install asc CLI
         run: brew list asc >/dev/null 2>&1 || brew install asc
@@ -623,7 +631,7 @@ jobs:
     # job fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.result == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     continue-on-error: true
     permissions:
       contents: read

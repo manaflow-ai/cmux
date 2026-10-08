@@ -2,9 +2,9 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="d3531551501017dc56f22f8390244ca4ba02c31f"
-CMUX_CUA_RELEASE_TAG="cmux-cua-v0.8.4"
-CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="8ed7656786773a1606c433a0709e18d65ac7562717258e475edd2198633ecf53"
+CMUX_CUA_PINNED_SHA="e8a8dbfd45a5d050058e7340f97ffe6f157c3128"
+CMUX_CUA_RELEASE_TAG="cmux-cua-v0.8.12"
+CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b938851984de9b018bc29583d72ba4"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
@@ -17,10 +17,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
 # must keep precedence over Homebrew's copies.
 export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 
 OUTPUT=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
+# The nested "cmux Computer Use.app" is assembled only on request, by release
+# packaging that signs it with the Developer ID right after. A dev build never
+# gets one: an ad-hoc com.cmuxterm.cua copy cannot satisfy the release TCC row,
+# and a grant to it replaces that row (scripts/cmux-cua-helper-trust.sh).
+ASSEMBLE_HELPER_APP=0
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
 
 helper_bundle_id_for_host() {
@@ -83,6 +89,9 @@ Options:
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
+  --helper-app          also assemble Contents/Library/cmux Computer Use.app
+                         (release packaging only; it must be Developer ID
+                         signed afterwards, see scripts/sign-cmux-bundle.sh)
   -h, --help            show this help
 
 Environment:
@@ -113,6 +122,10 @@ while (($#)); do
       [[ $# -ge 2 ]] || { usage; exit 2; }
       PRINT_HELPER_ID="$2"
       shift 2
+      ;;
+    --helper-app)
+      ASSEMBLE_HELPER_APP=1
+      shift
       ;;
     -h|--help)
       usage
@@ -436,7 +449,7 @@ cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-cua-LICENSE.md"
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
 _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
 _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
-if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
+if [ "$ASSEMBLE_HELPER_APP" = 1 ] && [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
   HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
   HELPER_EXECUTABLE="cmux-cua"
   # This build phase runs before Xcode writes the processed host Info.plist.

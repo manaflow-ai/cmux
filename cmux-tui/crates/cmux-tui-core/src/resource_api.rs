@@ -82,6 +82,8 @@ pub struct ResourceMachineRequest {
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
     pub idempotency_key: Option<String>,
+    /// Who sends it, set by the daemon's dispatcher.
+    pub actor: crate::Actor,
 }
 
 pub trait ResourceMachineService: Send + Sync {
@@ -194,7 +196,8 @@ impl LocalResourceMachineService {
         let intent = json!({"session_id":context.session_id});
         let preparation = mux
             .prepare_resource_effect(
-                key,
+                &crate::WorkspaceMutation::new(key, "resource-api", request.actor.clone())
+                    .map_err(operation_failed)?,
                 "session.open",
                 &fingerprint,
                 &intent,
@@ -448,8 +451,16 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
+    let running = durable.lifecycle == TerminalLifecycle::Running;
+    let mut extra = Map::new();
     if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
-        terminal["extra"] = json!({"progress": progress.to_json()});
+        extra.insert("progress".into(), progress.to_json());
+    }
+    if let Some(status) = surface.and_then(|surface| surface.terminal_program_status(running)) {
+        extra.insert("program_status".into(), status);
+    }
+    if !extra.is_empty() {
+        terminal["extra"] = Value::Object(extra);
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
         terminal["exit"] =

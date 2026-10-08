@@ -240,3 +240,123 @@ fn closing_a_stream_drops_its_frames_and_its_timer() {
     // SAFETY: NULL is refused.
     assert_eq!(unsafe { cmux_rd_session_next_deadline_us(std::ptr::null()) }, u64::MAX);
 }
+
+#[test]
+fn the_session_clock_pings_and_estimates_once_enabled() {
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    // Not enabled: no ping (an older host refuses the kind).
+    assert!(feedbacks_raw(&s, 0).iter().all(|d| d[1] != DatagramKind::ClockPing as u8));
+    // SAFETY: live session.
+    assert_eq!(unsafe { cmux_rd_session_enable_clock(s.0) }, CMUX_RD_OK);
+    let sent = feedbacks_raw(&s, 1_000);
+    let ping_bytes = sent.iter().find(|d| d[1] == DatagramKind::ClockPing as u8).expect("a ping");
+    let (_, payload) = DatagramHeader::decode(ping_bytes).expect("header");
+    let ping = cmux_rd_proto::ClockPing::decode(payload).expect("ping");
+    // The host clock is 5 ms ahead; 2 ms each way.
+    let rx = ping.t_viewer_us + 2_000 + 5_000;
+    let pong = cmux_rd_proto::ClockPong {
+        seq: ping.seq,
+        t_viewer_us: ping.t_viewer_us,
+        t_host_rx_us: rx,
+        t_host_tx_us: rx,
+    };
+    let mut d = DatagramHeader {
+        flags: 0,
+        kind: DatagramKind::ClockPong,
+        stream: 0,
+        frame: 0,
+        index: 0,
+        count: 0,
+        fec_count: 0,
+        transport_seq: 0,
+    }
+    .encode()
+    .to_vec();
+    d.extend_from_slice(&pong.encode());
+    assert!(push(&s, &d, ping.t_viewer_us + 4_000) >= 0);
+    let (mut offset, mut rtt) = (0i64, 0u32);
+    // SAFETY: live session, writable outs.
+    assert_eq!(unsafe { cmux_rd_session_clock(s.0, &mut offset, &mut rtt) }, 1);
+    assert_eq!((offset, rtt), (5_000, 4_000));
+    // The pong is consumed, not queued as a message.
+    let mut m = CmuxRdMessage { data: std::ptr::null(), len: 0, kind: 0 };
+    // SAFETY: live session, writable out.
+    assert_eq!(unsafe { cmux_rd_session_pop_message(s.0, &mut m) }, 0);
+}
+
+/// Every datagram the feedback call writes at `now` (datagram carrier).
+fn feedbacks_raw(s: &Owned, now: u64) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    loop {
+        let mut buf = vec![0u8; 2048];
+        let mut len = 0usize;
+        // SAFETY: live session, writable buffer and length.
+        match unsafe { cmux_rd_session_feedback(s.0, now, buf.as_mut_ptr(), buf.len(), &mut len) } {
+            1 => out.push(buf[..len].to_vec()),
+            _ => return out,
+        }
+    }
+}
+
+#[test]
+fn a_tile_frame_is_released_with_its_flag_and_its_video_reference() {
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    open(&s, 8);
+    let mut p = Packetizer::new(8, MAX_DATAGRAM_VPC);
+    let body = FrameBody { t_capture_us: 1, ref_frame: 900, access_unit: vec![5; 2_000] };
+    for d in p.packetize(1, flags::TILE, &body, 0).expect("packetize").datagrams {
+        push(&s, &d, 0);
+    }
+    let mut f = CmuxRdFrame {
+        t_capture_us: 0,
+        data: std::ptr::null(),
+        len: 0,
+        frame: 0,
+        ref_frame: 0,
+        flags: 0,
+    };
+    let mut stream = 0u16;
+    // SAFETY: live session, writable outs.
+    assert_eq!(
+        unsafe { cmux_rd_session_pop_frame(s.0, &mut f, &mut stream) },
+        1,
+        "a tile frame is released"
+    );
+    assert_eq!((stream, f.ref_frame), (8, 900));
+    assert_eq!(u32::from(f.flags) & CMUX_RD_FLAG_TILE, CMUX_RD_FLAG_TILE);
+}
+
+#[test]
+fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
+    let s = session(CMUX_RD_CARRIER_STREAM);
+    let chunk = cmux_rd_proto::BulkFrame { transfer: 2, offset: 0, bytes: vec![3; 1_000] };
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_BULK, &chunk.encode(), &mut bytes).expect("bulk frame");
+    // SAFETY: live session, readable slice.
+    let rc = unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), 0) };
+    assert!(rc >= 0, "a bulk frame does not end the session: {rc}");
+    let mut m = CmuxRdMessage { data: std::ptr::null(), len: 0, kind: 0 };
+    // SAFETY: live session, writable out.
+    assert_eq!(unsafe { cmux_rd_session_pop_message(s.0, &mut m) }, 1);
+    assert_eq!(u32::from(m.kind), CMUX_RD_MESSAGE_BULK);
+    // SAFETY: valid until the next call.
+    let payload = unsafe { std::slice::from_raw_parts(m.data, m.len) };
+    assert_eq!(cmux_rd_proto::BulkFrame::decode(payload).expect("bulk"), chunk);
+    // The viewer frames its own upload chunks with the same call.
+    let mut out = vec![0u8; 2_048];
+    let mut len = 0usize;
+    let p = chunk.encode();
+    // SAFETY: readable payload, writable buffer and length.
+    let rc = unsafe {
+        cmux_rd_encode_stream_frame(
+            CMUX_RD_MESSAGE_BULK,
+            p.as_ptr(),
+            p.len(),
+            out.as_mut_ptr(),
+            out.len(),
+            &mut len,
+        )
+    };
+    assert_eq!(rc, CMUX_RD_OK);
+    assert_eq!(&out[..len], &bytes[..]);
+}

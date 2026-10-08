@@ -108,7 +108,11 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     /// Loads the packaged image. A missing resource safely paints no art.
     /// - Returns: The painting image, or nil if the bundle is incomplete.
     @MainActor public func image() -> NSImage? {
-        guard let url = Bundle.module.url(forResource: rawValue, withExtension: "jpg") else { return nil }
-        return NSImage(contentsOf: url)
+        imageURL.flatMap(NSImage.init(contentsOf:))
+    }
+
+    /// The packaged image file, or nil if the bundle is incomplete.
+    public nonisolated var imageURL: URL? {
+        Bundle.module.url(forResource: rawValue, withExtension: "jpg")
     }
 }

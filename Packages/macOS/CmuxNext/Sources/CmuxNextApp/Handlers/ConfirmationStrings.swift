@@ -51,10 +51,6 @@ enum ConfirmationStrings {
         String(localized: "confirm.agent.unnamed", defaultValue: "The agent", table: "Handlers", bundle: .module)
     }
 
-    static func deleteGroupTitle(_ name: String) -> String {
-        String(localized: "confirm.deleteGroup.title", defaultValue: "Delete the group “\(name)”?", table: "Handlers", bundle: .module)
-    }
-
     static func closeGroupWorkspacesTitle(_ name: String) -> String {
         String(localized: "confirm.closeGroupWorkspaces.title", defaultValue: "Close every workspace in “\(name)”?", table: "Handlers", bundle: .module)
     }

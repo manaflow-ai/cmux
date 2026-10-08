@@ -57,7 +57,11 @@ check_agent() { # <bundle id>
   expect "$agent" ProgramArguments:0 "Contents/Resources/bin/cmux"
   expect "$agent" ProgramArguments:1 host
   expect "$agent" ProgramArguments:2 run
-  if pb ProgramArguments:3 "$agent" >/dev/null; then echo "extra ProgramArguments" >&2; exit 1; fi
+  # The mode is an argument, not an environment variable: launchd passes a
+  # plist environment to every child, including the user's shells.
+  expect "$agent" ProgramArguments:3 --mode
+  expect "$agent" ProgramArguments:4 user
+  if pb ProgramArguments:5 "$agent" >/dev/null; then echo "extra ProgramArguments" >&2; exit 1; fi
   # Restart only after a failure: a clean `cmux host run` exit (the host was
   # disabled) stays down. At most one restart per 10 s.
   keepalive=$(plutil -extract KeepAlive json -o - "$agent") || { echo "no KeepAlive" >&2; exit 1; }
@@ -75,6 +79,21 @@ check_agent() { # <bundle id>
   done
 }
 check_agent com.cmuxterm.app.debug.testtag
+# One golden, two writers: cmux-server-core's app_service_agent_plist renders
+# the same bytes for this bundle id (tests/units_golden.rs). plutil writes the
+# canonical form (sorted keys, tab indent), so the files compare byte for byte.
+golden="$ROOT/cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist"
+# On a byte mismatch, the parsed content tells a plutil format change (same
+# JSON) apart from a real content change.
+if ! cmp -s "$golden" "$agent"; then
+  diff "$golden" "$agent" >&2 || true
+  if [[ "$(plutil -convert json -o - "$golden")" == "$(plutil -convert json -o - "$agent")" ]]; then
+    echo "plutil format drift: $agent has the golden's content in other bytes ($golden)" >&2
+  else
+    echo "content drift: $agent differs from $golden" >&2
+  fi
+  exit 1
+fi
 
 # --stamp follows the FINAL bundle id (nightly renames the bundle after the build).
 stamp() { env -i PATH="/usr/bin:/bin" /bin/bash "$ROOT/scripts/cmux-next/bundle-server-helper.sh" --stamp "$TMP/build/app.app" >/dev/null; }

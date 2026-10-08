@@ -37,7 +37,7 @@ pub(super) fn test_host_shared_with(
         cwd: None,
         size: Mutex::new((80, 24)),
         cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-        viewer_sizes: Mutex::new(HashMap::new()),
+        viewer_sizes: Mutex::new(ViewerSizes::default()),
         taps: Mutex::new(HashMap::new()),
         broadcast_lock: Mutex::new(()),
         sequence: AtomicU64::new(0),
@@ -70,6 +70,7 @@ pub(super) fn test_host_shared_with(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
+        adopted_session: None,
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
