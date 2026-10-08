@@ -533,6 +533,10 @@ assert "reason=no-published-recovery-artifacts" in auto
 assert '"should_publish": "${{ needs.decide.outputs.should_publish }}" == "true"' in workflow
 assert "Verify immutable remote daemon assets" in auto
 assert "accepted recovery manifests disagree on build number" in auto
+assert 'cp "verified/$IMMUTABLE_NAME" "verified/$ALIAS_NAME"' not in auto
+assert "duplicate DMG alias" in auto
+assert 'cp "$dir/$immutable" "nightly-out/${DMG_PREFIX}-${variant}.dmg"' in auto
+assert 'cp "$dir/${DMG_PREFIX}-${variant}.dmg"' not in auto
 assert "  generate-deltas:" in auto
 assert "  republish-deltas:" in auto
 assert "fetch-previous-nightly-dmgs.py" in auto

@@ -198,9 +198,12 @@ jobs:
           manifest["final_dmg_sha256"] = sys.argv[2]
           path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
           PY
-          cp "verified/$IMMUTABLE_NAME" "verified/$ALIAS_NAME"
           cp "$feed" verified/
           cp recovery/cmux-nightly-notarization-recovery.json verified/
+          if [ -e "verified/$ALIAS_NAME" ]; then
+            echo "verified recovery artifact must not contain a duplicate DMG alias" >&2
+            exit 1
+          fi
 
       - name: Upload accepted variant
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -275,7 +278,7 @@ jobs:
             actual="$(shasum -a 256 "$dir/$immutable" | awk '{print $1}')"
             [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
             cp "$dir/$immutable" "nightly-out/$immutable"
-            cp "$dir/${DMG_PREFIX}-${variant}.dmg" "nightly-out/${DMG_PREFIX}-${variant}.dmg"
+            cp "$dir/$immutable" "nightly-out/${DMG_PREFIX}-${variant}.dmg"
             feed="appcast-${variant}.xml"
             [ "$variant" = universal ] && feed=appcast.xml
             cp "$dir/$feed" "nightly-out/$feed"
