@@ -94,6 +94,13 @@ extension GhosttyNSView {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
+        if !accessibilityScreenTextEnabled,
+           let snapshot = readSelectionSnapshot() {
+            // In the opt-out mode AXValue contains only the native selection,
+            // so its range must use that value's coordinate space rather than
+            // Ghostty's grid range (which may include terminal padding).
+            return NSRange(location: 0, length: (snapshot.string as NSString).length)
+        }
         selectedRange()
     }
 
