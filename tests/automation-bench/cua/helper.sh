@@ -16,6 +16,10 @@ sock="$base/cua.sock"
 case "$cmd" in
   start)
     mkdir -p "$base/state"; chmod 700 "$base"; rm -f "$sock"
+    # Only the Developer ID helper may run: an ad-hoc com.cmuxterm.cua copy
+    # fails the Screen Recording row, and granting it replaces that row.
+    "$(dirname "$0")/../../../scripts/cmux-cua-helper-trust.sh" check "$helper" \
+      || { echo "refusing $helper: not the Developer ID signed cmux Computer Use helper" >&2; exit 1; }
     extra=()
     if [[ "${3:-}" == "--glide-ms" ]]; then extra=(--glide-ms "$4" --dwell-ms 0); fi
     open -n -g -a "$helper" \
@@ -23,7 +27,7 @@ case "$cmd" in
       --env CMUX_CUA_UPDATE_CHECK=false --env CMUX_CUA_PERMISSIONS_GATE=0 \
       --env CMUX_CUA_EXTERNAL_PERMISSION_FLOW=1 --env CMUX_CUA_RESPONSIBILITY_DISCLAIMED=1 \
       --env CMUX_CUA_CURSOR_LABEL="bench-$name" \
-      --args serve --socket "$sock" --no-permissions-gate --cursor-shape cmux --idle-hide-ms 0 "${extra[@]}"
+      --args serve --socket "$sock" --no-permissions-gate --cursor-shape cmux --idle-hide-ms 0 ${extra[@]+"${extra[@]}"}
     for _ in $(seq 1 40); do [[ -S "$sock" ]] && break; sleep 0.25; done
     [[ -S "$sock" ]] || { echo "helper did not bind $sock" >&2; exit 1; }
     lsof -t "$sock" | head -1 > "$base/helper.pid"

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 /// "Open" means on screen now (round-5 review, major 1): a page read for a
@@ -16,11 +17,6 @@ import Testing
         store.start()
         await waitUntil { store.isOnline && !store.rows.isEmpty }
         return (store, source)
-    }
-
-    /// Waits on state changes, never on a clock.
-    func waitUntil(_ condition: @MainActor () -> Bool) async {
-        for _ in 0..<2_000 where !condition() { await Task.yield() }
     }
 
     @Test func aTranscriptClosedDuringItsFirstPageStaysClosed() async {

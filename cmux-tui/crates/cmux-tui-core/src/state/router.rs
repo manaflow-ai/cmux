@@ -18,8 +18,8 @@ use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_query, personal_state_store, screen_state_store, tab_state_store,
-    window_record_store,
+    closed_history_query, personal_state_store, screen_state_store, sidebar_layout_store,
+    tab_state_store, window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -75,6 +75,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordList
             | Op::WindowRecordPut
             | Op::WindowRecordDelete
+            | Op::SidebarLayoutGet
+            | Op::SidebarLayoutUpdate
             | Op::WorkspaceEnsureHome
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
@@ -99,11 +101,7 @@ fn state_error(error: anyhow::Error) -> ResourceError {
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+    request.mutation().map_err(resource_operation_error)
 }
 
 fn ensure_session(mux: &Mux, selectors: &ResourceSelectors) -> Result<(), ResourceError> {
@@ -235,12 +233,13 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner"])?;
+            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
                 forward: fields.contains_key("forward").then(|| strings(fields, "forward")),
                 owner: string(fields, "owner"),
+                icon: nullable_string(fields, "icon"),
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
@@ -517,6 +516,18 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
+        // Sidebar section layout (personal, sidebar-layout-v1)
+        Op::SidebarLayoutGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_layout_store::snapshot)
+        }
+        Op::SidebarLayoutUpdate => {
+            ensure_session(mux, selectors)?;
+            let op = fields.get("op").cloned().unwrap_or_default();
+            let commit =
+                mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
         // workspace-kind-v1: the one home workspace, created by the store.
         Op::WorkspaceEnsureHome => {
             ensure_session(mux, selectors)?;
@@ -597,7 +608,10 @@ fn personal_change(
             index: index(fields, "index"),
         },
         Op::WorkspaceGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed", "room", "top_index"])?;
+            require_any(
+                fields,
+                &["name", "color", "collapsed", "room", "top_index", "icon", "pinned"],
+            )?;
             PersonalChange::GroupUpdate {
                 group: group(),
                 name: string(fields, "name"),
@@ -607,6 +621,8 @@ fn personal_change(
                 top_index: fields
                     .get("top_index")
                     .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
+                icon: nullable_string(fields, "icon"),
+                pinned: fields.get("pinned").and_then(Value::as_bool),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

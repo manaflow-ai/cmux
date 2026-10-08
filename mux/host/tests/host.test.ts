@@ -6,7 +6,7 @@ import { AGENT_MUX, type Message, messageText, USER_LOCAL } from "../src/convers
 import { DaemonClient, DaemonError, MissingCapabilityError } from "../src/daemon-client.ts";
 import { HostAlreadyRunningError } from "../src/host.ts";
 import { takeLock } from "../src/lock.ts";
-import { deferred, world } from "./helpers.ts";
+import { advanceUntil, deferred, fakeClock, MAX_BACKOFF_MS, world } from "./helpers.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -61,6 +61,64 @@ describe("daemon client vs the fake daemon", () => {
   });
 });
 
+describe("one Chief conversation", () => {
+  const appUser = { id: USER_LOCAL, kind: "human" as const, display_name: "Old Name" };
+  const oldMux = { id: AGENT_MUX, kind: "agent" as const, display_name: "mux", agent_class: "mux" as const, acp_session: "mux" };
+
+  test("an old install's Home conversation (key home-chief, other title and names) is adopted, not created again", async () => {
+    const w = await setup();
+    const home = w.daemon.createConversation("Home", [appUser, oldMux], "home-chief");
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds).toEqual([home]);
+    w.daemon.send(home, USER_LOCAL, "hi");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(home)).length === 1);
+  });
+
+  test("of two conversations with the Chief, the oldest is the Chief conversation (the app uses the same rule)", async () => {
+    const w = await setup();
+    const older = w.daemon.createConversation("mux", [appUser, oldMux], "mux-home-default");
+    w.daemon.createConversation("Chief", [appUser, oldMux], "home-chief");
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds.length).toBe(2);
+    w.daemon.send(older, USER_LOCAL, "hi");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(older)).length === 1);
+    expect(w.lines.some((line) => line.includes(older))).toBe(true);
+  });
+
+  test("a create refused as idempotency_conflict lists again, adopts by the same rule and logs the mismatch", async () => {
+    const w = await setup();
+    const home = w.daemon.createConversation("Home", [appUser, oldMux], "home-chief");
+    w.daemon.hideOnceFromList.add(home);
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds).toEqual([home]);
+    expect(w.lines.some((line) => line.includes("idempotency_conflict"))).toBe(true);
+  });
+
+  test("the app's Home Chief conversation (key home-chief) is the Chief's default: no second conversation", async () => {
+    const w = await setup();
+    const chief = w.daemon.createConversation(
+      "Chief",
+      [
+        { id: USER_LOCAL, kind: "human", display_name: "Test User" },
+        { id: AGENT_MUX, kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" },
+      ],
+      "home-chief",
+    );
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds).toEqual([chief]);
+    w.daemon.send(chief, USER_LOCAL, "hi");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(chief)).length === 1);
+  });
+});
+
 describe("inbox", () => {
   test("a human message prompts the mux with promptId = message id; the reply is posted by agent_mux with the turn key", async () => {
     const w = await setup();
@@ -69,10 +127,11 @@ describe("inbox", () => {
     await host.ready;
     const [conv] = w.daemon.conversationIds;
     const summary = w.daemon.conversation(conv).summary;
-    expect(summary.title).toBe("mux");
+    // The app's Home Chief conversation (HomeChiefName.createRequest).
+    expect(summary.title).toBe("Chief");
     expect(summary.participants).toEqual([
       { id: USER_LOCAL, kind: "human", display_name: "Test User" },
-      { id: AGENT_MUX, kind: "agent", display_name: "mux", agent_class: "mux", acp_session: "mux" },
+      { id: AGENT_MUX, kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" },
     ]);
     const mux = w.acpmux.byName("mux")!;
     expect(mux.summary.harness).toBe("claude-sr");
@@ -319,6 +378,166 @@ describe("owner turn budget", () => {
   }, 15000);
 });
 
+describe("owner refusals", () => {
+  test("a refused snapshot skips that conversation; the host does not reconnect", async () => {
+    const w = await setup();
+    const broken = w.daemon.createConversation("broken", [
+      { id: USER_LOCAL, kind: "human", display_name: "Test User" },
+      { id: AGENT_MUX, kind: "agent", display_name: "mux", agent_class: "mux", acp_session: "mux" },
+    ]);
+    w.daemon.refuse.set(`conversation-snapshot:${broken}`, "snapshot_unavailable");
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(1);
+    expect(w.lines.some((line) => line.includes("refused") && line.includes(broken))).toBe(true);
+  }, 5000);
+});
+
+describe("request timeouts", () => {
+  test("a stuck daemon request times out on the injected clock; the host reconnects and the reply goes out", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.daemon.hold.add("conversation-typing");
+    w.daemon.send(conv, USER_LOCAL, "hello");
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-typing"));
+    w.daemon.hold.delete("conversation-typing");
+    // The reply waits behind the stuck typing request in the serial effect queue.
+    expect(muxReplies(w.daemon.messages(conv)).length).toBe(0);
+    clock.advance(1_000); // the request deadline
+    const used1 = await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 2);
+    expect(used1).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
+  }, 5000);
+});
+
+describe("acpmux request timeouts", () => {
+  test("a stuck child events fetch hits the request deadline: acpmux reconnects and the child still finishes", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const childHold = deferred<string>();
+    w.acpmux.respond = (session, text) => (session.name === "fixer" ? childHold.promise : `ok: ${text.slice(0, 40)}`);
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const child = await spawnAgent(w.acpmux.path, { cwd: w.dir, name: "fixer", harness: "claude", prompt: "fix the bug" });
+    expect(child.tags["mux.parent"]).toBe("mux");
+    const events = () => w.acpmux.calls.filter((c) => c.method === "_acpmux/events").length;
+    const before = events();
+    w.acpmux.hold.add("_acpmux/events");
+    childHold.resolve("fixed it");
+    await w.acpmux.until(() => events() > before);
+    w.acpmux.hold.delete("_acpmux/events");
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const connects = initializes();
+    clock.advance(1_000); // the request deadline
+    const used = await advanceUntil(clock, () => initializes() > connects);
+    expect(used).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    // The lost connection finishes the child with no reply text; the mux still hears of it.
+    await w.acpmux.until(() => w.acpmux.userMessages("mux").some((m) => m.text.startsWith("[mux-event] child fixer finished")));
+  }, 5000);
+});
+
+describe("prompt acknowledgment and rejection", () => {
+  test("a prompt acpmux never acknowledges hits the request deadline: acpmux reconnects and the prompt is sent again", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.acpmux.acknowledge = false;
+    w.acpmux.hold.add("session/prompt");
+    w.daemon.send(conv, USER_LOCAL, "hello");
+    const prompts = () => w.acpmux.calls.filter((c) => c.method === "session/prompt").length;
+    await w.acpmux.until(() => prompts() >= 1);
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const connects = initializes();
+    w.acpmux.acknowledge = true;
+    w.acpmux.hold.delete("session/prompt");
+    clock.advance(1_000); // the acknowledgment deadline
+    const used = await advanceUntil(clock, () => initializes() > connects);
+    expect(used).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+  }, 5000);
+
+  test("an acknowledged prompt keeps its connection however long its turn runs", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const turn = deferred<string>();
+    w.acpmux.respond = () => turn.promise;
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.daemon.send(conv, USER_LOCAL, "slow");
+    // The host saw the turn start (typing on), so it read the acknowledgment sent before it.
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-typing" && r.on === true));
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const connects = initializes();
+    // Far past the acknowledgment deadline (the daemon may reconnect meanwhile: its typing request's timer is on this clock too).
+    clock.advance(5_000);
+    turn.resolve("done");
+    await advanceUntil(clock, () => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(initializes()).toBe(connects);
+  }, 5000);
+
+  test("a rejected prompt is sent again on the injected clock, not at the next connect", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.acpmux.rejectPrompts = 1;
+    w.daemon.send(conv, USER_LOCAL, "hello");
+    const prompts = () => w.acpmux.calls.filter((c) => c.method === "session/prompt").length;
+    await w.acpmux.until(() => prompts() >= 1);
+    const initializes = w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const used = await advanceUntil(clock, () => prompts() >= 2, 1_000);
+    expect(used).toBe(1_000); // the first retry, on the core's clock
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(w.acpmux.calls.filter((c) => c.method === "initialize").length).toBe(initializes);
+  }, 5000);
+});
+
+describe("connect-phase timeouts", () => {
+  test("a stuck conversation-create times out on the injected clock and the daemon connect is retried", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.daemon.hold.add("conversation-create");
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-create"));
+    w.daemon.hold.delete("conversation-create");
+    clock.advance(1_000); // the request deadline
+    const used2 = await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 2);
+    expect(used2).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    await host.ready;
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
+  }, 5000);
+
+  test("a stuck acpmux connect step hits its deadline on the injected clock and acpmux is reconnected", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.acpmux.hold.add("_acpmux/watch");
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await w.acpmux.until(() => w.acpmux.calls.some((c) => c.method === "_acpmux/watch"));
+    w.acpmux.hold.delete("_acpmux/watch");
+    clock.advance(1_000); // the request deadline
+    const used3 = await advanceUntil(clock, () => w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length >= 2);
+    expect(used3).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    await host.ready;
+    expect(w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length).toBe(2);
+  }, 5000);
+});
+
 describe("failed start", () => {
   test("a host whose start fails after taking the lock releases it", async () => {
     const w = await setup();
@@ -329,5 +548,78 @@ describe("failed start", () => {
     const release = takeLock(join(w.home, "state", "host.lock"));
     expect(release).toBeDefined();
     release?.();
+  });
+});
+
+/** Waits (real time, bounded) for the fake server to see its sockets close. */
+async function settle(open: () => number, at: number): Promise<number> {
+  for (let i = 0; i < 100 && open() > at; i++) await Bun.sleep(10);
+  return open();
+}
+
+describe("connect handshake deadlines", () => {
+  test("a stuck daemon identify: each deadline closes its socket, so retries leak none", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.daemon.hold.add("identify");
+    w.host({ clock, requestTimeoutMs: 1_000 }).start();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await w.daemon.until(() => w.daemon.requests.filter((r) => r.cmd === "identify").length >= attempt);
+      clock.advance(1_000); // the connect deadline
+      const used4 = await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length > attempt);
+      expect(used4).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    }
+    await w.daemon.until(() => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 4);
+    expect(await settle(() => w.daemon.clientCount, 1)).toBe(1);
+  }, 10_000);
+
+  test("a stuck acpmux initialize: each deadline closes its socket, so retries leak none", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.acpmux.hold.add("initialize");
+    w.host({ clock, requestTimeoutMs: 1_000 }).start();
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await w.acpmux.until(() => initializes() >= attempt);
+      clock.advance(1_000);
+      const used5 = await advanceUntil(clock, () => initializes() > attempt);
+      expect(used5).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    }
+    await w.acpmux.until(() => initializes() >= 4);
+    expect(await settle(() => w.acpmux.clientCount, 1)).toBe(1);
+  }, 10_000);
+});
+
+describe("reconnect backoff", () => {
+  test("a daemon that accepts the full connect and closes at once gets growing delays", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const lists = () => w.daemon.requests.filter((r) => r.cmd === "conversation-list").length;
+    const waits: number[] = [];
+    for (let i = 1; i <= 3; i++) {
+      // Each connection lists twice: the Chief conversation rule, then the catch-up after
+      // daemon_connected. The second list means the connection is fully up.
+      await w.daemon.until(() => lists() >= 2 * i);
+      w.daemon.dropClients();
+      waits.push(await advanceUntil(clock, () => lists() >= 2 * i + 1));
+    }
+    expect(waits).toEqual([20, 40, 80]);
+  }, 10_000);
+});
+
+describe("stop during connect", () => {
+  test("stop() aborts an in-flight connect and leaves no socket open", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.daemon.hold.add("identify");
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "identify"));
+    await host.stop();
+    expect(await settle(() => w.daemon.clientCount, 0)).toBe(0);
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(1);
   });
 });

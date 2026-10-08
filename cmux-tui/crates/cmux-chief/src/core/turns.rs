@@ -88,6 +88,10 @@ impl Core {
             self.apply_mux_event(event);
         }
         self.reset_replay = false;
+        // Acceptance seen in the replay belongs to the old connection (acpmux
+        // drops its queue with it); the resend below is accepted again on
+        // this one.
+        self.accepted_prompts.clear();
         self.acpmux_up = true;
         // A permission prompt whose session is not waiting in this list was
         // answered meanwhile (or the session is gone): dropped, not resent.
@@ -117,6 +121,7 @@ impl Core {
         for prompt_id in stale {
             self.state.prompts.remove(&prompt_id);
             self.prompt_rejections.remove(&prompt_id);
+            self.accepted_prompts.remove(&prompt_id);
             self.dirty = true;
             self.log(format!("dropping permission prompt {prompt_id}: its session is not waiting"));
         }
@@ -167,6 +172,7 @@ impl Core {
             match output {
                 TurnOutput::Accepted { prompt_id, .. } => {
                     self.prompt_rejections.remove(&prompt_id);
+                    self.accepted_prompts.insert(prompt_id.clone());
                     self.accept(&prompt_id);
                 }
                 TurnOutput::Started { turn, .. } => {
@@ -220,6 +226,7 @@ impl Core {
                     if let Some(prompt_id) = &turn.prompt_id {
                         self.state.mark_answered(prompt_id);
                         self.prompt_rejections.remove(prompt_id);
+                        self.accepted_prompts.remove(prompt_id);
                     }
                     self.state.acpmux_seq = self.state.acpmux_seq.max(seq);
                     self.dirty = true;

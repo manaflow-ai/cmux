@@ -21,6 +21,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
@@ -122,5 +123,26 @@ resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
   || fail "with a 48 h bound the 30 h old tree resolves with behind_hours=30 (exit $status):" "$out" "$err"
 resolve CMUX_TUI_TREE_MAX_AGE_HOURS=x
 [[ "$status" == 2 ]] || fail "CMUX_TUI_TREE_MAX_AGE_HOURS=x must exit 2, got $status:" "$err"
+# The workflow that builds a commit is the workflow AT that commit. The
+# nightly runs nightly.yml from the tip but checks out the resolved commit, so
+# a commit whose nightly.yml differs from the tip's cannot be built by it
+# (nightly-next run 37568319518: the tip's workflow called
+# scripts/upload-sentry-dsyms.sh, absent from the resolved 969eaa22).
+# CMUX_TUI_TREE_SAME_PATHS skips such commits; a miss fails clearly.
+mkdir -p "$src/.github/workflows"
+echo "steps: new" > "$src/.github/workflows/nightly.yml"
+git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "workflow change"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
+[[ "$status" == 0 ]] && grep -qx "commit=$published" <<<"$out" \
+  || fail "without CMUX_TUI_TREE_SAME_PATHS the old tree still resolves (exit $status):" "$out" "$err"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_TREE_SAME_PATHS=.github/workflows/nightly.yml
+[[ "$status" != 0 ]] || fail "a published tree whose nightly.yml differs from the tip must not resolve, got:" "$out"
+grep -q '.github/workflows/nightly.yml differs from the tip' <<<"$err" \
+  || fail "the workflow skew needs a clear message:" "$err"
+# Once a commit with the tip's workflow has a published tree, it resolves.
+publish "$(git -C "$src" rev-parse HEAD)" ""
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_TREE_SAME_PATHS=.github/workflows/nightly.yml
+[[ "$status" == 0 ]] && grep -qx "source_commit=$(git -C "$src" rev-parse HEAD)" <<<"$out" \
+  || fail "the tip with the same workflow and a published tree must resolve (exit $status):" "$out" "$err"
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"

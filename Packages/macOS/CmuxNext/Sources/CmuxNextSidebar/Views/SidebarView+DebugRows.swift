@@ -12,6 +12,10 @@ public struct SidebarDebugRow: Sendable {
     public var viewAlpha: CGFloat?
     public var inList: Bool
     public var suppressed: Bool
+    /// The row's view paints the selection fill now.
+    public var selected: Bool
+    /// The workspace is muted (`notifications.mutedWorkspaces`): its row draws the mark.
+    public var muted: Bool
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -48,7 +52,7 @@ extension SidebarView {
         return model.layout.sections.flatMap { section in
             section.items.map { item -> SidebarDebugItem in
                 var frame: CGRect?
-                for region in [aboveRegion, belowRegion] {
+                for region in bandRegions {
                     guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
                     let inWindow = view.convert(view.bounds, to: nil)
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
@@ -67,13 +71,17 @@ extension SidebarView {
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in
             let view = list.rowViews[row.key]
             var title: String?
-            if case let .workspace(id) = row.key { title = model.workspace(id)?.title }
+            var muted = false
+            if case let .workspace(id) = row.key, let workspace = model.workspace(id) {
+                title = workspace.title
+                muted = workspace.muted
+            }
             let inWindow = list.convert(list.frame(for: row), to: nil)
             let height = window?.contentView?.bounds.height ?? 0
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
-                                   suppressed: list.suppressed.contains(row.key))
+                                   suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

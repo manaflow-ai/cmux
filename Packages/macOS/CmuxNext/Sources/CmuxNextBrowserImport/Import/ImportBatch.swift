@@ -73,13 +73,18 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     public var displayName: String
     public var proposedProfileID: String
     public var targetProfileID: String
+    /// The source profile's own name ("Work"); nil for one-store browsers
+    /// (Safari, Opera) and records saved by older builds.
+    public var profileName: String?
 
-    public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String) {
+    public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
+                profileName: String? = nil) {
         self.browser = browser
         self.profileDirectory = profileDirectory
         self.displayName = displayName
         self.proposedProfileID = proposedProfileID
         self.targetProfileID = targetProfileID
+        self.profileName = profileName
     }
 
     public var sourceKey: String { "\(browser.rawValue)/\(profileDirectory)" }

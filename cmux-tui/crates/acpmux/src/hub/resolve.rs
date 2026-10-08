@@ -6,6 +6,7 @@
 use super::*;
 
 use crate::config::check_preset_args;
+use crate::config::folder_profiles;
 
 impl Hub {
     /// What a new session for `harness`/`preset` resolves to: the profile,
@@ -17,6 +18,7 @@ impl Hub {
         preset: &Option<String>,
         model: Option<&str>,
         remote: bool,
+        cwd: Option<&Path>,
     ) -> Result<Resolved, RpcError> {
         let preset_cfg = match preset {
             Some(n) => Some(cfg.presets.get(n).cloned().ok_or_else(|| {
@@ -38,16 +40,34 @@ impl Hub {
             .ok_or_else(|| {
                 RpcError::invalid_params("no harnesses configured; add one to config.json")
             })?;
-        let resolved = cfg
-            .resolve_harness(&head)
-            .map_err(|e| RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e)))?;
-        if let Some(reason) = cfg.unavailable.get(&resolved) {
-            return Err(RpcError::invalid_params(format!(
-                "harness {resolved} is unavailable: {reason}"
-            )));
-        }
-        let profile = cfg.harnesses[&resolved].clone();
-        let mut d = cfg.defaults_for(&resolved);
+        // A folder profile (H4) answers only a name the catalog does not know.
+        let folder =
+            cwd.and_then(|cwd| folder_profiles::resolve_for_session(cfg, &head, cwd, remote));
+        let (resolved, profile, mut d, folder_root) = match folder {
+            Some(found) => {
+                let (profile, root) = found.map_err(folder_refusal)?;
+                let d = crate::config::SessionDefaults {
+                    model: profile.model.clone(),
+                    effort: profile.effort.clone(),
+                    policy: profile.policy,
+                    ..Default::default()
+                };
+                (head.clone(), profile, d, Some(root))
+            }
+            None => {
+                let resolved = cfg.resolve_harness(&head).map_err(|e| {
+                    RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e))
+                })?;
+                if let Some(reason) = cfg.unavailable.get(&resolved) {
+                    return Err(RpcError::invalid_params(format!(
+                        "harness {resolved} is unavailable: {reason}"
+                    )));
+                }
+                let profile = cfg.harnesses[&resolved].clone();
+                let d = cfg.defaults_for(&resolved);
+                (resolved, profile, d, None)
+            }
+        };
         if let Some(p) = &preset_cfg {
             if remote && p.shapes_command() {
                 return Err(RpcError::invalid_params(format!(
@@ -64,7 +84,44 @@ impl Hub {
                 env: p.env.clone(),
             });
         }
-        Ok(Resolved { agent: resolved, profile, defaults: d, head, preset_name: preset.clone() })
+        Ok(Resolved {
+            agent: resolved,
+            profile,
+            defaults: d,
+            head,
+            preset_name: preset.clone(),
+            folder_root,
+        })
+    }
+}
+
+/// The profile a session's harness name runs at a spawn: the catalog's, else
+/// an enabled folder profile for the session's folder (checked again at every
+/// spawn: trust, the confirmed bytes, the folder, the origin).
+pub(super) fn session_profile(
+    cfg: &crate::config::Config,
+    harness: &str,
+    cwd: &Path,
+    remote: bool,
+) -> Result<HarnessProfile, String> {
+    if let Some(p) = cfg.profile(harness) {
+        return Ok(p.clone());
+    }
+    match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
+        Some(found) => found.map(|(profile, _)| profile).map_err(|e| e.message),
+        None => Err(format!("unknown harness {harness:?}")),
+    }
+}
+
+/// A folder profile refusal as session/new answers it: invalid params with
+/// data {reason, harness, folder} when the app can act on it (its Trust
+/// question or Enable harness sheet).
+fn folder_refusal(refusal: folder_profiles::FolderRefusal) -> RpcError {
+    let error = RpcError::invalid_params(refusal.message);
+    match refusal.reason {
+        Some(reason) => error
+            .with_data(json!({"reason": reason, "harness": refusal.id, "folder": refusal.folder})),
+        None => error,
     }
 }
 
@@ -75,6 +132,8 @@ pub(super) struct Resolved {
     pub(super) defaults: crate::config::SessionDefaults,
     pub(super) head: String,
     pub(super) preset_name: Option<String>,
+    /// The folder of a folder profile (H4): the session's cwd must be inside it.
+    pub(super) folder_root: Option<PathBuf>,
 }
 
 /// The inputs of a new session's meta (`draft_meta`).
@@ -126,7 +185,10 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         permission_rules: None,
         tags: Default::default(),
         unread: false,
+        claude_unstored: false,
         last_turn: None,
         remote_origin: d.remote,
+        session_env: Default::default(),
+        harness_roots: vec![],
     }
 }

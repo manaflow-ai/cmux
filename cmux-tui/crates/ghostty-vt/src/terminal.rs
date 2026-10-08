@@ -43,6 +43,14 @@ pub use clipboard_read::{
     ClipboardLocation, ClipboardReadFn, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES,
 };
 
+mod callbacks;
+pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
+
+mod program_status;
+pub use program_status::{
+    ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState,
+};
+
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_HISTORY_EPOCH: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
@@ -346,30 +354,6 @@ impl Scrollbar {
     }
 }
 
-/// Callback invoked with bytes the terminal wants written to the pty.
-pub type PtyWriteFn = Box<dyn FnMut(&[u8]) + Send>;
-/// Parameterless notification callback (title changed, bell).
-pub type NotifyFn = Box<dyn FnMut() + Send>;
-
-/// Host callbacks invoked synchronously during [`Terminal::vt_write`].
-///
-/// Callbacks must not touch the [`Terminal`] that invoked them (the C API
-/// forbids reentrancy); queue work and act on it after `vt_write` returns.
-#[derive(Default)]
-pub struct Callbacks {
-    /// The terminal needs to write bytes back to the pty (query responses,
-    /// device status reports, ...).
-    pub on_pty_write: Option<PtyWriteFn>,
-    /// The terminal title changed (OSC 0/2). Read it with
-    /// [`Terminal::title`] after `vt_write` returns.
-    pub on_title_changed: Option<NotifyFn>,
-    /// BEL received.
-    pub on_bell: Option<NotifyFn>,
-    /// A program asked to read the clipboard (OSC 52), deferred; see
-    /// [`Terminal::set_clipboard_reads_deferred`].
-    pub on_clipboard_read: Option<ClipboardReadFn>,
-}
-
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
@@ -447,36 +431,6 @@ fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
 // mutation through &mut self, so guarding a Terminal with a Mutex is sound.
 unsafe impl Send for Terminal {}
 
-unsafe extern "C" fn write_pty_trampoline(
-    _terminal: sys::GhosttyTerminal,
-    userdata: *mut c_void,
-    data: *const u8,
-    len: usize,
-) {
-    let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
-    if let Some(f) = callbacks.on_pty_write.as_mut() {
-        let bytes = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(data, len) } };
-        f(bytes);
-    }
-}
-
-unsafe extern "C" fn title_changed_trampoline(
-    _terminal: sys::GhosttyTerminal,
-    userdata: *mut c_void,
-) {
-    let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
-    if let Some(f) = callbacks.on_title_changed.as_mut() {
-        f();
-    }
-}
-
-unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: *mut c_void) {
-    let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
-    if let Some(f) = callbacks.on_bell.as_mut() {
-        f();
-    }
-}
-
 impl Terminal {
     pub fn new(cols: u16, rows: u16, max_scrollback: usize, callbacks: Callbacks) -> Result<Self> {
         kitty::install_png_decoder()?;
@@ -536,25 +490,9 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
         };
-        let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
-        unsafe {
-            sys::ghostty_terminal_set(raw, sys::GHOSTTY_TERMINAL_OPT_USERDATA, userdata);
-            sys::ghostty_terminal_set(
-                raw,
-                sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY,
-                write_pty_trampoline as *const c_void,
-            );
-            sys::ghostty_terminal_set(
-                raw,
-                sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
-                title_changed_trampoline as *const c_void,
-            );
-            sys::ghostty_terminal_set(
-                raw,
-                sys::GHOSTTY_TERMINAL_OPT_BELL,
-                bell_trampoline as *const c_void,
-            );
-        }
+        // SAFETY: `callbacks` is heap-pinned for the terminal's lifetime and
+        // Drop uninstalls the trampolines before the Box is freed.
+        unsafe { callbacks::install(raw, &mut term.callbacks) };
         term.mouse_mode_bits = term.current_mouse_mode_bits();
         term.mouse_mode_signature = term.mouse_mode_probe.signature(term.raw);
         Ok(term)
@@ -3299,13 +3237,7 @@ impl Drop for Terminal {
             self.history_markers.release();
             // Clear callbacks first so a hypothetical late invocation can't
             // touch the freed Box.
-            sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY, ptr::null());
-            sys::ghostty_terminal_set(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
-                ptr::null(),
-            );
-            sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_BELL, ptr::null());
+            callbacks::uninstall(self.raw);
             sys::ghostty_terminal_free(self.raw);
         }
     }

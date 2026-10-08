@@ -4,6 +4,7 @@
 // Cmd-F is the page's find command, the native menu shows only Copy on a selection).
 import "./desktop.css";
 import { installScrollers } from "../../scrollers";
+import { installTooltips } from "../../ui/titleTooltips";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";
@@ -36,6 +37,9 @@ export function installDesktopLayer(doc: Document = document): void {
   root.spellcheck = false;
   // SCROLLBARS-FOLLOW-MACOS: library scrollers follow the host's data-scrollers (scrollers.ts).
   installScrollers(doc);
+  // All first-party pages get the same native-feeling title tooltip. It replaces the browser's
+  // delayed, clipping title bubble while preserving the title as the source of truth.
+  installTooltips(doc);
   const view = doc.defaultView;
   if (!view) return;
   // A drop never navigates the page: a page that takes drops handles them (and calls

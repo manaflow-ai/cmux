@@ -67,4 +67,23 @@ extension HomeService {
               let agent = row.summary.participants.first(where: { $0.id != me && $0.isChief }) else { return nil }
         return directory.chief(for: agent.id)
     }
+
+    /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
+    /// choosing a row shows its conversation on the Home page, a person starts a DM.
+    func makeSidebarSource() -> HomeSidebarSource {
+        let store = homeStore
+        let auth = services.cloud.auth
+        let source = HomeSidebarSource(
+            store: HomePinStore(),
+            account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
+            rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
+            me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] })
+        source.onSelect = { [weak self] id in self?.pendingSelection = id }
+        source.onStart = { [weak self] contact in
+            // task-owner: one dm.open; the page shows the DM once listed
+            Task { _ = await self?.startConversation([.contact(contact)], title: "") }
+        }
+        source.reloadPins()
+        return source
+    }
 }

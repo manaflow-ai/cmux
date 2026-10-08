@@ -12,13 +12,26 @@ extension AgentTabStore {
     }
 
     /// The same, for a workspace this app just created (not mirrored yet),
-    /// starting in `cwd`.
-    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService) async throws -> SurfaceID? {
+    /// starting in `cwd`. With `chat`, a chat seeded with it instead of the
+    /// page (a person's New Agent Chat).
+    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService,
+                       chat: AgentPaneSeed? = nil) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: localHost, hostName: localHostName)
         let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: UUID().uuidString)
+        if var chat {
+            chat.cwd = chat.cwd ?? cwd
+            seedFirstChat(chat, in: workspace)
+        }
+        defer { firstChats[workspace] = nil }
         let response = try await connection.request(request)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
+        if chat != nil {
+            // No view took the seed while the request ran: the tab's view takes it.
+            if let seed = firstChats.removeValue(forKey: workspace) { seeds[key] = seed }
+            track(key, in: daemon.store)
+            return response.surface
+        }
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
         newTabPages[key] = firstPageNewTab?(cwd)
         // The tree can list the tab before this reply, and a pane showing it
@@ -31,11 +44,26 @@ extension AgentTabStore {
         return response.surface
     }
 
+    /// The chat seed of new `workspace`, held before its tab is known: the
+    /// tree can list the tab before new-conversation-tab replies, and a view
+    /// built then takes it (``firstChatSeed(of:in:)``).
+    func seedFirstChat(_ seed: AgentPaneSeed, in workspace: WorkspaceHandle) {
+        firstChats[workspace] = AgentPaneSeedSource(seed)
+    }
+
+    /// The held seed of the new workspace holding tab `key`, taken once.
+    func firstChatSeed(of key: String, in store: DaemonStore) -> AgentPaneSeedSource? {
+        guard !firstChats.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
+              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        return firstChats.removeValue(forKey: workspace.handle)
+    }
+
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(tag: services.environment.tag, registry: services.registry,
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, git: services.agentGit, settings: services.settings)
+        tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }

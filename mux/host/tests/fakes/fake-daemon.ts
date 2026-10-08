@@ -29,11 +29,19 @@ export class FakeDaemon {
   rejectAgentSends = 0;
   agentReject = "agent_rate";
   capabilities = ["local-conversations-v1"];
+  /** `<cmd>:<conversation>` -> reason: the owner refuses that read (a reject, not a lost connection). */
+  readonly refuse = new Map<string, string>();
+  /** Commands whose replies are withheld (a stuck request). */
+  readonly hold = new Set<string>();
   private server!: Server;
   private readonly clients = new Set<Socket>();
   private readonly subscribers = new Set<Socket>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly createKeys = new Map<string, string>();
+  /** createKey -> the request fingerprint of its first create. */
+  private readonly createFingerprints = new Map<string, string>();
+  /** Conversation ids the next conversation-list leaves out (a create race in tests). */
+  readonly hideOnceFromList = new Set<string>();
   private nextConv = 1;
   private nextMsg = 1;
   private listeners: (() => void)[] = [];
@@ -55,6 +63,11 @@ export class FakeDaemon {
     for (const socket of this.clients) socket.destroy();
     this.clients.clear();
     this.subscribers.clear();
+  }
+
+  /** Open client connections. */
+  get clientCount(): number {
+    return this.clients.size;
   }
 
   get subscriberCount(): number {
@@ -85,8 +98,8 @@ export class FakeDaemon {
   }
 
   /** A client (the app) creates a conversation directly. */
-  createConversation(title: string, participants: Participant[]): string {
-    return (this.handle({ id: 0, cmd: "conversation-create", idempotency_key: `t-${title}`, actor: participants[0].id, title, participants }) as { conversation: Summary }).conversation.id;
+  createConversation(title: string, participants: Participant[], key = `t-${title}`): string {
+    return (this.handle({ id: 0, cmd: "conversation-create", idempotency_key: key, actor: participants[0].id, title, participants }) as { conversation: Summary }).conversation.id;
   }
 
   /** A client (the app) sends a text message as `actor`. */
@@ -137,7 +150,7 @@ export class FakeDaemon {
             error_code: error instanceof Reject ? "conversation_rejected" : "bad_request",
           };
         }
-        if (!socket.destroyed) socket.write(`${JSON.stringify(reply)}\n`);
+        if (!socket.destroyed && !this.hold.has(request.cmd)) socket.write(`${JSON.stringify(reply)}\n`);
         this.notify();
       }
     });
@@ -167,15 +180,21 @@ export class FakeDaemon {
   }
 
   private handle(request: Request): unknown {
+    const refusal = this.refuse.get(`${request.cmd}:${String(request.conversation)}`);
+    if (refusal) throw new Reject(refusal);
     switch (request.cmd) {
       case "identify":
         return { app: "fake-daemon", version: "0.0.0", protocol: 2, capabilities: this.capabilities, session: "test", pid: process.pid };
-      case "conversation-list":
+      case "conversation-list": {
+        const hidden = new Set(this.hideOnceFromList);
+        this.hideOnceFromList.clear();
         return {
           conversations: [...this.conversations.values()]
             .map((c) => c.summary)
+            .filter((s) => !hidden.has(s.id))
             .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
         };
+      }
       case "conversation-create":
         return this.create(request);
       case "conversation-snapshot": {
@@ -215,8 +234,14 @@ export class FakeDaemon {
 
   private create(request: Request): unknown {
     const key = String(request.idempotency_key);
+    // The owner fingerprints {actor, title, participants} per key (conversation_store.rs create).
+    const fingerprint = JSON.stringify({ actor: request.actor, title: request.title, participants: request.participants });
     const existing = this.createKeys.get(key);
-    if (existing) return { conversation: this.get(existing).summary, replayed: true };
+    if (existing) {
+      if (this.createFingerprints.get(key) !== fingerprint) throw new Reject("idempotency_conflict");
+      return { conversation: this.get(existing).summary, replayed: true };
+    }
+    this.createFingerprints.set(key, fingerprint);
     const now = new Date().toISOString();
     // Owner-assigned ids are unique across daemon restarts (a counter plus a random tail).
     const id = `conv_${String(this.nextConv++).padStart(4, "0")}${randomTail(22)}`;

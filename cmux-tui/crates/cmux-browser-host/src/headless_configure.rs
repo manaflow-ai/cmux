@@ -21,6 +21,17 @@
 //!   like a proxy store. Clipboard grants are refused: page script never
 //!   gets the browser's clipboard. `null` or `[]` drops the grants; new tabs
 //!   then open in the profile again (a proxy store keeps them).
+//! - `incognito` (private data P1): every tab the session opens goes to its
+//!   incognito store, as does `tabs.open {incognito: true}` from any
+//!   session: an in-memory browser context with no cookie of the profile
+//!   (nothing is copied in or written back), named `<profile>/incognito-<n>`
+//!   and listed `incognito: true`. Its tabs (popups too) cannot be kept;
+//!   the store closes when the session ends. In an incognito session a
+//!   `tabs.open {incognito: false}` is refused, the session's tab-less
+//!   `cookies.*` use the incognito store, and a tab-less `net.fetch` is
+//!   refused (its hidden shell runs in the profile's store). Turning it
+//!   off again is refused (one way, like a policy lock). Known gap:
+//!   incognito with a proxy or permission grants answers `unsupported`.
 
 use crate::cdp::TabOverrides;
 use crate::headless_source::HeadlessSource;
@@ -39,6 +50,10 @@ pub struct SessionConfig {
     store_proxy: bool,
     /// The granted permissions (CDP names).
     permissions: Vec<String>,
+    /// `session.configure {incognito}`: every tab opens incognito.
+    incognito: bool,
+    /// The session's incognito store, made on first use.
+    incognito_store: Option<String>,
 }
 
 /// A `session.configure` permission name -> CDP `Browser.PermissionType`.
@@ -80,6 +95,8 @@ struct ProxyStore {
     owner: u64,
     name: String,
     kept: bool,
+    /// An incognito store: its tabs are never kept.
+    incognito: bool,
 }
 
 /// The sessions' options and the proxy stores of one shared browser.
@@ -112,9 +129,51 @@ impl HeadlessSource {
         self.configs().stores.get(&context).map(|store| store.name.clone())
     }
 
-    /// The session's store (proxy or private), for its tab-less `cookies.*`.
-    pub(crate) fn proxy_of(&self, session: u64) -> Option<String> {
-        self.configs().sessions.get(&session).and_then(|c| c.store.clone())
+    /// Whether a tab is in an incognito store.
+    pub(crate) fn is_incognito(&self, target: &str) -> bool {
+        let Some(context) = self.driver.tab_context(target) else { return false };
+        self.configs().stores.get(&context).is_some_and(|store| store.incognito)
+    }
+
+    /// Whether the session is incognito (`session.configure`).
+    pub(crate) fn session_incognito(&self, session: u64) -> bool {
+        self.configs().sessions.get(&session).is_some_and(|c| c.incognito)
+    }
+
+    /// The store of the session's tab-less `cookies.*`: its incognito store
+    /// in an incognito session (made now if needed), else its proxy or
+    /// private store, else None (the profile's).
+    pub(crate) fn cookie_store_of(&self, session: u64) -> Result<Option<String>, DriverError> {
+        if self.session_incognito(session) {
+            return self.incognito_store(session).map(Some);
+        }
+        Ok(self.configs().sessions.get(&session).and_then(|c| c.store.clone()))
+    }
+
+    /// The session's incognito store, made on first use.
+    fn incognito_store(&self, session: u64) -> Result<String, DriverError> {
+        {
+            let configs = self.configs();
+            let config = configs.sessions.get(&session);
+            if let Some(store) = config.and_then(|c| c.incognito_store.clone()) {
+                return Ok(store);
+            }
+            if config.is_some_and(|c| c.store.is_some()) {
+                return Err(unsupported(
+                    "incognito tabs with a proxy or permission grants are not supported yet",
+                ));
+            }
+        }
+        let context = self.driver.create_incognito_context()?;
+        let mut configs = self.configs();
+        configs.next_store += 1;
+        let name = format!("{}/incognito-{}", self.profile, configs.next_store);
+        configs.stores.insert(
+            context.clone(),
+            ProxyStore { owner: session, name, kept: false, incognito: true },
+        );
+        configs.sessions.entry(session).or_default().incognito_store = Some(context.clone());
+        Ok(context)
     }
 
     /// `session.configure`: each key given replaces its value (`null` clears).
@@ -133,6 +192,45 @@ impl HeadlessSource {
                 ));
             }
         };
+        let incognito = match params.get("incognito") {
+            None => None,
+            Some(Value::Null) => Some(false),
+            Some(Value::Bool(on)) => Some(*on),
+            Some(_) => {
+                return Err(DriverError::invalid(
+                    "session.configure: incognito: expected a boolean",
+                ));
+            }
+        };
+        // Checked before anything changes: incognito stores take no proxy
+        // and no grants yet.
+        {
+            let configs = self.configs();
+            let current = configs.sessions.get(&session);
+            let incognito_on = incognito.unwrap_or(current.is_some_and(|c| c.incognito));
+            let proxy_on = match params.get("proxy") {
+                None => current.is_some_and(|c| c.store_proxy),
+                Some(Value::Null) => false,
+                Some(_) => true,
+            };
+            let grants_on = match &permissions {
+                None => current.is_some_and(|c| !c.permissions.is_empty()),
+                Some(list) => !list.is_empty(),
+            };
+            // One way: an incognito session (the app sets it for an
+            // incognito workspace) cannot leave it.
+            if current.is_some_and(|c| c.incognito) && incognito == Some(false) {
+                return Err(DriverError::new(
+                    ErrorCode::Forbidden,
+                    "session.configure: an incognito session stays incognito",
+                ));
+            }
+            if incognito_on && (proxy_on || grants_on) {
+                return Err(unsupported(
+                    "incognito with a proxy or permission grants is not supported yet",
+                ));
+            }
+        }
         let proxy = match params.get("proxy") {
             None => None,
             Some(Value::Null) => Some(None),
@@ -152,9 +250,10 @@ impl HeadlessSource {
             if let Some(Some(context)) = &proxy {
                 configs.next_store += 1;
                 let name = format!("{}/proxy-{}", self.profile, configs.next_store);
-                configs
-                    .stores
-                    .insert(context.clone(), ProxyStore { owner: session, name, kept: false });
+                configs.stores.insert(
+                    context.clone(),
+                    ProxyStore { owner: session, name, kept: false, incognito: false },
+                );
             }
             let config = configs.sessions.entry(session).or_default();
             if let Some(ua) = params.get("userAgent") {
@@ -170,6 +269,9 @@ impl HeadlessSource {
             }
             if let Some(permissions) = permissions {
                 config.permissions = permissions;
+            }
+            if let Some(incognito) = incognito {
+                config.incognito = incognito;
             }
             // Grants without a proxy store: back to the profile once none
             // is left (the private store closes at the session's end).
@@ -187,7 +289,11 @@ impl HeadlessSource {
             self.grant_session_permissions(session)?;
         }
         let configs = self.configs();
-        Ok(json!({"proxy": configs.sessions.get(&session).is_some_and(|c| c.store_proxy)}))
+        let config = configs.sessions.get(&session);
+        Ok(json!({
+            "proxy": config.is_some_and(|c| c.store_proxy),
+            "incognito": config.is_some_and(|c| c.incognito),
+        }))
     }
 
     /// Puts the session's grants on its store, making a private store
@@ -209,9 +315,10 @@ impl HeadlessSource {
                 let mut configs = self.configs();
                 configs.next_store += 1;
                 let name = format!("{}/private-{}", self.profile, configs.next_store);
-                configs
-                    .stores
-                    .insert(context.clone(), ProxyStore { owner: session, name, kept: false });
+                configs.stores.insert(
+                    context.clone(),
+                    ProxyStore { owner: session, name, kept: false, incognito: false },
+                );
                 if let Some(config) = configs.sessions.get_mut(&session) {
                     config.store = Some(context.clone());
                 }
@@ -227,12 +334,37 @@ impl HeadlessSource {
         session: u64,
         params: &Value,
     ) -> Result<Value, DriverError> {
-        let (context, overrides) = {
+        let asked = match params.get("incognito") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(on)) => Some(*on),
+            Some(_) => {
+                return Err(DriverError::invalid("tabs.open: incognito: expected a boolean"));
+            }
+        };
+        let (context, overrides, incognito_session) = {
             let configs = self.configs();
             let config = configs.sessions.get(&session);
-            (config.and_then(|c| c.store.clone()), config.and_then(SessionConfig::overrides))
+            (
+                config.and_then(|c| c.store.clone()),
+                config.and_then(SessionConfig::overrides),
+                config.is_some_and(|c| c.incognito),
+            )
         };
-        self.driver.open_tab(params, context.as_deref(), overrides)
+        if incognito_session && asked == Some(false) {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                "tabs.open: this session is incognito; it opens no tab in the profile's store",
+            ));
+        }
+        let mut params = params.clone();
+        if let Some(fields) = params.as_object_mut() {
+            fields.remove("incognito");
+        }
+        if asked.unwrap_or(incognito_session) {
+            let store = self.incognito_store(session)?;
+            return self.driver.open_tab(&params, Some(&store), overrides);
+        }
+        self.driver.open_tab(&params, context.as_deref(), overrides)
     }
 
     /// A kept tab is the person's: the creating session's options leave it,

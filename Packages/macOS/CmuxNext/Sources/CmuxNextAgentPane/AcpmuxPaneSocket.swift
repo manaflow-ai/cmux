@@ -129,6 +129,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     // The observers read the same parse the page gets.
                     options.observe(object, replyTo: method)
                     sessions.observe(object)
+                    sessions.observeFolder(object, replyTo: method)
                     page.append(fresh)
                 }
             }

@@ -3,13 +3,19 @@
  * origin except the dev API. Steps:
  *  1. Pre-check (read only): stop before any write if a machine this run did not create exists
  *     on the team (it could be idle-paused while the team policy is on).
- *  2. Create M1 (goes idle) and M2 (a person keeps using it); wait until both are bound.
- *  3. idle_seconds=60 on M1 and M2 only; 15 s dev heartbeat on both (a pause is decided when a
- *     report is applied).
+ *  2. Create M1 (goes idle), M2 (a person keeps using it) and M3 (only an agent types); wait
+ *     until all are bound.
+ *  3. idle_seconds=60 on M1, M2 and M3 only; 15 s dev heartbeat on each (a pause is decided
+ *     when a report is applied).
  *  4. M2: a person's attached client sends input every 20 s. M1: one input, then nothing.
- *  5. Flip team policy cloud.idlePause=true; wait until M1 is paused; check M2 still runs.
+ *     M3: one person input (a report with no activity time is never idle), then an agent
+ *     connection (no client info, not attached) sends v2 terminal.input.write every 20 s; since
+ *     b1cc37e52362 that input is not a person's, so it must not keep M3 awake. Before the flip the
+ *     run records M3's activity probe: last_user_input_at must stay at the person's input.
+ *  5. Flip team policy cloud.idlePause=true; wait until M1 and M3 are paused; check M2 still
+ *     runs.
  *  6. Always: restore the policy (rollback to the pre-test version, else clear the key) within
- *     10 minutes of the flip, confirm with team.policy.get, delete both machines by id.
+ *     10 minutes of the flip, confirm with team.policy.get, delete every machine by id.
  * Every API request and response is logged to <out-dir>/requests.jsonl (no tokens).
  *
  * Usage (from web/): bun scripts/cmux-vm-image/dev-idle-e2e.ts --out-dir <dir>
@@ -19,7 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Freestyle } from "freestyle";
-import { API_ORIGINS } from "../../../images/cmux-vm/guest/vm-agent";
+import { API_ORIGINS, HOST_CLI } from "./host-agent";
 import { assertDevOrigin, readEnvFile } from "./dev-e2e";
 import { argValue, freestyleApiKey, run, type Vm } from "./guest";
 
@@ -62,6 +68,29 @@ for i in range(count):
 s.close()
 `;
 
+/** The guest side of "an agent": a plain automation connection writes v2 terminal input. */
+export const AGENT_PY = String.raw`
+import json, socket, sys, time
+sock_path = open("/etc/cmux/daemon-socket").read().strip()
+s = socket.socket(socket.AF_UNIX); s.connect(sock_path)
+f = s.makefile("rwb")
+def v2(rid, operation, params, key=None):
+    req = {"protocol": "cmux.protocol/2", "type": "request", "id": rid, "operation": operation, "params": params}
+    if key: req["idempotency_key"] = key
+    f.write((json.dumps(req) + "\n").encode()); f.flush()
+    for line in f:
+        msg = json.loads(line)
+        if msg.get("id") == rid: return msg
+terminals = v2("list", "terminal.list", {"machine": "current", "session": "current"})["result"]
+terminal = terminals[0]["id"]
+every, total = int(sys.argv[1]), int(sys.argv[2])
+for i in range(total // every):
+    r = v2("w%d" % i, "terminal.input.write", {"machine": "current", "session": "current", "terminal": terminal, "text": "true\r"}, "agent-%d-%d" % (int(time.time()), i))
+    print(json.dumps({"sent_at_ms": int(time.time() * 1000), "ok": bool(r and r.get("ok")), "error": None if r and r.get("ok") else r}), flush=True)
+    time.sleep(every)
+s.close()
+`;
+
 class Log {
   constructor(private readonly file: string) {}
   write(entry: Record<string, unknown>): void {
@@ -92,7 +121,7 @@ class Api {
 async function signin(credentials: Record<string, string>): Promise<string> {
   const res = await fetch(`${STACK}/api/v1/auth/password/sign-in`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ?? "" },
+    headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": DEV_STACK_PROJECT, ...(credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ? { "x-stack-publishable-client-key": credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY } : {}) },
     body: JSON.stringify({ email: credentials.CMUX_DOGFOOD_STACK_EMAIL, password: credentials.CMUX_DOGFOOD_STACK_PASSWORD }),
   });
   const body = (await res.json()) as { access_token?: string };
@@ -128,8 +157,9 @@ async function vmFor(fs: Freestyle, machine: string): Promise<Vm> {
   return fs.vms.ref(data.id) as unknown as Vm;
 }
 
-const HEARTBEAT_15S = "mkdir -p /etc/systemd/system/cmux-vm-agent.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-vm-agent.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-vm-agent.service && echo heartbeat-15s";
+const HEARTBEAT_15S = "mkdir -p /etc/systemd/system/cmux-host.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-host.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-host.service && echo heartbeat-15s";
 const putPerson = `printf '%s' '${Buffer.from(PERSON_PY).toString("base64")}' | base64 -d > /root/person.py`;
+const putAgent = `printf '%s' '${Buffer.from(AGENT_PY).toString("base64")}' | base64 -d > /root/agent.py`;
 
 export async function main(argv = process.argv): Promise<number> {
   assertDevOrigin(ORIGIN);
@@ -154,21 +184,37 @@ export async function main(argv = process.argv): Promise<number> {
       save();
       return 3;
     }
-    for (const name of ["m1-idle", "m2-person"]) {
+    for (const name of ["m1-idle", "m2-person", "m3-agent"]) {
       const v = await api.op("cloud.machine.create", { name: `cmuxnp ${tag} ${name}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-${name}`);
       created.push(v.machine.id);
       appendFileSync(path.join(outDir, "machines.tsv"), `${v.machine.id}\t${name}\tcreated\t${new Date().toISOString()}\n`);
     }
-    const [m1, m2] = created;
+    const [m1, m2, m3] = created;
     for (const m of created) await waitStatus(api, m, (x) => x.status === "running" && Boolean(x.host), 180_000);
     for (const m of created) await api.op("cloud.machine.idle_policy.set", { machine: m, idle_seconds: IDLE_SECONDS }, `${tag}-idle-${m}`);
     const vm1 = await vmFor(fs, m1);
     const vm2 = await vmFor(fs, m2);
-    for (const vm of [vm1, vm2]) {
-      const r = await run(vm, `${HEARTBEAT_15S} && ${putPerson} && echo person-ready`);
+    const vm3 = await vmFor(fs, m3);
+    for (const vm of [vm1, vm2, vm3]) {
+      const r = await run(vm, `${HEARTBEAT_15S} && ${putPerson} && ${putAgent} && echo person-ready`);
       if (!r.stdout.includes("person-ready")) throw new Error(`guest setup failed: ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
     }
     await run(vm2, "setsid nohup python3 /root/person.py keep 20 420 >/root/person.log 2>&1 < /dev/null & echo started");
+    const once3 = await run(vm3, "python3 /root/person.py once");
+    const sent3 = JSON.parse(once3.stdout.trim().split("\n").at(-1) ?? "{}") as { sent_at_ms?: number; ok?: boolean };
+    if (!sent3.ok || !sent3.sent_at_ms) throw new Error(`M3 person input failed: ${once3.stdout.slice(-200)} ${once3.stderr.slice(-200)}`);
+    result.m3_person_input_ms = sent3.sent_at_ms;
+    await run(vm3, "setsid nohup python3 /root/agent.py 20 420 >/root/agent.log 2>&1 < /dev/null & echo started");
+    // The agent's v2 writes must succeed, or M3 proves nothing. Checked before the flip: a provider
+    // exec on a paused machine could resume it, and exec steps the guest clock during the wait.
+    const agentLines = (await run(vm3, "for i in $(seq 1 30); do grep -q '\"ok\": true' /root/agent.log 2>/dev/null && break; sleep 1; done; cat /root/agent.log")).stdout.trim().split("\n").filter(Boolean);
+    const agentFirst = agentLines.map((l: string) => { try { return JSON.parse(l); } catch { return { raw: l }; } });
+    result.m3_agent_first_writes = agentFirst;
+    if (!agentFirst.some((l: any) => l.ok)) throw new Error(`M3 agent v2 input failed: ${agentLines.join(" ").slice(-300)}`);
+    const probe3 = (await run(vm3, `${HOST_CLI} cloud probe-activity`)).stdout.trim();
+    result.m3_probe_after_agent_write = probe3;
+    const userInput3 = (JSON.parse(probe3.split("\n").at(-1) ?? "{}") as { activity?: { last_user_input_at?: number } }).activity?.last_user_input_at ?? 0;
+    if (userInput3 > sent3.sent_at_ms + 1_000) throw new Error(`M3: the agent's v2 input moved last_user_input_at to ${userInput3} (person input ${sent3.sent_at_ms})`);
     const once = await run(vm1, "python3 /root/person.py once");
     const sent = JSON.parse(once.stdout.trim().split("\n").at(-1) ?? "{}") as { sent_at_ms?: number; ok?: boolean };
     if (!sent.ok || !sent.sent_at_ms) throw new Error(`M1 input failed: ${once.stdout.slice(-200)} ${once.stderr.slice(-200)}`);
@@ -179,14 +225,16 @@ export async function main(argv = process.argv): Promise<number> {
     flippedAt = Date.now();
     result.policy_flipped_at = new Date(flippedAt).toISOString();
     save();
-    const paused = await waitStatus(api, m1, (x) => x.status === "paused" || x.status === "pausing", Math.min(6 * 60_000, HARD_LIMIT_MS - 90_000));
-    const pausedAt = Date.now();
-    result.m1 = { status: paused.status, pause_reason: paused.pause_reason, paused_after_last_input_s: (pausedAt - sent.sent_at_ms) / 1000, paused_after_flip_s: (pausedAt - flippedAt) / 1000 };
+    const isPaused = (x: any) => x.status === "paused" || x.status === "pausing";
+    const budget = Math.min(6 * 60_000, HARD_LIMIT_MS - 90_000);
+    const [paused, paused3] = await Promise.all([m1, m3].map(async (m) => ({ m: await waitStatus(api, m, isPaused, budget), at: Date.now() })));
+    result.m1 = { status: paused.m.status, pause_reason: paused.m.pause_reason, paused_after_last_input_s: (paused.at - sent.sent_at_ms) / 1000, paused_after_flip_s: (paused.at - flippedAt) / 1000 };
+    result.m3 = { status: paused3.m.status, pause_reason: paused3.m.pause_reason, paused_after_person_input_s: (paused3.at - sent3.sent_at_ms) / 1000, paused_after_flip_s: (paused3.at - flippedAt) / 1000, agent_writes_every_s: 20 };
     await sleep(Math.min(60_000, Math.max(0, flippedAt + HARD_LIMIT_MS - 120_000 - Date.now())));
     const m2now = await api.read("cloud.machine.get", { machine: m2 });
     result.m2 = { status: m2now.status, pause_reason: m2now.pause_reason ?? null, checked_after_flip_s: (Date.now() - flippedAt) / 1000 };
     save();
-    return paused && m2now.status === "running" ? 0 : 1;
+    return m2now.status === "running" ? 0 : 1;
   } catch (error) {
     result.error = String((error as Error).message ?? error);
     return 1;

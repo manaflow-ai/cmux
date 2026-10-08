@@ -21,7 +21,7 @@ export function TrustAsk({
   const t = useT();
   const folder = projectName(ask.cwd) ?? ask.cwd;
   return (
-    <div className="acpmux-trust-ask" aria-live="polite" title={ask.cwd}>
+    <div className="acpmux-trust-ask" aria-live="polite">
       {ask.state === "decided" ? (
         <>
           <span className="acpmux-trust-ask-text">
@@ -31,6 +31,8 @@ export function TrustAsk({
             {t("trust.undo")}
           </button>
         </>
+      ) : ask.state === "remote" ? (
+        <span className="acpmux-trust-ask-text">{t("trust.remote")}</span>
       ) : (
         <>
           <span className="acpmux-trust-ask-text">

@@ -17,9 +17,10 @@ struct PaletteKeyBindingTests {
     @Test func paletteKeysAreTableEntriesForPaletteActions() {
         let registry = ActionRegistry.standard()
         let entries = RegistryKeyBindings(registry).table.entries
-        let toggle = entries.first { $0.command == "paletteKey.toggleActions" }
-        #expect(toggle?.keys == [Shortcut("k", modifiers: [.command])])
-        #expect(toggle?.when?.text.contains("paletteOpen") == true)
+        // Decision K1: the Actions menu has no default key of its own (Tab opens it).
+        #expect(!entries.contains { $0.command == "paletteKey.toggleActions" })
+        let tab = entries.first { $0.command == "paletteKey.openActions" }
+        #expect(tab?.when?.text.contains("paletteOpen") == true)
         for id: ActionID in ["paletteKey.submit", "paletteKey.escape", "paletteKey.openActions", "paletteKey.closeItem", "paletteKey.firstItem"] {
             #expect(registry.descriptor(for: id) != nil, "\(id) is a catalog action")
             #expect(entries.contains { $0.command == id }, "\(id) has a default key")

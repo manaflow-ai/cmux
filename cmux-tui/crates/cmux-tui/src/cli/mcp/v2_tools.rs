@@ -76,6 +76,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.list", WINDOW_RECORD_REASON),
     ("window_record.put", WINDOW_RECORD_REASON),
     ("window_record.delete", WINDOW_RECORD_REASON),
+    ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
+    ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
 ];
@@ -93,6 +95,8 @@ const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
 const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that hosts the \
      window; the CLI omits it too, and window_list reads the app's windows.";
+const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
+     app's sidebar actions (action tools), which keep the app's intent log.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
@@ -403,6 +407,7 @@ impl V2Tool {
                 idempotency_key,
                 stream: false,
                 resolve: Vec::new(),
+                view: Default::default(),
             },
             session,
             page,
