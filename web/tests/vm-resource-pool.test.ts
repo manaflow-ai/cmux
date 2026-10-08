@@ -39,7 +39,7 @@ const PRO_POOL = { vcpus: 20, memoryMb: 40 * GB };
 /** The policy a Pro workflow passes to the repository for one billing scope. */
 const PRO_POOL_POLICY = {
   capacity: PRO_POOL,
-  // Markerless legacy rows are charged at the plan maximum until provider
+  // Markerless legacy rows are charged at the provider maximum until provider
   // reconciliation proves their actual shape. This avoids undercounting a
   // 12/16-vCPU machine created before reservation metadata existed.
   legacyReservation: { vcpus: 32, memoryMb: 64 * GB },
@@ -223,7 +223,7 @@ describe("Cloud VM resource pool", () => {
     });
   }));
 
-  dbTest("legacy rows without a valid marker reserve the plan maximum", () => withTeam(async team => {
+  dbTest("legacy rows without a valid marker reserve the provider maximum", () => withTeam(async team => {
     await seedVm(team, { status: "running" });
     await seedVm(team, { status: "running", marker: { vcpus: "lots", memoryMb: 8 * GB, diskMb: 32768 } });
     const failure = await runRepo(repo => repo.beginCreate(createInput(team, { vcpus: 8, memoryMb: 16 * GB })).pipe(Effect.flip));
