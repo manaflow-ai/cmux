@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use super::{
     BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
 };
+use crate::Actor;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     AGENT_SESSION_TABS_CAPABILITY, CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY,
@@ -181,10 +182,15 @@ fn required_nullable<'de, D: serde::Deserializer<'de>>(
     Option::deserialize(deserializer)
 }
 
-pub(super) fn bind(mux: &Arc<Mux>, params: BindSessionParams) -> anyhow::Result<Value> {
+pub(super) fn bind(
+    mux: &Arc<Mux>,
+    actor: &Actor,
+    params: BindSessionParams,
+) -> anyhow::Result<Value> {
     let BindSessionParams { surface, session, expected_session } = params;
+    let expected = expected_session.as_deref();
     let (record, replayed) =
-        mux.bind_conversation_tab_session(surface, &session, expected_session.as_deref())?;
+        mux.bind_conversation_tab_session_as(actor, surface, &session, expected)?;
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 

@@ -176,7 +176,7 @@ fn older_ledgers_gain_a_nullable_actor_and_their_old_rows_read_legacy() {
         assert_eq!(stored, 0, "{table}: an old row got an actor");
     }
     let tx = registry.connection.unchecked_transaction().unwrap();
-    let actor = session_journal::resource_record_actor(&tx, "old", true).unwrap();
+    let actor = session_journal::resource_record_actor(&tx, "old-origin", "old", true).unwrap();
     assert_eq!(actor.as_deref(), Some("legacy"), "a NULL ledger actor reads legacy");
     drop(tx);
     drop(registry);

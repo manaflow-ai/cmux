@@ -61,6 +61,8 @@ pub(crate) trait TuiMuxOps {
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>>;
+    fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>);
+    fn close_workspace(&self, target: WorkspaceId) -> bool;
 }
 
 #[cfg(test)]
@@ -151,5 +153,13 @@ impl TuiMuxOps for Arc<Mux> {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_pane_right_as(me(), target, width, size)
+    }
+
+    fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
+        self.select_tab_as(me(), pane, index, delta);
+    }
+
+    fn close_workspace(&self, target: WorkspaceId) -> bool {
+        self.close_workspace_as(me(), target)
     }
 }

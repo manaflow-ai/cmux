@@ -159,6 +159,10 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+mod group_outcome_json;
+use group_outcome_json::{
+    screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
+};
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
@@ -2604,46 +2608,6 @@ fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> 
         value["pane"] = json!(pane);
     }
     value
-}
-
-fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
-    json!({
-        "group": outcome.group.as_ref().map(|group| json!({
-            "id": group.id,
-            "name": group.name,
-            "color": group.color,
-            "collapsed": group.collapsed,
-            "saved_id": group.saved_id,
-        })),
-        "workspace": outcome.workspace,
-        "key": outcome.key,
-        "screens": outcome.members,
-    })
-}
-
-fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
-    json!({
-        "group": outcome.group.as_ref().map(|group| json!({
-            "id": group.id,
-            "name": group.name,
-            "color": group.color,
-            "collapsed": group.collapsed,
-            "saved_id": group.saved_id,
-        })),
-        "pane": outcome.pane,
-        "workspace": outcome.workspace,
-        "surfaces": outcome.members,
-    })
-}
-
-fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
-    json!({
-        "surface": outcome.surface,
-        "pane": outcome.pane,
-        "screen": outcome.screen,
-        "workspace": outcome.workspace,
-        "undoable": outcome.undoable,
-    })
 }
 
 /// Deserialize a field whose absence and `null` mean different things:
@@ -13113,8 +13077,13 @@ fn handle_command_with_cancellation(
         }
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             let layout = layout_request_to_spec(layout)?;
-            let applied =
-                mux.apply_layout(workspace, name, &layout, optional_surface_size(cols, rows))?;
+            let applied = mux.apply_layout_as(
+                &actor,
+                workspace,
+                name,
+                &layout,
+                optional_surface_size(cols, rows),
+            )?;
             Ok(json!({
                 "screen": applied.screen,
                 "panes": applied.panes.iter().map(|pane| {
@@ -13354,7 +13323,8 @@ fn handle_command_with_cancellation(
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification_from(title, body, level, surface, source)?;
+            let notification =
+                mux.post_notification_as(&actor, title, body, level, surface, source)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -13484,7 +13454,9 @@ fn handle_command_with_cancellation(
             placed_terminal_result(mux, &surface, keep)
         }
         Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, client, params),
-        Command::BindConversationTabSession(params) => conversation_tabs_wire::bind(mux, params),
+        Command::BindConversationTabSession(params) => {
+            conversation_tabs_wire::bind(mux, &actor, params)
+        }
         Command::NewFrontendBrowserTab(params) => {
             frontend_browser_history::create(mux, client, params)
         }
@@ -13741,7 +13713,7 @@ fn handle_command_with_cancellation(
         }
         Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
-            let changed = mux.set_screen_metadata(screen, color, icon)?;
+            let changed = mux.set_screen_metadata_as(&actor, screen, color, icon)?;
             let presentation = mux.presentation_snapshot();
             let record = mux
                 .with_state(|state| {
@@ -13764,7 +13736,7 @@ fn handle_command_with_cancellation(
             )
         }
         Command::SetScreenPinned { screen, pinned } => {
-            let (changed, index) = mux.set_screen_pinned(screen, pinned)?;
+            let (changed, index) = mux.set_screen_pinned_as(&actor, screen, pinned)?;
             Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
         }
         Command::MoveScreen { screen, index, workspace, new_workspace } => {
@@ -13773,7 +13745,7 @@ fn handle_command_with_cancellation(
             } else {
                 crate::ScreenDestination::Workspace { workspace, index }
             };
-            let outcome = mux.move_screen(screen, destination)?;
+            let outcome = mux.move_screen_as(&actor, screen, destination)?;
             Ok(json!({
                 "screen": outcome.screen,
                 "workspace": outcome.workspace,
@@ -13781,17 +13753,21 @@ fn handle_command_with_cancellation(
                 "index": outcome.index,
             }))
         }
-        Command::CreateScreenGroup { screens, name, color } => {
-            Ok(screen_group_outcome_json(&mux.create_screen_group(&screens, name, color)?))
-        }
+        Command::CreateScreenGroup { screens, name, color } => Ok(screen_group_outcome_json(
+            &mux.create_screen_group_as(&actor, &screens, name, color)?,
+        )),
         Command::UpdateScreenGroup { group, name, color, collapsed } => {
-            Ok(screen_group_outcome_json(&mux.update_screen_group(&group, name, color, collapsed)?))
+            Ok(screen_group_outcome_json(
+                &mux.update_screen_group_as(&actor, &group, name, color, collapsed)?,
+            ))
         }
-        Command::AddScreensToScreenGroup { group, screens, index } => Ok(
-            screen_group_outcome_json(&mux.add_screens_to_screen_group(&group, &screens, index)?),
-        ),
+        Command::AddScreensToScreenGroup { group, screens, index } => {
+            Ok(screen_group_outcome_json(
+                &mux.add_screens_to_screen_group_as(&actor, &group, &screens, index)?,
+            ))
+        }
         Command::RemoveScreensFromScreenGroup { screens } => {
-            let groups = mux.remove_screens_from_screen_group(&screens)?;
+            let groups = mux.remove_screens_from_screen_group_as(&actor, &screens)?;
             Ok(json!({ "screens": screens, "groups": groups }))
         }
         Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
@@ -13800,10 +13776,10 @@ fn handle_command_with_cancellation(
             } else {
                 crate::ScreenDestination::Workspace { workspace, index }
             };
-            Ok(screen_group_outcome_json(&mux.move_screen_group(&group, destination)?))
+            Ok(screen_group_outcome_json(&mux.move_screen_group_as(&actor, &group, destination)?))
         }
         Command::UngroupScreenGroup { group } => {
-            let screens = mux.ungroup_screen_group(&group)?;
+            let screens = mux.ungroup_screen_group_as(&actor, &group)?;
             Ok(json!({ "group": group, "screens": screens }))
         }
         Command::CloseScreenGroup { group, end_terminals } => {
@@ -13836,7 +13812,7 @@ fn handle_command_with_cancellation(
             Ok(json!({ "groups": groups }))
         }
         Command::SaveScreenGroup { group } => {
-            let saved = mux.save_screen_group(&group)?;
+            let saved = mux.save_screen_group_as(&actor, &group)?;
             let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
             value["saved"] = json!(saved);
             Ok(value)
@@ -13925,7 +13901,8 @@ fn handle_command_with_cancellation(
             if let Some(flag) = dock.as_mut() {
                 flag.permanent = permanent == Some(true);
             }
-            let outcome = mux.set_column_dock(
+            let outcome = mux.set_column_dock_as(
+                &actor,
                 pane,
                 dock,
                 transaction.map(|transaction| (client, transaction)),
@@ -13937,7 +13914,7 @@ fn handle_command_with_cancellation(
             Ok(data)
         }
         Command::UndoLayout { pane, revision, confirm_close } => {
-            match mux.undo_layout(pane, revision, confirm_close)? {
+            match mux.undo_layout_as(&actor, pane, revision, confirm_close)? {
                 LayoutUndoResult::Undone { screen, revision } => Ok(json!({
                     "undone": true,
                     "screen": screen,
@@ -14102,23 +14079,31 @@ fn handle_command_with_cancellation(
         Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome =
-                mux.create_tab_group(&surfaces, name, color, group, transaction.as_deref())?;
+            let outcome = mux.create_tab_group_as(
+                &actor,
+                &surfaces,
+                name,
+                color,
+                group,
+                transaction.as_deref(),
+            )?;
             Ok(tab_group_outcome_json(&outcome))
         }
-        Command::UpdateTabGroup { group, name, color, collapsed } => {
-            Ok(tab_group_outcome_json(&mux.update_tab_group(&group, name, color, collapsed)?))
-        }
+        Command::UpdateTabGroup { group, name, color, collapsed } => Ok(tab_group_outcome_json(
+            &mux.update_tab_group_as(&actor, &group, name, color, collapsed)?,
+        )),
         Command::AddTabsToTabGroup { group, surfaces, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome = mux.add_tabs_to_tab_group(&group, &surfaces, transaction.as_deref())?;
+            let outcome =
+                mux.add_tabs_to_tab_group_as(&actor, &group, &surfaces, transaction.as_deref())?;
             Ok(tab_group_outcome_json(&outcome))
         }
         Command::RemoveTabsFromTabGroup { surfaces, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let groups = mux.remove_tabs_from_tab_group(&surfaces, transaction.as_deref())?;
+            let groups =
+                mux.remove_tabs_from_tab_group_as(&actor, &surfaces, transaction.as_deref())?;
             Ok(json!({ "surfaces": surfaces, "groups": groups }))
         }
         Command::MoveTabGroup { group, pane, index, transaction } => {
@@ -14136,7 +14121,8 @@ fn handle_command_with_cancellation(
                         })
                         .ok_or_else(|| anyhow::anyhow!("unknown tab group {group}"))?,
                 };
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::Strip { pane, index },
                 transaction.as_deref(),
@@ -14153,7 +14139,8 @@ fn handle_command_with_cancellation(
                 );
             }
             let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::Split { pane, edge, ratio },
                 transaction.as_deref(),
@@ -14164,7 +14151,8 @@ fn handle_command_with_cancellation(
             validate_client_transaction(transaction.as_deref())?;
             let pane = pane.map(|pane| resolve_pane_ref(mux, &pane)).transpose()?;
             let pane = column_anchor(mux, pane, screen)?;
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::Column { pane, after_column, width },
                 transaction.as_deref(),
@@ -14173,7 +14161,8 @@ fn handle_command_with_cancellation(
         }
         Command::MoveTabGroupToNewWorkspace { group, workspace_group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
-            let outcome = mux.move_tab_group(
+            let outcome = mux.move_tab_group_as(
+                &actor,
                 &group,
                 crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
                 transaction.as_deref(),
@@ -14181,15 +14170,16 @@ fn handle_command_with_cancellation(
             Ok(tab_group_outcome_json(&outcome))
         }
         Command::UngroupTabGroup { group } => {
-            let members = mux.ungroup_tab_group(&group)?;
+            let members = mux.ungroup_tab_group_as(&actor, &group)?;
             Ok(json!({ "group": group, "surfaces": members }))
         }
         Command::CloseTabGroup { group, end_terminals } => {
             if !end_terminals {
-                let closed = mux.close_tab_group(&group)?;
+                let closed = mux.close_tab_group_as(&actor, &group)?;
                 return Ok(json!({ "group": group, "closed": closed }));
             }
-            let outcome = mux.close_container_ending_terminals(
+            let outcome = mux.close_container_ending_terminals_as(
+                &actor,
                 crate::BatchCloseTarget::TabGroup(group.clone()),
             )?;
             Ok(json!({
@@ -14200,14 +14190,14 @@ fn handle_command_with_cancellation(
         }
         Command::ListSavedTabGroups => Ok(json!({ "saved_groups": mux.saved_tab_groups() })),
         Command::SaveTabGroup { group } => {
-            let saved = mux.save_tab_group(&group)?;
+            let saved = mux.save_tab_group_as(&actor, &group)?;
             Ok(json!({ "group": group, "saved": saved }))
         }
         Command::UnsaveTabGroup { group } => {
-            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group(&group)? }))
+            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group_as(&actor, &group)? }))
         }
         Command::DeleteSavedTabGroup { saved } => {
-            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group(&saved)? }))
+            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group_as(&actor, &saved)? }))
         }
         Command::ReopenSavedTabGroup { saved, pane, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
@@ -14248,7 +14238,7 @@ fn handle_command_with_cancellation(
         }
         Command::SetTabPinned { surface, pinned } => {
             get_surface(mux, surface)?;
-            let change = mux.set_tab_pinned(surface, pinned)?;
+            let change = mux.set_tab_pinned_as(&actor, surface, pinned)?;
             Ok(json!({
                 "surface": surface,
                 "pinned": pinned,
@@ -14329,11 +14319,11 @@ fn handle_command_with_cancellation(
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
         Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
         Command::ListBookmarks(params) => bookmarks::list(mux, params),
-        Command::CreateBookmark(params) => bookmarks::create(mux, params),
-        Command::UpdateBookmark(params) => bookmarks::update(mux, params),
-        Command::MoveBookmark(params) => bookmarks::move_to(mux, params),
-        Command::DeleteBookmark(params) => bookmarks::delete(mux, params),
-        Command::ImportBookmarks(params) => bookmarks::import(mux, params),
+        Command::CreateBookmark(params) => bookmarks::create(mux, &actor, params),
+        Command::UpdateBookmark(params) => bookmarks::update(mux, &actor, params),
+        Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
+        Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
+        Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
@@ -14633,7 +14623,10 @@ fn handle_command_with_cancellation(
         // closes; the ended terminals show in the terminal and resource streams.
         Command::ClosePane { pane, end_terminals } => {
             if end_terminals {
-                mux.close_container_ending_terminals(crate::BatchCloseTarget::Pane(pane))?;
+                mux.close_container_ending_terminals_as(
+                    &actor,
+                    crate::BatchCloseTarget::Pane(pane),
+                )?;
             } else if !mux.close_pane_as(&actor, pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
@@ -14641,7 +14634,10 @@ fn handle_command_with_cancellation(
         }
         Command::CloseScreen { screen, end_terminals } => {
             if end_terminals {
-                mux.close_container_ending_terminals(crate::BatchCloseTarget::Screen(screen))?;
+                mux.close_container_ending_terminals_as(
+                    &actor,
+                    crate::BatchCloseTarget::Screen(screen),
+                )?;
             } else if !mux.close_screen_as(&actor, screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
@@ -14685,7 +14681,7 @@ fn handle_command_with_cancellation(
         }
         Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
             let Some(revision) = with_provider_workspace_authority(authority, |authority| {
-                mux.close_provider_managed_workspace_authorized(workspace, &key, authority)
+                mux.close_provider_managed_workspace_authorized(&actor, workspace, &key, authority)
             })?
             else {
                 anyhow::bail!("unknown provider-managed workspace selector");
@@ -14734,7 +14730,9 @@ fn handle_command_with_cancellation(
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             let Some(revision) = with_provider_workspace_authority(authority, |authority| {
-                mux.rename_provider_managed_workspace_authorized(workspace, &key, name, authority)
+                mux.rename_provider_managed_workspace_authorized(
+                    &actor, workspace, &key, name, authority,
+                )
             })?
             else {
                 anyhow::bail!("unknown provider-managed workspace selector");
@@ -14977,7 +14975,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::SelectTab { pane, index, delta } => {
-            mux.select_tab(pane, index, delta);
+            mux.select_tab_as(&actor, pane, index, delta);
             Ok(json!({}))
         }
         Command::SelectScreen { index, delta } => {

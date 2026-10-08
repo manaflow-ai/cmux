@@ -480,8 +480,9 @@ impl Mux {
 
     /// `close-pane`, `close-screen`, or `close-tab-group` with
     /// `end_terminals`: the container and the terminals it ends, one commit.
-    pub(crate) fn close_container_ending_terminals(
+    pub(crate) fn close_container_ending_terminals_as(
         &self,
+        actor: &Actor,
         target: BatchCloseTarget,
     ) -> anyhow::Result<BatchCloseOutcome> {
         let (operation, fingerprint) = match &target {
@@ -497,7 +498,7 @@ impl Mux {
             }
         };
         let fingerprint = json!({"target": fingerprint, "end_terminals": true});
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         self.commit_batch_close(BatchCloseRequest {
             target,
             end_terminals: true,
@@ -852,7 +853,9 @@ mod tests {
         mux.set_terminal_keep(&terminal(2).0, true).unwrap();
         let pane = mux.with_state(|state| state.pane_of(surface).unwrap());
 
-        let outcome = mux.close_container_ending_terminals(BatchCloseTarget::Pane(pane)).unwrap();
+        let outcome = mux
+            .close_container_ending_terminals_as(&Actor::Daemon, BatchCloseTarget::Pane(pane))
+            .unwrap();
 
         assert_eq!(outcome.closed().len(), 2);
         assert_eq!(outcome.terminals().len(), 1);
