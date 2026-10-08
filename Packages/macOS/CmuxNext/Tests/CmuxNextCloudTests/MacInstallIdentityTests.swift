@@ -129,7 +129,7 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
         let owner = FakeOwner(), directory = temporaryDirectory()
         let mac = identity(owner, directory)
         try await mac.signedIn(stackUser: "stack_1", session: { "session" })
-        await mac.signOut()
+        await mac.signOut(stackUser: "stack_1", session: { "session" })
         #expect(await owner.revoked == ["inst_1"])
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await mac.installToken() }
         // The next sign-in registers a new install with a new key.
@@ -166,7 +166,7 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
         await owner.holdRegisters()
         let signIn = Task { try await mac.signedIn(stackUser: "stack_1", session: { "session" }) }
         await owner.registerHeld()
-        await mac.signOut()
+        await mac.signOut(stackUser: "stack_1", session: { "session" })
         await owner.releaseRegister()
         _ = try? await signIn.value
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await mac.installToken() }
@@ -196,5 +196,33 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
         #expect(!MacInstallStore.forApp(directory: directory, service: "s", team: nil, isDebugBuild: true).usesSecureEnclave)
         #expect(MacInstallStore.forApp(directory: directory, service: "s", team: nil, isDebugBuild: false).usesSecureEnclave)
         #expect(MacInstallStore.forApp(directory: directory, service: "s", team: "ABCDE12345", isDebugBuild: true).usesSecureEnclave)
+    }
+}
+
+@Suite struct MacInstallIdentitySignOutTests {
+    /// A sign-out before this launch bound the user (the record and key come
+    /// from an earlier launch) still revokes that install.
+    @Test func aSignOutWithNothingBoundRevokesTheStoredInstall() async throws {
+        let owner = FakeOwner(), directory = temporaryDirectory()
+        try await identity(owner, directory).signedIn(stackUser: "stack_1", session: { "session" })
+        let relaunched = identity(owner, directory)
+        await relaunched.signOut(stackUser: "stack_1", session: { "session" })
+        #expect(await owner.revoked == ["inst_1"])
+    }
+
+    /// Between this sign-out and the session's end, a late sign-in callback
+    /// registers nothing.
+    @Test func noRegistrationBetweenSignOutAndTheEndOfTheSession() async throws {
+        let owner = FakeOwner(), directory = temporaryDirectory()
+        let mac = identity(owner, directory)
+        await mac.signOut(stackUser: "stack_1", session: { "session" })
+        await #expect(throws: MacInstallIdentity.Failure.signedOut) {
+            try await mac.signedIn(stackUser: "stack_1", session: { "session" })
+        }
+        #expect(await owner.registered.isEmpty)
+        // The session ended (unbind); the next sign-in registers again.
+        await mac.unbind()
+        try await mac.signedIn(stackUser: "stack_1", session: { "session" })
+        #expect(await owner.registered.count == 1)
     }
 }
