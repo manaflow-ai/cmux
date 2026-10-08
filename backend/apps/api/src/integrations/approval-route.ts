@@ -41,3 +41,37 @@ export const approvalReader = async (env: Env, reader: Principal, params: unknow
   const withSso = await deps.sso(env, asMember, team)
   return ssoRefusal(withSso, rules, team) ? reader : withSso
 }
+
+/** The answer an approval delivery carries (feed-approvals.ts approvalDecision). */
+interface AnswerParams {
+  readonly sso_team?: unknown
+}
+
+const membershipProbe = (user: string, team: string): Principal => ({ identity: `session:${user}`, kind: "session", user, team })
+
+/**
+ * G8 answer time (cx-3bi.16.12): the same checks as the read. Run by the posting team's
+ * ConnectionDO before an approved request runs: `user` is still a member of `team` (TeamDO's
+ * member-only read), and when the team enforces SSO the answer came from a session that team's
+ * SSO created (the feed records the answering session's `sso_team`). False ends it denied.
+ */
+export const answerAdmitted = async (env: Env, team: string, user: string, params: unknown, deps: RouteDeps = live): Promise<boolean> => {
+  const teamDO = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamStub
+  if (!(await teamDO.readOp(team, membershipProbe(user, team), "team.members.list", { limit: 1 })).ok) return false
+  const rules = await deps.rules(env, team, user)
+  return !rules.sso_required || (params as AnswerParams | null)?.sso_team === team
+}
+
+/**
+ * The Worker side of a cross-team answer: a session's feed.answer on an integration request of
+ * another team carries that team's SSO session when TeamDO confirms one (withSsoSession), so the
+ * feed can hand it to the ConnectionDO. Any other op or item returns `principal` itself.
+ */
+export const answerPrincipal = async (env: Env, principal: Principal, op: string, params: unknown, deps: RouteDeps = live): Promise<Principal> => {
+  const item = (params as { item?: unknown } | null)?.item
+  if (op !== "feed.answer" || principal.kind !== "session" || !principal.user || typeof item !== "string") return principal
+  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(principal.user)) as unknown as { integrationItemTeam(user: string, item: string): Promise<string | null> }
+  const team = await feed.integrationItemTeam(principal.user, item)
+  if (!team || team === principal.team) return principal
+  return deps.sso(env, principal, team)
+}
