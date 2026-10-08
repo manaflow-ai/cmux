@@ -1083,7 +1083,7 @@ public actor VMClient {
     ///   - operations: The recorder for Cloud operation diagnostics.
     ///   - telemetry: The request telemetry with the app's analytics sinks.
     ///   - isCloudEnabled: The app's Cloud availability decision, readable off the main actor.
-    ///   - isCloudAvailable: The rollout and managed-policy decision used by activation-only requests before the local marker is committed.
+    ///   - isCloudAvailable: The managed-policy decision used by activation-only requests before the local marker is committed.
     /// - Returns: The read coordinator the client shares with its callers.
     @MainActor
     @discardableResult

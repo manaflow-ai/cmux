@@ -560592,55 +560592,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."
+            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Turn this on to enable Cloud work; an administrator can still disable Cloud with a managed policy."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu. Cloud-Maschinen erfordern außerdem ein Remote-Rollout; solange diese Option deaktiviert ist, bleiben Cloud-Tunnel und Flottenabfrage aus."
+            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu. Aktiviere diese Option, um Cloud zu nutzen; ein Administrator kann Cloud weiterhin über eine verwaltete Richtlinie deaktivieren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail. Les machines cloud nécessitent aussi un déploiement à distance ; si cette option est désactivée, le tunnel Cloud et l’interrogation de la flotte restent arrêtés."
+            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail. Activez cette option pour utiliser Cloud ; un administrateur peut toujours désactiver Cloud avec une règle gérée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة. وتتطلب الأجهزة السحابية أيضًا طرحًا عن بُعد؛ وعند إيقاف هذا الخيار يظل نفق Cloud واستطلاع الأسطول متوقفين."
+            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة. فعّل هذا الخيار لاستخدام Cloud؛ ويمكن للمسؤول تعطيل Cloud من خلال سياسة مُدارة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo. Las máquinas en la nube también requieren un despliegue remoto; con esta opción desactivada, el túnel de Cloud y el sondeo de la flota permanecen desactivados."
+            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo. Activa esta opción para usar Cloud; un administrador aún puede desactivar Cloud mediante una política gestionada."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。雲端機器也需要遠端推出才能使用；關閉此選項時，Cloud 通道和機群輪詢都會保持停用。"
+            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。開啟此選項即可使用 Cloud；管理員仍可透過受管理政策停用 Cloud。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。云主机还需要远程推出才能使用；关闭此选项时，Cloud 隧道和机群轮询都会保持停用。"
+            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。开启此选项即可使用 Cloud；管理员仍可通过受管理政策停用 Cloud。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 클라우드 머신을 추가합니다. 클라우드 머신은 원격 출시도 필요하며, 이 옵션이 꺼져 있으면 Cloud 터널과 플릿 폴링도 꺼진 상태로 유지됩니다."
+            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 Cloud 머신을 추가합니다. 이 옵션을 켜야 Cloud를 사용할 수 있으며, 관리자는 관리 정책으로 Cloud를 계속 비활성화할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。クラウドマシンにはリモートでの提供開始も必要です。この設定がオフの間は、Cloud トンネルとフリートのポーリングも停止したままです。"
+            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。この設定をオンにするとCloudを使えます。管理者は管理ポリシーでCloudを引き続き無効にできます。"
           }
         }
       }
@@ -627418,55 +627418,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف حسابات Codex وClaude وOpenCode Go التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
+            "value": "أضف حسابات Codex وClaude وOpenCode التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Go-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
+            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add the Codex, Claude and OpenCode Go accounts you already have, and agents on your Cloud machines use them right away."
+            "value": "Add the Codex, Claude and OpenCode accounts you already have, and agents on your Cloud machines use them right away."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las cuentas de Codex, Claude y OpenCode Go que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
+            "value": "Añade las cuentas de Codex, Claude y OpenCode que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez vos comptes Codex, Claude et OpenCode Go existants : les agents de vos machines Cloud les utilisent aussitôt."
+            "value": "Ajoutez vos comptes Codex, Claude et OpenCode existants : les agents de vos machines Cloud les utilisent aussitôt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "お持ちの Codex、Claude、OpenCode Go アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
+            "value": "お持ちの Codex、Claude、OpenCode アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 가진 Codex, Claude, OpenCode Go 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
+            "value": "이미 가진 Codex, Claude, OpenCode 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加你已有的 Codex、Claude 和 OpenCode Go 账户，云机器上的代理即可立即使用。"
+            "value": "添加你已有的 Codex、Claude 和 OpenCode 账户，云机器上的代理即可立即使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增你已有的 Codex、Claude 和 OpenCode Go 帳號，雲端機器上的代理程式即可立即使用。"
+            "value": "新增你已有的 Codex、Claude 和 OpenCode 帳號，雲端機器上的代理程式即可立即使用。"
           }
         }
       }
@@ -627595,55 +627595,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقر على حساب Codex أو Claude أو OpenCode Go جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
+            "value": "انقر على حساب Codex أو Claude أو OpenCode جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klicke auf „Neues Codex-, Claude- oder OpenCode-Go-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
+            "value": "Klicke auf „Neues Codex-, Claude- oder OpenCode-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click New Codex, Claude or OpenCode Go Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+            "value": "Click New Codex, Claude or OpenCode Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haz clic en Nueva cuenta de Codex, Claude u OpenCode Go e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
+            "value": "Haz clic en Nueva cuenta de Codex, Claude u OpenCode e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cliquez sur Nouveau compte Codex, Claude ou OpenCode Go et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
+            "value": "Cliquez sur Nouveau compte Codex, Claude ou OpenCode et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい Codex、Claude、OpenCode Go アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
+            "value": "新しい Codex、Claude、OpenCode アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 Codex, Claude 또는 OpenCode Go 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
+            "value": "새 Codex, Claude 또는 OpenCode 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按“新建 Codex、Claude 或 OpenCode Go 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
+            "value": "点按“新建 Codex、Claude 或 OpenCode 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點按「新增 Codex、Claude 或 OpenCode Go 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
+            "value": "點按「新增 Codex、Claude 或 OpenCode 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
           }
         }
       }
@@ -643321,7 +643321,1254 @@
         "tr": {"stringUnit": {"state": "translated", "value": "bellek"}},
         "uk": {"stringUnit": {"state": "translated", "value": "пам’ять"}}
       }
-    }
+    },
+    "mobile.agentFeed.question.answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answerSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an option or write an answer for each prompt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle eine Option oder schreibe eine Antwort für jede Frage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une option ou écrivez une réponse pour chaque question."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر خيارًا أو اكتب إجابة لكل سؤال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una opción o escribe una respuesta para cada pregunta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個問題選擇選項或輸入回答。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个问题选择选项或输入回答。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 질문에 대한 옵션을 선택하거나 답변을 입력하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各質問の選択肢を選ぶか、回答を入力してください。"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answerTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer questions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragen beantworten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre aux questions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجب عن الأسئلة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responde a las preguntas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答問題"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答问题"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문에 답하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問に回答"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answeredShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beantwortet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت الإجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respondida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答済み"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.pendingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs your input"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Agent benötigt eine Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre agent attend une réponse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج وكيلك إلى إجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu agente necesita una respuesta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的輸入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的输入"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 답변을 기다리고 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが回答を待っています"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.singleSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose one"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine auswählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une option"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر خيارًا واحدًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇一項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一项"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つ選択"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.submitShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送出"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld question"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Frage"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Fragen"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld question posée"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions posées"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions posées"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤالان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld أسئلة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤالًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld pregunta"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preguntas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preguntas"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個問題"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个问题"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld개 질문"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld件の質問"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.pageLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "問題 %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "问题 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "질문 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "質問 %lld"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld of %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld of %lld"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld von %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld von %lld"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "第 %lld 個問題，共 %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "第 %lld 个问题，共 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "전체 %lld개 질문 중 %lld번째"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld問目"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.progressSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld of %lld answered"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld of %lld answered"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld von %lld beantwortet"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld von %lld beantwortet"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondu"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondus"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondus"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondida"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondidas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondidas"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 已回答"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 已回答"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 답변함"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld件回答済み"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "featureFlags.macAccountDirectory.title": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Cross-team My Devices"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Teamübergreifende Meine Geräte"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mes appareils entre équipes"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "أجهزتي عبر الفرق"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mis dispositivos entre equipos"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "跨團隊我的裝置"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "跨团队我的设备"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "팀 간 내 기기"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "チーム横断のマイデバイス"
+            }
+          }
+        }
+      },
+    "featureFlags.macAccountDirectory.description": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Finds and connects your Macs signed in to the same account even when they selected different teams."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Findet und verbindet deine Macs mit demselben Konto, auch wenn sie unterschiedliche Teams ausgewählt haben."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Trouve et connecte vos Mac connectés au même compte, même s’ils ont sélectionné des équipes différentes."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يعثر على أجهزة Mac المسجّلة بالحساب نفسه ويصلها حتى لو اختارت فرقًا مختلفة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Encuentra y conecta tus Mac con la misma cuenta aunque hayan seleccionado equipos distintos."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "尋找並連線登入同一帳號的 Mac，即使它們選擇了不同的團隊。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "查找并连接登录同一账号的 Mac，即使它们选择了不同的团队。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "다른 팀을 선택했더라도 같은 계정에 로그인한 Mac을 찾아 연결합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "異なるチームを選択していても、同じアカウントでサインインしている Mac を見つけて接続します。"
+            }
+          }
+        }
+      }
   },
   "version": "1.0"
 }

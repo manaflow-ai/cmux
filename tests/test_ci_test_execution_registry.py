@@ -554,6 +554,18 @@ sys.exit(3 if name.endswith("fail") else 0)
 
 
 class LaneRunnerTests(unittest.TestCase):
+    def test_invalid_timeouts_are_rejected_before_listing_tests(self) -> None:
+        for timeout in ("0", "-1", "nan", "inf", "-inf"):
+            with self.subTest(timeout=timeout):
+                result = subprocess.run(
+                    [sys.executable, str(RUNNER), "--lane", "linux-guard",
+                     "--list", f"--timeout={timeout}"],
+                    cwd=ROOT, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("--timeout must be a positive finite number", result.stderr)
+                self.assertEqual(result.stdout, "")
+
     def run_lane(self, registry: str, names: list[str], *args: str, peers: int) -> tuple[int, list[str], str]:
         root = Path(tempfile.mkdtemp(prefix="cmux-lane-runner-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
