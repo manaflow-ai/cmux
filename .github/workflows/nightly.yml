@@ -1500,10 +1500,10 @@ jobs:
         run: |
           set -euo pipefail
           # cx-f58x notary test only: compile out the browser password-import readers.
-          notary_test_flags=()
+          notary_test_flags=(build)
           if [[ "$NOTARY_TEST" == true ]]; then
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
-            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT')
+            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT' build)
           fi
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
             archs="arm64"
@@ -1540,7 +1540,7 @@ jobs:
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
-            "${notary_test_flags[@]}" build
+            "${notary_test_flags[@]}"
 
       - name: Prove the password-import readers are compiled out (cx-f58x notary test)
         if: needs.decide.outputs.notary_test == 'true'
