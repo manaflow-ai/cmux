@@ -276,6 +276,44 @@ mod tests {
         assert!(!needs_person(&request));
     }
 
+    /// The daemon does not trust a client for size: an answer has at most
+    /// 64 items, at most 64 strings per list, and at most 4096 bytes in any
+    /// key or string (the Swift relay's limits, AcpmuxPaneMethods+Answers).
+    #[test]
+    fn answers_are_bounded_in_items_and_bytes() {
+        let mut request = claude_request();
+        normalize(&mut request);
+        let fits = "x".repeat(4096);
+        let over = "x".repeat(4097);
+        assert!(check_answers(&request, &json!({"Which auth?": fits})).is_ok());
+        assert!(check_answers(&request, &json!({"Which auth?": over})).is_err());
+
+        let mut codex = json!({"toolCall": {"rawInput": {"questions": [
+            {"id": "name", "question": "Name?", "options": null}]}, "_meta": {"codex": {}}}});
+        normalize(&mut codex);
+        let list = |n: usize| json!({"name": {"answers": vec!["a"; n]}});
+        assert!(check_answers(&codex, &list(64)).is_ok());
+        assert!(check_answers(&codex, &list(65)).is_err());
+        assert!(check_answers(&codex, &json!({"name": {"answers": [over]}})).is_err());
+
+        let questions: Vec<Value> = (0..65)
+            .map(|i| json!({"id": format!("q{i}"), "question": format!("Q{i}?"), "options": null}))
+            .collect();
+        let mut many =
+            json!({"toolCall": {"rawInput": {"questions": questions}, "_meta": {"codex": {}}}});
+        normalize(&mut many);
+        let every: Map<String, Value> =
+            (0..65).map(|i| (format!("q{i}"), json!({"answers": ["a"]}))).collect();
+        assert!(check_answers(&many, &Value::Object(every)).is_err());
+
+        let long_prompt = "P".repeat(4097);
+        let mut long = json!({"toolCall": {"rawInput": {"questions": [
+            {"question": long_prompt, "options": [{"label": "A"}]}]},
+            "_meta": {"claude": {"tool": "AskUserQuestion"}}}});
+        normalize(&mut long);
+        assert!(check_answers(&long, &json!({long_prompt: "A"})).is_err());
+    }
+
     #[test]
     fn answers_for_an_ordinary_tool_are_refused() {
         let mut request = json!({"toolCall": {"kind": "execute", "rawInput": {"command": "ls"}}});
