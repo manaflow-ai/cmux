@@ -1,6 +1,6 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-08 on `feat-cmux-next-ios` implementation baseline `166e9c49fa7073c53a8c688ff9bdd9623153f7c7` (B1 session/epoch hardening,
+Status: parity refresh 2026-10-08 on `feat-cmux-next-ios` implementation baseline `b060e3e9b4` (B1 session/epoch hardening,
 B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
 Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive is available, but no simulator or device run is
 recorded: job `58bffde107091f30ece9f383` produced tag `nxd3-166e-ios-v2` for this exact head and
@@ -94,7 +94,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
-| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration and safe attach are landed for single-pane matching-grid windows; multi-pane/history/parser-state parity and lifecycle mutations remain) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, and bounded split-layout metadata are landed for single-pane matching-grid windows; full renderer composition, multi-pane/history/parser-state parity and lifecycle mutations remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
@@ -126,7 +126,8 @@ device-unverified unless the row says otherwise.)
 
 Open implementation gaps, grouped by owner:
 - C9: tmux control-mode discovery, epoch validation, hydration and live output are landed for
-  single-pane matching-grid windows. Multi-pane geometry, history, complete parser-state restore,
+  single-pane matching-grid windows; discovery now also validates and exposes bounded read-only split
+  layout metadata. Multi-pane renderer composition, history, complete parser-state restore,
   and SSH create/rename/kill remain explicit gaps; E3 still supplies the screen and cmux-tui paths.
 - C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
   landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps

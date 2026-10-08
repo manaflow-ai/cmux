@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `166e9c49fa` reports 85 of 98 parity rows done, with one
+The refreshed D3 matrix at implementation baseline `b060e3e9b4` reports 85 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -94,6 +94,12 @@ The active wave is intentionally independent:
   `bf44f8838d` restores bounded tmux pending control input after hydration with octal decoding and
   split-sequence regressions; `166e9c49fa` surfaces a lost pairing registry path as an actionable
   onboarding offline state.
+- `33c8dc43f7` adds bounded tmux split-layout metadata to SSH discovery, validating checksums, pane
+  geometry, depth and count before exposing read-only layout information. Full renderer composition
+  and SSH lifecycle mutations remain open.
+- `efe7c3c349` through `b060e3e9b4` add a transport-agnostic, bounded analytics uploader with offline
+  fail-closed behavior, body/event splitting, transient retry backoff, cancellation-safe flushes,
+  payload bounds and focused tests. It remains opt-in; `NoopAnalytics` is still the app default.
 
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
