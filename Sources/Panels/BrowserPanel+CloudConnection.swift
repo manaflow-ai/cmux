@@ -77,7 +77,17 @@ extension BrowserPanel {
         guard let ruleJSON = String(data: encodedRules, encoding: .utf8) else {
             throw CloudMachineLink.LinkError.spawnFailed("The SSH browser protection rule could not be encoded.")
         }
-        let identifier = "cmux.ssh-loopback.\(UUID().uuidString)"
+        // The rule store is persistent. A stable per-port identifier lets a
+        // replacement update the same entry instead of accumulating one UUID
+        // for every navigation in the user's WebKit data directory.
+        let identifier = "cmux.ssh-loopback.\(port)"
+        if let oldIdentifier = cloudLoopbackContentRuleListIdentifier,
+           oldIdentifier != identifier {
+            await removeManagedSSHLoopbackRule(from: store, identifier: oldIdentifier)
+        }
+        // Removing the existing stored entry before compiling avoids a stale
+        // rule-list cache when WebKit rejects a duplicate identifier.
+        await removeManagedSSHLoopbackRule(from: store, identifier: identifier)
         let ruleList: WKContentRuleList = try await withCheckedThrowingContinuation { continuation in
             store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: ruleJSON) { rule, error in
                 if let error { continuation.resume(throwing: error) }
@@ -92,6 +102,7 @@ extension BrowserPanel {
         if let oldRule = cloudLoopbackContentRuleList { controller.remove(oldRule) }
         controller.add(ruleList)
         cloudLoopbackContentRuleList = ruleList
+        cloudLoopbackContentRuleListIdentifier = identifier
         if let model = cloudAccess.model {
             let scriptConfigurationKey = "ssh:\(model.target.host.lowercased()):\(model.target.port):\(port)"
             if cloudLoopbackScriptConfigurationKey != scriptConfigurationKey {
@@ -111,11 +122,21 @@ extension BrowserPanel {
         }
     }
 
+    private func removeManagedSSHLoopbackRule(from store: WKContentRuleListStore, identifier: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            store.removeContentRuleList(forIdentifier: identifier) { _ in continuation.resume() }
+        }
+    }
+
     func removeManagedSSHLoopbackProtection(restoreGeneralBridge: Bool = false) {
         cloudLoopbackProtectionGeneration = UUID()
         cloudLoopbackScriptGeneration += 1
         let controller = webView.configuration.userContentController
         if let ruleList = cloudLoopbackContentRuleList { controller.remove(ruleList) }
+        if let identifier = cloudLoopbackContentRuleListIdentifier,
+           let store = WKContentRuleListStore.default() {
+            store.removeContentRuleList(forIdentifier: identifier) { _ in }
+        }
         if cloudLoopbackScriptConfigurationKey?.hasPrefix("ssh:") == true {
             let enabled = restoreGeneralBridge ? "true" : "false"
             let aliasHost = restoreGeneralBridge ? RemoteLoopbackProxyAlias.aliasHost : "127.0.0.1"
@@ -137,6 +158,7 @@ extension BrowserPanel {
             cloudLoopbackScriptConfigurationKey = nil
         }
         cloudLoopbackContentRuleList = nil
+        cloudLoopbackContentRuleListIdentifier = nil
     }
 
     /// Activates an admitted Cloud route independently of the SwiftUI host.

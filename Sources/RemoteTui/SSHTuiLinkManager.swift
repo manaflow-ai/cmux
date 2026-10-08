@@ -16,6 +16,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     var connection: SSHTuiConnection
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
+    private let listenerRegistry: SSHTuiLoopbackListenerLeaseRegistry
     private let isEnabled: @Sendable () -> Bool
     /// Read at each carrier start, so an Integrations toggle applies on the next connect.
     private let agentHookProviders: @Sendable () -> [String]
@@ -27,11 +28,14 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private var loopbackForwards: [LoopbackForwardKey: SSHTuiLoopbackForwardProcess] = [:]
     private var loopbackForwardStarts: [LoopbackForwardKey: Task<UInt16, Error>] = [:]
 
-    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool,
+    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths,
+         listenerRegistry: SSHTuiLoopbackListenerLeaseRegistry = SSHTuiLoopbackListenerLeaseRegistry(),
+         isEnabled: @escaping @Sendable () -> Bool,
          agentHookProviders: @escaping @Sendable () -> [String] = { [] }) {
         self.connection = connection
         self.clientURL = clientURL
         self.paths = paths
+        self.listenerRegistry = listenerRegistry
         self.isEnabled = isEnabled
         self.agentHookProviders = agentHookProviders
     }
@@ -166,7 +170,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             await process.stop()
             loopbackForwards[key] = nil
         }
-        let listener = try await SSHTuiLoopbackListenerLeaseRegistry.shared.lease(machineID: machineID, target: target)
+        let listener = try await listenerRegistry.lease(machineID: machineID, target: target)
         let process = SSHTuiLoopbackForwardProcess()
         loopbackForwards[key] = process
         let arguments = connection.forwardArguments(stateDirectory: paths.stateDir.path, target: target)
@@ -179,7 +183,12 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         defer { if loopbackForwardStarts[key] == task { loopbackForwardStarts[key] = nil } }
         do {
             let port = try await task.value
-            guard port > 0 else { throw CloudMachineLink.LinkError.spawnFailed("The SSH forward returned an invalid browser listener port.") }
+            guard port > 0 else {
+                throw CloudMachineLink.LinkError.spawnFailed(String(
+                    localized: "ssh.tui.browserListener.invalidPort",
+                    defaultValue: "The SSH forward returned an invalid browser listener port."
+                ))
+            }
             guard loopbackForwards[key] === process, isEnabled() else { throw CancellationError() }
             return port
         } catch {
