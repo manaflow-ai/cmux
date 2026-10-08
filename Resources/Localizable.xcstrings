@@ -644106,6 +644106,184 @@
           }
         }
       }
+    },
+
+    "cli.sshTmux.list.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listing tmux sessions on %@… (waits while the login is in progress; Ctrl-C to stop)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Sitzungen auf %@ werden aufgelistet … (wartet während der Anmeldung; Strg-C zum Beenden)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste des sessions tmux sur %@… (attente pendant la connexion ; Ctrl-C pour arrêter)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ سرد جلسات tmux على %@… (ينتظر أثناء تسجيل الدخول؛ اضغط Ctrl-C للإيقاف)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enumerando sesiones tmux en %@… (espera mientras se inicia sesión; Ctrl-C para detener)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在列出 %@ 上的 tmux 工作階段…（登入進行中；按 Ctrl-C 停止）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在列出 %@ 上的 tmux 会话…（登录进行中；按 Ctrl-C 停止）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 tmux 세션을 나열하는 중… (로그인하는 동안 대기합니다. Ctrl-C로 중지)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の tmux セッションを一覧表示しています…（ログイン中は待機します。Ctrl-C で停止）"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tmux sessions found on %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine tmux-Sitzungen auf %@ gefunden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session tmux trouvée sur %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على جلسات tmux على %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron sesiones tmux en %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上找不到 tmux 工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上未找到 tmux 会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 tmux 세션을 찾지 못했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に tmux セッションが見つかりません。"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.list.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NAME  WINDOWS  ATTACHED"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NAME  FENSTER  ANGEHÄNGT"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOM  FENÊTRES  ATTACHÉE"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم  النوافذ  متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOMBRE  VENTANAS  CONECTADA"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱  視窗  已連接"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称  窗口  已连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름  창  연결됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前  ウィンドウ  接続済み"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

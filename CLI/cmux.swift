@@ -12167,118 +12167,21 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        var destination: String?
-        var port: Int?
-        var identityFile: String?
-        var workspaceName: String?
-        var focus: Bool?
-        var newWindow = false
-        var transport: String?
-        var transportPort: Int?
-        var transportHelperPath: String?
-        var broker: String?
-
-        // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
-        // passthrough, --ssh-option, or --window support.
-        var index = 0
-        while index < commandArgs.count {
-            let arg = commandArgs[index]
-            switch arg {
-            case "--port":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh-tmux: --port requires a value")
-                }
-                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
-                    throw CLIError(message: "ssh-tmux: --port must be 1-65535")
-                }
-                port = parsed
-                index += 2
-            case "--identity":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh-tmux: --identity requires a path")
-                }
-                identityFile = commandArgs[index + 1]
-                index += 2
-            case "--name":
-                guard index + 1 < commandArgs.count,
-                      !commandArgs[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: String(localized: "cli.sshTmux.error.nameRequiresTitle", defaultValue: "ssh-tmux: --name requires a workspace title"))
-                }
-                workspaceName = commandArgs[index + 1]
-                index += 2
-            case "--transport":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh-tmux: --transport requires a value (ssh or et)")
-                }
-                let raw = commandArgs[index + 1].lowercased()
-                guard raw == "ssh" || raw == "et" else {
-                    throw CLIError(message: "ssh-tmux: --transport must be ssh or et")
-                }
-                transport = raw
-                index += 2
-            case "--transport-port":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh-tmux: --transport-port requires a value")
-                }
-                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
-                    throw CLIError(message: "ssh-tmux: --transport-port must be 1-65535")
-                }
-                transportPort = parsed
-                index += 2
-            case "--transport-helper-path":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: String(
-                        localized: "cli.sshTmux.error.helperPathRequired",
-                        defaultValue: "ssh-tmux: --transport-helper-path requires an absolute path"
-                    ))
-                }
-                let path = commandArgs[index + 1]
-                guard path.hasPrefix("/") else {
-                    throw CLIError(message: String(
-                        localized: "cli.sshTmux.error.helperPathRequired",
-                        defaultValue: "ssh-tmux: --transport-helper-path requires an absolute path"
-                    ))
-                }
-                transportHelperPath = path
-                index += 2
-            case "--broker":
-                // A NAME, not a command: it selects one of the brokers declared under
-                // remoteTmux.brokers in cmux.json. Taking an executable here would let anything
-                // that can run the CLI pick what cmux launches.
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh-tmux: --broker requires the name of a broker declared under remoteTmux.brokers in cmux.json")
-                }
-                let name = commandArgs[index + 1].trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty, !name.hasPrefix("-") else {
-                    throw CLIError(message: "ssh-tmux: --broker requires a broker name, for example --broker corp")
-                }
-                broker = name
-                index += 2
-            case _ where arg == "--no-focus" || arg == "--focus" || arg.hasPrefix("--focus="):
-                let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh-tmux")
-                focus = flag?.focus
-                index += flag?.consumed ?? 1
-            case "--new-window":
-                newWindow = true
-                index += 1
-            default:
-                if arg.hasPrefix("-") {
-                    throw CLIError(
-                        message: "ssh-tmux: destination must be <user@host> or an ssh alias. Use --port/--identity for SSH flags."
-                    )
-                }
-                if destination == nil {
-                    destination = arg
-                } else {
-                    throw CLIError(message: "ssh-tmux: unexpected extra argument '\(arg)'")
-                }
-                index += 1
-            }
+        let invocation = try RemoteTmuxInvocation.parse(commandArgs)
+        if case .list = invocation.action {
+            try runRemoteTmuxList(invocation: invocation, client: client, jsonOutput: jsonOutput)
+            return
         }
-
-        guard let destination else {
-            throw CLIError(message: "ssh-tmux requires a destination (example: cmux ssh-tmux user@host)")
-        }
+        let destination = invocation.destination
+        let port = invocation.port
+        let identityFile = invocation.identityFile
+        let workspaceName = invocation.workspaceName
+        let focus = invocation.focus
+        let newWindow = invocation.newWindow
+        let transport = invocation.transport
+        let transportPort = invocation.transportPort
+        let transportHelperPath = invocation.transportHelperPath
+        let broker = invocation.broker
 
         var params: [String: Any] = ["host": destination]
         if let port { params["port"] = port }
@@ -12292,6 +12195,9 @@ struct CMUXCLI {
         if let transportHelperPath { params["transport_helper_path"] = transportHelperPath }
         if let broker { params["transport_broker"] = broker }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
+        if case let .attach(session) = invocation.action {
+            params["session"] = session
+        }
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
         }
@@ -12352,6 +12258,87 @@ struct CMUXCLI {
                 continue
             }
             throw CLIError(message: "ssh-tmux: unexpected response from cmux")
+        }
+    }
+
+    /// Lists remote tmux sessions without creating a mirror workspace.
+    private func runRemoteTmuxList(
+        invocation: RemoteTmuxInvocation,
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        var params: [String: Any] = ["host": invocation.destination]
+        if let port = invocation.port { params["port"] = port }
+        if let identityFile = invocation.identityFile, !identityFile.isEmpty {
+            params["identity_file"] = identityFile
+        }
+        if let transport = invocation.transport { params["transport"] = transport }
+        if let transportPort = invocation.transportPort { params["transport_port"] = transportPort }
+        if let helperPath = invocation.transportHelperPath { params["transport_helper_path"] = helperPath }
+        if let broker = invocation.broker { params["transport_broker"] = broker }
+
+        if !jsonOutput {
+            print(localizedFormat(
+                "cli.sshTmux.list.connecting",
+                defaultValue: "Listing tmux sessions on %@… (waits while the login is in progress; Ctrl-C to stop)",
+                invocation.destination
+            ))
+        }
+
+        var didAuthenticate = false
+        while true {
+            let result = try client.sendV2(
+                method: "remote.tmux.sessions",
+                params: params,
+                waitUntilCompletion: true
+            )
+            if (result["auth_required"] as? Bool) == true {
+                guard !didAuthenticate else {
+                    throw CLIError(message: String(
+                        localized: "cli.ssh.authenticationFailed",
+                        defaultValue: "SSH authentication did not open the connection. Check your SSH credentials and retry."
+                    ))
+                }
+                guard let sshArgv = result["ssh_argv"] as? [String], !sshArgv.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.ssh.authenticationSystemExecutableRequired",
+                        defaultValue: "SSH authentication requires the system SSH executable."
+                    ))
+                }
+                try runInteractiveAuthSSH(
+                    sshArgv: sshArgv,
+                    destination: invocation.destination,
+                    marksRemoteTmuxAuthentication: true
+                )
+                didAuthenticate = true
+                continue
+            }
+
+            if jsonOutput {
+                print(jsonString(result))
+                return
+            }
+            let sessions = (result["sessions"] as? [Any]) ?? []
+            if sessions.isEmpty {
+                print(localizedFormat(
+                    "cli.sshTmux.list.empty",
+                    defaultValue: "No tmux sessions found on %@.",
+                    invocation.destination
+                ))
+                return
+            }
+            print(localizedFormat(
+                "cli.sshTmux.list.header",
+                defaultValue: "NAME  WINDOWS  ATTACHED"
+            ))
+            for item in sessions {
+                guard let session = item as? [String: Any],
+                      let name = session["name"] as? String else { continue }
+                let windows = session["windows"] as? Int ?? 0
+                let attached = (session["attached"] as? Bool) == true ? "yes" : "no"
+                print("\(name)\t\(windows)\t\(attached)")
+            }
+            return
         }
     }
 

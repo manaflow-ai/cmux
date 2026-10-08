@@ -24,7 +24,8 @@ extension RemoteTmuxController {
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
         activate: Bool,
-        workspaceName: String? = nil
+        workspaceName: String? = nil,
+        sessionName: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         // Multiplexer mode: mirror the host's sessions over ONE shared `-CC` view
         // stream. Hosts limited to a single concurrent connection can't run the
@@ -33,7 +34,7 @@ extension RemoteTmuxController {
         if Self.isMultiplexerEnabled {
             return try await attachHostMultiplexed(
                 host: host, windowTarget: windowTarget, activate: activate,
-                workspaceName: workspaceName)
+                workspaceName: workspaceName, sessionName: sessionName)
         }
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -61,7 +62,16 @@ extension RemoteTmuxController {
 
         let sessions: [RemoteTmuxSession]
         do {
-            sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: true)
+            if let sessionName {
+                let discovered = try await transport(for: host).listSessions()
+                guard discovered.contains(where: { $0.name == sessionName }) else {
+                    throw RemoteTmuxError.unreachable(
+                        "tmux session '\(sessionName)' was not found on \(host.destination)")
+                }
+                sessions = discovered.filter { $0.name == sessionName }
+            } else {
+                sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: true)
+            }
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
                RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
@@ -118,8 +128,19 @@ extension RemoteTmuxController {
             bootstrapWorkspaceId = nil
         }
 
-        let mirroredWorkspaceIds = mirrorDiscoveredSessions(
+        let discoveredWorkspaceIds = mirrorDiscoveredSessions(
             host: host, sessions: sessions, into: targetManager, workspaceName: workspaceName)
+        let mirroredWorkspaceIds: [UUID]
+        if let sessionName {
+            let selectedKey = Self.connectionKey(host: host, sessionName: sessionName)
+            mirroredWorkspaceIds = sessionMirrors[selectedKey].flatMap { mirror in
+                guard let workspaceId = mirror.mirroredWorkspaceId,
+                      targetManager.tabs.contains(where: { $0.id == workspaceId }) else { return nil }
+                return [workspaceId]
+            } ?? []
+        } else {
+            mirroredWorkspaceIds = discoveredWorkspaceIds
+        }
         // Reaching control mode is not the same as having something to mirror: a stream can send
         // the DCS intro, the attach block, and then `%exit` without ever publishing a window.
         // Measured on a real host, and cmux reported that RPC as success, leaving an empty
