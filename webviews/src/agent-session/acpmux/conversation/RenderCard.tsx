@@ -2,8 +2,9 @@
 // (`cmux-agent://render/frame`, AgentPaneRenderFrame.swift). The frame is an origin of its own,
 // sandboxed without same-origin, so the HTML cannot reach the pane, its bridge or acpmux; its
 // policy allows no connection. The frame asks for the HTML once it loads and reports its height;
-// the card grows to it, up to a cap a reader can lift. The pane on a dev server has no render
-// frame, so there the call stays a plain tool row.
+// the card grows to it, up to a cap a reader can lift. Nothing runs until the reader presses Run:
+// the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
+// pane on a dev server has no render frame, so there the call stays a plain tool row.
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
@@ -13,6 +14,10 @@ export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 const COLLAPSED_MAX_HEIGHT = 560;
 /// The tallest an expanded card draws; a taller page scrolls inside it.
 const EXPANDED_MAX_HEIGHT = 4000;
+
+/// The HTML the reader has run while this pane lives: a card scrolled away and back keeps
+/// running, and a reloaded pane (after a hang or a crash) starts with every card waiting again.
+export const ranRenders = new Set<string>();
 
 /// Whether this page can frame renders: only the bundled pane has the render origin.
 export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
@@ -40,6 +45,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
   const [expanded, setExpanded] = useState(false);
+  const [running, setRunning] = useState(() => ranRenders.has(call.html));
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
@@ -59,6 +65,10 @@ export function RenderCard({ call }: { call: RenderCall }) {
     addEventListener("message", onMessage);
     return () => removeEventListener("message", onMessage);
   }, [call.html]);
+  const run = () => {
+    ranRenders.add(call.html);
+    setRunning(true);
+  };
   const title = call.title ?? t("render.untitled");
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
@@ -67,7 +77,12 @@ export function RenderCard({ call }: { call: RenderCall }) {
         <span className="acpmux-render-card-title" title={title}>
           {title}
         </span>
-        {tall && (
+        {!running && (
+          <button type="button" className="acpmux-review-changes" onClick={run}>
+            {t("render.run")}
+          </button>
+        )}
+        {running && tall && (
           <button
             type="button"
             className="acpmux-review-changes"
@@ -78,15 +93,17 @@ export function RenderCard({ call }: { call: RenderCall }) {
           </button>
         )}
       </div>
-      <iframe
-        ref={frame}
-        className="acpmux-render-card-frame"
-        src={RENDER_FRAME_URL}
-        title={title}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        style={{ height: expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }}
-      />
+      {running && (
+        <iframe
+          ref={frame}
+          className="acpmux-render-card-frame"
+          src={RENDER_FRAME_URL}
+          title={title}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          style={{ height: expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }}
+        />
+      )}
     </div>
   );
 }
