@@ -19,9 +19,9 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
 
     init() throws {
         let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw Self.socketError("create") }
+        guard fd >= 0 else { throw Self.socketError() }
         guard Self.setCloseOnExec(fd) else {
-            let error = Self.socketError("protect descriptor from child processes")
+            let error = Self.socketError()
             Darwin.close(fd)
             throw error
         }
@@ -36,13 +36,13 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
             }
         }
         guard bindResult == 0, Darwin.listen(fd, SOMAXCONN) == 0 else {
-            let error = Self.socketError("bind/listen")
+            let error = Self.socketError()
             Darwin.close(fd)
             throw error
         }
         let flags = fcntl(fd, F_GETFL)
         guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
-            let error = Self.socketError("set nonblocking")
+            let error = Self.socketError()
             Darwin.close(fd)
             throw error
         }
@@ -54,7 +54,7 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
             }
         }
         guard nameResult == 0, bound.sin_port != 0 else {
-            let error = Self.socketError("read bound port")
+            let error = Self.socketError()
             Darwin.close(fd)
             throw error
         }
@@ -66,9 +66,9 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
     /// this descriptor open in the parent reserves the exact same socket.
     func makeChildInput() throws -> FileHandle {
         let childDescriptor = fcntl(descriptor, F_DUPFD_CLOEXEC, 0)
-        guard childDescriptor >= 0 else { throw Self.socketError("duplicate") }
+        guard childDescriptor >= 0 else { throw Self.socketError() }
         guard Self.setCloseOnExec(childDescriptor) else {
-            let error = Self.socketError("protect child descriptor from other processes")
+            let error = Self.socketError()
             Darwin.close(childDescriptor)
             throw error
         }
@@ -137,11 +137,11 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
         }
     }
 
-    private static func socketError(_ operation: String) -> NSError {
-        let format = String(localized: "ssh.tui.browserListener.operationFailed",
-                            defaultValue: "Could not %@ the managed SSH browser listener.")
-        let message = String(format: format, operation)
-        return NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: message])
+    private static func socketError() -> NSError {
+        let code = errno
+        let message = String(localized: "ssh.tui.browserListener.operationFailed",
+                             defaultValue: "Could not create or configure the managed SSH browser listener.")
+        return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     deinit {

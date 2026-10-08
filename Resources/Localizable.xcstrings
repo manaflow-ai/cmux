@@ -549786,55 +549786,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not %@ the managed SSH browser listener."
+            "value": "Could not create or configure the managed SSH browser listener."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر %@ مستمع متصفح SSH المُدار."
+            "value": "تعذّر إنشاء مستمع متصفح SSH المُدار أو تهيئته."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der verwaltete SSH-Browser-Listener konnte nicht %@ werden."
+            "value": "Der verwaltete SSH-Browser-Listener konnte nicht erstellt oder konfiguriert werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo %@ el agente de navegador SSH administrado."
+            "value": "No se pudo crear ni configurar el agente de navegador SSH administrado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de %@ l’écouteur de navigateur SSH géré."
+            "value": "Impossible de créer ou de configurer l’écouteur de navigateur SSH géré."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "管理対象の SSH ブラウザーリスナーを %@ できませんでした。"
+            "value": "管理対象の SSH ブラウザーリスナーを作成または構成できませんでした。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "관리되는 SSH 브라우저 리스너를 %@할 수 없습니다."
+            "value": "관리되는 SSH 브라우저 리스너를 만들거나 구성할 수 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法 %@ 管理的 SSH 浏览器监听器。"
+            "value": "无法创建或配置受管理的 SSH 浏览器监听器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法 %@ 管理的 SSH 瀏覽器監聽器。"
+            "value": "無法建立或設定受管理的 SSH 瀏覽器監聽器。"
           }
         }
       }
@@ -644459,6 +644459,48 @@
             "value": "cmux 無法安全地開啟此 SSH 迴圈預覽。請重新載入再試一次。"
           }
         }
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.prepareFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The SSH browser protection rule could not be prepared."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر إعداد قاعدة حماية متصفح SSH."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die SSH-Browserschutzregel konnte nicht vorbereitet werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo preparar la regla de protección del navegador SSH."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La règle de protection du navigateur SSH n’a pas pu être préparée."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ブラウザー保護ルールを準備できませんでした。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 브라우저 보호 규칙을 준비할 수 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法准备 SSH 浏览器保护规则。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法準備 SSH 瀏覽器保護規則。"}}
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.encodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The SSH browser protection rule could not be encoded."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر ترميز قاعدة حماية متصفح SSH."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die SSH-Browserschutzregel konnte nicht codiert werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo codificar la regla de protección del navegador SSH."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La règle de protection du navigateur SSH n’a pas pu être encodée."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ブラウザー保護ルールをエンコードできませんでした。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 브라우저 보호 규칙을 인코딩할 수 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法编码 SSH 浏览器保护规则。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法編碼 SSH 瀏覽器保護規則。"}}
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.compileFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The SSH browser protection rule could not be compiled."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تجميع قاعدة حماية متصفح SSH."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die SSH-Browserschutzregel konnte nicht kompiliert werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo compilar la regla de protección del navegador SSH."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La règle de protection du navigateur SSH n’a pas pu être compilée."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ブラウザー保護ルールをコンパイルできませんでした。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 브라우저 보호 규칙을 컴파일할 수 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法编译 SSH 浏览器保护规则。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法編譯 SSH 瀏覽器保護規則。"}}
       }
     },
     "cloud.portAccess.sshLoopbackHTTPSUnavailable": {
