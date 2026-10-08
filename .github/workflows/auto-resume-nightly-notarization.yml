@@ -324,15 +324,22 @@ jobs:
           body = release.get("body") or ""
           sha = re.search(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", body, re.I)
           published_build = re.search(r"<!--\s*cmux-published-build:\s*([0-9]+)\s*-->", body, re.I)
-          if published_build and int(published_build.group(1)) >= int(build):
+          if sha and sha.group(1).lower() == source_sha.lower():
               print("already_published=true")
-          elif sha and sha.group(1).lower() == source_sha.lower():
+              print("published_same_source=true")
+          elif published_build and int(published_build.group(1)) >= int(build):
               print("already_published=true")
+              print("published_same_source=false")
           elif sha:
               print(f"published_sha={sha.group(1)}")
           PY
           if grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
             echo 'ALREADY_PUBLISHED=true' >> "$GITHUB_ENV"
+            if grep -Fxq 'published_same_source=true' "$RUNNER_TEMP/publication-guard"; then
+              echo 'ALREADY_PUBLISHED_SAME_SOURCE=true' >> "$GITHUB_ENV"
+            else
+              echo 'ALREADY_PUBLISHED_SAME_SOURCE=false' >> "$GITHUB_ENV"
+            fi
           else
             published_sha="$(sed -n 's/^published_sha=//p' "$RUNNER_TEMP/publication-guard")"
             if [ -n "$published_sha" ]; then
@@ -470,7 +477,7 @@ jobs:
           fi
 
       - name: Close deferred nightly failure incident
-        if: env.ALREADY_PUBLISHED != 'true'
+        if: env.ALREADY_PUBLISHED != 'true' || env.ALREADY_PUBLISHED_SAME_SOURCE == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           CHANNEL: ${{ needs.preflight.outputs.channel }}
