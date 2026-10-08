@@ -168,7 +168,11 @@ export function Stage({
       return;
     }
     setPending((current) =>
-      current?.query === requested.query && current.run === requested.run && current.frame.width === frameWidth && current.frame.height === frameHeight && current.scale === scale
+      current?.query === requested.query &&
+      current.run === requested.run &&
+      current.frame.width === frameWidth &&
+      current.frame.height === frameHeight &&
+      current.scale === scale
         ? current
         : requested,
     );
