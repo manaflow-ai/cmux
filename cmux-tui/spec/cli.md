@@ -600,7 +600,10 @@ uses the `workspace_group.*` resource operations, and `add`/`remove` use
 workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
-(`personal-mixed-order-v1`). `workspace list --order personal` lists the
+(`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
+sets the group's icon (one emoji or an SF Symbol name) and `--clear-icon`
+removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
+or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
 workspaces in the sidebar order. `workspace list` without `--order` (or with
 `--order session`) lists the session's workspace order, the same order as
 `topology.workspaces`: creation order unless a workspace was moved, not the

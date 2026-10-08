@@ -257,6 +257,13 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
     }
 }
 
+/// The subagent directory's AGENTS.md for a codex subagent beside a Claude
+/// default (a spawn follows the turn's engine): Claude Code never reads it.
+pub fn write_subagent_agents_md(paths: &Paths, text: &str) -> io::Result<()> {
+    std::fs::create_dir_all(&paths.subagent)?;
+    write_if_changed(&paths.subagent.join("AGENTS.md"), text.as_bytes())
+}
+
 /// Set in a subagent's tools' env: the `chief` launcher refuses spawn and
 /// tell there (section 9: subagents get zoom and date, not spawn).
 pub const SUBAGENT_ENV: &str = "OPTCHAT_SUBAGENT";

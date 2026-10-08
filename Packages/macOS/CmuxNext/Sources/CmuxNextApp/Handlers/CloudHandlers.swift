@@ -28,7 +28,7 @@ enum CloudHandlers {
     static func bind(_ id: ActionID, _ registry: ActionRegistry, reason: @escaping @MainActor () -> String?,
                      _ body: @escaping @MainActor (ActionInvocation) throws -> Void) {
         let bound = registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
-            do { try body(invocation) } catch { registry?.refuse(String(describing: error)) }
+            do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
         })
         assert(bound, "\(id) is not in the action catalog")
     }

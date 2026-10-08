@@ -72,6 +72,9 @@ class GeneratedClientMixin:
     def browser_wheel_guarded(self, surface: Id, delta_y_px: float, frame_seq: int, x_px: float, y_px: float) -> EmptyResult:
         return self._invoke_command('browser-wheel-guarded', BrowserWheelGuardedRequest(surface=surface, delta_y_px=delta_y_px, frame_seq=frame_seq, x_px=x_px, y_px=y_px))
 
+    def chief_inspect(self, path: str, *, query: Union[Dict[str, str], MissingType] = MISSING) -> ChiefInspectResult:
+        return self._invoke_command('chief-inspect', ChiefInspectRequest(path=path, query=query))
+
     def clear_history(self, surface: Id, *, fallback_key: Union[TerminalKeyInput, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('clear-history', ClearHistoryRequest(surface=surface, fallback_key=fallback_key))
 
@@ -738,6 +741,7 @@ GeneratedClientMixin.browser_navigate.__cmux_command__ = COMMANDS['browser-navig
 GeneratedClientMixin.browser_reload.__cmux_command__ = COMMANDS['browser-reload']
 GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
 GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-wheel-guarded']
+GeneratedClientMixin.chief_inspect.__cmux_command__ = COMMANDS['chief-inspect']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
 GeneratedClientMixin.client_focus.__cmux_command__ = COMMANDS['client-focus']

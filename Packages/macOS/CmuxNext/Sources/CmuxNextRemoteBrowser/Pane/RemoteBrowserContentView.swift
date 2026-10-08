@@ -58,6 +58,25 @@ public final class RemoteBrowserContentView: NSView {
         video.autoresizingMask = [.width, .height]
         video.frame = bounds
         addSubview(video)
+        installHover()
+    }
+
+    /// Hover: mouse moves, enter and exit while the pointer is over the
+    /// page (CSS `:hover`, tooltips, cursors), with no button down. Covers
+    /// the visible rect, so it follows every resize by itself.
+    private var hover: NSTrackingArea?
+
+    private func installHover() {
+        if let hover, trackingAreas.contains(hover) { return }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        hover = area
+        addTrackingArea(area)
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        installHover()
     }
 
     @available(*, unavailable)
@@ -81,6 +100,12 @@ public final class RemoteBrowserContentView: NSView {
     public override func mouseUp(with event: NSEvent) { eventTarget?.handlePointer(event) }
     public override func mouseDragged(with event: NSEvent) { eventTarget?.handlePointer(event) }
     public override func mouseMoved(with event: NSEvent) { eventTarget?.handlePointer(event) }
+    public override func mouseEntered(with event: NSEvent) { eventTarget?.handlePointer(event) }
+    public override func mouseExited(with event: NSEvent) { eventTarget?.handlePointer(event) }
+    public override func rightMouseDragged(with event: NSEvent) { eventTarget?.handlePointer(event) }
+    public override func otherMouseDragged(with event: NSEvent) { eventTarget?.handlePointer(event) }
+    /// Wheel and trackpad scrolls go to the page (`wheel`), phases and momentum included.
+    public override func scrollWheel(with event: NSEvent) { eventTarget?.handlePointer(event) }
     public override func rightMouseDown(with event: NSEvent) { eventTarget?.handlePointer(event) }
     public override func rightMouseUp(with event: NSEvent) { eventTarget?.handlePointer(event) }
     public override func otherMouseDown(with event: NSEvent) { eventTarget?.handlePointer(event) }

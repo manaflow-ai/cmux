@@ -48,6 +48,7 @@ export default iconPickerPageEntry({
     "icon-picker/IconPicker.tsx",
     "icon-picker/AssetTab.tsx",
     "icon-picker/VirtualGrid.tsx",
+    "icon-picker/JumpBar.tsx",
   ],
   variants: {
     "long-content": {

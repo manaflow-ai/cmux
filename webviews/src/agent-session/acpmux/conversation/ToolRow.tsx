@@ -5,6 +5,7 @@ import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
+import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
@@ -90,13 +91,16 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
 }
 
 /// The images a call returned or wrote, shown under its row whether or not it is open: a returned
-/// image draws at once, a file loads through the host (ReplyImage), and a click opens the viewer.
+/// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),
+/// and a click opens the viewer.
 function ToolImages({ sources }: { sources: string[] }) {
   return (
     <div className="cv-tool-images">
       {sources.map((source) =>
         source.startsWith("data:") ? (
           <OpenableImage key={source} src={source} alt="" />
+        ) : mediaKind(source) ? (
+          <ReplyMedia key={source} path={source} alt="" />
         ) : (
           <ReplyImage
             key={source}

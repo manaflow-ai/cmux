@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
+#include "command_line_switches.h"
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
 
@@ -33,7 +34,12 @@ class App : public CefApp, public CefBrowserProcessHandler {
       if (eq == std::string::npos) {
         command_line->AppendSwitch(entry);
       } else {
-        command_line->AppendSwitchWithValue(entry.substr(0, eq), entry.substr(eq + 1));
+        const std::string name = entry.substr(0, eq);
+        std::string value = entry.substr(eq + 1);
+        if (IsFeatureListSwitch(name) && command_line->HasSwitch(name)) {
+          value = MergeFeatureList(command_line->GetSwitchValue(name).ToString(), value);
+        }
+        command_line->AppendSwitchWithValue(name, value);
       }
     }
   }
@@ -132,6 +138,11 @@ class Client : public CefClient,
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
+    // A sign-in tab's callback never loads: the session ends with its URL.
+    if (NavigationIsAuthCallback(id, url)) {
+      Emit(CMUX_SHIM_AUTH_CALLBACK, id, 0, is_redirect ? 1 : 0, 0, url);
+      return true;
+    }
     // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
     if (NavigationRefusedForAgent(id, url)) return true;
     if (!NavigationViolatesGuard(id, url)) return false;
