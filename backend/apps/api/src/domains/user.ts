@@ -41,6 +41,11 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly last_email_change?: { readonly email: string; readonly at: number }
   /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
   readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
+  /**
+   * Teams this user was removed from (team -> removal time; cx-44j.51): the server never stamps their
+   * SSO on a later install (a VM bound after the removal) until the person signs in through it again.
+   */
+  readonly sso_left?: Readonly<Record<string, number>>
 }
 
 /** At most this many previous addresses are kept (the earliest win: the owner's address is never evicted). */
@@ -117,6 +122,13 @@ export { chiefActive }
  * Revokes an install in one commit: the install, its grant and its push targets (so no push
  * reaches a revoked device). Shared by install.revoke, install.sign_out and install.revoke_by_team.
  */
+/** A new SSO sign-in through `team` ends its sso_left entry (cx-44j.51). */
+const withoutSsoLeft = (state: UserState, team: string): UserState => {
+  if (state.sso_left?.[team] === undefined) return state
+  const { [team]: _gone, ...rest } = state.sso_left
+  return { ...state, sso_left: rest }
+}
+
 const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number): ReduceResult<UserState> => {
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }
@@ -276,7 +288,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           name: v.name,
           device_name: v.device_name,
           platform: v.platform,
-          ...((p.kind === "session" || (op === "install.register_server" && p.kind === "system")) && p.sso_team ? { sso_team: p.sso_team } : {}),
+          // A session's SSO is fresh (withAnySsoSession); a server-made install carries a stored one, never a team the user left.
+          ...(p.sso_team && (p.kind === "session" || (op === "install.register_server" && p.kind === "system" && state.sso_left?.[p.sso_team] === undefined)) ? { sso_team: p.sso_team } : {}),
           public_jwk: v.public_jwk,
           thumbprint,
           grant,
@@ -288,7 +301,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         }
         return {
           ok: true,
-          state: { ...state, installs: { ...state.installs, [install]: i }, grants: { ...state.grants, [grant]: g } },
+          state: { ...(p.kind === "session" && p.sso_team ? withoutSsoLeft(state, p.sso_team) : state), installs: { ...state.installs, [install]: i }, grants: { ...state.grants, [grant]: g } },
           value: i,
           outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: state.user.id } }]
         }
@@ -355,8 +368,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
             ssoDropped.push(cur.id)
           }
         }
-        if (revoked.length === 0 && ssoDropped.length === 0) return { ok: true, state, value: { revoked, sso_dropped: ssoDropped }, changed: false }
-        return { ok: true, state: next, value: { revoked, sso_dropped: ssoDropped }, outbox }
+        const recorded = (state.sso_left?.[team] ?? -1) >= before
+        if (revoked.length === 0 && ssoDropped.length === 0 && recorded) return { ok: true, state, value: { revoked, sso_dropped: ssoDropped }, changed: false }
+        return { ok: true, state: recorded ? next : { ...next, sso_left: { ...(next.sso_left ?? {}), [team]: before } }, value: { revoked, sso_dropped: ssoDropped }, outbox }
       }
       case "user.team_index": {
         // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.
@@ -379,10 +393,14 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       case "install.ssh_revoke_done": {
         // UserDO's own alarm, after every team in the notice confirmed the KRL entries.
         if (p.kind !== "system" || p.identity !== "system:user") return reject("auth.forbidden", "internal op of this UserDO")
-        const install = (params as { install: string }).install
-        if (!state.ssh_revoke_pending?.[install]) return { ok: true, state, value: { install }, changed: false }
-        const { [install]: _done, ...rest } = state.ssh_revoke_pending
-        return { ok: true, state: { ...state, ssh_revoke_pending: rest }, value: { install } }
+        const { install, teams } = params as { install: string; teams?: ReadonlyArray<string> }
+        const cur = state.ssh_revoke_pending?.[install]
+        if (!cur) return { ok: true, state, value: { install }, changed: false }
+        // The teams that confirmed leave the notice (cx-44j.51); without a list (older callers) every team did.
+        const left = teams ? cur.teams.filter((t) => !teams.includes(t)) : []
+        if (left.length === cur.teams.length) return { ok: true, state, value: { install, left }, changed: false }
+        const { [install]: _done, ...rest } = state.ssh_revoke_pending!
+        return { ok: true, state: { ...state, ssh_revoke_pending: left.length === 0 ? rest : { ...rest, [install]: { ...cur, teams: left } } }, value: { install, left } }
       }
       case "install.revoke": {
         const d = decodeParams<typeof InstallRevoke.params.Type>(InstallRevoke, params)

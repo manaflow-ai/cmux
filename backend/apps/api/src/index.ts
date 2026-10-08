@@ -37,6 +37,12 @@ export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 
+/** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
+const gateUnreachable = (e: unknown) => {
+  console.error(JSON.stringify({ msg: "sso gate unreachable", error: String(e) }))
+  return Response.json({ error: { code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", retryable: true } }, { status: 503 })
+}
+
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocols
  * `cmux.wire.v1, bearer.<token>` (browsers cannot set headers; the token stays
@@ -51,8 +57,12 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
   if (authenticated.install_kind === "vm") return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
   // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
-  const rules = await signInRules(env, authenticated.team, authenticated.user)
-  const gate = await ssoGate(env, authenticated)
+  let rules: Awaited<ReturnType<typeof signInRules>>, gate: Awaited<ReturnType<typeof ssoGate>>
+  try {
+    ;[rules, gate] = [await signInRules(env, authenticated.team, authenticated.user), await ssoGate(env, authenticated)]
+  } catch (e) {
+    return gateUnreachable(e)
+  }
   // The Stack session id and the install's email domain serve only this gate; owners never receive them.
   const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
   const refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
@@ -88,7 +98,8 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
   if (authenticated.install_kind === "vm") return Response.json({ ok: false, error: { code: "auth.forbidden", message: "a VM install has no presence key" } }, { status: 403 })
-  const gate = await ssoGate(env, authenticated)
+  const gate = await ssoGate(env, authenticated).catch(() => null)
+  if (!gate) return gateUnreachable("ssoGate")
   if (gate.refusal) return Response.json({ ok: false, error: gate.refusal }, { status: 403 })
   const { stack_session: _session, email_domain: _domain, ...principal } = gate.principal
   const user = authenticated.user

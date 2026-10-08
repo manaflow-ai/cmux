@@ -202,7 +202,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   private async deliverKrlNotices(now: number): Promise<void> {
-    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at) => this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${at}`))
+    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at, teams) => this.submitSystem("install.ssh_revoke_done", { install, teams }, `ssh-revoke-done:${install}:${at}:${[...teams].sort().join(",")}`))
   }
 
   protected override onPrune(): void {

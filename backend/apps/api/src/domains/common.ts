@@ -389,10 +389,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-own",
       target: "install",
       principals: ["system"],
-      params: Schema.Struct({ install: InstallId }),
+      params: Schema.Struct({ install: InstallId, teams: Schema.optionalKey(Schema.Array(Schema.String)) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: every team confirmed the KRL entries for a revoked install's SSH certificates.",
+      docs: "Internal: these teams (default: every team) confirmed the KRL entries for a revoked install's SSH certificates.",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

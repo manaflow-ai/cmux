@@ -12,28 +12,28 @@ export const krlDueAt = (state: UserState | undefined, retry: KrlRetry, now: num
   Object.keys(state?.ssh_revoke_pending ?? {}).length > 0 ? Math.max(now, retry.at ?? 0) : null
 
 /**
- * Delivers pending KRL notices for revoked installs to each team's TeamDO and clears each one
- * when every team confirmed (S4) through `done` (the system op `install.ssh_revoke_done`).
- * TeamDO's side is idempotent, so a retry after a crash is safe. Every install and team is tried
- * on each pass: one failing team never holds back the others.
+ * Delivers pending KRL notices for revoked installs to each team's TeamDO, in parallel, and records
+ * every team that confirmed (S4; cx-44j.51) through `done` (the system op `install.ssh_revoke_done`
+ * with those teams): the notice ends when no team is left, and a retry asks only the teams still
+ * missing. TeamDO's side is idempotent, so a retry after a crash is safe; one failing team never
+ * holds back the others.
  */
-export const deliverKrlNotices = async (env: Env, state: UserState | undefined, retry: KrlRetry, now: number, done: (install: string, at: number) => void): Promise<void> => {
+export const deliverKrlNotices = async (env: Env, state: UserState | undefined, retry: KrlRetry, now: number, done: (install: string, at: number, teams: ReadonlyArray<string>) => void): Promise<void> => {
   const pending = Object.entries(state?.ssh_revoke_pending ?? {})
   if (pending.length === 0 || (retry.at !== null && now < retry.at)) return
   let failed = false
   for (const [install, n] of pending) {
-    let all = true
-    for (const team of n.teams) {
-      try {
+    const results = await Promise.allSettled(
+      n.teams.map(async (team) => {
         const r = (await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).revokeInstallCerts(team, n.user, install)) as { ok: boolean }
         if (!r.ok) throw new Error("refused")
-      } catch (e) {
-        all = false
-        console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, team, attempt: retry.attempts + 1, error: String(e) }))
-      }
-    }
-    if (all) done(install, n.at)
-    else failed = true
+        return team
+      })
+    )
+    const confirmed = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []))
+    results.forEach((r, i) => r.status === "rejected" && console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, team: n.teams[i], attempt: retry.attempts + 1, error: String(r.reason) })))
+    if (confirmed.length > 0) done(install, n.at, confirmed)
+    if (confirmed.length < n.teams.length) failed = true
   }
   if (failed) {
     retry.attempts += 1
