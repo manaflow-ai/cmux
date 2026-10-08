@@ -28,6 +28,22 @@ final class DevLinkBenchViewController: UIViewController {
     private let quickSwitch = UISwitch()
     private let runButton = UIButton(type: .system)
     private var runTask: Task<Void, Never>?
+    /// The completed report as UTF-8 JSON, for DEV capture or tests.
+    private(set) var reportData: Data?
+    /// Called after a report is encoded. The default factory writes a cache
+    /// artifact; callers can replace it with a test or upload sink.
+    var onReport: ((Data) -> Void)?
+
+    static func make() -> DevLinkBenchViewController {
+        let controller = DevLinkBenchViewController()
+        controller.onReport = { data in
+            let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("cmux-gallery", isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? data.write(to: directory.appendingPathComponent("link-bench.json"), options: .atomic)
+        }
+        return controller
+    }
 
     init(identity: DirectIdentity = DirectIdentity(), descriptorData: Data? = nil, runner: Runner? = nil) {
         self.identity = identity
@@ -142,6 +158,8 @@ final class DevLinkBenchViewController: UIViewController {
                 let data = try encoder.encode(report)
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
+                self.reportData = data
+                self.onReport?(data)
                 self.resultView.text = String(decoding: data, as: UTF8.self)
                 self.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
                 self.runTask = nil
