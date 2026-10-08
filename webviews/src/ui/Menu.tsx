@@ -170,6 +170,7 @@ export function MenuButton({
 
 export interface MenuPopupProps {
   id?: string;
+  label?: string;
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
@@ -178,12 +179,17 @@ export interface MenuPopupProps {
   children: ReactNode;
 }
 
-export function MenuPopup({ id, className, side = "bottom", align = "start", finalFocus, children }: MenuPopupProps) {
+export function MenuPopup({ id, label, className, side = "bottom", align = "start", finalFocus, children }: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
-        <BaseMenu.Popup id={id} className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
+        <BaseMenu.Popup
+          id={id}
+          aria-label={label}
+          className={cx("ui-popup ui-menu", className)}
+          finalFocus={finalFocus}
+        >
           {children}
         </BaseMenu.Popup>
       </BaseMenu.Positioner>

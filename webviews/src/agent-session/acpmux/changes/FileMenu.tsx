@@ -38,7 +38,11 @@ export function FileMenu({
         >
           <More />
         </MenuButton>
-        <MenuPopup className="acpmux-file-menu-list" align="start">
+        <MenuPopup
+          className="acpmux-file-menu-list"
+          label={t("changes.actionsFor", { name })}
+          align="start"
+        >
           {items.map((item) => (
             <MenuItem
               key={item.label}

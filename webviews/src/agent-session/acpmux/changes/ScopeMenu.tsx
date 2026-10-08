@@ -40,7 +40,12 @@ export function ScopeMenu({
           <ChevronDown className="acpmux-scope-chevron" />
           {children}
         </MenuButton>
-        <MenuPopup id={menuId} className="acpmux-file-menu-list acpmux-scope-list" align="start">
+        <MenuPopup
+          id={menuId}
+          label={t("changes.scopeMenu")}
+          className="acpmux-file-menu-list acpmux-scope-list"
+          align="start"
+        >
           <MenuRadioGroup
             value={scope}
             onValueChange={(value) => {
