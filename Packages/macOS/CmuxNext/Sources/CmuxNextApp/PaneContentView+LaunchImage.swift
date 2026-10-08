@@ -28,5 +28,9 @@ extension PaneContentView {
         if launchImageView != nil { DebugTimings.markLaunch("agent_pane.launch_image_cleared") }
         launchImageView?.removeFromSuperview()
         launchImageView = nil
+        // A page that has not painted when the image goes (its limit) shows its loading state.
+        let cleared = onLaunchImageCleared
+        onLaunchImageCleared = nil
+        cleared?()
     }
 }
