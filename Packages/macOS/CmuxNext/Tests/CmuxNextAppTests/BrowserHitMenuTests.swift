@@ -80,7 +80,8 @@ import Testing
         #expect(Self.rows(fromChromium) == Self.rows(fromWebKit))
         #expect(Self.ids(fromChromium) == [
             "browser.link.openInNewTab", "browser.link.openInNewWindow", "browser.link.openInNewSpace",
-            "browser.link.openInNewWorkspace", "browser.link.openInSplit", "browser.link.openInIncognitoWindow",
+            "browser.link.openInNewWorkspace", "browser.link.openInSplit", "openLinkInDefaultBrowser",
+            "browser.link.openInIncognitoWindow",
             "browser.link.saveAs", "browser.link.copy", "browser.link.copyText",
         ])
         for item in fromChromium where !item.isSeparatorItem {

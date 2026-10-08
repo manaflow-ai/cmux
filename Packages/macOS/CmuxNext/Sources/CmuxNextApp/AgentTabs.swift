@@ -237,6 +237,11 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key), record.host == localHost else { return nil }
+        // A tab this run did not open and that has no chat yet is a New Tab page the store
+        // restored after a relaunch: it opens as the page again, not as an empty chat.
+        if newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+            newTabPages[key] = firstPageNewTab?(nil)
+        }
         let model = AgentPaneModel(
             host: host,
             sessionId: sessions[key] ?? record.session,

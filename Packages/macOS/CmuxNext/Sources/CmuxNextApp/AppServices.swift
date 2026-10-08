@@ -32,8 +32,7 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The app's key window. Tests and `debug.key` replace it: a window
-    /// only becomes key in a running, active app.
+    /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
@@ -64,12 +63,8 @@ final class AppServices {
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
-    /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
-    var inputMonitor: InputInvariantMonitor!
-    var inputGeometryObservers: [any NSObjectProtocol] = []
-    /// No-activate mode only: gives back a keyboard the user did not give.
-    var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
+    /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
+    let input = InputVerificationService()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
@@ -268,6 +263,7 @@ final class AppServices {
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
+            onboarding.cookiePrompt.attach(entry)
         }
         cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
@@ -308,8 +304,7 @@ final class AppServices {
             }
         }
         observePaletteForFocus()
-        startInputVerification()
-        startNoActivateGuard()
+        input.start(services: self)
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()

@@ -101,7 +101,9 @@ final class AppsService {
         if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
 
-    /// A window mounted a pane: a request that waited for one runs now.
+    /// The first window opened or a window mounted a pane: a request that
+    /// waited runs again (a user run shows the top page as soon as a window
+    /// exists; an automation run still waits until a pane can hold its tab).
     func windowDidShowContent() {
         guard let request = waitingStore else { return }
         showStore(appID: request.appID, installed: request.installed, focus: request.focus)
