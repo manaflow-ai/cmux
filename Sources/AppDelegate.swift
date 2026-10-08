@@ -2223,7 +2223,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
-            || hasSudoApprovalRuntime
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
@@ -2248,7 +2247,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // server to say it heard us. Everything after this stops transports, which is
                 // what would otherwise swallow the goodbye.
                 await self.remoteTmuxController.detachAllAwaitingExit()
-                await self.sudoApprovalCoordinator?.stop()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
@@ -2384,6 +2382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
         computerUseUXCoordinator.teardownForTermination()
+        // Sudo broker observation and recovery must be released, but a slow
+        // recovery join must not delay session persistence or AppKit termination.
+        sudoApprovalCoordinator?.stopInBackgroundForTermination()
         // The terminate-later cleanup loads the authoritative agent index off-main and
         // persists it immediately before replying to AppKit.
         // The hard AppKit watchdog is armed immediately before the terminate
