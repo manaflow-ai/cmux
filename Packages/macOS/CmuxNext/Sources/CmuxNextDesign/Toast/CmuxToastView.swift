@@ -32,6 +32,10 @@ public final class CmuxToastView: NSView {
         label.font = Typography.body
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = 360
+        // A wrapping label resists compression at only `.defaultLow`, the same as the stack's
+        // hugging, so the toast's fitting size squeezed the message to 4 pt and drew only the
+        // buttons. The message keeps its width (up to 360 pt, then it wraps).
+        label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         performWithTheme { label.textColor = Palette.textPrimary }
         let row = NSStackView(views: [label])
         row.orientation = .horizontal

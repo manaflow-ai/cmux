@@ -1,8 +1,15 @@
 //! EGRESS-ISOLATED (cx-d0d.7; spec browser-use.md: "Egress policy for agent
 //! browsing (block cloud metadata IPs and private ranges by default) is
 //! enforced in the host"; decisions D39). On a Cloud machine the browser
-//! host refuses cloud metadata, link-local, loopback, private, CGNAT and
-//! local-use addresses to EVERY caller, not only to remote ones.
+//! host refuses cloud metadata, link-local, private, CGNAT and local-use
+//! addresses to EVERY caller, not only to remote ones.
+//!
+//! The machine's own loopback is the exception (chief decision, 2026-10-08:
+//! an agent browsing its own dev server is the main Cloud workflow): a
+//! LITERAL loopback target (127/8, ::1, `localhost`) is allowed unless a
+//! cmux service listens on that port (crate::egress_services): the daemon,
+//! acpmux, this host's own listener. A public name that resolves to
+//! loopback stays refused (DNS rebinding), and so does 0.0.0.0.
 //!
 //! Where the rule is enforced: every Chromium the host launches on such a
 //! machine sends every connection through the host's own SOCKS5 listener
@@ -146,6 +153,14 @@ pub fn parse_allow(text: &str) -> (Vec<SocketAddr>, Vec<String>) {
     (allow, errors)
 }
 
+/// 127/8 and ::1 (IPv4-mapped forms are canonical already).
+fn is_loopback(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => ip.is_loopback(),
+        IpAddr::V6(ip) => ip == Ipv6Addr::LOCALHOST,
+    }
+}
+
 /// IPv4-mapped IPv6 addresses compare as their IPv4 address.
 fn canonical(addr: SocketAddr) -> SocketAddr {
     match addr.ip() {
@@ -195,6 +210,8 @@ impl std::fmt::Display for Target {
 pub struct EgressRule {
     allow: Vec<SocketAddr>,
     resolver: NameResolver,
+    /// Why a loopback port is a cmux service's (crate::egress_services).
+    services: crate::egress_services::ServiceCheck,
     /// Tests: one loopback address that counts as public (a stand-in for
     /// an internet host the test can dial).
     #[cfg(test)]
@@ -212,9 +229,19 @@ impl EgressRule {
         EgressRule {
             allow: allow.into_iter().map(canonical).collect(),
             resolver,
+            services: crate::egress_services::system_check(),
             #[cfg(test)]
             test_public: None,
         }
+    }
+
+    /// Replaces the cmux service check (tests).
+    pub fn with_service_check(
+        mut self,
+        services: crate::egress_services::ServiceCheck,
+    ) -> EgressRule {
+        self.services = services;
+        self
     }
 
     #[cfg(test)]
@@ -228,10 +255,11 @@ impl EgressRule {
         self.refusal(addr, true)
     }
 
-    /// The range rule for one address; `allow` applies the owner's allow
-    /// list (only to literal and `localhost` targets: a public name that
-    /// resolves to an allowed private address is DNS rebinding).
-    fn refusal(&self, addr: SocketAddr, allow: bool) -> Option<String> {
+    /// The range rule for one address; `literal` (a literal or `localhost`
+    /// target) applies the owner's allow list and the machine's own
+    /// loopback: a public name that resolves to an allowed private address
+    /// or to loopback is DNS rebinding.
+    fn refusal(&self, addr: SocketAddr, literal: bool) -> Option<String> {
         let addr = canonical(addr);
         #[cfg(test)]
         if self.test_public == Some(addr) {
@@ -242,7 +270,11 @@ impl EgressRule {
             Range::LinkLocal => {
                 Some(format!("{} is a link-local or cloud metadata address", addr.ip()))
             }
-            Range::Private if allow && self.allow.contains(&addr) => None,
+            Range::Private if literal && self.allow.contains(&addr) => None,
+            // The machine's own loopback; whose port it is, is checked
+            // separately (`service_refusal`): before an agent call, and by the
+            // listener on the connected peer.
+            Range::Private if literal && is_loopback(addr.ip()) => None,
             Range::Private => Some(format!(
                 "{} is a loopback, private or local-network address, which browsing on a Cloud machine may not reach",
                 addr.ip()
@@ -287,9 +319,17 @@ impl EgressRule {
         Ok(addrs)
     }
 
+    /// Why a loopback address is a cmux service's (crate::egress_services),
+    /// or `None` (also for any address that is not loopback).
+    pub fn service_refusal(&self, addr: SocketAddr) -> Option<String> {
+        let addr = canonical(addr);
+        is_loopback(addr.ip()).then(|| (self.services)(addr)).flatten()
+    }
+
     /// The rule for a URL's literal host only (an IP, `localhost`, a
-    /// metadata name), with no lookup: the request filter's check, which
-    /// runs on a driver thread for every request. Names go to the listener.
+    /// metadata name), with no lookup and no service check: the request
+    /// filter's check, which runs on a driver thread for every request.
+    /// Names and the service check go to the listener.
     pub fn literal_refusal(&self, url: &Url) -> Option<String> {
         let host = url.host()?;
         if let Host::Domain(name) = &host {
@@ -298,12 +338,17 @@ impl EgressRule {
                 return None;
             }
         }
-        self.url_refusal(url)
+        self.url_check(url, false)
     }
 
     /// The rule for a URL the agent opens or fetches (its host, literal or
-    /// resolved); `None` for URLs without a network host.
+    /// resolved, and whose loopback port it is); `None` for URLs without a
+    /// network host.
     pub fn url_refusal(&self, url: &Url) -> Option<String> {
+        self.url_check(url, true)
+    }
+
+    fn url_check(&self, url: &Url, services: bool) -> Option<String> {
         if !matches!(url.scheme(), "http" | "https" | "ws" | "wss" | "ftp") {
             return None;
         }
@@ -314,6 +359,7 @@ impl EgressRule {
             Host::Domain(name) => Target::Name(name.to_owned(), port),
         };
         match self.resolve(&target) {
+            Ok(addrs) if services => addrs.iter().find_map(|addr| self.service_refusal(*addr)),
             Ok(_) => None,
             Err(Refusal::Blocked(reason)) => Some(reason),
             // Unresolved here is the engine's own error to report.
