@@ -135,12 +135,30 @@ export function Stage({
   const hasPlay = Boolean(entry.variants[state]?.play);
   const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
     if (!iframe) return;
-    const receive = (event: MessageEvent) => {
-      const data = event.data as { type?: string; report?: PlayReport } | null;
-      if (event.source === iframe.contentWindow && data?.type === "cmux-gallery-play") setReport(data.report);
+    let lastScroll = { x: scrollX, y: scrollY };
+    const restore = () => {
+      const activeFrame = document.activeElement;
+      if (activeFrame?.tagName === "IFRAME") {
+        if (activeFrame === iframe) scrollTo(lastScroll.x, lastScroll.y);
+        return;
+      }
+      lastScroll = { x: scrollX, y: scrollY };
     };
+    const receive = (event: MessageEvent) => {
+      const data = event.data as { type?: string; status?: string; report?: PlayReport } | null;
+      if (event.source !== iframe.contentWindow) return;
+      if (data?.type === "cmux-gallery-play") setReport(data.report);
+      if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
+        restore();
+        removeEventListener("scroll", restore);
+      }
+    };
+    addEventListener("scroll", restore, { passive: true });
     addEventListener("message", receive);
-    return () => removeEventListener("message", receive);
+    return () => {
+      removeEventListener("message", receive);
+      removeEventListener("scroll", restore);
+    };
   }, []);
   const note = entry.variants[state]?.note;
   // Component entries have their own natural bounds. Keep the window frame for page entries,
@@ -152,7 +170,8 @@ export function Stage({
     // The surface lays out at the real size of its pane in that window; one transform scales the
     // finished surface, so its aspect ratio, text and spacing stay as the user sees them.
     frame = entryPaneSize(env.window, env.layout, env.density, metrics);
-    scale = thumbnail ? THUMBNAIL_WIDTH / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
+    const thumbnailWidth = Math.min(THUMBNAIL_WIDTH, available.width);
+    scale = thumbnail ? thumbnailWidth / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   } else {
     // The pane's width; the interface scale zooms the page inside it, as pageZoom does.
     frame = {

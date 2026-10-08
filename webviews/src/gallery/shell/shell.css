@@ -677,6 +677,9 @@ main .gallery-entry-error {
     min-height: 58vh;
     padding-inline: 10px;
   }
+  .gallery-banner {
+    margin-inline: -10px;
+  }
   .gallery-browse-grid {
     grid-template-columns: minmax(0, 1fr);
   }

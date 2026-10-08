@@ -313,12 +313,14 @@ function Layout() {
       <Sidebar address={address} states={states} status={status} />
       <main className="gallery-main">
         <ErrorBanner states={states} status={status} />
-        {state ? (
+        {search.view === "browse" ? (
+          <BrowseEntryView address={address} states={states} />
+        ) : state ? (
           <EntryBoundary
             key={state.path}
             state={state}
             loading={<p className="gallery-empty">Loading {state.path}</p>}
-            render={(entry) => <EntryView entry={entry} address={address} states={states} />}
+            render={(entry) => <EntryView entry={entry} address={address} />}
           />
         ) : states.length === 0 ? (
           <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
@@ -332,64 +334,67 @@ function Layout() {
   );
 }
 
+/** Browse is registry-wide, so it must not wait for the route's current entry to load. */
+function BrowseEntryView({ address, states }: { address: Address; states: readonly EntryState[] }) {
+  const { search } = address;
+  const current = states.find((state) => known(state)?.id === address.entry);
+  const canCompare = Boolean(current && known(current)?.experiment);
+  const env: GalleryEnv = search;
+  return (
+    <>
+      <header className="gallery-header">
+        <fieldset className="gallery-segmented">
+          <legend>View</legend>
+          {VIEWS.filter((view) => view !== "compare" || canCompare).map((view) => (
+            <label key={view}>
+              <input
+                type="radio"
+                name="view"
+                aria-label={VIEW_LABELS[view]}
+                checked={search.view === view}
+                onChange={() => go({ ...address, search: { ...search, view } })}
+              />
+              {VIEW_LABELS[view]}
+            </label>
+          ))}
+        </fieldset>
+        <Controls
+          env={env}
+          onChange={(next) =>
+            go(
+              { ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } },
+              true,
+            )
+          }
+        />
+      </header>
+      <BrowseView
+        entries={readyEntries(states)}
+        env={env}
+        tune={search.tune}
+        onOpen={(target, targetVariant) =>
+          go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+        }
+        hrefFor={(target, targetVariant) =>
+          href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+        }
+      />
+    </>
+  );
+}
+
 /** One entry's header and stages. */
 function EntryView({
   entry,
   address,
-  states,
 }: {
   entry: GalleryEntry;
   address: Address;
-  states: readonly EntryState[];
 }) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
   const env: GalleryEnv = search;
-  if (search.view === "browse") {
-    return (
-      <>
-        <header className="gallery-header">
-          <fieldset className="gallery-segmented">
-            <legend>View</legend>
-            {VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => (
-              <label key={view}>
-                <input
-                  type="radio"
-                  name="view"
-                  aria-label={VIEW_LABELS[view]}
-                  checked={search.view === view}
-                  onChange={() => go({ ...address, search: { ...search, view } })}
-                />
-                {VIEW_LABELS[view]}
-              </label>
-            ))}
-          </fieldset>
-          <Controls
-            env={env}
-            onChange={(next) =>
-              go(
-                { ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } },
-                true,
-              )
-            }
-          />
-        </header>
-        <BrowseView
-          entries={readyEntries(states)}
-          env={env}
-          tune={search.tune}
-          available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
-          onOpen={(target, targetVariant) =>
-            go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
-          }
-          hrefFor={(target, targetVariant) =>
-            href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
-          }
-        />
-      </>
-    );
-  }
   let stages: { key: string; variant: string; env: GalleryEnv; label?: string }[];
   switch (search.view) {
     case "variants":

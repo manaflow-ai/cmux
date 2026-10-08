@@ -2,7 +2,7 @@
 // used by the entry view and matrix runner. It is intentionally a view of the registry rather
 // than a second set of synthetic thumbnails, so a card is useful for both visual scanning and
 // opening the exact entry/variant that produced it.
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
 import { browseFrameHref, browseItems } from "./browseModel";
@@ -12,14 +12,12 @@ export function BrowseView({
   entries,
   env,
   tune,
-  available,
   onOpen,
   hrefFor,
 }: {
   entries: readonly GalleryEntry[];
   env: GalleryEnv;
   tune: string;
-  available: { width: number; height: number };
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
 }) {
@@ -44,7 +42,6 @@ export function BrowseView({
               initialVariant={variant}
               env={env}
               tune={tune}
-              available={available}
               onOpen={onOpen}
               hrefFor={hrefFor}
             />
@@ -62,7 +59,6 @@ function BrowseCard({
   initialVariant,
   env,
   tune,
-  available,
   onOpen,
   hrefFor,
 }: {
@@ -70,11 +66,19 @@ function BrowseCard({
   initialVariant: string;
   env: GalleryEnv;
   tune: string;
-  available: { width: number; height: number };
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
 }) {
   const [variant, setVariant] = useState(initialVariant);
+  const [width, setWidth] = useState(420);
+  const previewRef = useCallback((node: HTMLElement | null) => {
+    if (!node) return;
+    const measure = () => setWidth(node.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const variants = Object.keys(entry.variants);
   const fixture = entry.variants[variant];
   return (
@@ -99,7 +103,17 @@ function BrowseCard({
           </button>
         ))}
       </div>
-      <Stage entry={entry} state={variant} env={env} tune={tune} available={available} thumbnail />
+      <div ref={previewRef} className="gallery-browse-preview">
+        <Stage
+          key={variant}
+          entry={entry}
+          state={variant}
+          env={env}
+          tune={tune}
+          available={{ width, height: Number.POSITIVE_INFINITY }}
+          thumbnail
+        />
+      </div>
       <footer className="gallery-browse-card-footer">
         <a
           href={hrefFor(entry, variant)}
