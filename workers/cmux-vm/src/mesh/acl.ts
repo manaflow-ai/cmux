@@ -54,6 +54,8 @@ export interface CompileInput {
   readonly vmIds: ReadonlyArray<string>;
   /** Each device's published public IPv6 address, canonical (parseDeviceIpv6); absent: no address rules. */
   readonly deviceIpv6?: ReadonlyMap<string, string>;
+  /** Keys of the address rules that exist now: they keep their room before new ones get any (no rule is displaced). */
+  readonly existingAddressKeys?: ReadonlySet<string>;
   readonly rulesPerResource: number;
   readonly rulesPerMesh: number;
 }
@@ -242,7 +244,9 @@ export const compileAcl = (input: CompileInput): CompileResult => {
   // its tunnel to that VM). The VM carries the rule; the tunnel does not, so only the VM's count grows.
   let total = rules.length;
   const withAddresses = [...rules];
-  for (const rule of [...byAddressKey.values()].sort(byRuleKey)) {
+  const existing = input.existingAddressKeys ?? new Set<string>();
+  const candidates = [...byAddressKey.values()].sort((a, b) => Number(existing.has(b.key)) - Number(existing.has(a.key)) || byRuleKey(a, b));
+  for (const rule of candidates) {
     const onVm = perResource.get(rule.vmId) ?? 0;
     if (onVm >= input.rulesPerResource || total >= input.rulesPerMesh) continue;
     perResource.set(rule.vmId, onVm + 1);

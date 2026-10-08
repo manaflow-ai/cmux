@@ -49,7 +49,7 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { compileAcl, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
@@ -205,6 +205,8 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
     const devices = yield* store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
     const members = yield* store.listMembers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listMembers")));
     const deviceIpv6 = yield* store.deviceAddresses(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")));
+    const recorded = yield* store.listRules(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
+    const existingAddressKeys = new Set(recorded.filter((rule) => isAddressRuleKey(rule.key)).map((rule) => rule.key));
     const deviceIds = devices.map((device) => device.deviceId);
     const vmIds = members.map((member) => member.vmId);
     const known = new Set([...deviceIds, ...vmIds]);
@@ -224,6 +226,7 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
       deviceIds,
       vmIds,
       deviceIpv6,
+      existingAddressKeys,
       rulesPerResource: config.budgets.rulesPerResource,
       rulesPerMesh: config.budgets.rulesPerMesh,
     });
@@ -419,9 +422,7 @@ const closeDevice = <C, D>(
       Effect.mapError(() => unavailable()),
     );
     // Address rules name a cidr, not the tunnel, so the tunnel delete leaves them: delete them by their recorded ids,
-    // as the mesh's writer, so a publish that is creating one finishes (and records it) first. The rules are listed
-    // before the device row is marked deleted (the proof needs a live device), and the row is marked inside the lock,
-    // so a publish that waits for the lock finds no live device afterwards. The tunnel is already gone above, so a
+    // as the mesh's writer, so a publish that is creating one finishes (and records it) first. The tunnel is already gone above, so a
     // revocation never waits for this lock to end access through the tunnel.
     const parsedMesh = parseMeshId(row.meshId);
     if (Option.isSome(parsedMesh)) {
@@ -431,7 +432,6 @@ const closeDevice = <C, D>(
           mesh.value,
           Effect.gen(function* () {
             const addressRules = yield* ownedDeviceAddressRules(caller, mesh, proofs.owns, device).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-            yield* store.markDeviceDeleted(tenantId, device.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markDeviceDeleted")));
             yield* Effect.forEach(
               addressRules,
               (rule) =>
@@ -441,6 +441,9 @@ const closeDevice = <C, D>(
                 ),
               { concurrency: 8, discard: true },
             );
+            // Only after every address rule is gone (a failed delete leaves the device live, so DELETE and the G1
+            // webhook can retry), and still as the writer, so a publish waiting for the lock finds no live device.
+            yield* store.markDeviceDeleted(tenantId, device.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markDeviceDeleted")));
           }),
         ),
       );
@@ -1307,42 +1310,49 @@ const publishAddress = <C, D>(caller: Named<C, Principal>, device: Named<D, Devi
     if (Option.isNone(parsedMesh)) return yield* Effect.fail(experimentOff());
     const store = yield* MeshStore;
     const config = yield* MeshConfig;
-    const stored = yield* store.getDeviceAddress(tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDeviceAddress")));
-    if (Option.isNone(stored)) return yield* Effect.fail(experimentOff());
-    // Unchanged: its rules were applied when it was set (a failed apply put the previous address back), and every
-    // later ACL, device or VM change reconciles them, so nothing to do and no lock to take.
-    if (stored.value.publicIpv6 === address) return new DeviceAddress({ deviceId: DeviceId_(device.value), publicIpv6: address });
-    // Each change reconciles the whole mesh under its writer lock: one device may change its address once per interval.
-    const sinceMs = (yield* Clock.currentTimeMillis) - (stored.value.at?.getTime() ?? 0);
-    if (stored.value.at !== null && sinceMs < config.budgets.addressChangeIntervalMs) {
-      return yield* Effect.fail(
-        new QuotaExceeded({
-          message: "This device changed its address too recently; retry later",
-          retryAfterSeconds: Math.max(1, Math.ceil((config.budgets.addressChangeIntervalMs - sinceMs) / 1000)),
-          budget: "address.perDevice",
-        }),
-      );
-    }
     // The device's signature allows it only itself; the mesh's own reconcile acts for the device's owner, as a revocation does.
     const owner: Principal = { ...caller.value, scopes: new Set<Scope>(["mesh:join", "mesh:read", "mesh:write"]), resourceAllowlist: null };
     return yield* name(owner, parsedMesh.value, (ownerCaller, mesh) =>
+      // Everything runs as the mesh's writer: the change check, the store and the reconcile, so two publishes of one
+      // device never both pass the interval check and a device close never interleaves with them.
       withMeshWriter(
         tenantId,
         mesh.value,
         Effect.gen(function* () {
+          const stored = yield* store.getDeviceAddress(tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDeviceAddress")));
+          if (Option.isNone(stored)) return yield* Effect.fail(experimentOff());
+          const previous = stored.value;
+          const changed = previous.publicIpv6 !== address;
+          // Each change reconciles the whole mesh: one device may change its address once per interval. Publishing the
+          // same address is not a change; it still reconciles, so it restores a rule that is missing.
+          const nowMs = yield* Clock.currentTimeMillis;
+          const sinceMs = nowMs - (previous.at?.getTime() ?? 0);
+          if (changed && previous.at !== null && sinceMs < config.budgets.addressChangeIntervalMs) {
+            return yield* Effect.fail(
+              new QuotaExceeded({
+                message: "This device changed its address too recently; retry later",
+                retryAfterSeconds: Math.max(1, Math.ceil((config.budgets.addressChangeIntervalMs - sinceMs) / 1000)),
+                budget: "address.perDevice",
+              }),
+            );
+          }
           const ownsMesh = yield* tenantOwnsMesh(ownerCaller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
           if (ownsMesh === null) return yield* Effect.fail(experimentOff());
-          const previous = (yield* store.deviceAddresses(tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")))).get(device.value) ?? null;
-          const stored = yield* store.setDeviceAddress(tenantId, device.value, address, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.setDeviceAddress")));
-          if (!stored) return yield* Effect.fail(experimentOff());
-          // A refused apply (a rule budget, the provider) puts the previous address back, so one device's address never blocks
-          // its mesh's later reconciles; rules this attempt created are surplus to the next reconcile, which deletes them.
+          if (changed) {
+            const set = yield* store.setDeviceAddress(tenantId, device.value, address, new Date(nowMs)).pipe(Effect.catchAll(dependencyDown("mesh.setDeviceAddress")));
+            if (!set) return yield* Effect.fail(experimentOff());
+          }
+          // A refused apply (a rule budget, the provider) puts the previous address and its time back, so one device's
+          // address never blocks its mesh's later reconciles and a retry is not charged as a change; rules this attempt
+          // created are surplus to the next reconcile, which deletes them.
           yield* reconcileCurrent(ownerCaller, mesh, ownsMesh).pipe(
             Effect.tapError(() =>
-              Effect.gen(function* () {
-                const restored = yield* store.setDeviceAddress(tenantId, device.value, previous, yield* now).pipe(Effect.either);
-                if (restored._tag === "Left") yield* logEvent("mesh_address_restore_failed", { deviceId: device.value });
-              }),
+              changed
+                ? Effect.gen(function* () {
+                    const restored = yield* store.setDeviceAddress(tenantId, device.value, previous.publicIpv6, previous.at).pipe(Effect.either);
+                    if (restored._tag === "Left") yield* logEvent("mesh_address_restore_failed", { deviceId: device.value });
+                  })
+                : Effect.void,
             ),
           );
           return new DeviceAddress({ deviceId: DeviceId_(device.value), publicIpv6: address });
