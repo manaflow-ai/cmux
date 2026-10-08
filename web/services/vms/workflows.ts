@@ -954,7 +954,9 @@ function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: numbe
  * A machine larger than the caller's plan (created before a plan change, or
  * on a plan the caller left) stays listed and deletable, but access verbs
  * refuse it. CPU above the plan counts as the ladder memory that carries it.
- * Rows without recorded resources are left to the create-time checks.
+ * Rows without recorded resources are checked by the provider before access;
+ * they must never become an entitlement bypass just because they predate the
+ * reservation marker.
  */
 function requireMachineFitsPlan(planId: string, metadata: Record<string, unknown>) {
   if (!hasVmResourceReservationMetadata(metadata)) return Effect.void;
@@ -963,6 +965,47 @@ function requireMachineFitsPlan(planId: string, metadata: Record<string, unknown
   if (shape.memoryMb <= maxMemoryMb && shape.vcpus <= maxVcpusForPlan(planId)) return Effect.void;
   const memoryMb = Math.max(shape.memoryMb, shape.vcpus * VM_PLAN_MEMORY_MB_PER_VCPU);
   return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
+}
+
+function requireMeasuredMachineFitsPlan(
+  planId: string,
+  providers: VmProviderGatewayShape,
+  vm: Pick<CloudVmRow, "provider" | "providerVmId">,
+  providerVmId: string,
+) {
+  if (!providers.getStats) {
+    return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "getStats" }));
+  }
+  return providers.getStats(vm.provider, vm.providerVmId ?? providerVmId).pipe(
+    Effect.timeoutFail({
+      duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
+      onTimeout: () => new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "getStats",
+        cause: new Error("provider stats timed out while checking the machine plan"),
+      }),
+    }),
+    Effect.flatMap((stats) => {
+      const memoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
+      const vcpus = vmProviderResourceSize("vcpus", stats.cpus);
+      if (memoryMb === null || vcpus === null) {
+        return Effect.fail(new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "getStats",
+          cause: new Error("provider returned incomplete machine dimensions while checking the plan"),
+        }));
+      }
+      return requireMachineFitsPlan(planId, {
+        cmuxResourceReservation: {
+          memoryMb,
+          vcpus,
+          // Disk is irrelevant to the memory/CPU entitlement check, but the
+          // reservation parser requires a complete shape.
+          diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? VM_DISK_MB_MAX,
+        },
+      });
+    }),
+  );
 }
 
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
@@ -1574,6 +1617,20 @@ function finishBaseCreate(
       );
       if (replacement) {
         return yield* finishBaseCreate(repo, providers, billing, input, replacement);
+      }
+      // Idempotent retries normally return the existing Base row without
+      // provisioning again. Keep that shortcut from becoming an entitlement
+      // bypass: a Base created on Max (or before the reservation marker was
+      // introduced) still has to fit the caller's current paid plan before it
+      // is handed back. The provider-deleted check above intentionally runs
+      // first so a missing oversized machine can be replaced at the caller's
+      // current default shape.
+      if (isPaidVmPlan(input.billingPlanId)) {
+        if (hasVmResourceReservationMetadata(existing.providerMetadata)) {
+          yield* requireMachineFitsPlan(input.billingPlanId, existing.providerMetadata);
+        } else {
+          yield* requireMeasuredMachineFitsPlan(input.billingPlanId, providers, existing, existing.providerVmId);
+        }
       }
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
     }
@@ -5013,7 +5070,12 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
       vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
     }
     if (input.callerPlanId && isPaidVmPlan(input.callerPlanId)) {
-      yield* requireMachineFitsPlan(input.callerPlanId, vm.providerMetadata);
+      if (hasVmResourceReservationMetadata(vm.providerMetadata)) {
+        yield* requireMachineFitsPlan(input.callerPlanId, vm.providerMetadata);
+      } else {
+        const providers = yield* VmProviderGateway;
+        yield* requireMeasuredMachineFitsPlan(input.callerPlanId, providers, vm, input.providerVmId);
+      }
     }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({
