@@ -186,9 +186,7 @@ extension CMUXCLI {
         // A running disk-only resize does not wake or grow compute. Every
         // other resize needs the complete target shape to be known.
         if diskMb != nil && cpu == nil && memoryMb == nil && active { return }
-        guard let currentCPUs, let currentMemoryMb,
-              let targetCPUs = cpu ?? currentCPUs,
-              let targetMemoryMb = memoryMb ?? currentMemoryMb else {
+        guard let currentCPUs, let currentMemoryMb else {
             throw cloudVMResizePoolError(
                 requestedCPUs: cpu ?? 0,
                 requestedMemoryMb: memoryMb ?? 0,
@@ -196,6 +194,8 @@ extension CMUXCLI {
                 freeMemoryMb: 0
             )
         }
+        let targetCPUs = cpu ?? currentCPUs
+        let targetMemoryMb = memoryMb ?? currentMemoryMb
 
         let otherCPUs = active ? max(0, usedCPUs - currentCPUs) : usedCPUs
         let otherMemoryMb = active ? max(0, usedMemoryMb - currentMemoryMb) : usedMemoryMb
