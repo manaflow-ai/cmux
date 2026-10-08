@@ -3,6 +3,7 @@ import type { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 
 import { makeMobileNetworkOutcomeHandler } from "../app/api/observability/mobile-network/route";
 import type { MobileObservabilityEvent } from "../services/observability/mobileNetworkOutcome";
+import { feedPerformanceWindow } from "./fixtures/mobile-feed-performance";
 
 const originalVercel = process.env.VERCEL;
 const originalRuleId = process.env.CMUX_MOBILE_OBSERVABILITY_RATE_LIMIT_ID;
@@ -54,6 +55,15 @@ afterAll(() => {
 });
 
 describe("iOS mobile network observability route", () => {
+  test("accepts a Feed window in the existing authenticated, rate-limited batch", async () => {
+    const response = await POST(outcomeRequest([feedPerformanceWindow()]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
+    expect(emitted[0]?.userId).toBe("user-7");
+    expect(emitted[0]?.batch[0]).toMatchObject({ feedEvent: true, event: "ios_feed_performance_window" });
+    expect(flushTimeouts).toEqual([1_000]);
+  });
+
   test("attributes an accepted failure batch to the authenticated user", async () => {
     const response = await POST(outcomeRequest([
       outcome({

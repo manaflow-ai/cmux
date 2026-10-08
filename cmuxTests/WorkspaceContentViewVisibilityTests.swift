@@ -539,21 +539,18 @@ final class WorkspaceContentViewVisibilityTests {
     func upgradeVisibilityRequiresKnownFreeEntitlement() {
         #expect(
             SidebarFooterPresentationPolicy.isUpgradeVisible(
-                featureFlagEnabled: true,
                 isProActive: false,
                 isProStatusKnown: true
             )
         )
         #expect(
             !SidebarFooterPresentationPolicy.isUpgradeVisible(
-                featureFlagEnabled: true,
                 isProActive: true,
                 isProStatusKnown: true
             )
         )
         #expect(
             !SidebarFooterPresentationPolicy.isUpgradeVisible(
-                featureFlagEnabled: true,
                 isProActive: false,
                 isProStatusKnown: false
             )

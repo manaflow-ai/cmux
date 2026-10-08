@@ -555,6 +555,10 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_promotion_admission.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
@@ -756,6 +760,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_lan_product_source.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_upgrade_rollout_retirement.py"
 lane = "linux-guard"
 
 [[test]]
