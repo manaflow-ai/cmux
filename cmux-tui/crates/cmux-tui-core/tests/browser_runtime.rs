@@ -7,8 +7,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 mod support;
 use cmux_tui_core::{BrowserStatus, Mux, SurfaceKind, SurfaceOptions, server};
-use support::DaemonMuxOps;
 use serde_json::{Value, json};
+use support::DaemonMuxOps;
 use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());

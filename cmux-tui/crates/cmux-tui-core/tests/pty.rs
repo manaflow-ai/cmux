@@ -1,6 +1,10 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc::TryRecvError};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+    mpsc::TryRecvError,
+};
 use std::time::{Duration, Instant};
 mod support;
 use base64::Engine;

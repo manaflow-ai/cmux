@@ -21,20 +21,43 @@ pub(crate) fn me() -> &'static Actor {
 #[cfg(test)]
 pub(crate) trait TuiMuxOps {
     fn close_surface(&self, target: SurfaceId) -> anyhow::Result<bool>;
-    fn new_workspace(&self, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
-    fn new_tab(&self, pane: Option<PaneId>, cwd: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
-    fn split(&self, target: PaneId, dir: SplitDir, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
-    fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) ;
+    fn new_workspace(
+        &self,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>>;
+    fn new_tab(
+        &self,
+        pane: Option<PaneId>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>>;
+    fn split(
+        &self,
+        target: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>>;
+    fn select_workspace(&self, index: Option<usize>, delta: Option<isize>);
     fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<ZoomState>;
-    fn new_screen(&self, workspace: Option<WorkspaceId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
+    fn new_screen(
+        &self,
+        workspace: Option<WorkspaceId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>>;
     fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool;
     fn focus_pane(&self, pane: PaneId) -> bool;
     fn close_pane(&self, target: PaneId) -> anyhow::Result<bool>;
     fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool;
-    fn select_screen(&self, index: Option<usize>, delta: Option<isize>) ;
+    fn select_screen(&self, index: Option<usize>, delta: Option<isize>);
     fn rename_surface(&self, target: SurfaceId, name: String) -> bool;
     fn rename_screen(&self, target: ScreenId, name: String) -> bool;
-    fn new_pane_right(&self, target: PaneId, width: f32, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
+    fn new_pane_right(
+        &self,
+        target: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>>;
     fn close_screen(&self, target: ScreenId) -> anyhow::Result<bool>;
 }
 
@@ -44,19 +67,33 @@ impl TuiMuxOps for Arc<Mux> {
         self.close_surface_as(me(), target)
     }
 
-    fn new_workspace(&self, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+    fn new_workspace(
+        &self,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         self.new_workspace_as(me(), name, size)
     }
 
-    fn new_tab(&self, pane: Option<PaneId>, cwd: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+    fn new_tab(
+        &self,
+        pane: Option<PaneId>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         self.new_tab_as(me(), pane, cwd, size)
     }
 
-    fn split(&self, target: PaneId, dir: SplitDir, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+    fn split(
+        &self,
+        target: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         self.split_as(me(), target, dir, size)
     }
 
-    fn select_workspace(&self, index: Option<usize>, delta: Option<isize>)  {
+    fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
         self.select_workspace_as(me(), index, delta);
     }
 
@@ -64,7 +101,11 @@ impl TuiMuxOps for Arc<Mux> {
         self.zoom_pane_as(me(), pane, mode)
     }
 
-    fn new_screen(&self, workspace: Option<WorkspaceId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+    fn new_screen(
+        &self,
+        workspace: Option<WorkspaceId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         self.new_screen_as(me(), workspace, size)
     }
 
@@ -84,7 +125,7 @@ impl TuiMuxOps for Arc<Mux> {
         self.swap_panes_as(me(), pane, target)
     }
 
-    fn select_screen(&self, index: Option<usize>, delta: Option<isize>)  {
+    fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
         self.select_screen_as(me(), index, delta);
     }
 
@@ -96,7 +137,12 @@ impl TuiMuxOps for Arc<Mux> {
         self.rename_screen_as(me(), target, name)
     }
 
-    fn new_pane_right(&self, target: PaneId, width: f32, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+    fn new_pane_right(
+        &self,
+        target: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         self.new_pane_right_as(me(), target, width, size)
     }
 

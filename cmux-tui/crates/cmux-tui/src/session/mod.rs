@@ -1828,13 +1828,7 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || {
-                        mux.set_split_ratio_checked_as(
-                            me(),
-                            split,
-                            ratio,
-                        )
-                    },
+                    || mux.set_split_ratio_checked_as(me(), split, ratio),
                     |(owner, transaction)| {
                         mux.set_split_ratio_in_process_transaction_checked_as(
                             me(),
@@ -1878,13 +1872,7 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || {
-                        mux.set_viewport_pane_width_checked_as(
-                            me(),
-                            pane,
-                            width,
-                        )
-                    },
+                    || mux.set_viewport_pane_width_checked_as(me(), pane, width),
                     |(owner, transaction)| {
                         mux.set_viewport_pane_width_in_process_transaction_checked_as(
                             me(),
@@ -2202,11 +2190,7 @@ impl Session {
             crate::localization::catalog().menu.move_tab_workspace_unsupported
         );
         match self {
-            Session::Local(mux) => mux.move_tab_to_workspace_as(
-                me(),
-                surface,
-                workspace,
-            ),
+            Session::Local(mux) => mux.move_tab_to_workspace_as(me(), surface, workspace),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
@@ -3127,8 +3111,8 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 
 #[cfg(test)]
 mod tests {
-    use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
     use crate::local_actor::TuiMuxOps;
+    use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
         Session, SessionPort, is_remote_surface_unavailable, normalize_remote_layout_undo_error,
@@ -3323,9 +3307,7 @@ mod tests {
         use cmux_tui_core::sizing_policy::TerminalDeviceKind;
 
         let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
-        let surface = mux
-            .new_workspace(None, Some((80, 24)))
-            .unwrap();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
