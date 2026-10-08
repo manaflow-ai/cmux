@@ -109,6 +109,8 @@ nonisolated extension ActionSurfaceCatalog {
         // name, theme color, browser profile; New Group; Delete. The rest of
         // the space actions stay in the palette and the CLI (`.minimalMenu`).
         "space.new": [p(.sidebarBackground, .create, 6, folder: .new)],
+        "space.newWorkspace": [p(.profile, .create, 0, label: SpaceMenuLabels.newWorkspace)],
+        "space.newWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.newWindow)],
         "space.setIcon": [p(.profile, .identity, 100, label: SpaceMenuLabels.changeIcon)],
         "space.clearIcon": [p(.profile, .identity, 100, label: SpaceMenuLabels.removeIcon)],
         "space.rename": [p(.profile, .identity, 101)],

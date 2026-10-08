@@ -61,7 +61,6 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
-            "openLinkInDefaultBrowser",
             "tabGroup.deleteSaved",
             "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
@@ -123,7 +122,7 @@ nonisolated extension ActionSurfaceCatalog {
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
         ],
         .minimalMenu: [
-            "space.newWindow", "space.newWorkspace", "space.setDefaults", "browserProfile.clearSpaceDefault",
+            "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
