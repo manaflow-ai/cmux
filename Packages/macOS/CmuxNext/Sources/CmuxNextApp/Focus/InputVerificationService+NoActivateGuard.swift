@@ -5,7 +5,7 @@ import os
 // Wires NoActivateKeyboardGuard under CMUX_NEXT_NO_ACTIVATE=1: activation,
 // key-window and other-app changes in, input from the app-wide event tap,
 // each give-back into the input journal and `debug.focus`.
-extension AppServices {
+extension InputVerificationService {
     func startNoActivateGuard() {
         guard WindowPlacement.noActivate else { return }
         let me = NSRunningApplication.current.processIdentifier

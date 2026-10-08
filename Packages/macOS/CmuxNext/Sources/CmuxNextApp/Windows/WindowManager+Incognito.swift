@@ -169,17 +169,18 @@ extension WindowManager {
     /// in a window of the origin's kind: `preferred` (usually the active
     /// window) when it matches, else the origin's window. `newWindow` opens
     /// a new window of that kind (incognito even before the daemon reports
-    /// the workspace).
+    /// the workspace); an open one places it by `workspaces.newPlacement`.
     func placeMoved(_ key: String, from origin: MoveOrigin, preferred: WindowState?, newWindow: Bool, select shows: Bool = true) {
         if newWindow {
             openWindow(workspaces: [key], incognito: origin.incognito, behind: !shows)
             return
         }
-        if let preferred, isIncognito(window: preferred.id) == origin.incognito {
-            claim(workspaceID: key, in: preferred, select: shows)
-        } else if let window = origin.window, let state = states[window], registry.value.window(window)?.isOpen == true {
-            claim(workspaceID: key, in: state, select: shows)
-        }
+        let target = preferred.flatMap { isIncognito(window: $0.id) == origin.incognito ? $0 : nil }
+            ?? origin.window.flatMap { registry.value.window($0)?.isOpen == true ? states[$0] : nil }
+        guard let target else { return }
+        let rule = NewWorkspacePlacements.rule(for: target.id, in: self)
+        claim(workspaceID: key, in: target, select: shows)
+        NewWorkspacePlacements.expect(key, in: target.id, byDefault: rule, windows: self)
     }
 
     /// The window a workspace is shown in, for move checks.

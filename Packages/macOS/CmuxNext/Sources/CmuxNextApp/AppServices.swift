@@ -63,12 +63,8 @@ final class AppServices {
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
-    /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
-    var inputMonitor: InputInvariantMonitor!
-    var inputGeometryObservers: [any NSObjectProtocol] = []
-    /// No-activate mode only: gives back a keyboard the user did not give.
-    var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
+    /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
+    let input = InputVerificationService()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
@@ -308,8 +304,7 @@ final class AppServices {
             }
         }
         observePaletteForFocus()
-        startInputVerification()
-        startNoActivateGuard()
+        input.start(services: self)
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
