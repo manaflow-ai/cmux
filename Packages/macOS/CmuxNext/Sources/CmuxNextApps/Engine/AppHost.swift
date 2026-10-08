@@ -84,6 +84,11 @@ public final class AppHost {
         await engine.stop(reason: reason)
     }
 
+    /// The app was turned back on: the reason it stopped no longer applies.
+    public func forgetStopReason(_ appID: String) {
+        failures.removeValue(forKey: appID)
+    }
+
     /// Restarts the app and re-renders every mount it has.
     public func reload(_ manifest: AppManifest, directory: URL) async {
         await stop(manifest.id, reason: "reloading")
