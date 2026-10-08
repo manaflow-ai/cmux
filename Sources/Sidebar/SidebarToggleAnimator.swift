@@ -151,6 +151,7 @@ final class SidebarToggleAnimator: ObservableObject {
                 if let slide { machine.slideDidStart(generation: slide.generation, at: CACurrentMediaTime()) }
             case let .animate(slide):
                 CATransaction.begin()
+                if slide.landsVisible { layout?.dockedPane?.setRowsOnScreen(true) }
                 addSlideAnimation(slide, in: window)
                 CATransaction.commit()
                 CATransaction.flush()
@@ -165,6 +166,7 @@ final class SidebarToggleAnimator: ObservableObject {
             case .finishHide:
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
+                layout?.dockedPane?.setRowsOnScreen(false)
                 removeSlideAnimations()
                 CATransaction.commit()
                 // ContentView hears about the hide once the motion is over;

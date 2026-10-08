@@ -21,6 +21,9 @@ final class SidebarLayoutModel: ObservableObject {
     /// ContentView's body. While false, the pane stays laid out at full
     /// width, parked just past the window's leading edge.
     @Published var docksSidebar = true
+    /// The docked pane's host, so the toggle animator can start row
+    /// animations at a show's first frame without a SwiftUI pass.
+    weak var dockedPane: SidebarDockedPaneHost.ContainerView?
 
     /// How far the window ground reaches past the leading edge, so a toggle
     /// slide (which translates the content root by up to the sidebar width)

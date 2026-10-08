@@ -1968,6 +1968,7 @@ struct ContentView: View {
                     isPresented: listIsPresented,
                     isRevealed: sidebarState.occupiesLayout,
                     presentationMode: sidebarState.presentationMode,
+                    layout: sidebarLayout,
                     content: AnyView(sidebarEnvironment(sidebarView(isPresented: listIsPresented, isRevealed: sidebarState.occupiesLayout)
                         .environment(\.colorScheme, appearance.sidebarContentColorScheme)
                         .environment(\.sidebarReadabilityBackdrop, appearance.sidebarReadabilityBackdrop)))

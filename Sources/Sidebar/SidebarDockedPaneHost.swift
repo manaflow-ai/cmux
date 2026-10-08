@@ -23,6 +23,7 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
     /// landing frame stays as light as the keypress.
     let isRevealed: Bool
     let presentationMode: SidebarPresentationMode
+    let layout: SidebarLayoutModel
     let content: AnyView
 
     final class ContainerView: NSView {
@@ -32,6 +33,20 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
         fileprivate var isRevealed = false
         fileprivate var presentationMode: SidebarPresentationMode = .docked
         fileprivate var deferredContent: AnyView?
+        private weak var table: SidebarWorkspaceTableContainerView?
+
+        /// Called by the toggle animator: rows animate from a show's first
+        /// frame and pause once a hide lands. SwiftUI's `isRevealed` agrees
+        /// after the landing.
+        func setRowsOnScreen(_ onScreen: Bool) {
+            if table == nil { table = Self.firstTable(in: hostingView) }
+            table?.clipView.workspaceController?.setRowsOnScreen(onScreen)
+        }
+
+        private static func firstTable(in view: NSView) -> SidebarWorkspaceTableContainerView? {
+            if let table = view as? SidebarWorkspaceTableContainerView { return table }
+            return view.subviews.lazy.compactMap { firstTable(in: $0) }.first
+        }
 
         init(content: AnyView) {
             hostingView = NSHostingView(rootView: content)
@@ -58,6 +73,7 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
         view.isPresented = isPresented
         view.isRevealed = isRevealed
         view.presentationMode = presentationMode
+        layout.dockedPane = view
         apply(parkedOffset, to: view)
         return view
     }
@@ -77,15 +93,23 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
                 view.isRevealed = isRevealed
                 let pending = view.deferredContent == nil
                 view.deferredContent = content
+                // Default mode only: the landing's commit spins the run loop
+                // in event tracking mode, and this must not run inside it.
                 if pending {
-                    DispatchQueue.main.async { [weak view] in
-                        guard let view, let content = view.deferredContent else { return }
-                        view.deferredContent = nil
-                        view.hostingView.rootView = content
+                    RunLoop.main.perform(inModes: [.default]) { [weak view] in
+                        MainActor.assumeIsolated {
+                            guard let view, let content = view.deferredContent else { return }
+                            view.deferredContent = nil
+                            view.hostingView.rootView = content
+                        }
                     }
                 }
                 return
             }
+        } else if view.deferredContent != nil, !contentInputsChanged, view.isRevealed == isRevealed {
+            // The rest of the landing's update: ride the pending push.
+            view.deferredContent = content
+            return
         }
         view.deferredContent = nil
         view.isPresented = isPresented

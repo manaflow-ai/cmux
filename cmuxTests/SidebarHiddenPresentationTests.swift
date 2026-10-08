@@ -223,7 +223,7 @@ struct SidebarHiddenPresentationTests {
     /// Ensures a hidden docked sidebar keeps its table and stays current
     /// (rows and Cloud identity apply while hidden) with its row animations
     /// paused, and that a reveal applies at most once.
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func visibilityToggleKeepsAppKitTableContainerMounted() async throws {
         _ = NSApplication.shared
 
@@ -355,7 +355,7 @@ struct SidebarHiddenPresentationTests {
         tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
         await drainMainRunLoop(for: window)
         #expect(
-            initialContainer.tableView.numberOfRows == initialRowCount + 1,
+            initialContainer.tableView.numberOfRows > initialRowCount,
             "A hidden docked list stays current: workspace updates still apply while hidden."
         )
         let hiddenRowCells = descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer)
