@@ -1,13 +1,11 @@
 // The app theme (src/theme/appTheme.ts) on every bundled Ghostty theme: each contract pair meets its
-// WCAG minimum, the accent hue comes from the theme's own palette, and the tokens stay the theme's
+// WCAG minimum, the accent is neutral (no palette hue, the no-blue rule), and the tokens stay the theme's
 // (a theme whose colors already pass keeps them).
 import { describe, expect, test } from "bun:test";
 import { readShippedThemes } from "../dev-server/galleryHost";
 import {
-  ACCENT_MIN_CHROMA,
   APP_THEME_CONTRACT,
   APP_THEME_TOKENS,
-  accentSlot,
   appThemeVariables,
   contrastReport,
   deriveAppTheme,
@@ -45,38 +43,27 @@ describe("app theme", () => {
         expect({ name, checked: checked.has(name as never) }).toEqual({ name, checked: true });
   });
 
-  test("the accent hue comes from the theme's palette, never a fixed hue", () => {
-    const wrong: string[] = [];
-    for (const theme of themes) {
-      const app = deriveAppTheme(theme);
-      const accent = toOklch(parseHex(app.tokens.accent)!);
-      if (app.accentSource === null) {
-        // A palette without color gets a neutral accent.
-        if (accent.c > 0.03) wrong.push(`${theme.name}: neutral palette, accent chroma ${accent.c.toFixed(3)}`);
-        continue;
+  test("the default Ghostty palette gives a neutral accent, never the blue ANSI 4 (dark and light)", () => {
+    for (const [background, foreground] of [
+      ["#282c34", "#ffffff"],
+      ["#ffffff", "#1d1f21"],
+    ]) {
+      const app = deriveAppTheme({ background, foreground, palette: [] });
+      for (const token of ["accent", "focusRing", "accentText"] as const) {
+        expect({ token, chroma: toOklch(parseHex(app.tokens[token])!).c < 0.02 }).toEqual({ token, chroma: true });
       }
-      const seed = toOklch(parseHex(theme.palette[app.accentSource]!)!);
-      expect(seed.c).toBeGreaterThanOrEqual(ACCENT_MIN_CHROMA);
-      // Near white or black the gamut leaves little chroma, and the hue is not visible.
-      if (accent.c > 0.03 && hueDistance(accent.h, seed.h) > 6)
-        wrong.push(`${theme.name}: accent hue ${accent.h.toFixed(0)} vs slot ${app.accentSource} ${seed.h.toFixed(0)}`);
+      expect(contrastReport(app).filter((result) => !result.pass)).toEqual([]);
     }
-    expect(wrong).toEqual([]);
   });
 
-  test("a palette whose blue slot has color takes its accent there; others take the most colorful slot", () => {
-    const gray = Array.from({ length: 16 }, () => "#808080");
-    const rgb = (list: string[]) => list.map((hex) => parseHex(hex)!);
-    expect(accentSlot(rgb(gray))).toBeNull();
-    const greenOnly = [...gray];
-    greenOnly[2] = "#22aa44";
-    expect(accentSlot(rgb(greenOnly))).toBe(2);
-    const withBlue = [...greenOnly];
-    withBlue[4] = "#6b5bd6";
-    expect(accentSlot(rgb(withBlue))).toBe(4);
-    const app = deriveAppTheme({ background: "#101010", foreground: "#e0e0e0", palette: greenOnly });
-    expect(app.accentSource).toBe(2);
-    expect(hueDistance(toOklch(parseHex(app.tokens.accent)!).h, toOklch(parseHex("#22aa44")!).h)).toBeLessThan(6);
+  test("every bundled theme's accent is neutral: no palette hue, whatever ANSI 4 is", () => {
+    const tinted: string[] = [];
+    for (const theme of themes) {
+      const app = deriveAppTheme(theme);
+      const chroma = toOklch(parseHex(app.tokens.accent)!).c;
+      if (chroma > 0.02) tinted.push(`${theme.name}: accent ${app.tokens.accent} chroma ${chroma.toFixed(3)}`);
+    }
+    expect(tinted).toEqual([]);
   });
 
   test("colors that already pass are kept, and fit changes only lightness", () => {
@@ -87,7 +74,6 @@ describe("app theme", () => {
     const app = deriveAppTheme(themes.find((theme) => theme.name === "Dracula")!);
     expect(app.tokens.window).toBe("#282a36");
     expect(app.tokens.text).toBe("#f8f8f2");
-    expect(app.accentSource).toBe(4);
   });
 
   test("CSS variables cover every token", () => {

@@ -606,6 +606,10 @@ export type Host = {
   readonly kind?: HostKind
   readonly wg_public_key?: WgPublicKey
   readonly tags?: ReadonlyArray<string>
+  readonly orphaned?: {
+    readonly at: number
+    readonly former_owner: UserId
+  }
 }
 
 /** A machine's session host, enrolled by its link. */
@@ -634,7 +638,7 @@ export type Install = {
 /** One app, CLI or daemon install with its own keypair. */
 export type InstallId = string
 
-export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 

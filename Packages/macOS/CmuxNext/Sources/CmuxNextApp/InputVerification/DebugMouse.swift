@@ -79,6 +79,15 @@ enum DebugMouse {
                   let target = frameView.hitTest(frameView.convert(baseLocation(point, in: window), from: nil)) else {
                 return .object(["error": .string("no view under the point")])
             }
+            // A real scroll first meets the layout's event monitor (strip and
+            // row scrolls); a windowless synthesized one skips monitors, so
+            // the layout under the point gets it first, then the view.
+            let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
+            if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) {
+                LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
+                return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                                "delivered_to": .string("LayoutRootView")])
+            }
             target.scrollWheel(with: event)
             LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
