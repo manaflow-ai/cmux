@@ -42,6 +42,7 @@ final class AgentFeedQuestionUITests: XCTestCase {
         let customAnswer = app.descendants(matching: .any)["MobileAgentFeedQuestionText-events"]
         for _ in 0..<5 where !customAnswer.isHittable { app.swipeUp() }
         customAnswer.tap()
+        dismissKeyboardTutorial(in: app)
         XCTAssertTrue(app.buttons["MobileAgentFeedQuestionOther-events"].isSelected)
         XCTAssertFalse(build.isSelected)
         XCTAssertFalse(deploy.isSelected)
@@ -104,6 +105,7 @@ final class AgentFeedQuestionUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         let singleLineHeight = field.frame.height
         app.buttons["MobileAgentFeedQuestionOther-deploy"].tap()
+        dismissKeyboardTutorial(in: app)
         field.typeText("Deploy to staging first.\nRun the smoke tests.\nCheck error rates.\nRoll out gradually.")
         let expanded = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in field.frame.height > singleLineHeight * 2 },
@@ -114,10 +116,14 @@ final class AgentFeedQuestionUITests: XCTestCase {
         field.typeText("\nKeep monitoring.\nPause if errors rise.")
         XCTAssertEqual(field.frame.height, fourLineHeight, accuracy: 2)
         XCTAssertTrue((field.value as? String)?.contains("Pause if errors rise.") == true)
-        let proof = XCTAttachment(screenshot: app.screenshot())
-        proof.name = "feed-custom-answer-four-line-scroll-limit"
-        proof.lifetime = .keepAlways
-        add(proof)
+        let clearsKeyboard = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                field.frame.maxY <= app.keyboards.firstMatch.frame.minY - 8
+            },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [clearsKeyboard], timeout: 3), .completed)
+        capture(app, "feed-custom-answer-four-line-scroll-limit")
     }
 
     @MainActor
@@ -180,7 +186,25 @@ final class AgentFeedQuestionUITests: XCTestCase {
     }
 
     @MainActor
+    private func dismissKeyboardTutorial(in app: XCUIApplication) {
+        // A fresh simulator can cover the field with the system's slide-to-type
+        // tutorial. This preview has no app-owned Continue button.
+        let tutorialContinue = app.buttons["Continue"].firstMatch
+        if tutorialContinue.waitForExistence(timeout: 2) {
+            tutorialContinue.tap()
+            XCTAssertTrue(tutorialContinue.waitForNonExistence(timeout: 3))
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+    }
+
+    @MainActor
     private func capture(_ app: XCUIApplication, _ name: String) {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let banner = springboard.otherElements["NotificationShortLookView"]
+        if banner.exists {
+            banner.swipeUp()
+            XCTAssertTrue(banner.waitForNonExistence(timeout: 3))
+        }
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
