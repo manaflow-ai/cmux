@@ -84,8 +84,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
     }()
 
     func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child {
-        // RED STUB (commit 1): no disclaim check.
-        let disclaim = disclaim ?? { _, _ in 0 }
+        guard let disclaim else { throw Failure.disclaimUnavailable }
         var toHelper: [Int32] = [-1, -1]
         var toHost: [Int32] = [-1, -1]
         guard pipe(&toHelper) == 0 else { throw Failure.spawn(errno) }

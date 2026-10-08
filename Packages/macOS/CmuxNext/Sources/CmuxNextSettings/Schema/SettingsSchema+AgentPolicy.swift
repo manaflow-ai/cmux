@@ -184,6 +184,7 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly,
+        "computerUse.driver": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

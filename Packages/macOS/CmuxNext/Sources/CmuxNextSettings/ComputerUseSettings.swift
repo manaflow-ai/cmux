@@ -23,7 +23,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["computerUse"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
-        // RED STUB (commit 1): the driver is not read.
+        if let value = reader.choice("driver", ComputerUseDriver.self) { settings.driver = value }
         diagnostics = reader.diagnostics
         return settings
     }

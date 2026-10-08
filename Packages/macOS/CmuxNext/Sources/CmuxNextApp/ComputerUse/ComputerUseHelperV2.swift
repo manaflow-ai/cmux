@@ -85,9 +85,7 @@ final class ComputerUseHelperV2 {
     nonisolated static func environment(home: String = NSHomeDirectory(),
                                         temporaryDirectory: String = ComputerUseHelperDaemon.userTemporaryDirectory(),
                                         user: String = NSUserName()) -> [String: String] {
-        // RED STUB (commit 1): the Cua Driver values are missing.
-        if true { return ["HOME": home] }
-        return [
+        [
             "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
             "CUA_TELEMETRY_ENABLED": "false",
             "CUA_DRIVER_RS_UPDATE_CHECK": "false",
@@ -183,7 +181,7 @@ final class ComputerUseHelperV2 {
         }
         self.child = nil
         state = .off
-        // RED STUB (commit 1): stdin stays open.
+        child.closeInput()
         let spawner = self.spawner
         // wakeup-allow: one bounded grace before SIGTERM when the helper is stopped.
         try? await clock.sleep(for: exitGrace)

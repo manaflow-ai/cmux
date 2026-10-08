@@ -142,8 +142,7 @@ final class ComputerUseHelperDaemon {
     /// the helper v2 never starts.
     nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool) -> (legacy: Bool, upstream: Bool) {
         let on = settings.enabled && !disabledByPolicy
-        // RED STUB (commit 1): every driver also routes to legacy.
-        return (on, on && settings.driver == .upstream)
+        return (on && settings.driver == .legacy, on && settings.driver == .upstream)
     }
 
     /// Applies one settings value: stops the helper that is off first, then
