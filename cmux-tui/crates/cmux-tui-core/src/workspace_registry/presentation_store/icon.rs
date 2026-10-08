@@ -119,4 +119,3 @@ fn is_single_emoji(value: &str) -> bool {
     }
     !expect_base
 }
-

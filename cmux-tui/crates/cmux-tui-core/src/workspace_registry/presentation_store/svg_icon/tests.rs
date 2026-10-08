@@ -1,5 +1,5 @@
-use super::*;
 use super::super::icon::{validate_presentation_icon, validate_presentation_icon_asset};
+use super::*;
 
 const SVG_NS: &str = r#"xmlns="http://www.w3.org/2000/svg""#;
 
@@ -43,7 +43,12 @@ fn sanitized_output_is_a_fixed_point() {
 <script>alert(1)</script></svg>"##;
     let once = clean(input);
     assert_eq!(clean(&once), once);
-    assert!(once.contains("<text x=\"1\" y=\"7\" font-size=\"3\">a &lt; b &amp; AB &quot;q&quot; &lt;c&gt;</text>"), "{once}");
+    assert!(
+        once.contains(
+            "<text x=\"1\" y=\"7\" font-size=\"3\">a &lt; b &amp; AB &quot;q&quot; &lt;c&gt;</text>"
+        ),
+        "{once}"
+    );
     assert!(once.contains(r##"fill="url(#g)""##), "{once}");
 }
 
@@ -78,7 +83,21 @@ fn removes_external_and_internal_references() {
 <pattern id="p" href="https://evil.example/"/>
 </svg>"##,
     );
-    assert_absent(&output, &["href", "https", "evil", "javascript", "data:", "<a", "<use", "image", "filter", "pattern"]);
+    assert_absent(
+        &output,
+        &[
+            "href",
+            "https",
+            "evil",
+            "javascript",
+            "data:",
+            "<a",
+            "<use",
+            "image",
+            "filter",
+            "pattern",
+        ],
+    );
     assert!(output.contains(r#"<linearGradient id="g"></linearGradient>"#), "{output}");
 }
 
@@ -115,7 +134,10 @@ fn css_url_only_names_a_fragment_in_the_same_icon() {
     assert_absent(&output, &["evil", "style", "image(", "expression", "\\", "'"]);
     assert!(output.contains(r##"<rect id="a" stroke="url( #ok )" width="1"></rect>"##), "{output}");
     assert!(output.contains(r##"<rect id="b" clip-path="url(#clip)"></rect>"##), "{output}");
-    assert!(output.contains(r##"<rect id="f" fill="#00f" stroke="currentColor"></rect>"##), "{output}");
+    assert!(
+        output.contains(r##"<rect id="f" fill="#00f" stroke="currentColor"></rect>"##),
+        "{output}"
+    );
 }
 
 #[test]
