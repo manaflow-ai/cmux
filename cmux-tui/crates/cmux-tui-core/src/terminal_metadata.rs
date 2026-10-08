@@ -472,6 +472,9 @@ pub(crate) struct TerminalMetadata {
     gate: NotificationGate,
     /// OSC 133 prompt marks since the last take (shell command history).
     shell_marks: Vec<crate::shell_history::ShellMark>,
+    /// OSC 7501 records, fed by the terminal parser's callback. Shared so a
+    /// replaced mirror terminal (resize, reconnect) keeps feeding them.
+    program_status: crate::program_status::SharedProgramStatus,
 }
 
 impl TerminalMetadata {
@@ -535,6 +538,20 @@ impl TerminalMetadata {
                 notifications.push(notification);
             }
         });
+    }
+
+    /// Metadata that keeps feeding `program_status` (a reconnect replaces the
+    /// rest).
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn with_program_status(
+        program_status: crate::program_status::SharedProgramStatus,
+    ) -> Self {
+        Self { program_status, ..Self::default() }
+    }
+
+    /// The OSC 7501 records this metadata publishes.
+    pub(crate) fn program_status(&self) -> crate::program_status::SharedProgramStatus {
+        self.program_status.clone()
     }
 
     /// OSC 133 marks parsed since the last call, oldest first.

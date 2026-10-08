@@ -83,6 +83,46 @@ pub struct HostState {
     /// next connect reads them from the owner again and describes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub undescribed: Vec<crate::brain::images::ImageRef>,
+    /// G9: the floor of each side conversation (not the main one) the
+    /// chief's wake queue woke, by conversation id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub side: BTreeMap<String, SideFloor>,
+}
+
+/// A side conversation's floor is dropped after this many days without a
+/// wake (its conversation is quiet or gone; a later wake starts a new floor
+/// at that wake).
+pub const FLOOR_RETENTION_DAYS: u64 = 30;
+
+/// How many handled message ids a side floor keeps (crash dedupe by id).
+pub const FLOOR_IDS: usize = 64;
+
+/// A side conversation's saved floor: every message at or below `seq` (or
+/// with an id in `ids`) is in the OptChat log or needed none, so a wake
+/// repeated after a crash never logs or answers it twice. It moves in the
+/// same transaction as the messages it covers.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SideFloor {
+    /// Highest seq handled.
+    pub seq: u64,
+    /// The ids of the last handled messages, newest last (at most `FLOOR_IDS`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ids: Vec<String>,
+    /// When the last wake for this conversation arrived (ms since the epoch).
+    #[serde(default)]
+    pub touched_ms: u64,
+}
+
+impl SideFloor {
+    /// Records a handled message.
+    pub fn handled(&mut self, seq: u64, id: &str) {
+        self.seq = self.seq.max(seq);
+        if !id.is_empty() && !self.ids.iter().any(|i| i == id) {
+            self.ids.push(id.to_owned());
+            let extra = self.ids.len().saturating_sub(FLOOR_IDS);
+            self.ids.drain(..extra);
+        }
+    }
 }
 
 /// One `spawn(tasks)` call (section 9): its subagents report together.
@@ -232,6 +272,12 @@ pub struct Item {
     /// keeps them so a restart can still describe them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<crate::brain::images::ImageRef>,
+    /// The side conversation of a human message (None: the main one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    /// The human message's id (a side floor's crash dedupe).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

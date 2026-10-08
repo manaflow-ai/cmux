@@ -5,7 +5,12 @@
 //!
 //! `doctor` starts the harness in a fresh private temp folder, runs the ACP
 //! handshake (`initialize`, `session/new`) and one prompt, and prints each
-//! step with an exact fix. It never prints an env value: every resolved env
+//! step with an exact fix. An id the catalog lacks may be a folder profile
+//! (`--folder DIR` or the current folder, or their nearest parent): an
+//! enabled one starts with its folder as the working folder, because its
+//! relative arguments and PATH entries (and the bytes `enable` hashed) are
+//! relative to that folder and a session may use it only inside it; one that
+//! is not enabled fails with the exact next step. It never prints an env value: every resolved env
 //! value is masked in all output, harness stderr included.
 
 use std::collections::BTreeMap;
@@ -17,9 +22,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-use crate::cli::command::HarnessCmd;
+use crate::cli::command::{HarnessCmd, SecretCmd};
+use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
+
+mod wire;
+use wire::{TempFolder, Wire};
 
 /// Example profiles shipped with acpmux, by id (`harness add --example`).
 pub const EXAMPLES: &[(&str, &str)] = &[
@@ -50,7 +59,21 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
-        HarnessCmd::List => list(json_out),
+        HarnessCmd::List { folder: None } => list(json_out),
+        HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
+        HarnessCmd::Enable { id, folder, yes } => {
+            super::harness_folder::enable_cmd(&id, &folder, yes, json_out)
+        }
+        HarnessCmd::Disable { id, folder } => super::harness_folder::disable_cmd(&id, &folder),
+        HarnessCmd::Run { tab: true, .. } => {
+            bail!("--tab opens a cmux tab: run `cmux harness run ID --tab`")
+        }
+        HarnessCmd::Run { id, cwd, model, tab: false } => {
+            super::harness_run::run_cmd(&id, cwd, model)
+        }
+        HarnessCmd::Secret(SecretCmd::Set { id, key }) => {
+            super::harness_secret::set_cmd(&id, &key).await
+        }
         HarnessCmd::Add { id, command, protocol, example, force } => {
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
@@ -71,9 +94,11 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        HarnessCmd::Doctor { id, no_prompt, timeout } => {
+        HarnessCmd::Doctor { id, folder, no_prompt, timeout } => {
             let cfg = Config::load()?;
+            let here = std::env::current_dir()?;
             let opts = DoctorOptions {
+                folder: Some(folder.map(|f| here.join(f)).unwrap_or(here)),
                 prompt: !no_prompt,
                 timeout: Duration::from_secs(timeout.max(5)),
                 lookup_env: Box::new(|var| std::env::var(var).ok()),
@@ -107,7 +132,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
 }
 
 /// Ask a running daemon to reload its catalog; false when none runs.
-async fn reload_daemon() -> bool {
+pub(crate) async fn reload_daemon() -> bool {
     match crate::daemon::connect(false).await {
         Ok(client) => {
             client.request(crate::rpc::method::MUX_RELOAD_CONFIG, json!({})).await.is_ok()
@@ -339,6 +364,9 @@ args = []                 # for example ["acp"]; "${{model}}" becomes the chosen
 // ---------------------------------------------------------------- doctor
 
 pub struct DoctorOptions {
+    /// Where to look for a folder profile (it and its parents) when the
+    /// catalog has no harness of that id. None: catalog harnesses only.
+    pub folder: Option<PathBuf>,
     /// Send one prompt after the handshake.
     pub prompt: bool,
     /// Time limit for each step that waits on the harness.
@@ -431,28 +459,52 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     // 1. The profile.
     let problems: Vec<&profiles::Diagnostic> =
         cfg.profile_diagnostics.iter().filter(|d| d.id.as_deref() == Some(id)).collect();
-    let Some(profile) = cfg.harnesses.get(id) else {
-        match problems.iter().find(|d| d.severity == Severity::Error) {
-            Some(d) => r.push(
-                "profile",
-                StepStatus::Fail,
-                &format!("{}: {}", d.path, d.message),
-                d.fix.clone(),
-            ),
-            None => r.push(
-                "profile",
-                StepStatus::Fail,
-                &format!("no harness {id:?}"),
-                Some(format!("create it: cmux harness add {id} --command <program>")),
-            ),
-        }
-        return r.done();
+    let catalog_error = problems.iter().find(|d| d.severity == Severity::Error);
+    // An id the catalog lacks may be a folder profile (H4): only an enabled
+    // one runs, inside its folder.
+    let folder_target = match (cfg.harnesses.get(id), catalog_error) {
+        (None, None) => opts
+            .folder
+            .as_deref()
+            .and_then(|start| super::harness_folder::doctor_target(cfg, id, start)),
+        _ => None,
     };
-    let source = cfg
-        .profile_meta
-        .get(id)
-        .map(|m| m.source_path.clone())
-        .unwrap_or_else(|| "acpmux config or PATH discovery".into());
+    let (profile, workdir, source) = match (cfg.harnesses.get(id), &folder_target) {
+        (Some(profile), _) => {
+            let source = cfg
+                .profile_meta
+                .get(id)
+                .map(|m| m.source_path.clone())
+                .unwrap_or_else(|| "acpmux config or PATH discovery".into());
+            (profile, None, source)
+        }
+        (None, Some(Ok(target))) => (
+            &target.profile,
+            Some(target.folder.as_path()),
+            format!("{} (folder profile, enabled)", target.path),
+        ),
+        (None, Some(Err((detail, fix)))) => {
+            r.push("profile", StepStatus::Fail, detail, fix.clone());
+            return r.done();
+        }
+        (None, None) => {
+            match catalog_error {
+                Some(d) => r.push(
+                    "profile",
+                    StepStatus::Fail,
+                    &format!("{}: {}", d.path, d.message),
+                    d.fix.clone(),
+                ),
+                None => r.push(
+                    "profile",
+                    StepStatus::Fail,
+                    &format!("no harness {id:?}"),
+                    Some(format!("create it: cmux harness add {id} --command <program>")),
+                ),
+            }
+            return r.done();
+        }
+    };
     r.push(
         "profile",
         StepStatus::Pass,
@@ -464,7 +516,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     }
     // 2. The program.
     let program = profile.argv.first().cloned().unwrap_or_default();
-    match find_program(&program) {
+    match folder_profiles::resolve_program(profile, workdir) {
         Some(path) => r.push("command", StepStatus::Pass, &path.to_string_lossy(), None),
         None => {
             r.push(
@@ -525,7 +577,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         }
     }
     match profile.kind {
-        HarnessKind::Acp => acp_steps(&mut r, cfg, id, profile, env, opts).await,
+        HarnessKind::Acp => acp_steps(&mut r, cfg, id, profile, env, opts, workdir).await,
         HarnessKind::Terminal | HarnessKind::ClaudeStdio => {
             let argv = vec![program.clone(), "--version".to_owned()];
             match run_short(&argv, &env, Duration::from_secs(20)).await {
@@ -567,24 +619,6 @@ fn install_hint(cfg: &Config, id: &str, program: &str) -> String {
     hint
 }
 
-/// `program` as an existing executable: an absolute or relative path, or a
-/// name looked up on PATH.
-pub fn find_program(program: &str) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    let executable = |p: &Path| {
-        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    };
-    if program.is_empty() {
-        return None;
-    }
-    if program.contains('/') {
-        let p = PathBuf::from(program);
-        return executable(&p).then_some(p);
-    }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join(program)).find(|p| executable(p))
-}
-
 /// Run a short command with the profile env; Ok(stdout) on exit 0.
 async fn run_short(
     argv: &[String],
@@ -611,7 +645,8 @@ async fn run_short(
     }
 }
 
-/// The ACP steps: spawn in a temp folder, initialize, session/new, prompt.
+/// The ACP steps: spawn in `workdir` (a folder profile's folder) or a temp
+/// folder, initialize, session/new, prompt.
 async fn acp_steps(
     r: &mut Report,
     cfg: &Config,
@@ -619,25 +654,33 @@ async fn acp_steps(
     profile: &HarnessProfile,
     env: BTreeMap<String, String>,
     opts: &DoctorOptions,
+    workdir: Option<&Path>,
 ) {
-    let folder = match TempFolder::new(id) {
-        Ok(f) => f,
-        Err(e) => {
-            r.push("launch", StepStatus::Fail, &format!("temp folder: {e}"), None);
-            return;
-        }
+    let temp;
+    let folder: &Path = match workdir {
+        Some(dir) => dir,
+        None => match TempFolder::new(id) {
+            Ok(f) => {
+                temp = f;
+                &temp.path
+            }
+            Err(e) => {
+                r.push("launch", StepStatus::Fail, &format!("temp folder: {e}"), None);
+                return;
+            }
+        },
     };
     let home = dirs::home_dir().unwrap_or_default();
     let model = profile.model.clone().unwrap_or_default();
     let mut spawn = profile.clone();
     spawn.env = env;
     for v in spawn.env.values_mut() {
-        *v = crate::hub::expand_env_value(v, &folder.path, &home, &model);
+        *v = crate::hub::expand_env_value(v, folder, &home, &model);
     }
     for a in spawn.argv.iter_mut() {
-        *a = crate::hub::expand_env_value(a, &folder.path, &home, &model);
+        *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
-    let mut cmd = match crate::agent::harness_command(id, &spawn, &folder.path, None, None) {
+    let mut cmd = match crate::agent::harness_command(id, &spawn, folder, None, None) {
         Ok(cmd) => cmd,
         Err(e) => {
             r.push("launch", StepStatus::Fail, &e.to_string(), None);
@@ -684,7 +727,7 @@ async fn acp_steps(
     r.push(
         "launch",
         StepStatus::Pass,
-        &format!("pid {} in {}", pid.unwrap_or(0), folder.path.display()),
+        &format!("pid {} in {}", pid.unwrap_or(0), folder.display()),
         None,
     );
     let mut wire = Wire {
@@ -694,7 +737,7 @@ async fn acp_steps(
         reply: String::new(),
         noise: 0,
     };
-    let outcome = handshake(r, &mut wire, &folder.path, opts).await;
+    let outcome = handshake(r, &mut wire, folder, opts).await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
     if let Some(pid) = pid {
@@ -826,114 +869,6 @@ async fn handshake(r: &mut Report, wire: &mut Wire, folder: &Path, opts: &Doctor
             );
             false
         }
-    }
-}
-
-struct Wire {
-    stdin: tokio::process::ChildStdin,
-    lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    next: i64,
-    reply: String,
-    noise: usize,
-}
-
-impl Wire {
-    async fn send(&mut self, msg: Value) -> Result<(), String> {
-        let mut line = msg.to_string();
-        line.push('\n');
-        self.stdin
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|e| format!("write to the harness: {e}"))?;
-        self.stdin.flush().await.map_err(|e| format!("write to the harness: {e}"))
-    }
-
-    /// One request; answers the harness's own requests (permission asks are
-    /// cancelled, anything else is refused) and collects reply text.
-    async fn call(
-        &mut self,
-        method: &str,
-        params: Value,
-        limit: Duration,
-    ) -> Result<Value, String> {
-        let id = self.next;
-        self.next += 1;
-        self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})).await?;
-        let deadline = tokio::time::Instant::now() + limit;
-        loop {
-            let line = match tokio::time::timeout_at(deadline, self.lines.next_line()).await {
-                Err(_) => return Err(format!("no answer to {method} in {} s", limit.as_secs())),
-                Ok(Err(e)) => return Err(format!("read from the harness: {e}")),
-                Ok(Ok(None)) => {
-                    return Err(format!("the harness exited before it answered {method}"));
-                }
-                Ok(Ok(Some(line))) => line,
-            };
-            if line.trim().is_empty() {
-                continue;
-            }
-            let Ok(msg) = serde_json::from_str::<Value>(line.trim()) else {
-                self.noise += 1;
-                continue;
-            };
-            let incoming = msg.get("method").and_then(Value::as_str).map(str::to_owned);
-            match (msg.get("id").cloned(), incoming.as_deref()) {
-                (Some(rid), Some("session/request_permission")) => {
-                    let answer = json!({"outcome": {"outcome": "cancelled"}});
-                    self.send(json!({"jsonrpc": "2.0", "id": rid, "result": answer})).await?;
-                }
-                (Some(rid), Some(_)) => {
-                    let error = json!({"code": -32601, "message": "cmux harness doctor does not serve this method"});
-                    self.send(json!({"jsonrpc": "2.0", "id": rid, "error": error})).await?;
-                }
-                (None, Some("session/update")) => {
-                    let update = msg.pointer("/params/update");
-                    let kind = update.and_then(|u| u.get("sessionUpdate")).and_then(Value::as_str);
-                    if kind == Some("agent_message_chunk")
-                        && let Some(text) =
-                            update.and_then(|u| u.pointer("/content/text")).and_then(Value::as_str)
-                    {
-                        self.reply.push_str(text);
-                    }
-                }
-                (Some(rid), None) if rid == json!(id) => {
-                    if let Some(e) = msg.get("error") {
-                        let code = e.get("code").and_then(Value::as_i64).unwrap_or(0);
-                        let message = e.get("message").and_then(Value::as_str).unwrap_or("error");
-                        return Err(format!("{method} failed ({code}): {message}"));
-                    }
-                    return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// A private temp folder, removed on drop.
-struct TempFolder {
-    path: PathBuf,
-}
-
-impl TempFolder {
-    fn new(id: &str) -> std::io::Result<Self> {
-        use std::os::unix::fs::DirBuilderExt;
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
-        let path = std::env::temp_dir()
-            .join(format!("cmux-harness-doctor-{id}-{}-{nanos}", std::process::id()));
-        std::fs::DirBuilder::new().mode(0o700).create(&path)?;
-        // One folder key for the trust record and the agent: /tmp vs /private/tmp.
-        let path = std::fs::canonicalize(&path).unwrap_or(path);
-        Ok(Self { path })
-    }
-}
-
-impl Drop for TempFolder {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
     }
 }
 

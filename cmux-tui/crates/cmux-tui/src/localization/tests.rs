@@ -339,8 +339,8 @@ fn remote_recovery_messages_are_localized() {
 
     assert!(english.remote_stop_help.contains("USAGE"));
     assert!(japanese.remote_stop_help.contains("使用方法"));
-    assert!(english.remote_stop_help.contains("cmux server stop"));
-    assert!(japanese.remote_stop_help.contains("cmux server stop"));
+    assert!(english.remote_stop_help.contains("cmux daemon stop"));
+    assert!(japanese.remote_stop_help.contains("cmux daemon stop"));
     assert!(english.embedded_daemon_stop_refused.contains("SSH"));
     assert!(japanese.embedded_daemon_stop_refused.contains("SSH"));
     assert_eq!(

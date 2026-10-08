@@ -39,10 +39,7 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
-            remote_auto_approve: value
-                .pointer("/remote/autoApprove")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
+            remote_auto_approve: cmux_chief::policy::remote_auto_approve(&value),
         }
     }
 

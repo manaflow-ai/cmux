@@ -115,7 +115,7 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    fn error(path: &str, id: Option<&str>, message: String, fix: Option<String>) -> Self {
+    pub fn error(path: &str, id: Option<&str>, message: String, fix: Option<String>) -> Self {
         Self {
             path: path.to_owned(),
             id: id.map(str::to_owned),
@@ -124,7 +124,7 @@ impl Diagnostic {
             fix,
         }
     }
-    fn warning(path: &str, id: Option<&str>, message: String, fix: Option<String>) -> Self {
+    pub fn warning(path: &str, id: Option<&str>, message: String, fix: Option<String>) -> Self {
         Self { severity: Severity::Warning, ..Self::error(path, id, message, fix) }
     }
 }
@@ -414,7 +414,7 @@ fn load_cmux_json(path: &Path, out: &mut LoadedProfiles) {
     };
     for (id, profile) in map {
         let parsed = match serde_json::from_value::<ProfileFile>(profile.clone()) {
-            Ok(file) => build(file, path, Some(id), ProfileSource::CmuxJson, Some(id)),
+            Ok(file) => build(file, path, Some(id), ProfileSource::CmuxJson, Some(id), false),
             Err(e) => Err(vec![Diagnostic::error(
                 &shown,
                 Some(id),
@@ -426,7 +426,7 @@ fn load_cmux_json(path: &Path, out: &mut LoadedProfiles) {
     }
 }
 
-type Parsed = Result<(String, HarnessProfile, ProfileMeta, Vec<Diagnostic>), Vec<Diagnostic>>;
+pub type Parsed = Result<(String, HarnessProfile, ProfileMeta, Vec<Diagnostic>), Vec<Diagnostic>>;
 
 fn insert(out: &mut LoadedProfiles, parsed: Parsed) {
     match parsed {
@@ -479,7 +479,18 @@ pub fn parse_profile_toml(
     let file: ProfileFile = toml::from_str(text).map_err(|e| {
         vec![Diagnostic::error(&shown, stem, e.message().to_string(), toml_fix(&e, text))]
     })?;
-    build(file, path, stem, source, None)
+    build(file, path, stem, source, None, source == ProfileSource::Managed)
+}
+
+/// Parse a folder profile (`<folder>/.cmux/harnesses/<id>.toml`, H4) with the
+/// managed rules: a literal value under a secret-looking env key is an error.
+/// The returned meta says `user-file`; folder profiles never join the catalog.
+pub fn parse_folder_profile_toml(text: &str, path: &Path, stem: Option<&str>) -> Parsed {
+    let shown = path.to_string_lossy().into_owned();
+    let file: ProfileFile = toml::from_str(text).map_err(|e| {
+        vec![Diagnostic::error(&shown, stem, e.message().to_string(), toml_fix(&e, text))]
+    })?;
+    build(file, path, stem, ProfileSource::UserFile, None, true)
 }
 
 /// The line of a TOML error, as a fix hint.
@@ -495,6 +506,7 @@ fn build(
     stem: Option<&str>,
     source: ProfileSource,
     json_key: Option<&str>,
+    strict: bool,
 ) -> Parsed {
     let shown = path.to_string_lossy().into_owned();
     let mut errors = Vec::new();
@@ -570,7 +582,6 @@ fn build(
             None,
         ));
     }
-    let strict = source == ProfileSource::Managed;
     let mut env = BTreeMap::new();
     for (key, value) in file.env {
         if !valid_env_key(&key) {
@@ -779,7 +790,7 @@ pub fn valid_id(id: &str) -> bool {
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
-fn valid_env_key(key: &str) -> bool {
+pub fn valid_env_key(key: &str) -> bool {
     let b = key.as_bytes();
     !b.is_empty()
         && (b[0].is_ascii_alphabetic() || b[0] == b'_')

@@ -153,9 +153,9 @@ class CmuxNextWiring(unittest.TestCase):
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
-                                                            "swift": "true", "daemon": "true", "generated": "true"}},
+                                                            "swift": "true", "daemon": "true", "generated": "true",
+                                                            "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
-                            "same-tree-cmux-tui": {"result": "success", "outputs": {"superseded": "false"}},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 
@@ -198,8 +198,17 @@ class CmuxNextWiring(unittest.TestCase):
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
         jobs = self.workflow()["jobs"]
-        gate = jobs[self.PLACEMENT]["if"]
+        # !cancelled(): a same-tree mode run (path routing skipped) still places its tree jobs.
+        self.assertTrue(jobs[self.PLACEMENT]["if"].startswith("${{ !cancelled() && "))
+        gate = jobs[self.PLACEMENT]["if"].replace("!cancelled() && ", "")
         self.assertTrue(evaluate(gate, self.context()))
+        same_tree = self.context()
+        same_tree["github"].update(event_name="workflow_dispatch", ref="refs/heads/feat-cmux-next")
+        same_tree["inputs"] = {"same_tree_sha": "a" * 40, "same_tree_state": "ready"}
+        same_tree["needs"] = {}
+        self.assertTrue(evaluate(gate, same_tree))
+        same_tree["inputs"]["same_tree_state"] = "failed"
+        self.assertFalse(evaluate(gate, same_tree))
         push = self.context()
         push["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(gate, push))

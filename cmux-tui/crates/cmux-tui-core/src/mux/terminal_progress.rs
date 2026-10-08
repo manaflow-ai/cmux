@@ -1,15 +1,19 @@
-//! Terminal OSC 9;4 progress on the public graph. The daemon parses the
-//! progress of every terminal (mounted or not) and publishes a terminal
-//! upsert whenever its parsed state changes.
+//! Terminal OSC 9;4 progress and OSC 7501 program status on the public
+//! graph. The daemon parses both for every terminal (mounted or not) and
+//! publishes a terminal upsert whenever the parsed state changes.
 
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 
 impl Mux {
-    /// Publish `source`'s current terminal snapshot (with its progress) as one
-    /// resource revision. A replaced runtime or a terminal that is not running
-    /// publishes nothing.
-    pub(crate) fn publish_terminal_progress(&self, source: &Surface) -> anyhow::Result<()> {
+    /// Publish `source`'s current terminal snapshot (with its progress and
+    /// program status) as one resource revision named `mutation`. A replaced
+    /// runtime or a terminal that is not running publishes nothing.
+    pub(crate) fn publish_terminal_progress(
+        &self,
+        source: &Surface,
+        mutation: &'static str,
+    ) -> anyhow::Result<()> {
         let Some(id) = source.terminal_public_id() else { return Ok(()) };
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
@@ -37,8 +41,8 @@ impl Mux {
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
         let commit = registry.commit_resource_patch(
-            &WorkspaceMutation::local("terminal.progress"),
-            "terminal.progress",
+            &WorkspaceMutation::daemon_local(mutation),
+            mutation,
             &value,
             None,
             None,

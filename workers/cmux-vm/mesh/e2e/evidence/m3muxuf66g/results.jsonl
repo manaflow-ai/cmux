@@ -1,0 +1,39 @@
+{"t":1791361560480,"event":"mesh","meshId":"mesh_485aedf995f9ma4mbybmhxtdvc","ipv4Cidr":"10.202.64.0/20","ms":143}
+{"t":1791361560623,"event":"vm","vmId":"vm_27aznc66nwgtzxhjb6syjc5rzg","state":"running","idleTimeoutSeconds":300,"ms":143}
+{"t":1791361560774,"event":"vm-joined","ipv4":"10.202.64.1","ms":151}
+{"t":1791361560777,"event":"acl","version":1,"ruleCount":0}
+{"t":1791361561207,"event":"code-enroll","label":"device-a","code":0,"deviceId":"dev_xfz5jek5pv4z08pysm1bs16m14","stderr":""}
+{"t":1791361561215,"event":"signed-peers","code":0,"deviceId":"dev_xfz5jek5pv4z08pysm1bs16m14","aclVersion":1,"peers":["vm_27aznc66nwgtzxhjb6syjc5rzg"],"stderr":""}
+{"t":1791361561271,"event":"signed-tunnel","code":0,"deviceId":"dev_xfz5jek5pv4z08pysm1bs16m14","endpointPort":51820,"hasPrivateKey":false,"stderr":""}
+{"t":1791361563593,"event":"ping","code":0,"stdout":["{\"rttMs\":12.304,\"seq\":1}","{\"rttMs\":11.132,\"seq\":2}","{\"rttMs\":12.611,\"seq\":3}","{\"avgMs\":12.016,\"maxMs\":12.611,\"minMs\":11.132,\"peer\":\"10.202.64.1\",\"received\":3,\"sent\":3,\"summary\":true}"],"stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":300}"]}
+{"t":1791361563659,"event":"signed-rotate","code":0,"deviceId":"dev_xfz5jek5pv4z08pysm1bs16m14","rotateMs":48,"stderr":""}
+{"t":1791361563987,"event":"ping-after-rotate","code":1,"stdout":[""],"stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":322}","{\"error\":\"MissingCredential\",\"message\":\"set CMUX_VM_API_KEY, or pass --install-key to sign the request with the device's install key\"}"]}
+{"t":1791361564263,"event":"code-enroll","label":"device-b","code":0,"deviceId":"dev_nqpzn5hey2ssp22hzsfvh0mz1r","stderr":""}
+{"t":1791361564267,"event":"check","label":"A signs for B: 404","got":404,"want":404,"ok":true}
+{"t":1791361564268,"event":"check","label":"A's own request sent to B's path: 404","got":404,"want":404,"ok":true}
+{"t":1791361564269,"event":"check","label":"B signed peers: 200","got":200,"want":200,"ok":true}
+{"t":1791361564271,"event":"check","label":"B replayed: 409","got":409,"want":409,"ok":true}
+{"t":1791361564272,"event":"check","label":"B stale: 403","got":403,"want":403,"ok":true}
+{"t":1791361564273,"event":"check","label":"no credential on the bearer route: 401","got":401,"want":401,"ok":true}
+{"t":1791361564276,"event":"check","label":"forged code enroll: 403","got":403,"want":403,"ok":true}
+{"t":1791361564277,"event":"check","label":"the burned code with a valid signature: 404","got":404,"want":404,"ok":true}
+{"t":1791361564281,"event":"revoke","key":"member"}
+{"t":1791361564287,"event":"signed-peers-after-revoke","code":1,"stderr":"{\"error\":\"NotFound\",\"message\":\"Not found\",\"status\":404}"}
+{"t":1791361564289,"event":"check","label":"B signed peers after revoke: 404","got":404,"want":404,"ok":true}
+{"t":1791361564311,"event":"code-enroll-after-revoke","code":1,"stderr":"{\"error\":\"NotFound\",\"message\":\"Not found\",\"status\":404}"}
+{"t":1791361564313,"event":"cleanup","path":"/v1/devices/dev_xfz5jek5pv4z08pysm1bs16m14","status":404}
+{"t":1791361564314,"event":"cleanup","path":"/v1/devices/dev_nqpzn5hey2ssp22hzsfvh0mz1r","status":404}
+{"t":1791361564519,"event":"cleanup","path":"/v1/meshes/mesh_485aedf995f9ma4mbybmhxtdvc/vms/vm_27aznc66nwgtzxhjb6syjc5rzg","status":204}
+{"t":1791361564556,"event":"cleanup","path":"/v1/vms/vm_27aznc66nwgtzxhjb6syjc5rzg","status":204}
+{"t":1791361624737,"event":"cleanup","path":"/v1/meshes/mesh_485aedf995f9ma4mbybmhxtdvc","status":409}
+{"t":1791361624738,"event":"cmux-404","path":"/v1/devices/dev_xfz5jek5pv4z08pysm1bs16m14","status":404}
+{"t":1791361624740,"event":"cmux-404","path":"/v1/devices/dev_nqpzn5hey2ssp22hzsfvh0mz1r","status":404}
+{"t":1791361624741,"event":"cmux-404","path":"/v1/vms/vm_27aznc66nwgtzxhjb6syjc5rzg","status":404}
+{"t":1791361624742,"event":"cmux-404","path":"/v1/meshes/mesh_485aedf995f9ma4mbybmhxtdvc","status":200}
+{"t":1791361715370,"event":"provider-404","kind":"vpc","id":"vpc-766a0abcbed84770ac5d9217821c2ac6","status":200}
+{"t":1791361715425,"event":"provider-404","kind":"vm","id":"vm-4b91ee3a670a4e2792646d019e29e95c","status":404}
+{"t":1791361806610,"event":"provider-404","kind":"tunnel","id":"tun-3082dbecb46645ceb8251438b49df8e2","status":200}
+{"t":1791361806629,"event":"provider-404","kind":"rule","id":"fw-d23561a5e4d04fd2b8ecace93d19d294","status":404}
+{"t":1791361897875,"event":"provider-404","kind":"tunnel","id":"tun-05e7f2c1d2994eb9bd94d91976acb65f","status":200}
+{"t":1791361897893,"event":"provider-404","kind":"rule","id":"fw-dae173a81b3845e4a1a7d32497223872","status":404}
+{"t":1791361897893,"event":"done","run":"m3muxuf66g","ok":false,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m3muxuf66g"}

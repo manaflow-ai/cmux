@@ -65,6 +65,11 @@ on:
           - github
           - warp
           - r2
+      notary_test_without_password_import:
+        description: nightly-next only. One diagnostic notary submission (cx-f58x) of a build with the browser password-import readers compiled out (CMUX_NO_PASSWORD_IMPORT). Notarizes even with NIGHTLY_NEXT_NOTARY_PAUSED=1 and publishes nothing.
+        required: false
+        default: false
+        type: boolean
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
@@ -98,10 +103,15 @@ concurrency:
   # hold one behind a saturated runner pool. Each lane has its own group, and
   # a newer run may replace only a pending run. An in-flight nightly must always
   # finish so a 42-minute macOS build is not discarded by the next push.
+  # nightly-next has its own group. Sharing main's group (#18150) let every
+  # main push replace the pending nightly-next run (run 37579667979, cancelled
+  # by main push run 37580645859 before any job ran), so nightly-next starved.
+  # The cross-feed floor check in build-nightly-app still refuses a nightly-next
+  # build that is not above main's feed, so the shared app never downgrades.
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -140,7 +150,11 @@ jobs:
       short_sha: ${{ steps.decide.outputs.short_sha }}
       published_sha: ${{ steps.decide.outputs.published_sha }}
       should_publish: ${{ steps.decide.outputs.should_publish }}
+      notary_paused: ${{ steps.decide.outputs.notary_paused }}
+      notary_test: ${{ steps.decide.outputs.notary_test }}
+      no_publish: ${{ steps.decide.outputs.no_publish }}
       variants: ${{ steps.decide.outputs.variants }}
+      feeds: ${{ steps.decide.outputs.feeds }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
       fast_build: ${{ steps.decide.outputs.fast_build }}
       build_only: ${{ steps.decide.outputs.build_only }}
@@ -188,6 +202,11 @@ jobs:
           # Minimum age, in hours, of the commit NIGHTLY last published before
           # a push to main builds again. `0` restores publish-every-push.
           PUSH_MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_PUSH_MIN_INTERVAL_HOURS || '2' }}
+          # `1` stops nightly-next before its notary submission and publishes
+          # nothing (cx-f58x: every nightly-next DMG got notary status 7000
+          # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
+          NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
+          NOTARY_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -200,17 +219,6 @@ jobs:
             const buildOnly = process.env.BUILD_ONLY === 'true';
             const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
             const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
-            // Nightly ships one universal DMG for downloads plus one thin DMG per
-            // architecture for updates. Browsers cannot tell Apple silicon from
-            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
-            // feed stay universal; the app's feed resolver moves every install
-            // onto its architecture's feed at the first update check.
-            // A manually dispatched fast build is a branch-dogfood artifact only.
-            // It deliberately produces one Apple silicon DMG and never publishes
-            // to the shared NIGHTLY release or feed.
-            const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
-            core.setOutput('variants', JSON.stringify(variants));
-            core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
             core.setOutput('build_only', buildOnly ? 'true' : 'false');
             core.setOutput('cold_cache', coldCache ? 'true' : 'false');
@@ -227,6 +235,25 @@ jobs:
             const isTrackRef = isMainRef || isNextRef;
             const channel = isRcRef ? 'rc' : 'nightly';
             const track = isRcRef ? 'rc' : isNextRef ? 'nightly-next' : 'nightly';
+            // Nightly ships one universal DMG for downloads plus one thin DMG per
+            // architecture for updates. Browsers cannot tell Apple silicon from
+            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
+            // feed stay universal; the app's feed resolver moves every install
+            // onto its architecture's feed at the first update check.
+            // A manually dispatched fast build is a branch-dogfood artifact only.
+            // It deliberately produces one Apple silicon DMG and never publishes
+            // to the shared NIGHTLY release or feed.
+            // nightly-next ships arm64 only (Leo, 2026-10-07): one DMG notarization per
+            // build instead of three, after Apple's queue held all three past the wait in
+            // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
+            // their last build, so an Intel Mac is never offered an arm64-only app.
+            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            const feeds = track === 'nightly-next'
+              ? ['appcast-arm64.xml']
+              : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
+            core.setOutput('variants', JSON.stringify(variants));
+            core.setOutput('feeds', feeds.join(' '));
+            core.setOutput('legacy_variant', 'universal');
             const channelIdentity = {
               nightly: {
                 bundleId: 'com.cmuxterm.app.nightly',
@@ -480,6 +507,22 @@ jobs:
             core.setOutput('short_sha', headSha.slice(0, 7));
             core.setOutput('published_sha', publishedSha || '');
             core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
+            // The cx-f58x notary test: one nightly-next submission of a build
+            // without the password-import readers; never published.
+            const notaryTest = track === 'nightly-next' && process.env.NOTARY_TEST === 'true';
+            if (process.env.NOTARY_TEST === 'true' && !notaryTest) {
+              core.setFailed('notary_test_without_password_import runs only on nightly-next');
+            }
+            const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest;
+            core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
+            core.setOutput('notary_test', notaryTest ? 'true' : 'false');
+            core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');
+            if (notaryTest) {
+              core.notice('cx-f58x notary test: the browser password-import readers are compiled out (CMUX_NO_PASSWORD_IMPORT); one notary submission, nothing published.');
+            }
+            if (notaryPaused && appBuildSelected) {
+              core.notice('nightly-next notarization is paused (repository variable NIGHTLY_NEXT_NOTARY_PAUSED=1): this run builds and signs, stops before the notary submission and publishes nothing.');
+            }
             core.summary
               .addHeading(`${channelIdentity.releaseName} build decision`)
               .addTable([
@@ -1306,6 +1349,29 @@ jobs:
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # webviews app) are built from this commit's sources, never taken from a
+      # committed copy (cx-vn5). --force: a published build never trusts a stamp.
+      # They come before every Rust build: optchat-chief compiles the inspector
+      # page in, and run 37654121454 failed (exit 101) building it without one.
+      - name: Set up Bun (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: scripts/cmux-next/build-web-bundles.sh --force
+
       - name: Build in-tree acpmux for the compilation cache
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
@@ -1347,6 +1413,8 @@ jobs:
         working-directory: cmux-tui
         env:
           CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-nightly-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          # Compiled into `cmux` (decision SV-R1), as in cmux-tui-build-package.yml.
+          CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
@@ -1427,8 +1495,16 @@ jobs:
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
       - name: Build nightly app (Release)
+        env:
+          NOTARY_TEST: ${{ needs.decide.outputs.notary_test }}
         run: |
           set -euo pipefail
+          # cx-f58x notary test only: compile out the browser password-import readers.
+          notary_test_flags=()
+          if [[ "$NOTARY_TEST" == true ]]; then
+            # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
+            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT')
+          fi
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
             archs="arm64"
             only_active="YES"
@@ -1463,7 +1539,21 @@ jobs:
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" build
+            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
+            "${notary_test_flags[@]}" build
+
+      - name: Prove the password-import readers are compiled out (cx-f58x notary test)
+        if: needs.decide.outputs.notary_test == 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          # The readers' type names (Swift reflection metadata) and the key4.db
+          # table only the Firefox reader names. Chromium's own engine has none.
+          if hits="$(grep -r -a -l --exclude='*.json' -e nssPrivate -e ChromiumLoginDataReader -e FirefoxPasswordCrypto "$app")"; then
+            printf 'the notary test build still carries the password readers:\n%s\n' "$hits" >&2
+            exit 1
+          fi
+          echo "password-import readers absent from $app"
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound
@@ -1628,18 +1718,15 @@ jobs:
 
       - name: Upload dSYMs to Sentry
         if: needs.decide.outputs.build_only != 'true'
+        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
+        # workflow over an older build_sha checkout without the script.
+        continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
           SENTRY_PROJECT: cmuxterm-macos
-        run: |
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
-            exit 0
-          fi
-          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
-          "$SENTRY_CLI" debug-files upload --include-sources \
-            build-universal/Build/Products/Release/
+        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
+        run: ./scripts/upload-sentry-dsyms.sh build-universal/Build/Products/Release/
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
@@ -1695,6 +1782,10 @@ jobs:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           # Never ship a stale build: more than 24 h behind the tip fails.
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
+          # This run executes the tip's nightly.yml against the resolved
+          # commit, so the resolved commit must carry the same file: run
+          # 37568319518 called a dSYM script its older build commit lacked.
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
@@ -2035,6 +2126,21 @@ jobs:
           ./scripts/cmux-next/drop-cef-without-arch.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
           ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
 
+      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
+      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
+      # symbol unless the channel release carries gettext-0.24.tar.gz and
+      # COPYING.LIB (the prune step keeps those names, they carry no build number).
+      - name: Verify shipped libintl has its source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(build-universal/Build/Products/Release/cmux.app)
+          if [ -n "${CHANNEL_RELEASE_TAG:-}" ]; then
+            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$CHANNEL_RELEASE_TAG")
+          fi
+          python3 scripts/verify_app_libintl.py "${args[@]}"
+
       - name: Verify nightly binary architectures
         run: |
           set -euo pipefail
@@ -2313,8 +2419,20 @@ jobs:
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
+      - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
+        if: needs.decide.outputs.notary_paused == 'true'
+        run: |
+          echo "::notice title=nightly-next notarization paused::NIGHTLY_NEXT_NOTARY_PAUSED=1: the signed app was built, no notary submission was made and nothing is published."
+          echo "### nightly-next notarization paused (NIGHTLY_NEXT_NOTARY_PAUSED=1): no notary submission, nothing published" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Notarize app ticket through final DMG
+        if: needs.decide.outputs.notary_paused != 'true'
+        # The notary wait is bounded at 25m; the step adds 15m for the DMG
+        # build and the post-notary staple, smoke and mounted-DMG checks, and
+        # the job's 80m leaves about 40m for every other step (about 5m).
+        timeout-minutes: 50
         env:
+          CMUX_NOTARY_WAIT_TIMEOUT: 40m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -2327,10 +2445,11 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
       - name: Gate distribution with syspolicy_check
+        if: needs.decide.outputs.notary_paused != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2359,7 +2478,7 @@ jobs:
           fi
 
       - name: Upload nightly variant artifacts
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -2371,7 +2490,7 @@ jobs:
           retention-days: 3
 
       - name: Upload fast arm64 dogfood artifact
-        if: needs.decide.outputs.fast_build == 'true'
+        if: needs.decide.outputs.fast_build == 'true' && needs.decide.outputs.notary_paused != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-fast-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -2406,11 +2525,14 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
+      # The appcasts this track publishes (decide): one on nightly-next, four on main.
+      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+      NIGHTLY_TRACK: ${{ needs.decide.outputs.track }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       CHANNEL: ${{ needs.decide.outputs.channel }}
       TRACK: ${{ needs.decide.outputs.track }}
@@ -2448,6 +2570,12 @@ jobs:
           set -euo pipefail
           cd nightly-out
           ls -l
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            # arm64 only (decide): no Intel or universal names to assemble.
+            [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
+            [ -f appcast-arm64.xml ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
+            exit 0
+          fi
           for variant in arm64 x86_64; do
             [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
             [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
@@ -2465,23 +2593,49 @@ jobs:
           ls -l
 
       - name: Prepare nightly release notes and appcast summaries
+        id: notes
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
-          NOTES_BRANCH: ${{ github.ref_name }}
+          # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
+          NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
           NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
           NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
         run: |
           set -euo pipefail
+          read -ra feeds <<< "$NIGHTLY_FEEDS"
+          download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
+          arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            downloads="**${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          ${arm64_line}"
+          else
+            downloads="**${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          ${arm64_line}
+          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](${download}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
+          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](${download}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check"
+          fi
+          # The release metadata steps below list the same downloads.
+          {
+            echo "downloads<<CMUX_DOWNLOADS_EOF"
+            printf '%s\n' "$downloads"
+            echo "CMUX_DOWNLOADS_EOF"
+          } >> "$GITHUB_OUTPUT"
           cat > nightly-downloads.md <<EOF
           Automated ${CHANNEL} build for \`${NOTES_HEAD:0:7}\` from \`${NOTES_BRANCH}\`.
           Published commit: \`${NOTES_HEAD}\`.
-          **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
-          - [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
-          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
-          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
+          ${downloads}
           EOF
+          # Older builds on this rolling release bundle GNU libintl in the ghostty
+          # CLI helper; keep the LGPL source notice while the source is attached.
+          if gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+              -q '.assets[].name' | grep -qx 'gettext-0.24.tar.gz'; then
+            cat >> nightly-downloads.md <<'EOF'
+
+          Nightly builds whose ghostty CLI helper contains GNU libintl from gettext 0.24 (LGPL-2.1-or-later) have the complete corresponding source and license text attached to this release (`gettext-0.24.tar.gz`, `COPYING.LIB`).
+          EOF
+          fi
           # Read the live completed publication under the channel writer lock,
           # rather than the decide job's baseline from before the build started.
           # nightly_release_notes.py preserves the cmux-published-sha: marker
@@ -2490,7 +2644,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
-            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+            --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -2510,7 +2664,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for appcast in $NIGHTLY_FEEDS; do
             python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
           done
 
@@ -2534,27 +2688,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            # arm64 only (decide): the x86_64, universal and legacy names keep their last build.
+            variants=(arm64)
+            aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg")
+          else
+            variants=(arm64 x86_64 universal)
+            aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg" "${CHANNEL_DMG_PREFIX}-x86_64.dmg" "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg")
+          fi
+          args=()
+          for variant in "${variants[@]}"; do
+            args+=(--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}-${NIGHTLY_BUILD}.dmg")
+          done
+          for daemon in linux-arm64 linux-amd64 darwin-arm64 darwin-amd64; do
+            args+=(--immutable "nightly-out/cmuxd-remote-${daemon}-${NIGHTLY_BUILD}")
+          done
+          args+=(--immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt")
+          args+=(--immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")
+          args+=(--immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt")
+          for alias in "${aliases[@]}"; do
+            args+=(--alias "nightly-out/$alias")
+          done
+          for feed in $NIGHTLY_FEEDS; do
+            args+=(--feed "nightly-out/$feed")
+          done
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
-            --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-            --immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
-            --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
-            --feed nightly-out/appcast.xml
+            --replace-feeds "${args[@]}"
 
       - name: Download the cmux-next source archive
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
@@ -2633,10 +2794,7 @@ jobs:
             Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
             Published commit: `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}`.
             Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}`, ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }} commits and ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }} h behind it.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+            ${{ steps.notes.outputs.downloads }}
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next'
@@ -2652,7 +2810,7 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for appcast in $NIGHTLY_FEEDS; do
             python3 scripts/ci/upload-r2-object.py \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
@@ -2675,7 +2833,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for appcast in $NIGHTLY_FEEDS; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
             python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
@@ -2709,10 +2867,7 @@ jobs:
             Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
             Published commit: `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}`.
             Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}`, ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }} commits and ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }} h behind it.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+            ${{ steps.notes.outputs.downloads }}
 
       # The channel's release tag is the fast completion marker used by the
       # decide job. Move it to the fixed candidate selected at dispatch only
@@ -3000,7 +3155,7 @@ jobs:
   # with release-next's scoped R2 token after the appcasts are live.
   sign-release-notes:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
+    if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true'
     environment: content-signing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -3095,9 +3250,13 @@ jobs:
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
 
+  # A cancelled job (a timeout reports as cancelled) counts as a failure. On
+  # nightly-next the signed release notes are part of the publication: a
+  # published build whose notes jobs did not both succeed is reported too
+  # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
-    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -3112,6 +3271,7 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
+          TRACK: ${{ needs.decide.outputs.track }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -3122,7 +3282,16 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
-            const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
+            const failed = Object.entries(results)
+              .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
+              .map(([k, v]) => `${k} (${v.result})`);
+            // nightly-next: notes jobs that were skipped after a publication.
+            if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success') {
+              for (const job of ['sign-release-notes', 'publish-release-notes']) {
+                const result = results[job]?.result;
+                if (result === 'skipped') failed.push(`${job} (skipped)`);
+              }
+            }
             const tagStale = process.env.TAG_STATUS === 'stale';
             const publicationLine = tagStale
               ? `${appName} published, tag marker stale for ${process.env.HEAD_SHA} (${refName}). Assets, release metadata, and appcasts are available; only the channel completion marker failed to advance.`
@@ -3143,8 +3312,10 @@ jobs:
             }
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
+    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    # always(): a skipped notes job must not skip this job silently; the
+    # conditions below decide. nightly-next closes only with its notes published.
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

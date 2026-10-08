@@ -1,6 +1,6 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import type { ReactNode } from "react";
+import { createContext, use, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -12,12 +12,102 @@ export interface MenuProps {
   children: ReactNode;
 }
 
+const POINTER_SLOP = 4;
+type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
+interface MenuContextValue {
+  beginPointer(event: PointerEvent<HTMLElement>): void;
+  movePointer(event: PointerEvent<HTMLElement>): void;
+  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
+  endPointer(): void;
+}
+const MenuContext = createContext<MenuContextValue | null>(null);
+
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
 export function Menu({ open, onOpenChange, children }: MenuProps) {
+  const [internalOpen, setInternalOpen] = useState(open ?? false);
+  const session = useRef<PointerSession | null>(null);
+  const pointerCleanup = useRef<(() => void) | null>(null);
+  const isOpen = open ?? internalOpen;
+  const setMenuOpen = (next: boolean) => {
+    if (open === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
+  const context: MenuContextValue = {
+    beginPointer(event) {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      session.current = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        moved: false,
+        handled: false,
+      };
+      setMenuOpen(true);
+      pointerCleanup.current?.();
+      const doc = event.currentTarget.ownerDocument;
+      const move = (next: globalThis.PointerEvent) => {
+        if (next.pointerId !== event.pointerId) return;
+        const current = session.current;
+        if (!current) return;
+        if (!current.moved)
+          current.moved = Math.hypot(next.clientX - current.x, next.clientY - current.y) >= POINTER_SLOP;
+        if (!current.moved) return;
+        const item = doc.elementFromPoint?.(next.clientX, next.clientY)?.closest<HTMLElement>('[role^="menuitem"]');
+        item?.focus({ preventScroll: true });
+      };
+      const up = (next: globalThis.PointerEvent) => {
+        if (next.pointerId !== event.pointerId) return;
+        const current = session.current;
+        const target = doc.elementFromPoint?.(next.clientX, next.clientY);
+        pointerCleanup.current?.();
+        pointerCleanup.current = null;
+        if (current?.moved && target instanceof HTMLElement && target.closest('[role^="menuitem"]')) {
+          const item = target.closest<HTMLElement>('[role^="menuitem"]');
+          if (item && !item.matches('[aria-disabled="true"]')) item.click();
+          setMenuOpen(false);
+        }
+        session.current = null;
+      };
+      const cancel = () => {
+        pointerCleanup.current?.();
+        pointerCleanup.current = null;
+        session.current = null;
+      };
+      doc.addEventListener("pointermove", move, true);
+      doc.addEventListener("pointerup", up, true);
+      doc.addEventListener("pointercancel", cancel, true);
+      pointerCleanup.current = () => {
+        doc.removeEventListener("pointermove", move, true);
+        doc.removeEventListener("pointerup", up, true);
+        doc.removeEventListener("pointercancel", cancel, true);
+      };
+    },
+    movePointer(event) {
+      const current = session.current;
+      if (!current || current.pointerId !== event.pointerId) return;
+      if (!current.moved)
+        current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
+    },
+    activatePointer(event, activate) {
+      const current = session.current;
+      if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
+      if (current.handled) return true;
+      current.handled = true;
+      activate();
+      setMenuOpen(false);
+      return true;
+    },
+    endPointer() {
+      // Pointerup is handled by the document capture listener so the row remains selectable
+      // while the original trigger still owns pointer capture.
+    },
+  };
   return (
-    <BaseMenu.Root modal={false} open={open} onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}>
-      {children}
-    </BaseMenu.Root>
+    <MenuContext value={context}>
+      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen}>
+        {children}
+      </BaseMenu.Root>
+    </MenuContext>
   );
 }
 
@@ -26,12 +116,47 @@ export interface MenuButtonProps {
   /** The accessible name when the button shows only an icon. */
   label?: string;
   disabled?: boolean;
+  "aria-haspopup"?: "menu" | "listbox" | "dialog";
+  "aria-labelledby"?: string;
   children: ReactNode;
 }
 
-export function MenuButton({ className, label, disabled, children }: MenuButtonProps) {
+export function MenuButton({
+  className,
+  label,
+  disabled,
+  "aria-haspopup": ariaHasPopup,
+  "aria-labelledby": ariaLabelledBy,
+  children,
+}: MenuButtonProps) {
+  const context = use(MenuContext);
   return (
-    <BaseMenu.Trigger className={cx("ui-button", className)} aria-label={label} disabled={disabled}>
+    <BaseMenu.Trigger
+      className={cx("ui-button", className)}
+      aria-label={label}
+      aria-labelledby={ariaLabelledBy}
+      aria-haspopup={ariaHasPopup}
+      disabled={disabled}
+      onKeyUp={(event) => {
+        if (event.key !== " ") return;
+        const active =
+          event.currentTarget.ownerDocument.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]') ??
+          event.currentTarget.ownerDocument.activeElement?.closest<HTMLElement>('[role^="menuitem"]');
+        if (!active) return;
+        event.preventDefault();
+        event.stopPropagation();
+        active.click();
+      }}
+      onPointerDown={(event) => {
+        context?.beginPointer(event);
+        if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
+      }}
+      onClick={(event) => {
+        // A mouse click has already opened on press; keep it open after release. Keyboard clicks
+        // retain Base UI's native toggle behavior.
+        if (event.detail > 0) event.preventDefault();
+      }}
+    >
       {children}
     </BaseMenu.Trigger>
   );
@@ -42,14 +167,22 @@ export interface MenuPopupProps {
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "center" | "end";
+  /** What the menu is placed against (default: the menu button). */
+  anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", children }: MenuPopupProps) {
+export function MenuPopup({ className, side = "bottom", align = "start", anchor, children }: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
-      <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
+      <BaseMenu.Positioner
+        className="ui-positioner"
+        anchor={anchor}
+        side={side}
+        align={align}
+        sideOffset={UI_ANCHOR_GAP}
+      >
         <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
@@ -59,14 +192,37 @@ export function MenuPopup({ className, side = "bottom", align = "start", childre
 export interface MenuItemProps {
   className?: string;
   disabled?: boolean;
+  shortcut?: ReactNode;
   onSelect?(): void;
   children: ReactNode;
 }
 
-export function MenuItem({ className, disabled, onSelect, children }: MenuItemProps) {
+export function MenuItem({ className, disabled, shortcut, onSelect, children }: MenuItemProps) {
+  const context = use(MenuContext);
+  const handledClick = useRef(false);
   return (
-    <BaseMenu.Item className={cx("ui-menu-item", className)} disabled={disabled} onClick={() => onSelect?.()}>
+    <BaseMenu.Item
+      className={cx("ui-menu-item", className)}
+      disabled={disabled}
+      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerUp={(event) => {
+        if (disabled) return;
+        if (context?.activatePointer(event, () => onSelect?.())) {
+          handledClick.current = true;
+          event.preventDefault();
+        }
+        context?.endPointer();
+      }}
+      onClick={() => {
+        if (handledClick.current) {
+          handledClick.current = false;
+          return;
+        }
+        onSelect?.();
+      }}
+    >
       {children}
+      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
     </BaseMenu.Item>
   );
 }
@@ -77,12 +233,29 @@ export interface MenuCheckboxItemProps extends Omit<MenuItemProps, "onSelect"> {
 }
 
 export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange, children }: MenuCheckboxItemProps) {
+  const context = use(MenuContext);
+  const handledClick = useRef(false);
   return (
     <BaseMenu.CheckboxItem
       className={cx("ui-menu-item", className)}
       disabled={disabled}
       checked={checked}
-      onCheckedChange={(next) => onCheckedChange(next)}
+      onCheckedChange={(next) => {
+        if (handledClick.current) {
+          handledClick.current = false;
+          return;
+        }
+        onCheckedChange(next);
+      }}
+      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerUp={(event) => {
+        if (disabled) return;
+        if (context?.activatePointer(event, () => onCheckedChange(!checked))) {
+          handledClick.current = true;
+          event.preventDefault();
+        }
+        context?.endPointer();
+      }}
     >
       <span className="ui-menu-check" aria-hidden="true">
         <BaseMenu.CheckboxItemIndicator>✓</BaseMenu.CheckboxItemIndicator>
@@ -110,14 +283,27 @@ export function MenuRadioItem({
   value,
   className,
   disabled,
+  shortcut,
   children,
 }: { value: string } & Omit<MenuItemProps, "onSelect">) {
+  const context = use(MenuContext);
   return (
-    <BaseMenu.RadioItem className={cx("ui-menu-item", className)} value={value} disabled={disabled}>
+    <BaseMenu.RadioItem
+      className={cx("ui-menu-item", className)}
+      value={value}
+      disabled={disabled}
+      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerUp={(event) => {
+        if (disabled) return;
+        if (context?.activatePointer(event, () => event.currentTarget.click())) event.preventDefault();
+        context?.endPointer();
+      }}
+    >
       <span className="ui-menu-check" aria-hidden="true">
         <BaseMenu.RadioItemIndicator>✓</BaseMenu.RadioItemIndicator>
       </span>
       {children}
+      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
     </BaseMenu.RadioItem>
   );
 }

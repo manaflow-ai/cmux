@@ -23,7 +23,7 @@ final class PaletteClickView: NSView {
 }
 
 /// Footer: current page on the left; the row's close command with Cmd-W
-/// (when it has one), the primary action with Return and "Actions ⌘K" on
+/// (when it has one), the primary action with Return and "Actions ⇥" on
 /// the right, all clickable.
 final class PaletteFooterView: NSView {
     var onPrimary: (() -> Void)?
@@ -54,7 +54,7 @@ final class PaletteFooterView: NSView {
         closeButton.addSubview(closeKeys)
         closeButton.isHidden = true
         primaryKeys.keycaps = ["↩"]
-        actionsKeys.keycaps = ["⌘", "K"]
+        actionsKeys.keycaps = ["⇥"]
         actionsLabel.stringValue = PaletteStrings.actions
         divider.wantsLayer = true
         primaryButton.onClick = { [weak self] in self?.onPrimary?() }

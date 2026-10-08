@@ -24,13 +24,13 @@ struct FakeWorkspaces {
 }
 
 impl Workspaces for FakeWorkspaces {
-    fn open(&self, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
         if self.fail {
             return Err("boom".into());
         }
         let mut opened = self.opened.lock().unwrap();
         opened.push((session.to_owned(), name.to_owned(), cwd.to_owned()));
-        Ok(format!("ws-{}", opened.len()))
+        Ok(key.to_owned())
     }
 
     fn rename(&self, _key: &str, _name: &str) -> Result<(), String> {
@@ -221,4 +221,42 @@ fn no_prompt_promises_a_workspace_the_host_may_not_make() {
         assert!(!text.contains("of its own"), "{text}");
     }
     assert!(!subagent_system_text(None, &Tools::Mcp).contains("in a workspace of your\nown"));
+}
+
+#[test]
+fn each_subagent_session_carries_the_id_of_its_own_workspace() {
+    let workspaces = Arc::new(FakeWorkspaces::default());
+    let mut s = setup(Some(workspaces.clone()));
+    spawn(&mut s, &["one", "two"], None);
+    let specs = s.h.agents.inner.lock().unwrap().specs.clone();
+    let ids: Vec<String> = specs
+        .iter()
+        .map(|spec| {
+            spec.env
+                .get("CMUX_WORKSPACE_ID")
+                .cloned()
+                .expect("a workspace id")
+        })
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1], "each its own workspace");
+    for id in &ids {
+        assert_eq!(id.len(), 36);
+        assert_eq!(id, &id.to_uppercase(), "the old app's uppercase UUID form");
+    }
+    // The workspace opened is the one the session names.
+    let answer_keys: Vec<String> = ids.iter().map(|i| i.to_lowercase()).collect();
+    let spawned = spawn(&mut s, &["three"], None);
+    let last = s.h.agents.inner.lock().unwrap().specs.last().unwrap().env["CMUX_WORKSPACE_ID"]
+        .to_lowercase();
+    assert!(!answer_keys.contains(&last));
+    assert!(spawned.contains("a3: workspace"), "{spawned}");
+}
+
+#[test]
+fn without_workspaces_a_subagent_session_names_no_workspace() {
+    let mut s = setup(None);
+    spawn(&mut s, &["one"], None);
+    let specs = s.h.agents.inner.lock().unwrap().specs.clone();
+    assert!(!specs[0].env.contains_key("CMUX_WORKSPACE_ID"));
 }

@@ -37,6 +37,7 @@ import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
+import { answerPrincipal, approvalReader } from "./integrations/approval-route.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -208,7 +209,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("mutate", ({ payload }) =>
       Effect.gen(function* () {
         const shape = yield* CurrentPrincipal
-        const principal = toPrincipal(shape)
+        // G8: a cross-team approval answer carries that team's SSO session (approval-route.ts answerPrincipal).
+        const principal = yield* Effect.tryPromise({ try: () => answerPrincipal(env, toPrincipal(shape), payload.op, payload.params), catch: unreachable })
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
@@ -388,7 +390,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           }
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
-        const reader = yield* principalFor(def.owner, principal)
+        const resolved = yield* principalFor(def.owner, principal)
+        // G8: an approval of a team's agent is read from that team, for its members (approval-route.ts).
+        const reader = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalReader(env, resolved, payload.params), catch: unreachable }) : resolved
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })

@@ -64,7 +64,13 @@ struct FakeWorkspaces {
 }
 
 impl Workspaces for FakeWorkspaces {
-    fn open(&self, session: &str, name: &str, _cwd: &std::path::Path) -> Result<String, String> {
+    fn open(
+        &self,
+        _key: &str,
+        session: &str,
+        name: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<String, String> {
         let mut opened = self.opened.lock().unwrap();
         opened.push((session.to_owned(), name.to_owned()));
         Ok(format!("ws-{}", opened.len()))

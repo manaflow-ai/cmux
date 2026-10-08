@@ -20,7 +20,17 @@
 # does not apply to this package.
 #
 # Usage: scripts/cmux-next/check-release-compile.sh [derived-data-path]
-#   default derived data: /tmp/cmux-next-release-compile
+#   default derived data: a new directory in $TMPDIR (per fleet step), removed
+#   when the script ends. Never a host-shared fixed path: explicit precompiled
+#   modules (SwiftExplicitPrecompiledModules/*.pcm) are keyed by the compile
+#   arguments, not by header content, so a kept DerivedData reused a CCmuxRdFFI
+#   module built from an older CCmuxAppFFI xcframework header and failed with
+#   "cmux_rd_ffi.h has been modified since the module file was built"
+#   (cmuxs-Mac-mini-4, 2026-10-06). A per-checksum key would not cover
+#   path-based or remote-package binary targets, and two steps on one host
+#   would share one build database. Downloaded packages and binary artifacts
+#   stay warm in SwiftPM's own content-addressed cache. A caller that passes a
+#   path (the GitHub job: per-job $RUNNER_TEMP) owns it and keeps it.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -29,7 +39,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet check-release-compile.sh "xcodebuild" "cmux-next Release compile (Xcode 26)"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-derived_data="${1:-/tmp/cmux-next-release-compile}"
+if [[ -n "${1:-}" ]]; then
+  derived_data="$1"
+else
+  derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-release-compile.XXXXXX")"
+  trap 'rm -rf -- "$derived_data"' EXIT
+fi
 
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   xcode_app="${CMUX_RELEASE_COMPILE_XCODE:-}"
@@ -46,7 +61,7 @@ fi
 
 echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root/Packages/macOS/CmuxNext"
-exec "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
+"$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
   xcodebuild -scheme CmuxNextApp -configuration Release \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$derived_data" \

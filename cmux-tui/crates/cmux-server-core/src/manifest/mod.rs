@@ -17,10 +17,12 @@
 //! Unknown fields are ignored so a newer manifest stays readable; anything a
 //! machine must understand raises `min_cmux_version` instead.
 
+mod format;
 mod semver;
 mod time;
 mod validate;
 
+pub use format::{FORMAT_SNIFF_LEN, PackageFormat};
 pub use semver::SemVer;
 pub use time::parse_rfc3339_utc_ms;
 pub use validate::{Version, parse_version, valid_sha256};
@@ -33,6 +35,14 @@ use crate::layout::Layout;
 use crate::platform::HostPath;
 
 pub const SCHEMA: u32 = 1;
+
+/// The version scale of `min_cmux_version`: the release version of the
+/// `cmux` binary, which is the cmux-tui crate's version (the binary built
+/// as `cmux` for the app bundle and as a store package's `bin/cmux`). The
+/// `cmux server` mount passes that crate's `CARGO_PKG_VERSION`; the
+/// standalone `cmux-server` binary reports this constant, and a cmux-tui
+/// test keeps the two equal. Nothing stamps a version at build time.
+pub const CMUX_VERSION: &str = "0.1.0";
 pub const SIGNATURE_LEN: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

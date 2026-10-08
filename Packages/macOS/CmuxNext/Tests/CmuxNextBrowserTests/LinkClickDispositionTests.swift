@@ -46,7 +46,7 @@ struct LinkClickDispositionTests {
     /// The hit script's report turns WebKit's link rows into the host's
     /// rows (the same rows Chromium shows); WebKit's other rows stay.
     @Test func linkMenuRowsComeFromTheHost() throws {
-        let tab = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = WebKitEngine().makeWebKitTab(profile: .default)
         let host = Host()
         tab.delegate = host
         let hit = BrowserContextMenuTarget(linkURL: URL(string: "https://example.com/a"), linkText: "A", selection: "A")
@@ -62,7 +62,7 @@ struct LinkClickDispositionTests {
     /// Without a fresh report (a PDF, a click the script did not see) WebKit's
     /// own rows stay.
     @Test func aStaleHitKeepsWebKitsRows() throws {
-        let tab = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = WebKitEngine().makeWebKitTab(profile: .default)
         let host = Host()
         tab.delegate = host
         tab.contextHit = (target: BrowserContextMenuTarget(linkURL: URL(string: "https://example.com/a")), at: ContinuousClock.now - .seconds(5))

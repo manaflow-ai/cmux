@@ -55,27 +55,38 @@ const HOST_SELECT_ALL = `() => {
 // The current values of the frame's sensitive fields (browser lead's final
 // redaction rule): <input type=password>, or an autocomplete token
 // one-time-code, current-password, new-password or cc-*. Value and value
-// attribute, shadow roots included.
+// attribute, shadow roots included. The scan reads within the page-read
+// budget (page-agent.js readBudget: 250,000 elements, 2,000,000 characters,
+// 8 s); past it the answer is {cut} and observe refuses the read with the
+// read-cut marker (src/observe.rs), never a scrub of only the part it read.
 const HOST_SENSITIVE_VALUES = `() => {
   const out = new Set();
+  const MAX_NODES = 250000, MAX_SIZE = 2000000, deadline = performance.now() + 8000;
+  let nodes = 0, size = 0;
+  const cut = (truncated) => ({ cut: { truncated, maxNodes: MAX_NODES, maxSize: MAX_SIZE } });
   const sensitive = (el) => {
     if (!(el instanceof HTMLInputElement)) return false;
     if (el.type === "password") return true;
     const tokens = String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/);
     return tokens.some((t) => t === "one-time-code" || t === "current-password" || t === "new-password" || t.startsWith("cc-"));
   };
-  const visit = (root) => {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-    for (let n = walker.currentNode; n; n = walker.nextNode()) {
+  const roots = [document];
+  while (roots.length) {
+    const walker = document.createTreeWalker(roots.pop(), NodeFilter.SHOW_ELEMENT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (++nodes > MAX_NODES) return cut("nodes");
+      if (nodes % 256 === 0 && performance.now() > deadline) return cut("time");
       if (sensitive(n)) {
-        if (n.value) out.add(n.value);
-        const attr = n.getAttribute("value");
-        if (attr) out.add(attr);
+        for (const v of [n.value, n.getAttribute("value")]) {
+          if (!v) continue;
+          size += v.length;
+          if (size > MAX_SIZE) return cut("size");
+          out.add(v);
+        }
       }
-      if (n.shadowRoot) visit(n.shadowRoot);
+      if (n.shadowRoot) roots.push(n.shadowRoot);
     }
-  };
-  visit(document.documentElement || document);
+  }
   return [...out];
 }`;
 
@@ -585,6 +596,8 @@ export function createReferenceHost(ns, { host, driver }) {
     const result = maskValue(await driver.call("frame.observe", params));
     if (!REDACTED.has(params.method)) return result;
     const values = await hostEval(params.targetId, params.frameId, HOST_SENSITIVE_VALUES, []).catch(() => []);
+    // This reference scans the whole frame for every read (no scoped part).
+    if (values && values.cut) return { __cmuxReplyCut: { ...values.cut, scope: "frame" } };
     if (!values.length) return result;
     const redact = (text) => {
       for (const v of values) {

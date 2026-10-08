@@ -85,6 +85,16 @@ class Workflow(unittest.TestCase):
         self.doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.text = WORKFLOW.read_text(encoding="utf-8")
 
+    def test_no_step_truncates_a_pipe_under_pipefail(self):
+        """`git show --stat | head -40` under pipefail exits 141 (SIGPIPE) once a merge lists more
+        than 40 lines, failing every catch-up job after a good merge (run 37584353594)."""
+        for job in self.doc["jobs"].values():
+            for step in job.get("steps", []):
+                script = step.get("run", "")
+                if "pipefail" in script:
+                    with self.subTest(step=step.get("name")):
+                        self.assertNotRegex(script, r"\|\s*head\b")
+
     def test_runs_when_feat_cmux_next_moves(self):
         on = self.doc[True]
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
@@ -94,9 +104,11 @@ class Workflow(unittest.TestCase):
         # Dry run until the repo variable turns it on: it logs what it would push.
         self.assertIn("vars.CMUX_NEXT_GENERATED_CATCH_UP == '1'", self.text)
 
-    def test_the_write_token_is_contents_only_on_a_hosted_runner(self):
+    def test_the_write_token_is_contents_only_on_an_ephemeral_runner(self):
         job = self.doc["jobs"]["catch-up"]
-        self.assertEqual(job["runs-on"], "ubuntu-24.04")
+        # A Blacksmith VM runs one job and is destroyed; no variable can move
+        # the write token to a reused mini.
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}")
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])

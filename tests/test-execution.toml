@@ -253,6 +253,10 @@ path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
@@ -785,6 +789,10 @@ path = "tests/test_web_validation.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_webviews_tests_per_file.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_canonical_build_root.py"
 lane = "linux-guard"
 
@@ -917,6 +925,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_run_api_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1001,6 +1013,14 @@ path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_arm64_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_r2_presign.py"
 lane = "linux-guard"
 
@@ -1054,4 +1074,48 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_tree_notify.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_free_step_lockfiles.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_app_libintl.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macho_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_route_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macos_cross_shadow_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_generated_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_batch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_ffi_release_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_tui_tree_targets.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macos_stubs.py"
 lane = "linux-guard"

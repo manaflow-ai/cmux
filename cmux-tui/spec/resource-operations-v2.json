@@ -28,6 +28,7 @@
     "screen_group",
     "closed",
     "window_record",
+    "sidebar_layout",
     "git_checkpoint"
   ],
   "types": {
@@ -3657,7 +3658,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries, and sidebar_layout, the one SidebarLayoutSnapshot (sidebar-layout-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -5707,6 +5708,25 @@
             }
           },
           "description": "personal-mixed-order-v1: the index of the personal workspace the group shows right before, or null for after every loose workspace. Absent from daemons without the capability."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string), or null for none. Absent from daemons without the capability."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "workspace-group-pin-v1: the group is pinned (saved): it stays when its workspaces close, and clients keep it as an empty saved group. Absent from daemons without the capability (not pinned)."
         }
       },
       "extra": false
@@ -6180,6 +6200,56 @@
             }
           },
           "description": "Every closed object of the group in restore order. The top-level fields mirror the first member."
+        },
+        "group": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedWorkspaceGroupRecord"
+          },
+          "description": "Present when the item is a deleted personal workspace group (Ungroup, Delete Group). Its workspaces stayed open, so it has no member; `closed.reopen` forms the group again with its id, place and open members."
+        }
+      },
+      "extra": false
+    },
+    "ClosedWorkspaceGroupRecord": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The deleted group's id; reopen restores this id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the deleted group's icon (the shared icon string), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -7648,6 +7718,489 @@
             "name": "uint32"
           },
           "description": "Commits behind upstream; 0 without one."
+        }
+      },
+      "extra": false
+    },
+    "SidebarItemRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "built_in, app, workspace, tab, room, saved_group, url; unknown kinds are kept."
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarSectionPatch": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Null clears; 1 to 80 Unicode scalars (else invalid_title)."
+        },
+        "look": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "built_in or list; a newer value is kept."
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "description": "Null shows the section in every room."
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 1 to 50 (else invalid_max_rows)."
+        },
+        "shows_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "layout": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "list, inline, grid or tiles; a newer value is kept."
+        },
+        "align": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "leading, center, trailing or fill; a newer value is kept."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 0 to 32 points (else invalid_arrangement)."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 1 to 12 (else invalid_arrangement)."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.add"
+            ]
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "A section object as the app's SidebarLayoutDocument encodes it: id (sec_...), title?, shows_title?, region (top, middle, bottom; another value is refused because the app decodes it strictly), look (built_in, list), arrangement? {layout (list, inline, grid, tiles), align (leading, center, trailing, fill), gap? 0-32, columns? 1-12}, room?, max_rows? 1-50, content (items, workspaces, app; another value is refused like region), contribution? (<app id>#<section id>, content app), items? [item]. A JSON object rather than a closed type so values and keys from a newer app are stored verbatim (sidebar-sections.md L5); the reducer validates it."
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Among the region's sections; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "patch": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionPatch"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "top",
+              "middle",
+              "bottom"
+            ]
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Excludes the section itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.add"
+            ]
+          }
+        },
+        "item": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "An item object: id (itm_..., unique across sections and items), ref {kind, value} (kinds built_in, app, workspace, tab, room, saved_group, url; unknown kinds and built-in ids are kept), shows_label? (default true), span? 1-12 (grid columns). A JSON object rather than a closed type so a newer app's keys are stored verbatim (L5); the reducer validates it."
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Clamped; the same ref twice in one section is a no-op. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Excludes the item itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemoveRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove_ref"
+            ]
+          }
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarItemRef"
+          },
+          "description": "Every item with this kind and value, in every section."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpReset": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "layout.reset"
+            ]
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOp": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemoveRef"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpReset"
+        }
+      ],
+      "discriminator": "kind"
+    },
+    "SidebarLayoutSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 for the defaults."
+        },
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Section objects in order (regions top, middle, bottom; plans/cmux-next/sidebar-sections.md 4), as SidebarLayoutOpSectionAdd.section describes; stored values and keys come back verbatim."
         }
       },
       "extra": false
@@ -15000,6 +15553,87 @@
         "validation.invalid"
       ]
     },
+    "sidebar_layout.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SidebarLayoutSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar_layout.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "op": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SidebarLayoutOp"
+            },
+            "description": "One layout op of the app's reducer, tagged by kind."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A rejected op is validation.invalid whose message is the reducer's reason (workspaces_required, unknown_section, unknown_item, duplicate_id, duplicate_ref, invalid_title, invalid_max_rows, invalid_arrangement, invalid_contribution, items_not_allowed, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same layout revision.",
+          "The op is at most 64 KiB and the stored layout at most 1 MiB."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarLayoutSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "sidebar_view.attach": {
       "class": "stream_open",
       "idempotency": "forbidden",
@@ -16093,6 +16727,17 @@
             },
             "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -16104,7 +16749,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
         ]
       },
       "result": {
@@ -19483,6 +20128,25 @@
             },
             "description": "personal-mixed-order-v1: the group's place among the loose workspaces, as the index (workspace.placement.list index) of the personal workspace it shows right before; the count or more puts it after every workspace. null puts it after every loose workspace (the order before mixed order). A group shows before a loose workspace at the same place."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the group's icon on every client."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "workspace-group-pin-v1: true pins (saves) the group, false unpins it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -19494,7 +20158,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, room, or top_index is present.",
+          "At least one of name, color, collapsed, room, top_index, icon, or pinned is present.",
           "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },

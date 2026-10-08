@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { createBody } from "../src/cloud-driver.ts"
 import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
-import { fireAlarm } from "./setup/alarm.ts"
+import { runInDurableObject } from "cloudflare:test"
+import { fireAlarm, quiesce } from "./setup/alarm.ts"
 
 /**
  * Coordinator decision (2026-10-05): Freestyle never changes a machine's state by itself (every
@@ -140,6 +141,46 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     await s.stub.fakeControl({ advance_ms: 70_000 } as never)
     await fireAlarm(s.stub)
     expect(await calls()).toBeGreaterThan(first)
+  })
+
+  it("a machine still running 24 h after its last report (the backstop pause failed) raises one stale_running alert per hour, ids and times only", async () => {
+    const s = await vmSetup("cloud-bind-6")
+    await s.stub.fakeControl({ power_refuse: 100 } as never)
+    const alarmLines = async () =>
+      runInDurableObject(s.stub as never, async (i: DurableObject, state: DurableObjectState) => {
+        const lines: Array<string> = []
+        const error = console.error
+        console.error = (...a: Array<unknown>) => void lines.push(String(a[0]))
+        try {
+          await quiesce(i as never, state)
+          await i.alarm?.()
+        } finally {
+          console.error = error
+        }
+        return lines.flatMap((l) => { try { return [JSON.parse(l) as Record<string, unknown>] } catch { return [] } }).filter((l) => l.event === "cloud.machine.stale_running" && l.machine === s.machine)
+      })
+    // 23 h: not stale yet. (Only this test's machine counts: an earlier test of the same user may leave its own.)
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    const early = await alarmLines()
+    expect(early, JSON.stringify(early)).toEqual([])
+    // 25 h: the backstop pause is refused, the machine stays running: one alert.
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    const first = await alarmLines()
+    expect(await s.status()).toBe("running")
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatchObject({ level: "error", event: "cloud.machine.stale_running", team: s.a.team, machine: s.machine, status: "running" })
+    expect(first[0]!.silent_hours as number).toBeGreaterThanOrEqual(24)
+    expect(first[0]).not.toHaveProperty("error")
+    // Ten minutes later: still stale, no second alert inside the hour.
+    await s.stub.fakeControl({ advance_ms: 600_000 } as never)
+    expect(await alarmLines()).toEqual([])
+    // Past the hour: one more.
+    await s.stub.fakeControl({ advance_ms: H } as never)
+    expect(await alarmLines()).toHaveLength(1)
+    // A capable report makes it heard again: no alert.
+    await s.report({ active_sessions: 1, last_user_input_at: Date.now() + 27 * H })
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    expect(await alarmLines()).toEqual([])
   })
 
   it("a report without the activity capability never counts as idle and does not reset the no_report clock (coordinator, 2026-10-05)", async () => {

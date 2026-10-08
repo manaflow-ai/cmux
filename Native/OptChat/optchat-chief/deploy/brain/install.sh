@@ -4,7 +4,11 @@
 # no sudo, no system LaunchDaemon, no pf, no change to the subrouter, to the
 # shared acpmux daemon (com.acpmux.daemon) or to ~/.local/bin.
 #
-# usage: install.sh --optchat-chief PATH --cmux-tui PATH --acpmux PATH [--brain DIR] [--no-start]
+# usage: install.sh --optchat-chief PATH --cmux-tui PATH --cmux PATH --acpmux PATH [--brain DIR] [--no-start]
+#
+# --cmux is the Rust `cmux` CLI from the same build (the app's Contents/Resources/bin/cmux).
+# It sits next to optchat-chief, so the host pins it first on PATH for the Chief and its
+# subagents, and their `cmux` calls reach the brain's daemon (CMUX_TUI_SOCKET).
 #
 # Binaries are copied into $BRAIN/bin (pinned). The host agent starts only when
 # $BRAIN/cloud/install.json is paired and names a chief: first run
@@ -14,22 +18,23 @@
 set -euo pipefail
 
 BRAIN="${HOME}/.cmux/brains/chief"
-CHIEF="" TUI="" ACPMUX="" START=1
+CHIEF="" TUI="" CLI="" ACPMUX="" START=1
 while (($#)); do
   case "$1" in
     --optchat-chief) CHIEF="$2"; shift 2 ;;
     --cmux-tui) TUI="$2"; shift 2 ;;
+    --cmux) CLI="$2"; shift 2 ;;
     --acpmux) ACPMUX="$2"; shift 2 ;;
     --brain) BRAIN="$2"; shift 2 ;;
     --no-start) START=0; shift ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 die() { echo "install.sh: $*" >&2; exit 2; }
 [[ "$(id -u)" != 0 ]] || die "run as the brain's user, never root"
-for b in "$CHIEF" "$TUI" "$ACPMUX"; do [[ -x "$b" ]] || die "not an executable: '$b'"; done
+for b in "$CHIEF" "$TUI" "$CLI" "$ACPMUX"; do [[ -x "$b" ]] || die "not an executable: '$b'"; done
 command -v claude >/dev/null || [[ -x "$HOME/.local/bin/claude" ]] || die "claude is not installed for $USER"
 command -v sr >/dev/null || [[ -x "$HOME/bin/sr" ]] || die "sr is not installed for $USER (claude-sr needs it)"
 
@@ -40,7 +45,7 @@ mkdir -p "$BRAIN"/{bin,mux,acpmux,daemon,cloud,logs} "$LA"
 chmod 700 "$BRAIN" "$BRAIN"/{bin,mux,acpmux,daemon,cloud,logs}
 
 # rm before cp: overwriting a signed Mach-O in place gets it SIGKILLed.
-for pair in "optchat-chief:$CHIEF" "cmux-tui:$TUI" "acpmux:$ACPMUX"; do
+for pair in "optchat-chief:$CHIEF" "cmux-tui:$TUI" "cmux:$CLI" "acpmux:$ACPMUX"; do
   name="${pair%%:*}" src="${pair#*:}"
   rm -f "$BRAIN/bin/$name"
   cp "$src" "$BRAIN/bin/$name"
@@ -66,10 +71,11 @@ render() { # label log args-xml env-xml
 }
 
 SOCK="$BRAIN/daemon/cmux.sock"
-# The daemon reaches the brain's acpmux (subagent workspaces, remote acpmux attach) through ACPMUX_HOME.
+# The daemon reaches the brain's acpmux (subagent workspaces, remote acpmux attach) through ACPMUX_HOME,
+# and the host's tools socket (chief-inspect, the owner's memory inspector) through CMUX_TUI_CHIEF_TOOLS_SOCKET.
 render "$P.daemon" "$BRAIN/logs/daemon.log" \
   "$(xml_args "$BRAIN/bin/cmux-tui" --headless --socket "$SOCK")" \
-  "$(xml_env ACPMUX_HOME "$BRAIN/acpmux")"
+  "$(xml_env ACPMUX_HOME "$BRAIN/acpmux" CMUX_TUI_CHIEF_TOOLS_SOCKET "$BRAIN/mux/optchat/tools.sock")"
 # The acpmux agent is the daemon's only supervisor; the host waits for it (OPTCHAT_ACPMUX_SUPERVISED=1).
 render "$P.acpmux" "$BRAIN/logs/acpmux.log" \
   "$(xml_args "$BRAIN/bin/acpmux" daemon run)" \

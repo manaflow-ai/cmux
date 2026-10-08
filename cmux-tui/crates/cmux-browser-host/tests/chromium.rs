@@ -402,8 +402,10 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
           snapshot: () => [...document.querySelectorAll("input")]
             .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
           fill: (id, v) => { el(id).value = v; },
-          // observe runs each read inside the agent's reply.
+          // observe runs each read inside the agent's reply, and its field
+          // scan within the agent's page-read budget.
           reply: (v) => v,
+          budget: () => ({ spend: () => true, charge: () => true, report: () => ({}) }),
         };
       }"#}),
     );
@@ -1147,3 +1149,19 @@ mod drag;
 // Incognito tabs (private data P1).
 #[path = "chromium/incognito.rs"]
 mod incognito;
+
+// frame.observe's field scan within the page-read budget.
+#[path = "chromium/observe.rs"]
+mod observe;
+
+// FETCH-PRIVATE-RANGES under a proxy store (browser-egress.md 7.3).
+#[path = "chromium/proxy_ranges.rs"]
+mod proxy_ranges;
+
+// Undoable cookie clears through the whole host (private data P2).
+#[path = "chromium/cookie_backups.rs"]
+mod cookie_backups;
+
+// EGRESS-ISOLATED on a real Chromium (cx-d0d.7).
+#[path = "chromium/egress_isolated.rs"]
+mod egress_isolated;

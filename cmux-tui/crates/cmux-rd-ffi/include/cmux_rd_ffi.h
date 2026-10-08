@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 1u
+#define CMUX_RD_FFI_ABI_VERSION 4u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -35,6 +35,8 @@ extern "C" {
 /* Message kinds (the stream carrier's frame types). */
 #define CMUX_RD_MESSAGE_CONTROL 1u
 #define CMUX_RD_MESSAGE_DATAGRAM 2u
+/* A bulk chunk (rd change C5, cap "bulk"): u64 transfer, u64 offset, bytes. */
+#define CMUX_RD_MESSAGE_BULK 3u
 
 /* Frame flags (the datagram header's flags). */
 #define CMUX_RD_FLAG_KEYFRAME 0x01u
@@ -51,6 +53,8 @@ extern "C" {
 #define CMUX_RD_ERR_FAILED (-5)      /* the stream broke or the peer flooded; end the session */
 #define CMUX_RD_ERR_PANIC (-6)       /* internal error; the receiver is unusable */
 #define CMUX_RD_ERR_STREAM (-7)      /* the stream is not open, or the stream limit is reached */
+#define CMUX_RD_ERR_CONSENT (-8)     /* the upstream sender has no consent for its media kind */
+#define CMUX_RD_ERR_FULL (-9)        /* a bulk queue or the open transfer limit is full */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -220,6 +224,173 @@ int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
+
+/* ---- Upstream media sender (rd change C4b, cap "up_media", ABI 3) ----
+   One sender per upstream stream (microphone, camera, screen share) the host
+   registered. Encoded frames go in; UpMedia datagrams come out with adaptive
+   FEC. The host's upstream feedback (acked frame, NACKs, arrival times)
+   drives delay-based congestion control, a pacing budget at the target
+   bitrate, NACK resends and keyframe requests. Nothing is queued to catch
+   up: a frame over the budget is dropped and the sender asks for a
+   keyframe; dependent frames are then dropped until an independent one.
+   Consent: a sender is created for one media kind and sends nothing until
+   the app grants that kind's consent with cmux_rd_upstream_set_consent,
+   which it calls only after an explicit user action in this session.
+   Without consent send_frame and on_datagram return CMUX_RD_ERR_CONSENT and
+   emit nothing. Revoking drops untaken datagrams. Consent ends when the
+   sender is freed; a new sender (a new session) starts without it.
+   Not thread-safe, like a session. */
+typedef struct CmuxRdUpstream CmuxRdUpstream;
+
+/* Path classes (transport.md section 4); CMUX_RD_PATH_DO_RELAY caps the rate. */
+#define CMUX_RD_PATH_DIRECT_LAN 0u
+#define CMUX_RD_PATH_DIRECT_WAN 1u
+#define CMUX_RD_PATH_VIA_CLOUD_REGION 2u
+#define CMUX_RD_PATH_DO_RELAY 3u
+/* Media kinds; each needs its own consent. */
+#define CMUX_RD_MEDIA_MIC 1u
+#define CMUX_RD_MEDIA_CAMERA 2u
+#define CMUX_RD_MEDIA_SCREEN 3u
+/* Bytes of untaken datagrams after which new frames are dropped. */
+#define CMUX_RD_UPSTREAM_MAX_QUEUED 4194304u
+
+/* Counters for the status line. */
+typedef struct CmuxRdUpstreamStats {
+    uint64_t frames_sent;
+    uint64_t frames_dropped;
+    uint32_t acked_frame;    /* newest frame the host completed, 0 for none */
+    uint32_t loss_ppm;       /* smoothed loss, parts per million */
+    bool keyframe_requested; /* make the next frame independent */
+    bool consent;            /* the app granted consent for this kind */
+} CmuxRdUpstreamStats;
+
+/* A sender of media kind (CMUX_RD_MEDIA_*), without consent. NULL for an
+   unknown carrier, kind or path, max_datagram outside 64..9000 (use
+   the link's, 1152 or 1332), or min_bps > max_bps. A bitrate of 0 takes the
+   default (start 8, floor 1, ceiling 80 Mbit/s). fec: block FEC on a lossy
+   path; pass false for Opus audio, which has in-band FEC. */
+CmuxRdUpstream *cmux_rd_upstream_new(uint32_t carrier, uint16_t stream, uint32_t kind, uint32_t max_datagram, uint32_t path,
+                                     uint64_t start_bps, uint64_t min_bps, uint64_t max_bps, bool fec);
+void cmux_rd_upstream_free(CmuxRdUpstream *upstream);
+/* Grants or revokes consent for the sender's own media kind (other kinds:
+   CMUX_RD_ERR_INVALID). Revoking drops every datagram not yet taken. */
+int32_t cmux_rd_upstream_set_consent(CmuxRdUpstream *upstream, uint32_t kind, bool granted);
+/* Sends one encoded frame (an access unit or an Opus packet) captured at
+   t_capture_us. independent: references no earlier frame (keyframes, every
+   audio packet); other frames reference the previous frame sent. Returns
+   the datagrams queued, 0 when the frame was dropped (over the pacing
+   budget, dependent on a dropped frame, or CMUX_RD_UPSTREAM_MAX_QUEUED bytes
+   are waiting), CMUX_RD_ERR_CONSENT without consent (nothing queued),
+   CMUX_RD_ERR_INVALID for a frame too large to send. */
+int32_t cmux_rd_upstream_send_frame(CmuxRdUpstream *upstream, const uint8_t *data, size_t len,
+                                    uint64_t t_capture_us, bool independent, uint64_t now_us);
+/* Offers one datagram from the host (a session's CMUX_RD_MESSAGE_DATAGRAM
+   message, header included). Returns the resent datagrams queued
+   (CMUX_RD_ERR_CONSENT and none without consent);
+   CMUX_RD_ERR_STREAM when it is not feedback for this stream (offer it to
+   the next sender; also for a datagram kind this build does not know),
+   CMUX_RD_ERR_INVALID for bad bytes. */
+int32_t cmux_rd_upstream_on_datagram(CmuxRdUpstream *upstream, const uint8_t *bytes, size_t len, uint64_t now_us);
+/* Writes the oldest queued datagram (stream-framed on the stream carrier):
+   1 when written, 0 when none is queued, CMUX_RD_ERR_BUFFER (*out_len = size
+   needed) when cap is too small; it then stays queued. Call after every
+   send_frame and on_datagram until 0. *out_len is written on every path. */
+int32_t cmux_rd_upstream_pop_datagram(CmuxRdUpstream *upstream, uint8_t *out, size_t cap, size_t *out_len);
+/* The bitrate the encoder should aim for now; the floor while the host has
+   been silent for 500 ms with a frame unacknowledged. 0 for NULL. */
+uint64_t cmux_rd_upstream_target_bps(const CmuxRdUpstream *upstream, uint64_t now_us);
+/* Reports a path change (CMUX_RD_PATH_*); CMUX_RD_ERR_INVALID for others. */
+int32_t cmux_rd_upstream_set_path(CmuxRdUpstream *upstream, uint32_t path);
+int32_t cmux_rd_upstream_stats(const CmuxRdUpstream *upstream, CmuxRdUpstreamStats *out);
+
+/* ---- Bulk flow control (rd change C5, cap "bulk", ABI 4) ----
+   The viewer's side of bulk transfers (a service's file uploads and
+   downloads on the stream carrier), the same flow control the host runs.
+   Upload: queue a transfer's bytes; pop_frame gives at most one 64 KiB
+   chunk per media frame interval, none while a media frame waits for the
+   carrier, and never past the host's credit (bulk_credit control messages:
+   offer each CMUX_RD_MESSAGE_CONTROL payload to on_control). Download: offer
+   each CMUX_RD_MESSAGE_BULK payload to accept; it checks order and credit
+   and returns the framed bulk_credit to send back when one is due. Send
+   bulk only when welcome lists the "bulk" cap. Not thread-safe; a panic
+   poisons only that handle. */
+typedef struct CmuxRdBulkSender CmuxRdBulkSender;
+typedef struct CmuxRdBulkReceiver CmuxRdBulkReceiver;
+
+/* Bytes of queued, unsent upload data a sender holds. */
+#define CMUX_RD_BULK_MAX_QUEUED 67108864u
+/* Transfers a receiver tracks at once (finish frees a slot). */
+#define CMUX_RD_BULK_MAX_TRANSFERS 64u
+/* The largest framed chunk pop_frame writes (5 + 16 + 65520 bytes). */
+#define CMUX_RD_BULK_FRAME_MAX 65541u
+/* A credit buffer this large always holds a framed bulk_credit. */
+#define CMUX_RD_BULK_CREDIT_MAX 128u
+
+/* One accepted download chunk; bytes points into the caller's payload. */
+typedef struct CmuxRdBulkChunk {
+    uint64_t transfer;
+    uint64_t offset;
+    const uint8_t *bytes;
+    size_t len;
+} CmuxRdBulkChunk;
+
+/* A sender with at most one chunk per interval_us (the media frame
+   interval); NULL for 0. */
+CmuxRdBulkSender *cmux_rd_bulk_sender_new(uint64_t interval_us);
+void cmux_rd_bulk_sender_free(CmuxRdBulkSender *sender);
+/* Queues a transfer's bytes (copied). CMUX_RD_ERR_INVALID for a transfer id
+   already queued, CMUX_RD_ERR_FULL past CMUX_RD_BULK_MAX_QUEUED. */
+int32_t cmux_rd_bulk_sender_queue(CmuxRdBulkSender *sender, uint64_t transfer, const uint8_t *data, size_t len);
+/* Applies the host's credit (credit only grows). */
+int32_t cmux_rd_bulk_sender_on_credit(CmuxRdBulkSender *sender, uint64_t transfer, uint64_t offset);
+/* Offers a control message payload: 1 when it was a bulk_credit and was
+   applied, 0 for another message, CMUX_RD_ERR_INVALID for a bulk_credit
+   without its fields. */
+int32_t cmux_rd_bulk_sender_on_control(CmuxRdBulkSender *sender, const uint8_t *json, size_t len);
+/* Drops a queued transfer (the user cancelled it). */
+int32_t cmux_rd_bulk_sender_cancel(CmuxRdBulkSender *sender, uint64_t transfer);
+/* Writes the next chunk as a stream frame (type 3): 1 when written, 0 when
+   none may go now, CMUX_RD_ERR_BUFFER (*out_len = size needed) when cap is
+   too small; the chunk then stays pending. *out_len is written on every path. */
+int32_t cmux_rd_bulk_sender_pop_frame(CmuxRdBulkSender *sender, uint64_t now_us, bool media_waiting,
+                                      uint8_t *out, size_t cap, size_t *out_len);
+/* When pop_frame can give a chunk next (0 when one is pending); UINT64_MAX
+   when idle or waiting for credit, for NULL or an unusable sender. */
+uint64_t cmux_rd_bulk_sender_next_deadline_us(const CmuxRdBulkSender *sender);
+/* Bytes of queued upload data not yet sent (0 for NULL). */
+uint64_t cmux_rd_bulk_sender_queued_bytes(const CmuxRdBulkSender *sender);
+
+CmuxRdBulkReceiver *cmux_rd_bulk_receiver_new(void);
+void cmux_rd_bulk_receiver_free(CmuxRdBulkReceiver *receiver);
+/* Takes one chunk (a CMUX_RD_MESSAGE_BULK payload) and fills *out. When a
+   credit is due it writes the framed bulk_credit control message to
+   credit_out (send it as is) and sets *credit_len, else *credit_len = 0.
+   credit_cap below CMUX_RD_BULK_CREDIT_MAX: CMUX_RD_ERR_BUFFER, nothing
+   taken. CMUX_RD_ERR_INVALID for bad bytes, a gap, an overlap, a chunk past
+   the credit or a finished transfer (a protocol error: end the session);
+   CMUX_RD_ERR_FULL for a new transfer while CMUX_RD_BULK_MAX_TRANSFERS are open. */
+int32_t cmux_rd_bulk_receiver_accept(CmuxRdBulkReceiver *receiver, const uint8_t *payload, size_t len,
+                                     CmuxRdBulkChunk *out, uint8_t *credit_out, size_t credit_cap, size_t *credit_len);
+/* Ends a transfer (complete or cancelled): later chunks are refused. */
+int32_t cmux_rd_bulk_receiver_finish(CmuxRdBulkReceiver *receiver, uint64_t transfer);
+
+/* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
+   One client per rb session of a remote tab: make a new one for each rb.open
+   (tokens and screen seqs restart per session). Inputs and outcomes are JSON in the shapes of
+   schemas/remote-tab/client.json: an input is {"op": ...}; the outcome is
+   {"effects": [...], "note": null|"...", "reject": null|"..."}. A reject
+   leaves the state unchanged. The outcome bytes stay valid until the next
+   call on the same client. No I/O, no threads; a panic poisons the client. */
+typedef struct CmuxRbClient CmuxRbClient;
+
+/* NULL only when allocation fails. */
+CmuxRbClient *cmux_rb_client_new(void);
+/* NULL is ignored. */
+void cmux_rb_client_free(CmuxRbClient *client);
+/* Applies one input. CMUX_RD_OK with *outcome and *outcome_len set;
+   CMUX_RD_ERR_INVALID when json is not a client input (state unchanged). */
+int32_t cmux_rb_client_apply(CmuxRbClient *client, const uint8_t *json, size_t json_len,
+                             const uint8_t **outcome, size_t *outcome_len);
 
 #ifdef __cplusplus
 }

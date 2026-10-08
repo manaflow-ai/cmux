@@ -34,6 +34,9 @@ pub const PAGE: u32 = 500;
 
 const EXCERPT: usize = 600;
 
+/// The participant id prefix of a paired install (the relay's remote participant).
+pub const REMOTE_PREFIX: &str = "remote_";
+
 /// Whether a message wakes the Chief: it participates and either the
 /// conversation has one human and one agent, or it is a DM with the Chief,
 /// or the message mentions the Chief or replies to one of its messages.
@@ -44,11 +47,24 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
     if author.kind != ParticipantKind::Human || message.author == AGENT_MUX {
         return false;
     }
-    // A message from a paired device starts a remote-origin prompt chain
-    // (server-remote-conversations.md section 6). Until that gate exists it
-    // never wakes the Chief: fail closed.
-    if message.origin.is_some() || author.person.is_some() {
-        return false;
+    // The remote-origin gate (server-remote-conversations.md section 6; the
+    // TypeScript rules.wakes). Default deny: a device message passes only
+    // when the owner stamped it as relayed from exactly this author
+    // (`origin.install`, author `remote_<install>`) and the author is the
+    // owner's own paired device (a human whose person is user_local).
+    let remote = message.origin.is_some()
+        || author.person.is_some()
+        || message.author.starts_with(REMOTE_PREFIX);
+    if remote {
+        let Some(cmux_conversation::Origin::Remote { install }) = &message.origin else {
+            return false;
+        };
+        if install.is_empty()
+            || message.author != format!("{REMOTE_PREFIX}{install}")
+            || author.person.as_deref() != Some(USER_LOCAL)
+        {
+            return false;
+        }
     }
     let retracted = message.retracted_at.as_deref().is_some_and(|at| !at.is_empty());
     if !summary.participants.iter().any(|p| p.id == AGENT_MUX) || retracted {
@@ -264,7 +280,8 @@ mod tests {
     }
 
     /// Pairing adds a device of the same person: a plain local message still
-    /// wakes the Chief, and a device message does not (no remote chains yet).
+    /// wakes the Chief; a device message wakes it only when the owner stamped
+    /// it as relayed from that device (the remote-origin gate).
     #[test]
     fn a_paired_device_does_not_change_the_wake_rule() {
         let human = ParticipantKind::Human;
@@ -278,7 +295,10 @@ mod tests {
         assert!(!wakes(&paired, &message("remote_inst_1", None, None), |_| false));
         let mut remote = message(USER_LOCAL, None, None);
         remote.origin = Some(cmux_conversation::Origin::Remote { install: "inst_1".into() });
-        assert!(!wakes(&paired, &remote, |_| false));
+        assert!(!wakes(&paired, &remote, |_| false), "stamped for another author");
+        let mut relayed = message("remote_inst_1", None, None);
+        relayed.origin = Some(cmux_conversation::Origin::Remote { install: "inst_1".into() });
+        assert!(wakes(&paired, &relayed, |_| false), "the owner's device, relayed");
     }
 
     /// Float gap (plans/cmux-next/chief-mac.md section 4): the cores write

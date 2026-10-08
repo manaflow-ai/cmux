@@ -146,10 +146,10 @@ impl Mux {
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
         key: &str,
-        activate: bool,
+        placement: FrontendTabPlacement,
     ) -> anyhow::Result<FrontendBrowserTabOutcome> {
         record.validate()?;
-        WorkspaceMutation::new(key, "new-frontend-browser-tab")?;
+        WorkspaceMutation::daemon(key, "new-frontend-browser-tab")?;
         let _serial = KEYED_CREATION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let pane_id = match pane {
             Some(pane) => Some(self.with_state(|state| {
@@ -187,7 +187,7 @@ impl Mux {
             registry.put_frontend_browser(id, &record, Some(&write))?;
             self.reload_presentation(&registry)?;
         }
-        let fields = frontend_browser_fields(&browser_id, activate);
+        let fields = frontend_browser_fields(&browser_id, placement);
         // A failed keyed creation keeps its rows, so a retry resumes it.
         let surface = self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields)?;
         if let Some(runtime) = surface.as_browser()

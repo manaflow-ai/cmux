@@ -166,4 +166,24 @@ import Testing
         #expect(fresh.state == .ready)
         #expect(fresh.lastReply == nil)
     }
+
+    /// The brain's read cursor tells a long turn from a silent server: a
+    /// message the Chief has read is being worked on however long the turn
+    /// runs (it read "not answering" after 120 s, cx-ebm.7 slice 0); one it
+    /// has not read past the quiet limit is not answering.
+    @Test func theChiefsReadCursorSeparatesALongTurnFromASilentServer() throws {
+        let now = Date(timeIntervalSince1970: 1_790_985_600)
+        let chief = try #require(CloudChief.parse(["id": Self.chiefID, "rev": 1, "main_conversation": "conv_m"]))
+        func message(_ seq: Int, _ author: String, _ secondsAgo: Double) -> [String: Any] {
+            ["seq": seq, "author": author, "created_at": CloudChiefStatus.format(now.addingTimeInterval(-secondsAgo))]
+        }
+        let messages = [message(1, Self.chiefID, 900), message(2, "user_1", 600)]
+        let working = CloudChiefStatus.status(chief: chief, serverName: "s", messages: messages, chiefReadSeq: 2, now: now)
+        #expect(working.state == .thinking, "read 10 minutes ago, the turn still runs")
+        let unread = CloudChiefStatus.status(chief: chief, serverName: "s", messages: messages, chiefReadSeq: 1, now: now)
+        #expect(unread.state == .notAnswering)
+        let justArrived = CloudChiefStatus.status(chief: chief, serverName: "s",
+                                                  messages: [message(1, Self.chiefID, 900), message(2, "user_1", 20)], chiefReadSeq: 1, now: now)
+        #expect(justArrived.state == .thinking)
+    }
 }

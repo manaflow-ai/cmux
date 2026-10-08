@@ -8,15 +8,20 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export HOME="$tmp/home"
 mkdir -p "$HOME/bin" "$tmp/bin"
-for b in optchat-chief cmux-tui acpmux claude; do printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/$b"; chmod 755 "$tmp/bin/$b"; done
+for b in optchat-chief cmux-tui cmux acpmux claude; do printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/$b"; chmod 755 "$tmp/bin/$b"; done
 printf '#!/bin/sh\nexit 0\n' > "$HOME/bin/sr"; chmod 755 "$HOME/bin/sr"
 PATH="$tmp/bin:$PATH" "$here/install.sh" --optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" \
-  --acpmux "$tmp/bin/acpmux" --no-start > "$tmp/out.log" 2>&1 || { cat "$tmp/out.log"; exit 1; }
+  --cmux "$tmp/bin/cmux" --acpmux "$tmp/bin/acpmux" --no-start > "$tmp/out.log" 2>&1 || { cat "$tmp/out.log"; exit 1; }
 LA="$HOME/Library/LaunchAgents"
 env_of() { /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:$2" "$LA/ai.manaflow.chief-brain.$1.plist" 2>/dev/null || true; }
 brain="$HOME/.cmux/brains/chief"
 fail() { echo "FAIL: $*"; exit 1; }
 [[ "$(env_of acpmux ACPMUX_HOME)" == "$brain/acpmux" ]] || fail "acpmux agent ACPMUX_HOME"
 [[ "$(env_of daemon ACPMUX_HOME)" == "$brain/acpmux" ]] || fail "daemon agent has no ACPMUX_HOME=$brain/acpmux (got '$(env_of daemon ACPMUX_HOME)')"
+[[ "$(env_of daemon CMUX_TUI_CHIEF_TOOLS_SOCKET)" == "$brain/mux/optchat/tools.sock" ]] || fail "daemon agent has no CMUX_TUI_CHIEF_TOOLS_SOCKET (got '$(env_of daemon CMUX_TUI_CHIEF_TOOLS_SOCKET)')"
 [[ "$(env_of host OPTCHAT_ACPMUX_SUPERVISED)" == "1" ]] || fail "host agent OPTCHAT_ACPMUX_SUPERVISED"
+# Subagents and the Chief run `cmux` from $BRAIN/bin first on PATH (cmux_env.rs pins it there
+# only when the CLI sits next to optchat-chief). Without it they ran an older `cmux` from ~/bin
+# that ignores CMUX_TUI_SOCKET, so `cmux identify` failed inside subagents (cx-ebm.40).
+[[ -x "$brain/bin/cmux" ]] || fail "no cmux CLI in $brain/bin"
 echo "install.test.sh: ok"

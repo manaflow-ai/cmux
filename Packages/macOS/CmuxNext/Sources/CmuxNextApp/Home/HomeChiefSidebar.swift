@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import Foundation
 
 /// The Chief's settings, a right sidebar inside the Home page that the
@@ -22,12 +23,27 @@ final class HomeChiefSidebar: NSView {
     private let nameField = NSTextField(string: "")
     private let avatarField = NSTextField(string: "")
     private let stack = NSStackView()
+    /// Everything that reads or writes this Mac's brain (pickers, stats,
+    /// replies, where it runs, traces, memory): hidden for a Chief whose
+    /// brain runs on a paired server.
+    private var localViews: [NSView] = []
+    /// Said for a Chief placed on a paired server.
+    private let elsewhere = NSTextField(wrappingLabelWithString: HomeEngineStrings.runsElsewhere)
+    private var runsElsewhere = false
     /// Renames the Chief conversation (the daemon's set-title op).
     var onRename: (String) -> Void = { _ in }
     /// The header avatar's text changed (nil: the initials).
     var onAvatar: (String?) -> Void = { _ in }
+    /// Show Memory: runs "Chief: Open Memory Inspector".
+    var onShowMemory: () -> Void = {}
 
-    static let harnesses = ["claude-sr", "codex"]
+    /// The harness items the picker offers: the user's own Claude login and
+    /// Codex; the CodeRouter route (`claude-cr`) only when this Chief's
+    /// acpmux has one configured. The subrouter pool (`claude-sr`) is never a
+    /// default item; a current choice of it still shows (`fill`).
+    static func harnesses(routeConfigured: Bool) -> [String] {
+        routeConfigured ? ["claude", "claude-cr", "codex"] : ["claude", "codex"]
+    }
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
     static let efforts = ["low", "medium", "high", "xhigh"]
 
@@ -69,6 +85,7 @@ final class HomeChiefSidebar: NSView {
             stack.addArrangedSubview(caption)
             stack.addArrangedSubview(button)
             button.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+            localViews += [caption, button]
         }
         let note = NSTextField(wrappingLabelWithString: HomeEngineStrings.nextTurn)
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -87,7 +104,19 @@ final class HomeChiefSidebar: NSView {
         let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         traces.bezelStyle = .push
         stack.addArrangedSubview(traces)
-        for view in [note, stats, replies, brain] {
+        // The memory inspector (DEV and nightly, like its palette action).
+        if DevTools.isEnabled {
+            let memory = NSButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
+            memory.bezelStyle = .push
+            stack.addArrangedSubview(memory)
+            localViews.append(memory)
+        }
+        localViews += [note, stats, replies, brain, traces]
+        elsewhere.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        elsewhere.textColor = .secondaryLabelColor
+        elsewhere.isHidden = true
+        stack.addArrangedSubview(elsewhere)
+        for view in [note, stats, replies, brain, elsewhere] {
             view.preferredMaxLayoutWidth = Self.width - 32
         }
         addSubview(stack)
@@ -102,6 +131,17 @@ final class HomeChiefSidebar: NSView {
     override func layout() {
         super.layout()
         stack.frame = CGRect(x: 0, y: 0, width: Self.width, height: bounds.height)
+    }
+
+    /// Whether this Chief's brain runs on a paired server (a cloud Chief):
+    /// its engine is set there, so this Mac's engine.json, trace and memory
+    /// never show or change it. False: this Mac's brain (the default).
+    func setRunsElsewhere(_ elsewhere: Bool) {
+        guard elsewhere != runsElsewhere else { return }
+        runsElsewhere = elsewhere
+        for view in localViews { view.isHidden = elsewhere }
+        self.elsewhere.isHidden = !elsewhere
+        if !elsewhere { refresh() }
     }
 
     /// The conversation's title, shown in the name field.
@@ -125,6 +165,10 @@ final class HomeChiefSidebar: NSView {
         onAvatar(text.isEmpty ? nil : text)
     }
 
+    @objc private func showMemory() {
+        onShowMemory()
+    }
+
     @objc private func openTraces() {
         NSWorkspace.shared.activateFileViewerSelecting([HomeChiefFiles(muxHome: muxHome).traceDirectory])
     }
@@ -132,6 +176,7 @@ final class HomeChiefSidebar: NSView {
     /// Re-reads the engine file and the trace (a new message or a turn's
     /// end) off the main actor, then shows them.
     func refresh() {
+        guard !runsElsewhere else { return }
         let files = HomeChiefFiles(muxHome: muxHome)
         // task-owner: one read off the main actor; ends when it is shown
         Task { [weak self] in
@@ -141,7 +186,7 @@ final class HomeChiefSidebar: NSView {
     }
 
     private func show(_ snapshot: HomeChiefSnapshot) {
-        fill(harness, Self.harnesses, current: snapshot.harness)
+        fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured), current: snapshot.harness)
         fill(model, Self.models, current: snapshot.model)
         fill(effort, Self.efforts, current: snapshot.effort)
         if avatarField.currentEditor() == nil { avatarField.stringValue = snapshot.avatar ?? "" }
@@ -171,6 +216,7 @@ final class HomeChiefSidebar: NSView {
     }
 
     @objc private func picked(_ sender: NSPopUpButton) {
+        guard !runsElsewhere else { return }
         let key = sender === harness ? "harness" : sender === model ? "model" : "effort"
         let value = sender.selectedItem?.representedObject as? String
         let files = HomeChiefFiles(muxHome: muxHome)

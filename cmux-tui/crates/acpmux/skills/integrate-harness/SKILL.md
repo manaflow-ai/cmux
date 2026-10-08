@@ -38,8 +38,11 @@ until every step passes.
 - The file name is the id: `acme.toml` has `id = "acme"` (lowercase letters,
   digits, `-`).
 - A profile in a repository (`.cmux/harnesses/`) runs only after the user
-  trusts the folder and confirms "Enable harness" with the command shown. Do
-  not try to get around that.
+  trusts the folder and confirms "Enable harness" with the command shown:
+  `cmux harness list --folder DIR` shows its state, the user runs
+  `cmux harness enable <id> --folder DIR` (and `disable` to withdraw). Any
+  change to the file, its icon or a script inside the folder that it runs
+  asks again. Never pass `--yes` for the user and do not try to get around it.
 
 ## Schema (schema 1)
 
