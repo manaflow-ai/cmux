@@ -10,12 +10,7 @@ extension DaemonClosedHistory {
         if let workspace = store.workspace(resourceID: id) { return workspace.id }
         // concurrency-allow: Observations ends on cancellation; the one-shot deadline bounds the wait.
         return await withTaskGroup(of: String?.self) { group in
-            group.addTask { @MainActor in
-                for await workspace in Observations({ store.workspace(resourceID: id)?.id }) {
-                    if let workspace { return workspace }
-                }
-                return nil
-            }
+            group.addTask { await appearance(of: id, in: store) }
             group.addTask {
                 // wakeup-allow: one-shot deadline for a committed restore to reach the mirror.
                 try? await clock.sleep(for: timeout)
@@ -24,5 +19,12 @@ extension DaemonClosedHistory {
             defer { group.cancelAll() }
             return await group.next() ?? nil
         }
+    }
+
+    private static func appearance(of id: ResourceID, in store: DaemonStore) async -> String? {
+        for await workspace in Observations({ store.workspace(resourceID: id)?.id }) {
+            if let workspace { return workspace }
+        }
+        return nil
     }
 }
