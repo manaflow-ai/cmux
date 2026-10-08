@@ -38,12 +38,15 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// is none.
     static func newestSnapshot(in support: URL) -> URL {
         let directory = support.appendingPathComponent("cmux", isDirectory: true)
-        let candidates = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey])) ?? [])
-            .filter { url in
-                guard url.pathExtension == "json", url.lastPathComponent.hasPrefix("session-") else { return false }
-                guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey]), values.isDirectory != true else { return false }
-                return Self.isClassicBundleIdentifier(String(url.deletingPathExtension().lastPathComponent.dropFirst("session-".count)))
+        // Enumerate names, then append them to the caller's URL. This keeps
+        // temporary fixture paths stable when `/var` is symlinked to `/private/var`.
+        let candidates = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { name in
+                guard name.hasSuffix(".json"), name.hasPrefix("session-") else { return false }
+                let bundle = String(name.dropFirst("session-".count).dropLast(".json".count))
+                return Self.isClassicBundleIdentifier(bundle)
             }
+            .map { directory.appendingPathComponent($0) }
         let fallback = directory.appendingPathComponent("session-\(stableBundleIdentifier).json")
         let saved = candidates.compactMap { url -> (URL, Date)? in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
