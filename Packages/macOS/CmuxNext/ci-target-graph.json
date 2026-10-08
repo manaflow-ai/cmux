@@ -426,7 +426,8 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h",
-        "schemas/agent-url-policy/vectors.json"
+        "schemas/agent-url-policy/vectors.json",
+        "schemas/local-file-handoff/vectors.json"
       ]
     },
     "CmuxNextCloud": {
@@ -522,6 +523,7 @@
       ],
       "packages": [],
       "reads": [
+        "Resources/bin/",
         "cmux-tui/spec/fixtures/terminal-snapshot-dogfood-png.jsonl",
         "plans/cmux-next/daemon-capabilities.json",
         "scripts/cmux-next/pin-cmux-tui.sh"

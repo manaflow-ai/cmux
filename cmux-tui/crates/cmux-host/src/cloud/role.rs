@@ -109,7 +109,7 @@ impl Store for FileStore {
 }
 
 /// [`Http`] over cmux-server's HTTPS poster.
-pub struct PosterHttp(JsonPoster);
+pub struct PosterHttp(pub JsonPoster);
 
 impl Http for PosterHttp {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {

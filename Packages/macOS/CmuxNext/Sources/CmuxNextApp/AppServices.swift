@@ -275,10 +275,8 @@ final class AppServices {
         }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
-        cache.onPresentationChange = { [weak self] in
-            self?.surfaceInvariant.noteChange()
-            self?.browserHost?.provider.refreshTabs()
-        }
+        cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in self?.browserHost?.provider.refreshTabs() }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
