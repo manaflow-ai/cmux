@@ -919,6 +919,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     // MARK: Hover
 
+    /// cmux: off (Messages shows no hover on rows or tiles).
+    static let showsHover = false
+
     func mouseMoved(_ p: CGPoint?) {
         let h = p.flatMap(hit)
         guard h != hovered else { return }
@@ -928,6 +931,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private func updateHover() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // cmux: Messages draws no hover highlight on a row or a pinned tile (decision
+        // 2026-10-07), so the hover fill stays hidden.
+        guard Self.showsHover else { hoverLayer.isHidden = true; return }
         // The hovered row or tile may be gone (unpinned, filtered out): check before reading it.
         guard let h = hovered else { hoverLayer.isHidden = true; return }
         if case let .row(r) = h, r >= rowItems.count { hoverLayer.isHidden = true; return }
