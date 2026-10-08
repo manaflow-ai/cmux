@@ -187,6 +187,8 @@ export function Stage({
         if (event.source !== iframe.contentWindow || !query || !Number.isFinite(run)) return;
         if (data?.type === "cmux-gallery-play") setReport(data.report);
         if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
+          const pending = pendingRef.current;
+          if (!pending || pending.query !== query || pending.run !== run) return;
           const token = ++promotion.current;
           requestAnimationFrame(() => {
             if (token !== promotion.current) return;
