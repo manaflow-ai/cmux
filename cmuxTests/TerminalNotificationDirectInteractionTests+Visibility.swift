@@ -10,6 +10,60 @@ import CmuxTerminalCore
 #endif
 
 extension TerminalNotificationDirectInteractionTests {
+    func testPresentedRendererRevealSkipsDeferredRefresh() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
+        defer { livePortalWorkspace.tearDown() }
+
+        let surface = TerminalSurface(
+            tabId: livePortalWorkspace.id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        waitForRuntimeSurface(surface, file: #filePath, line: #line)
+        guard surface.surface != nil else { return }
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.isRendererPresented },
+            "Expected the visible renderer to present before testing the reveal policy"
+        )
+
+        surface.resetDebugForceRefreshCount()
+        if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(
+            rendererPresented: surface.isRendererPresented
+        ) {
+            hostedView.scheduleVisibilityRevealRefresh(transition: .reveal)
+        }
+        XCTAssertFalse(
+            hostedView.hasVisibilityRevealRefreshScheduled,
+            "A currently presented renderer must not enter the deferred reveal path"
+        )
+        drainMainQueue()
+        XCTAssertEqual(surface.debugForceRefreshCount(), 0)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
 #if DEBUG
         try assertInactiveVisibilityRestoreRefreshCount(
