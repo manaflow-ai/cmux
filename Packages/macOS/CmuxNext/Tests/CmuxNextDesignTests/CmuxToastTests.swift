@@ -141,6 +141,40 @@ struct CmuxToastTests {
         #expect(view.actionButton?.accessibilityLabel() == CmuxToastStrings.undo)
         #expect(view.closeButton.accessibilityLabel() == CmuxToastStrings.dismiss)
     }
+
+    /// The message label of a toast shown on the window overlay, after layout.
+    static func shownLabel(_ toast: CmuxToast) -> (label: NSTextField, view: CmuxToastView)? {
+        let window = Self.window()
+        let view = CmuxToastView(toast: toast)
+        CmuxToastOverlayHost().show(view, in: window, slot: 0, windowGone: {})
+        window.contentView?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        func find(_ root: NSView) -> NSTextField? {
+            if let field = root as? NSTextField, field.stringValue == toast.message { return field }
+            return root.subviews.lazy.compactMap(find).first
+        }
+        return find(view).map { ($0, view) }
+    }
+
+    /// nxdog70: the tab icon toast drew only Undo and the close button; the message label
+    /// was laid out zero wide. Every toast (with or without an action, short or wrapping)
+    /// shows its whole message.
+    @Test(arguments: [
+        CmuxToast(id: "icon", message: "Tab Icon Set", action: .undo()),
+        CmuxToast(id: "plain", message: "Copied"),
+        CmuxToast(id: "long", message: String(repeating: "A closed workspace with a long name ", count: 4),
+                  action: .reopen()),
+    ])
+    func everyToastDrawsItsWholeMessage(_ toast: CmuxToast) throws {
+        let (label, view) = try #require(Self.shownLabel(toast))
+        let natural = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width,
+                                                                        height: .greatestFiniteMagnitude))
+        let oneLine = try #require(label.cell).cellSize(forBounds: NSRect(x: 0, y: 0, width: .greatestFiniteMagnitude,
+                                                                        height: .greatestFiniteMagnitude))
+        #expect(label.frame.width >= min(oneLine.width, 360) - 1, "the label has room for the message")
+        #expect(label.frame.height >= natural.height - 1, "no wrapped line is cut")
+        #expect(view.frame.width > label.frame.maxX, "the toast contains the label")
+    }
 }
 
 @MainActor
