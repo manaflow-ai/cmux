@@ -26,10 +26,14 @@ struct TestChrome {
 impl TestChrome {
     fn launch(binary: &std::path::Path) -> anyhow::Result<TestChrome> {
         use std::io::BufRead;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
         let profile =
-            std::env::temp_dir().join(format!("cmux-tui-cdp-smoke-{}", std::process::id()));
+            std::env::temp_dir().join(format!("cmux-tui-cdp-smoke-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&profile)?;
-        let mut child = std::process::Command::new(binary)
+        let spawned = std::process::Command::new(binary)
             .args([
                 "--headless=new",
                 "--remote-debugging-port=0",
@@ -41,7 +45,14 @@ impl TestChrome {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn();
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(error.into());
+            }
+        };
         let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("no Chrome stderr"))?;
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
