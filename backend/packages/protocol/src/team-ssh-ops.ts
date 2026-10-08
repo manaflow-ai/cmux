@@ -15,8 +15,11 @@ export const SshCertClass = Schema.Literals(["human", "agent"]).annotate({
     "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
 })
 
-/** The force-command of `agent` certificates. The team VM's image provides it (slice S5): it runs only `cmux team …` from SSH_ORIGINAL_COMMAND. */
-export const SSH_AGENT_FORCE_COMMAND = "cmux team restricted-shell"
+/**
+ * The force-command of `agent` certificates (slice S5): it runs only allowlisted `cmux team …` verbs from
+ * SSH_ORIGINAL_COMMAND, with no shell. An absolute path, so it never depends on the login PATH.
+ */
+export const SSH_AGENT_FORCE_COMMAND = "/opt/cmux/current/bin/cmux team restricted-shell"
 /** Certificate extension that lists the team VMs this certificate reaches (the SSH gate reads it, slice S12). */
 export const SSH_TEAMS_EXTENSION = "cmux-teams@cmux.dev"
 
@@ -174,7 +177,36 @@ export const TeamVmSshCaRead = def({
   mcp: { expose: "default", group: "team" }
 })
 
-export const teamSshOps = [TeamVmSshCertChallenge, TeamVmSshCert, TeamVmSshCertRevoke, TeamVmSshCaRotate, TeamVmSshCaRead] as const satisfies readonly CloudOpDef[]
+export const TeamVmAccountUser = Schema.Struct({
+  /** The Linux user name. */
+  user: Schema.String,
+  uid: Schema.Int,
+  /** `human`: the person's full shell; `agent`: their ordinary agents, limited by the force-command. */
+  class: SshCertClass,
+  /** The certificate principals this user accepts (sshd `AuthorizedPrincipalsCommand`). */
+  principals: Schema.Array(Schema.String)
+}).annotate({ identifier: "TeamVmAccountUser" })
+
+export const TeamVmAccountsRead = def({
+  name: "team_vm.accounts",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({}),
+  result: Schema.Struct({
+    team: TeamId,
+    /** The current members' Linux users, sorted by UID. A member who left is not listed; its UIDs are never reused. */
+    users: Schema.Array(TeamVmAccountUser)
+  }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins).",
+  cli: { path: "team ssh accounts", visible: false },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const teamSshOps = [TeamVmSshCertChallenge, TeamVmSshCert, TeamVmSshCertRevoke, TeamVmSshCaRotate, TeamVmSshCaRead, TeamVmAccountsRead] as const satisfies readonly CloudOpDef[]
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
   ({
