@@ -482,3 +482,26 @@ fn transport_failure_keeps_the_report_for_the_retry() {
     let retry = session.fire(5_000);
     assert_eq!(retry[0].reason, "start");
 }
+
+/// The server applies one report per 10 s measured from when it RECEIVED the
+/// last applied one (cloud-vm.ts VmStatusQueue); dev-e2e on 2026-10-08 saw
+/// change, heartbeat and resume reports `held` because the agent measured its
+/// window from its own SEND time, one latency earlier. The window starts when
+/// the answer arrives, which is after the server's receive time.
+#[test]
+fn the_10s_window_counts_from_the_answer_not_the_send() {
+    let fake = Fake::new();
+    let mut client = bound_client(&fake);
+    let mut session = Session::new(MACHINE, daemon(), 60_000);
+    let mut reqs = session.start(0);
+    let req = reqs.pop().expect("first report");
+    let answer = client.op(&req, T0);
+    // The answer arrives 300 ms after the send.
+    let (next, _) = session.answered(&req, &answer, 300, 0.5);
+    assert!(next.is_empty());
+    let line = json!({ "activity": { "active_sessions": 1 } }).to_string();
+    let (reqs, _) = session.line(&line, 1_000);
+    assert!(reqs.is_empty(), "inside the window");
+    assert_eq!(session.next_deadline(), Some(10_300), "10 s after the answer arrived");
+    assert!(session.fire(10_000).is_empty(), "10 s after the send is still inside the server's window");
+}
