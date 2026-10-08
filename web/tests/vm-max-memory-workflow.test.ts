@@ -239,7 +239,9 @@ test("paid access probes legacy rows without a reservation before allowing open 
       .pipe(Effect.provide(layer)),
   );
   expect(result._tag).toBe("Failure");
-  expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
+  if (result._tag === "Failure") {
+    expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
+  }
 });
 
 test("reopening an existing oversized Base cannot bypass the caller's Pro CPU ceiling", async () => {
