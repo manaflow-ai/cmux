@@ -1048,6 +1048,7 @@ function AcpmuxPane() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
+  const inspectorHiddenSurfaceRef = useRef(false);
   const closeInspector = useCallback(() => {
     inspectorOpenRef.current = false;
     setInspectorOpen(false);
@@ -1065,6 +1066,11 @@ function AcpmuxPane() {
     opener?: HTMLElement;
   }>();
   const toggleInspector = useCallback((open?: boolean) => {
+    if (inspectorHiddenSurfaceRef.current) {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      return false;
+    }
     const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
     inspectorOpenRef.current = next;
     if (next) {
@@ -2063,6 +2069,13 @@ function AcpmuxPane() {
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const inspectorHiddenSurface = quick || showNewTab;
+  inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
+  useEffect(() => {
+    if (!inspectorHiddenSurface) return;
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, [inspectorHiddenSurface]);
   const importFile = useCallback(async (file: File) => {
     setImportError(undefined);
     try {
