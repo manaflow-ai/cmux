@@ -131,7 +131,9 @@ fn a_native_turn_logs_its_steps_and_lays_out_the_request_for_the_cache() {
     assert_eq!(first["tools"], bodies[1]["tools"], "byte-identical tools");
     let opening = first["messages"][0]["content"].as_array().unwrap();
     assert_eq!(opening[0]["text"], "<chat>\n</chat>");
-    assert_eq!(opening[0]["cache_control"]["type"], "ephemeral");
+    // An empty view has no whole 4-line block: nothing to mark in it.
+    assert!(opening[0].get("cache_control").is_none());
+    assert_eq!(first["system"][0]["cache_control"]["type"], "ephemeral");
     assert_eq!(opening[1]["text"], "what does echo say?");
     assert!(opening[1].get("cache_control").is_none());
     let second = bodies[1]["messages"].as_array().unwrap();

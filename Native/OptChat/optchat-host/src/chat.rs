@@ -233,6 +233,7 @@ impl OptChat {
             system: config.prompt.text(&config.agent),
             retry: config.retry,
             reporter: config.reporter.clone(),
+            flight: Default::default(),
         });
         let mut st = shared.lock();
         drive(&shared, &mut st);
