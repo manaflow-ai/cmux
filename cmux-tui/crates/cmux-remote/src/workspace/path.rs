@@ -888,9 +888,27 @@ mod tests {
         assert!(validate_relative("/etc/passwd").is_err());
         assert!(validate_relative("../secret").is_err());
         assert!(validate_relative("a/../../secret").is_err());
+        assert!(validate_relative("~").is_err());
+        assert!(validate_relative("~/project").is_err());
+        assert!(validate_relative("project/~").is_err());
         assert!(validate_relative("C:\\Windows").is_err());
         assert!(validate_relative("//server/share").is_err());
         assert_eq!(normalize_protocol_path("./src/lib.rs").unwrap(), "src/lib.rs");
+    }
+
+    #[tokio::test]
+    async fn rejects_tilde_path_before_workspace_filesystem_operation() {
+        let directory = tempdir().unwrap();
+        tokio::fs::create_dir(directory.path().join("~")).await.unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("tilde".into()),
+            directory.path().to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let error = root.resolve_existing("~").await.unwrap_err();
+        assert_eq!(error.code, "invalid-path");
     }
 
     #[cfg(unix)]
