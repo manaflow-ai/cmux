@@ -25,6 +25,20 @@ evidence in the source that owns it; use the other repositories as references or
 5. Publish a branch preview through `cmux-gallery` only after the branch is pushed. Record the exact
    commit and preview path with the review artifact.
 
+## Keeping references fresh
+
+- `cmux` is authoritative for shipped behavior. Review the exact branch head, the owning component,
+  and its focused test before comparing a reference surface.
+- `messageslab` is consumed through the vendored `Packages/Shared/CmuxMessagesLab` copy. Check its
+  recorded source pin and patches with `scripts/cmux-next/check-messageslab-vendor.sh`; a local
+  prototype checkout is not a substitute for the pinned source.
+- `cmux-app-screenshots` references are valid only when the capture directory, brief, and capture
+  commit are recorded together. Reuse the capture's stated window and scale when judging spacing.
+- `idlesse` references should name the Library or Studio surface and the media fixture being compared;
+  the repository is a behavior and framing reference, not a cmux implementation dependency.
+- `cmux-gallery` is delivery infrastructure. Confirm the published revision banner and matrix
+  artifact match the implementation commit before linking a preview in a review.
+
 ## Current high-value parity surfaces
 
 - Composer controls and model picker: production behavior in `webviews/src/agent-session/acpmux`;
