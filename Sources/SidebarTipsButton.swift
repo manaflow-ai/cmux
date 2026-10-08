@@ -25,6 +25,7 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
     @Environment(\.controlActiveState) private var controlActiveState
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var isPopoverPresented = false
+    @State private var popoverGroup = CmuxPopoverGroup()
     @State private var isInteracting = false
     @State private var presentationID = UUID()
     @State private var windowNumber: Int?
@@ -94,7 +95,11 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
         .background(ArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
-            detachedGap: 4
+            detachedGap: 4,
+            presentationAnimation: .enabled,
+            // Keep anchor clicks inside the group so the button owns toggling.
+            // Otherwise AppKit can dismiss on mouse-down before our action runs.
+            group: popoverGroup
         ) {
             SidebarTipsPopover(store: store, showsModifierHoldHints: showModifierHoldHints) { isInteracting = $0 }
         })
