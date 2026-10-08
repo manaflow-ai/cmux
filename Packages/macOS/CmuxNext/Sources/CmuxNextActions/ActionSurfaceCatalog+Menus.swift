@@ -89,6 +89,8 @@ nonisolated extension ActionSurfaceCatalog {
         "moveWorkspaceToGroup": [p(.workspaceRow, .organize, 206, folder: .group)],
         "removeWorkspaceFromGroup": [p(.workspaceRow, .organize, 208, folder: .group)],
         "workspaceGroup.setColor": [p(.workspaceGroup, .identity, 2, .submenu, folder: .appearance)],
+        "workspaceGroup.setIcon": [p(.workspaceGroup, .identity, 5, folder: .appearance)],
+        "workspaceGroup.clearIcon": [p(.workspaceGroup, .identity, 6, folder: .appearance)],
         "workspaceGroup.moveUp": [p(.workspaceGroup, .move, 300, folder: .move)],
         "workspaceGroup.moveDown": [p(.workspaceGroup, .move, 301, folder: .move)],
         "workspaceGroup.moveToWindow": [p(.workspaceGroup, .move, 303, folder: .move)],
