@@ -37635,6 +37635,20 @@
               "name": "string"
             }
           },
+          "target": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "summary": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
           "params": {
             "required": true,
             "type": {
@@ -37730,7 +37744,7 @@
         "expose": "never",
         "group": "integration"
       },
-      "docs": "Read a provider op that waits for your approval (G8): the op, its full parameters and the digest the feed request shows. Only your own session reads it.",
+      "docs": "Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -37756,6 +37770,12 @@
             "type": "string"
           },
           "connection": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "summary": {
             "type": "string"
           },
           "params": {},
@@ -37806,6 +37826,8 @@
           "request",
           "op",
           "connection",
+          "target",
+          "summary",
           "params",
           "digest",
           "state",

@@ -112,6 +112,9 @@ describe("gateway approvals for risky provider ops (G8)", { timeout: 60_000 }, (
     expect(s.posts).toHaveLength(1)
     const done = await op(s.agent, "slack.post_as_bot", { connection: s.conn, channel: "C1", text: "hello" }, "send-2")
     expect(done.json).toMatchObject({ ok: true, value: { channel: "C1", ts: "1.2" } })
+    // The final request keeps op, target and outcome; its params (the message) are gone.
+    const after = (await read(s.token, "integration.approval.get", { request })).json.value
+    expect(after).toMatchObject({ state: "done", op: "slack.post_as_bot", target: "C1", params: {} })
   })
 
   it("an answer whose digest does not match the stored request is refused and never runs", async () => {
@@ -160,5 +163,18 @@ describe("gateway approvals for risky provider ops (G8)", { timeout: 60_000 }, (
     await fireAlarm(s.feed)
     expect(s.posts).toHaveLength(0)
     expect((await read(s.token, "integration.approval.get", { request: r.json.error.details.request })).json.value.state).toBe("denied")
+  })
+
+  it("a run cut off by a restart settles from the ledger on redelivery and never calls the provider again", async () => {
+    const s = await setup("g8-stuck")
+    const r = await op(s.agent, "slack.post_as_bot", { connection: s.conn, channel: "C1", text: "x" }, "send-7")
+    const request = r.json.error.details.request as string
+    const digest = (await read(s.token, "integration.approval.get", { request })).json.value.digest
+    // As if an earlier instance moved it to running and was evicted mid-call.
+    await inDO(s.connections, async (_i, st) => st.storage.sql.exec(`UPDATE integration_approvals SET state = 'running' WHERE request = ?`, request))
+    await inDO(s.connections, async (i) => i.systemDeliver(s.team, `feed:${s.user}`, [{ id: 999_010, op: "integration.approval.answered", key: `redo:${request}`, params: { request, decision: "allow", digest } }]))
+    expect(s.posts).toHaveLength(0)
+    const settled = await op(s.agent, "slack.post_as_bot", { connection: s.conn, channel: "C1", text: "x" }, "send-7")
+    expect(settled.json.error.code).toBe("mutation.indeterminate")
   })
 })

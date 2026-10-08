@@ -11,6 +11,7 @@ import {
   deleteApproval,
   describeRequest,
   endApproval,
+  expireDue,
   insertApproval,
   MAX_PENDING_PER_CONNECTION,
   MAX_PENDING_PER_IDENTITY,
@@ -117,7 +118,7 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
   const request = host.newRequestId?.() ?? `apr_${crypto.randomUUID().replace(/-/g, "")}`
   const digest = approvalDigest(def.name, params)
   const { target, summary } = describeRequest(def.name, params)
-  insertApproval(host.sql, { request, identity, idempotency_key: key, user: principal.user, connection, op: def.name, params, params_hash: paramsHash, digest, principal, created_at: now, expires_at: now + APPROVAL_TTL_MS })
+  insertApproval(host.sql, { request, identity, idempotency_key: key, user: principal.user, connection, op: def.name, params, params_hash: paramsHash, digest, principal, target, summary, created_at: now, expires_at: now + APPROVAL_TTL_MS })
   const prompt = {
     action: {
       type: "tool",
@@ -140,7 +141,37 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
 }
 
 /** What the answer delivery decides for one request. */
-export type AnswerOutcome = { readonly kind: "ignore"; readonly reason: string } | { readonly kind: "run"; readonly row: ApprovalRow }
+export type AnswerOutcome = { readonly kind: "ignore"; readonly reason: string } | { readonly kind: "run" | "settle"; readonly row: ApprovalRow }
+
+/** Requests whose provider call is awaiting in this object instance (lost on eviction, which is the point). */
+const running = new WeakMap<SqlStorage, Set<string>>()
+const inFlight = (sql: SqlStorage) => running.get(sql) ?? running.set(sql, new Set()).get(sql)!
+
+/** The derived ledger key of an approved run. */
+export const approvalLedger = (row: ApprovalRow) => ({ identity: `${row.identity}#approval`, key: `approval:${row.request}` })
+
+/**
+ * Ends a `running` request whose call was cut off: the ledger's stored reply if the call finished,
+ * else `mutation.indeterminate` (the provider may have acted; never call it again).
+ */
+export const settleRunning = (sql: SqlStorage, row: ApprovalRow, now: number) => {
+  const { identity, key } = approvalLedger(row)
+  const ledger = sql.exec<{ status: string; reply: string | null }>(`SELECT status, reply FROM external_calls WHERE identity = ? AND idempotency_key = ?`, identity, key).toArray()[0]
+  const reply = ledger?.status === "done" && ledger.reply
+    ? (JSON.parse(ledger.reply) as unknown)
+    : { ok: false, op: row.op, error: { code: "mutation.indeterminate", message: "the approved call was interrupted; check the provider before asking again", retryable: false }, transaction: "", idempotency_key: key, replayed: false, stream: "", sequence: 0 }
+  endApproval(sql, row.request, "done", now, reply, ["running"])
+}
+
+/** Alarm: pending requests past their time expire; running ones past it that are not in flight settle from the ledger. */
+export const expireApprovals = (sql: SqlStorage, now: number) => {
+  expireDue(sql, now)
+  const stuck = sql.exec<{ request: string }>(`SELECT request FROM integration_approvals WHERE state = 'running' AND expires_at <= ?`, now).toArray()
+  for (const { request } of stuck) {
+    const row = approvalByRequest(sql, request)
+    if (row && !inFlight(sql).has(request)) settleRunning(sql, row, now)
+  }
+}
 
 /**
  * An answer from the user's FeedDO (outbox item `integration.approval.answered`). Only that
@@ -152,6 +183,8 @@ export const takeAnswer = (sql: SqlStorage, source: string, params: { request?: 
   if (!row) return { kind: "ignore", reason: "unknown request" }
   if (source !== `feed:${row.user}`) return { kind: "ignore", reason: "not the requesting user's feed" }
   const current = settleExpiry(sql, row, now)
+  // A run cut off by a restart (not in flight in this instance) is settled from the ledger, never run again.
+  if (current.state === "running" && !inFlight(sql).has(row.request)) return { kind: "settle", row }
   if (current.state !== "pending") return { kind: "ignore", reason: `request is ${current.state}` }
   if (params.decision !== "allow") {
     endApproval(sql, row.request, "denied", now)
@@ -176,13 +209,17 @@ export const deliverAnswers = async (
   const done: Array<number> = []
   for (const item of items) {
     const outcome = takeAnswer(sql, source, (item.params ?? {}) as Record<string, unknown>, Date.now())
-    if (outcome.kind === "run" && startRun(sql, outcome.row.request)) {
+    if (outcome.kind === "settle") settleRunning(sql, outcome.row, Date.now())
+    else if (outcome.kind === "run" && startRun(sql, outcome.row.request)) {
       let reply: ExternalReply | "refused"
+      inFlight(sql).add(outcome.row.request)
       try {
         reply = await run(outcome.row)
       } catch (e) {
         backToPending(sql, outcome.row.request)
         throw e
+      } finally {
+        inFlight(sql).delete(outcome.row.request)
       }
       // The caller is no longer allowed (install revoked, grant narrowed): final, nothing ran.
       if (reply === "refused") endApproval(sql, outcome.row.request, "denied", Date.now(), null, ["running"])

@@ -2163,7 +2163,7 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
-  /** Read a provider op that waits for your approval (G8): the op, its full parameters and the digest the feed request shows. Only your own session reads it. */
+  /** Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
   readonly "integration.approval.get": {
     readonly params: {
       readonly request: string
@@ -2172,6 +2172,8 @@ export interface CloudOps {
       readonly request: string
       readonly op: string
       readonly connection: string
+      readonly target: string
+      readonly summary: string
       readonly params: unknown
       readonly digest: string
       readonly state: "pending" | "done" | "denied" | "expired"

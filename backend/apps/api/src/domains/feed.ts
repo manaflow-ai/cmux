@@ -76,7 +76,7 @@ const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Re
   // Sign-in, passkey and Mac handoffs are completed in the Mac pane that holds the context, never typed elsewhere.
   if (item.needs_mac && ctx.principal.install_kind !== "mac") return reject("auth.forbidden", "this request is answered on the Mac that holds its context")
   // An integration approval (G8) is answered only by the person's own session, never by an install an app or agent could drive.
-  if (item.poster.kind === "integration" && ctx.principal.kind !== "session") return reject("auth.forbidden", "approve this in the cmux app signed in as you")
+  if (item.poster.kind === "integration" && ctx.principal.kind !== "session") return reject("auth.forbidden", "approve this request in the cmux web dashboard, signed in with your account")
   const r = checkAnswer(item.kind, item.prompt, item.answer_schema, d.value.answer)
   if (!r.ok) return reject("validation.invalid", r.message)
   const next = touch(item, ctx.now, {

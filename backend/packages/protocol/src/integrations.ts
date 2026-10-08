@@ -129,6 +129,8 @@ export const IntegrationApprovalGet = def({
     request: Schema.String,
     op: Schema.String,
     connection: Schema.String,
+    target: Schema.String,
+    summary: Schema.String,
     params: Schema.Unknown,
     digest: Schema.String,
     state: Schema.Literals(["pending", "done", "denied", "expired"]),
@@ -136,7 +138,7 @@ export const IntegrationApprovalGet = def({
     expires_at: Schema.Number
   }),
   errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
-  docs: "Read a provider op that waits for your approval (G8): the op, its full parameters and the digest the feed request shows. Only your own session reads it.",
+  docs: "Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.",
   cli: { path: "integration approval", visible: true },
   mcp: { expose: "never", group: "integration" }
 })

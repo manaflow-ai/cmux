@@ -7,8 +7,8 @@ import type { Env } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { runLedgered } from "./integrations/external-ledger.ts"
-import { deliverAnswers, gateRiskyOp, type GateHost, needsApproval, postIntegrationApproval, runApproved, withApprovalClass } from "./integrations/approval-gate.ts"
-import { approvalView, createApprovalTable, expireDue, nextApprovalAt, pruneApprovals, APPROVAL_RETENTION_MS } from "./integrations/approvals.ts"
+import { approvalLedger, deliverAnswers, expireApprovals, gateRiskyOp, type GateHost, needsApproval, postIntegrationApproval, runApproved, withApprovalClass } from "./integrations/approval-gate.ts"
+import { approvalView, createApprovalTable, nextApprovalAt, pruneApprovals, APPROVAL_RETENTION_MS } from "./integrations/approvals.ts"
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
@@ -170,7 +170,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     await this.revokeAtProviders(now)
     await runWatchWork(this.watchHost(), engine.currentState.connections, now)
     await resealFallbacks(this.ctx.storage.sql, this.env, this.http, engine.currentState.connections, now)
-    expireDue(this.ctx.storage.sql, now)
+    expireApprovals(this.ctx.storage.sql, now)
     pruneApprovals(this.ctx.storage.sql, now - APPROVAL_RETENTION_MS)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
@@ -294,7 +294,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const rest = items.filter((i) => i.op !== "integration.approval.answered")
     const done: Array<number> = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : (this.bind(entity), [])
     const allowed = (p: Principal, op: string, params: unknown) => !connectionsDomain.authorize!(this.boundEngine!.currentState, op, params, p)
-    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, runApproved(this.env, allowed, (p, row) => this.runLedgered(p, { op: row.op }, row.params, `${row.identity}#approval`, `approval:${row.request}`)))))
+    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, runApproved(this.env, allowed, (p, row) => this.runLedgered(p, { op: row.op }, row.params, approvalLedger(row).identity, approvalLedger(row).key)))))
     return { done }
   }
 

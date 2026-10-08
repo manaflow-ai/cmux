@@ -35,6 +35,8 @@ export interface ApprovalRow {
   readonly feed_item: string | null
   readonly state: ApprovalState
   readonly reply: unknown
+  readonly target: string
+  readonly summary: string
   readonly created_at: number
   readonly expires_at: number
   readonly ended_at: number | null
@@ -46,7 +48,7 @@ export const createApprovalTable = (sql: Sql) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS integration_approvals (
     request TEXT PRIMARY KEY, identity TEXT NOT NULL, idempotency_key TEXT NOT NULL, user TEXT NOT NULL,
     connection TEXT NOT NULL, op TEXT NOT NULL, params TEXT NOT NULL, params_hash TEXT NOT NULL, digest TEXT NOT NULL,
-    principal TEXT NOT NULL, feed_item TEXT, state TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL,
+    principal TEXT NOT NULL, feed_item TEXT, state TEXT NOT NULL, reply TEXT, target TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL, ended_at INTEGER, UNIQUE (identity, idempotency_key))`)
   sql.exec(`CREATE INDEX IF NOT EXISTS integration_approvals_pending ON integration_approvals (connection, state)`)
 }
@@ -66,6 +68,8 @@ const decode = (r: Raw): ApprovalRow => ({
   feed_item: r.feed_item === null ? null : String(r.feed_item),
   state: String(r.state) as ApprovalState,
   reply: r.reply === null ? null : (JSON.parse(String(r.reply)) as unknown),
+  target: String(r.target ?? ""),
+  summary: String(r.summary ?? ""),
   created_at: Number(r.created_at),
   expires_at: Number(r.expires_at),
   ended_at: r.ended_at === null ? null : Number(r.ended_at)
@@ -90,10 +94,10 @@ export const pendingCountFor = (sql: Sql, identity: string, now: number): number
 
 export const insertApproval = (sql: Sql, row: Omit<ApprovalRow, "feed_item" | "state" | "reply" | "ended_at">) => {
   sql.exec(
-    `INSERT INTO integration_approvals (request, identity, idempotency_key, user, connection, op, params, params_hash, digest, principal, feed_item, state, reply, created_at, expires_at, ended_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?, NULL)`,
+    `INSERT INTO integration_approvals (request, identity, idempotency_key, user, connection, op, params, params_hash, digest, principal, feed_item, state, reply, target, summary, created_at, expires_at, ended_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?, ?, ?, NULL)`,
     row.request, row.identity, row.idempotency_key, row.user, row.connection, row.op, JSON.stringify(row.params), row.params_hash, row.digest,
-    JSON.stringify(row.principal), row.created_at, row.expires_at
+    JSON.stringify(row.principal), row.target, row.summary, row.created_at, row.expires_at
   )
 }
 
@@ -102,12 +106,13 @@ export const deleteApproval = (sql: Sql, request: string) => sql.exec(`DELETE FR
 
 /**
  * Moves a request from one of `from` to a final state; returns false when it was in another state.
- * A request that ends without running drops its params (only a done run keeps its reply).
+ * Every final state drops the params; a done run keeps the provider's reply.
  */
 export const endApproval = (sql: Sql, request: string, state: Exclude<ApprovalState, "pending" | "running">, now: number, reply: unknown = null, from: ReadonlyArray<ApprovalState> = ["pending"]): boolean => {
   const row = approvalByRequest(sql, request)
   if (!row || !from.includes(row.state)) return false
-  sql.exec(`UPDATE integration_approvals SET state = ?, reply = ?, ended_at = ?${state === "done" ? "" : ", params = '{}'"} WHERE request = ?`, state, reply === null ? null : JSON.stringify(reply), now, request)
+  // Final: the params (a mail body, a message) go; op, target, summary, digest and outcome stay 30 days.
+  sql.exec(`UPDATE integration_approvals SET state = ?, reply = ?, ended_at = ?, params = '{}' WHERE request = ?`, state, reply === null ? null : JSON.stringify(reply), now, request)
   return true
 }
 
@@ -134,7 +139,7 @@ export const approvalView = (sql: Sql, principal: Principal, params: unknown, no
   const row = approvalByRequest(sql, String((params as { request?: unknown } | null)?.request ?? ""))
   if (!row || principal.kind !== "session" || principal.user !== row.user) return { ok: false as const, code: "selector.not_found", message: "no such approval request" }
   const state = row.state === "pending" && now >= row.expires_at ? "expired" : row.state === "running" ? "pending" : row.state
-  return { ok: true as const, value: { request: row.request, op: row.op, connection: row.connection, params: row.params, digest: row.digest, state, created_at: row.created_at, expires_at: row.expires_at }, revision: "" }
+  return { ok: true as const, value: { request: row.request, op: row.op, connection: row.connection, target: row.target, summary: row.summary, params: row.params, digest: row.digest, state, created_at: row.created_at, expires_at: row.expires_at }, revision: "" }
 }
 
 export const pruneApprovals = (sql: Sql, before: number) => sql.exec(`DELETE FROM integration_approvals WHERE ended_at IS NOT NULL AND ended_at < ?`, before)
@@ -142,7 +147,7 @@ export const pruneApprovals = (sql: Sql, before: number) => sql.exec(`DELETE FRO
 /** The earliest time a pending request expires or an ended one leaves the table. */
 export const nextApprovalAt = (sql: Sql): number | null => {
   const r = sql.exec<{ a: number | null; b: number | null }>(
-    `SELECT (SELECT MIN(expires_at) FROM integration_approvals WHERE state = 'pending') AS a, (SELECT MIN(ended_at) FROM integration_approvals WHERE ended_at IS NOT NULL) AS b`
+    `SELECT (SELECT MIN(expires_at) FROM integration_approvals WHERE state IN ('pending', 'running')) AS a, (SELECT MIN(ended_at) FROM integration_approvals WHERE ended_at IS NOT NULL) AS b`
   ).toArray()[0]
   const times = [r?.a, r?.b === null || r?.b === undefined ? null : Number(r.b) + APPROVAL_RETENTION_MS].filter((t): t is number => typeof t === "number")
   return times.length ? Math.min(...times) : null
