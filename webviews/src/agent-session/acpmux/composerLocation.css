@@ -161,7 +161,8 @@
    branch read as one scope line instead of a second floating tray. */
 .acpmux-composer-box {
   overflow: visible;
-  border-radius: 18px;
+  --acpmux-composer-radius: 18px;
+  border-radius: var(--acpmux-composer-radius);
 }
 .acpmux-composer-context {
   position: relative;
