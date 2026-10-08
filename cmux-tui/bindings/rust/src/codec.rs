@@ -422,7 +422,12 @@ fn connect_unix_with_poll_checks(
     {
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
-    Ok(UnixStream::from(descriptor))
+    let stream = UnixStream::from(descriptor);
+    // The server must run as this user before anything is written (the
+    // daemon applies the same rule to the sockets it connects to).
+    // SAFETY: geteuid has no preconditions.
+    require_peer_uid(&stream, unsafe { libc::geteuid() }, socket_path)?;
+    Ok(stream)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -580,8 +585,50 @@ pub(crate) fn require_peer_uid(
     expected_uid: u32,
     socket_path: &Path,
 ) -> Result<()> {
-    let _ = (stream, expected_uid, socket_path);
-    Ok(())
+    let peer = peer_uid(stream.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
+    if peer == expected_uid {
+        return Ok(());
+    }
+    Err(CmuxError::ConnectionIo {
+        message: format!(
+            "refused session socket {}: its server runs as another user (uid {peer}, expected uid {expected_uid})",
+            socket_path.display()
+        ),
+        kind: std::io::ErrorKind::PermissionDenied,
+    })
+}
+
+/// The uid of the process at the other end of a connected Unix socket.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid(descriptor: libc::c_int) -> std::io::Result<u32> {
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            descriptor,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &mut length,
+        )
+    };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(credentials.uid)
+}
+
+/// The uid of the process at the other end of a connected Unix socket.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn peer_uid(descriptor: libc::c_int) -> std::io::Result<u32> {
+    let (mut uid, mut gid) = (0 as libc::uid_t, 0 as libc::gid_t);
+    // SAFETY: both out-pointers are valid for writes.
+    if unsafe { libc::getpeereid(descriptor, &mut uid, &mut gid) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(uid)
 }
 
 fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
