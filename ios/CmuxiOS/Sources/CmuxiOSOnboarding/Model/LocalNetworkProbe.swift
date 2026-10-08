@@ -10,7 +10,10 @@ import UIKit
 /// intentional, cancellable delay on the injected clock.
 @MainActor
 final class LocalNetworkProbe {
-    static let serviceType = "_cmux-iroh._udp"
+    /// The direct carrier's Bonjour service. The old Iroh service was removed
+    /// from cmux-next; keeping the probe on it would leave the local-network
+    /// permission flow waiting on a service the app never advertises.
+    static let serviceType = "_cmux._tcp"
     static let wait: Duration = .seconds(6)
 
     private let clock: any Clock<Duration>

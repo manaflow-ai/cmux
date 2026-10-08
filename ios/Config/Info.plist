@@ -71,7 +71,6 @@
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_cmux-iroh._udp</string>
 		<string>_cmux._tcp</string>
 	</array>
 	<key>NSFaceIDUsageDescription</key>

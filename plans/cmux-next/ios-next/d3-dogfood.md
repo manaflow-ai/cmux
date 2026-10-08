@@ -323,7 +323,8 @@ Left for owners, most severe first:
 - Session replay masks (C16 decision): Metal and video surfaces to mask before enabling replay are
   `GhosttyTerminalView` (CmuxiOSTerminal), `BrowserVideoView` and `BrowserCanvasView` (CmuxiOSBrowser), and
   `ImageViewController` and `PDFViewController` content (CmuxiOSViewers).
-- `ios/Config/Info.plist` still lists `_cmux-iroh._udp` in `NSBonjourServices` (iroh is dropped).
+- Local-network onboarding and `NSBonjourServices` now use direct carrier `_cmux._tcp`; the retired
+  `_cmux-iroh._udp` service is no longer requested.
 
 F1 hygiene (2026-10-07, branch `feat-cmux-next-ios-f1-hygiene` off `feat-cmux-next-ios` at `32d4627b0da`),
 every check on the merged tree, before -> after:

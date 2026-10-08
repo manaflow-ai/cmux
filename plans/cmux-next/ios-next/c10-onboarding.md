@@ -75,6 +75,9 @@ Pure model in `CmuxiOSOnboardingCore` (Foundation + FeatureKit):
   `pairing`; this keeps the retry action visible instead of leaving a spinner over a dead path. The
   same pairing intent is retained and can be confirmed by a later trusted-device snapshot.
 
+The local-network primer browses the direct carrier's `_cmux._tcp` Bonjour service, matching the
+app's `NSBonjourServices` entry; the retired Iroh `_cmux-iroh._udp` service is not requested.
+
 Push permission moves out of sign-in: `PushRegistration.start(for:requestPermission:)` asks the system
 only when the app passes `true`, which it does when onboarding will not prime. Otherwise the
 notifications step asks, then calls `authorizationChanged()` so registration continues.
