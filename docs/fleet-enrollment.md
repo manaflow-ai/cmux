@@ -51,6 +51,22 @@ mv "$GLAEDA_INSTALL_ROOT/.glaeda.next" "$GLAEDA_BIN"
 
 The first candidate install preserves the previously installed Glaeda binary as `glaeda.rollback`. Repeated candidate installs leave that copy untouched until the new enrollment is accepted.
 
+For a normal enrollment, use Glaeda's current one-command path after the
+machine-setup preflight:
+
+```bash
+scripts/glaeda-mini-setup --apply --cmux-root "$CMUX_ROOT"
+scripts/glaeda-mini-enroll --cmux-root "$CMUX_ROOT" --node-id cmux-mac-001 --apply
+```
+
+When a reviewed candidate bundle is available, pass its `--candidate`,
+`--sha256`, and `--source` values to `glaeda-mini-enroll` so the node stages
+the exact reviewed Glaeda generation. See Glaeda's
+[CMUX fleet enrollment guide](https://github.com/teamleaderleo/glaeda/blob/main/docs/CMUX_FLEET_ENROLLMENT.md)
+for candidate staging, Linux enrollment, re-acceptance, and recovery. The
+manual commands below are the contract-level fallback and are useful when
+developing or debugging a single enrollment step.
+
 For a Mac native-build node, prepare CMUX's normal build prerequisites and choose the operator-owned cache root:
 
 ```bash

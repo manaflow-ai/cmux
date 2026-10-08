@@ -34,15 +34,17 @@ still-running check, conflict markers, or a changed head. `--main-fix` remains
 the evidence path for red-main cmux-next fixes and posts its audit comment
 before merging.
 
-Every CI/CD job picks its runner from a repository variable instead of a
-hardcoded label. Changing a runner type is a single repository-variable update
-that takes effect on the next workflow run.
+Most required CI/CD lanes pick their runner from a repository variable instead
+of a hardcoded label. Documented exceptions may use an explicit
+Blacksmith/Warp/Depot label when the workflow needs a fixed provider or a
+provider-specific capability. Changing a variable-backed runner type is a
+single repository-variable update that takes effect on the next workflow run.
 
 Linux uses Blacksmith. macOS uses Blacksmith cloud runners, plus the owned
-glaeda minis for the lanes the pool picker routes to them. WarpBuild is paid overflow and is
-not a steady state for any lane. No job in `manaflow-ai` selects a
-GitHub-hosted runner, so a GitHub billing block or hosted outage cannot stop CI;
-see "Guard" for the few jobs that must stay GitHub-hosted and why.
+glaeda minis for the lanes the pool picker routes to them. WarpBuild is paid
+overflow and is not a steady state for any lane. Most jobs avoid GitHub-hosted
+runners, but a small exception set remains for provider-specific or trusted
+jobs; the "Guard" section lists those exceptions and why.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually
