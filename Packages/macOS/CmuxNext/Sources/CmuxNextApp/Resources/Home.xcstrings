@@ -1312,6 +1312,137 @@
         }
       }
     },
+    "home.engine.runsElsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Chief runs on a paired server, not on this Mac. Its harness and model are set on that server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief はこの Mac ではなく、ペアリングしたサーバーで動作します。ハーネスとモデルはそのサーバーで設定します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل هذا الـ Chief على خادم مقترن، وليس على جهاز Mac هذا. يتم ضبط الحزمة والنموذج الخاصين به على ذلك الخادم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Chief radi na uparenom serveru, a ne na ovom Macu. Njegov okvir i model postavljaju se na tom serveru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Chief kører på en parret server, ikke på denne Mac. Dens harness og model indstilles på den server."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chief läuft auf einem gekoppelten Server, nicht auf diesem Mac. Sein Harness und Modell werden auf diesem Server eingestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Chief se ejecuta en un servidor vinculado, no en este Mac. Su harness y su modelo se configuran en ese servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Chief s’exécute sur un serveur jumelé, pas sur ce Mac. Son harness et son modèle se règlent sur ce serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Chief viene eseguito su un server abbinato, non su questo Mac. Il suo harness e il modello si impostano su quel server."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief នេះដំណើរការលើម៉ាស៊ីនមេដែលបានផ្គូផ្គង មិនមែនលើ Mac នេះទេ។ harness និងម៉ូដែលរបស់វាត្រូវបានកំណត់នៅលើម៉ាស៊ីនមេនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Chief는 이 Mac이 아니라 페어링된 서버에서 실행됩니다. 하니스와 모델은 그 서버에서 설정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Chief kjører på en paret server, ikke på denne Macen. Harness og modell stilles inn på den serveren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Chief działa na sparowanym serwerze, a nie na tym Macu. Jego harness i model ustawia się na tym serwerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Chief é executado em um servidor pareado, não neste Mac. O harness e o modelo dele são definidos nesse servidor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Chief работает на сопряжённом сервере, а не на этом Mac. Его харнесс и модель настраиваются на том сервере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief นี้ทำงานบนเซิร์ฟเวอร์ที่จับคู่ไว้ ไม่ใช่บน Mac เครื่องนี้ harness และโมเดลของมันตั้งค่าบนเซิร์ฟเวอร์นั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Chief bu Mac’te değil, eşlenmiş bir sunucuda çalışır. Harness’i ve modeli o sunucuda ayarlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Chief працює на спареному сервері, а не на цьому Mac. Його харнес і модель налаштовуються на тому сервері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief này chạy trên một máy chủ đã ghép đôi, không phải trên máy Mac này. Harness và mô hình của nó được đặt trên máy chủ đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Chief 运行在已配对的服务器上，而不是这台 Mac 上。它的 harness 和模型在该服务器上设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Chief 在已配對的伺服器上執行，而不是這台 Mac。它的 harness 與模型在該伺服器上設定。"
+          }
+        }
+      }
+    },
     "home.engine.default": {
       "extractionState": "manual",
       "localizations": {

@@ -55,18 +55,18 @@ enum TabIconHandlers {
     /// The id of the tab icon undo toast (one per window; a newer change replaces it).
     static let undoToastID = "tab-icon-undo"
 
-    /// Changes the tab's icon (nil removes it); a user's change offers an undo toast (TabIconHistory).
+    /// Changes the tab's icon (nil removes it); a user's change offers an undo toast (IconHistory).
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
         let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
-        history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
+        try? history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
 
     /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo toast shows
     /// in the window that shows the tab (not the picker panel that is key while it closes).
-    static func history(_ ctx: AppActionContext) -> TabIconHistory {
+    static func history(_ ctx: AppActionContext) -> IconHistory {
         let shownIn = UndoToastWindow()
-        return TabIconHistory(apply: { id, update in
+        return IconHistory(messages: .tab, apply: { id, update in
             guard let (tab, pane) = ctx.services.locateTab(id), let resource = tab.resourceID else { return false }
             let daemon = ctx.services.daemon(for: pane)
             guard daemon.store.servesStateResources else { return false }

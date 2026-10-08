@@ -44,7 +44,7 @@ const host = (revoked: Set<string> = new Set()) => {
   let n = 0
   const outbox: Array<OutboxItem> = []
   const kinds: Record<string, string> = { inst_mac: "mac", inst_ios: "ios", inst_x: "mac" }
-  const env: UserConfirmEnv = { user: USER, installActive: (i) => !revoked.has(i), installKind: (i) => kinds[i], chiefs: ["agent_a", "agent_b"], appIdHash: APP_ID_HASH }
+  const env: UserConfirmEnv = { user: USER, installActive: (i) => !revoked.has(i), installKind: (i) => kinds[i], chiefs: ["agent_a", "agent_b"], appIdHash: APP_ID_HASH, emails: ["owner@example.com"] }
   const run = (op: string, params: Record<string, unknown>, p: Principal, origin: "user" | "remote" | "script" = "user", now = NOW) => {
     if (!authorizeUserConfirm(op, p, env)) return { ok: false as const, code: "forbidden" }
     const r = reduceUserConfirm(s, op, params, { principal: p, now, tx: `t${++n}`, newId: (x) => `${x}_${n}_${Math.random().toString(36).slice(2)}`, rows: new MemoryRows(), origin }, env)
@@ -89,10 +89,30 @@ describe("per-user level and lowering with a device proof", () => {
     expect(r).toMatchObject({ ok: true, value: { lowered: true, level: "off" } })
     expect(userLevelOf(h.state)).toBe("off")
     const kinds = h.outbox.map((o) => `${o.kind}>${o.target?.class}:${o.target?.name}`)
-    expect(kinds).toEqual(expect.arrayContaining(["mux.text_confirm.level.sync>MuxDO:agent_a", "mux.text_confirm.level.sync>MuxDO:agent_b", "feed.post>FeedDO:user_owner", "mail.security_notice>MailerDO:user_owner"]))
+    expect(kinds).toEqual(expect.arrayContaining(["mux.text_confirm.level.sync>MuxDO:agent_a", "mux.text_confirm.level.sync>MuxDO:agent_b", "feed.post>FeedDO:user_owner", "mail.security_notice>Mail:user_owner"]))
     const feed = h.outbox.filter((o) => o.kind === "feed.post").at(-1)!.payload as { title: string; body: string }
     expect(feed.body).toContain("Strict")
     expect(feed.body).toContain("Off")
+  })
+
+  it("collapses presence key notices to one feed item and one email per hour", async () => {
+    const { securityNotice } = await import("../src/user/notices.ts")
+    const env = { user: USER, emails: ["owner@example.com"] }
+    const a = securityNotice(env, "key_added", 1, { install: "i1", at: 7_200_000 })
+    const b = securityNotice(env, "key_added", 2, { install: "i2", at: 7_200_000 + 60_000 })
+    const mail = (n: typeof a) => n.find((o) => o.kind === "mail.security_notice")!
+    expect(mail(a).entity).toBe(mail(b).entity)
+    expect(mail(a).target?.coalesce).toBe(mail(b).target?.coalesce)
+    const feed = (n: typeof a) => (n.find((o) => o.kind === "feed.post")!.payload as { dedupe_key?: string }).dedupe_key
+    expect(feed(a)).toBe(feed(b))
+    const lowered = securityNotice(env, "lowered", 3, { from: "strict", to: "off", install: "i1", at: 7_200_000 })
+    expect(mail(lowered).target?.coalesce).toBeUndefined()
+    const both = securityNotice({ user: USER, emails: ["new@example.com", "old@example.com"] }, "lowered", 5, { from: "strict", to: "off", install: "i1", at: 1 })
+    const sent = both.filter((o) => o.kind === "mail.security_notice")
+    // One email per address (never both addresses on one email), each with its own key.
+    expect(sent.map((o) => (o.payload as { to: string }).to)).toEqual(["new@example.com", "old@example.com"])
+    expect(new Set(sent.map((o) => o.entity)).size).toBe(2)
+    expect(securityNotice({ user: USER, emails: [] }, "lowered", 4, { from: "strict", to: "off", install: "i1", at: 1 }).some((o) => o.kind === "mail.security_notice")).toBe(false)
   })
 
   it("refuses: no proof, a stale proof, a replayed nonce, a proof for another op or level, and spends the nonce each time", () => {

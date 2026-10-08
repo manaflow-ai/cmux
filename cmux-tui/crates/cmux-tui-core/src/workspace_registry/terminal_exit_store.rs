@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::resource_store::{apply_resource_patch_unrecorded, validate_resource_patch};
 use super::{
     RegistryTerminal, ResourcePatch, ResourceWorkspaceClose, TerminalLifecycle, WorkspaceMutation,
-    WorkspaceRegistry, canonical_json, read_terminal,
+    WorkspaceRegistry, canonical_json, insert_resource_mutation, read_terminal,
     session_journal::append_resource_journal_record, transaction_resource_revision,
     transaction_terminal_revision, validate_terminal_transition,
 };
@@ -270,7 +270,7 @@ impl WorkspaceRegistry {
             }
         }
         let changes = Value::Array(changes);
-        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
         let fingerprint = json!({
             "op": "terminal-exited",
             "terminal_id": terminal_id,
@@ -366,17 +366,13 @@ impl WorkspaceRegistry {
                 &result_json,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, 'terminal-exited', ?3, ?4, ?5)",
-            params![
-                &mutation.origin,
-                &mutation.id,
-                &fingerprint_json,
-                &result_json,
-                sqlite_resource_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            &mutation,
+            "terminal-exited",
+            &fingerprint_json,
+            &result_json,
+            sqlite_resource_revision,
         )?;
         append_resource_journal_record(
             &tx,

@@ -1115,3 +1115,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_cmux_tui_tree_targets.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macos_stubs.py"
+lane = "linux-guard"

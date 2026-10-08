@@ -7,7 +7,8 @@
 # tree (default): the daemon built from this checkout's own cmux-tui source.
 #   The key is a git tree hash of the binary's source inputs
 #   (scripts/cmux-next/cmux-tui-tree-inputs.txt: the cmux-tui tree, the
-#   ghostty-next gitlink and the reducer FFI build script), computed by
+#   ghostty-next gitlink, the reducer FFI build script, the macOS builder
+#   switch and the Linux cross-build recipe), computed by
 #   scripts/ci/cmux_tui_tree_key.py (`pin-cmux-tui.sh key`). That is key v2.
 #   Key v1 also hashed the classic `ghostty` gitlink, which no cmux-tui binary
 #   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,

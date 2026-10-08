@@ -285,6 +285,11 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
         }
+        model.onNewTabInputReady = { [weak self] token in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.inputReady(key, token)
+        }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
