@@ -46,6 +46,9 @@ public struct CloudHubConnector: Sendable {
         target: CloudPortForwardTarget,
         queue: DispatchQueue
     ) async throws -> CloudHubConnection {
+        guard timeout > .zero else {
+            throw CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
+        }
         let hosts = target.hosts
         return try await Self.hedged(
             candidates: hosts.count,
@@ -170,7 +173,9 @@ public struct CloudHubConnector: Sendable {
                 switch event {
                 case .success(let index, let value):
                     inFlight[index] -= 1
-                    if winner == nil {
+                    if expired {
+                        discard(value)
+                    } else if winner == nil {
                         winner = value
                         group.cancelAll()
                     } else {
@@ -245,12 +250,18 @@ public struct CloudHubConnector: Sendable {
         fallbackDelay: Duration = .milliseconds(250),
         redialInterval: Duration = .milliseconds(50),
         maxRedials: Int = 60,
+        fastRedialWindow: Duration = .seconds(1),
+        slowRedialInterval: Duration = .milliseconds(250),
+        attemptTimeout: Duration = .seconds(2),
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.timeout = timeout
         self.fallbackDelay = fallbackDelay
         self.redialInterval = redialInterval
         self.maxRedials = maxRedials
+        self.fastRedialWindow = fastRedialWindow
+        self.slowRedialInterval = slowRedialInterval
+        self.attemptTimeout = attemptTimeout
         self.clock = clock
     }
 }
@@ -273,4 +284,3 @@ public struct CloudHubSlowRedialPhase: Sendable, Equatable {
         self.interval = interval
     }
 }
-

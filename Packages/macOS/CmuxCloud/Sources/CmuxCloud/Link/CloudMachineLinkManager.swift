@@ -91,10 +91,10 @@ public actor CloudMachineLinkManager {
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
-    /// Time left before `deadline`, never less than one second so the final
-    /// step still gets a real attempt instead of an immediate timeout.
+    /// Time left before `deadline`. A caller whose budget is already exhausted
+    /// must not be given a fresh second that lets route selection overrun it.
     static func remaining(until deadline: ContinuousClock.Instant) -> Duration {
-        max(deadline - ContinuousClock.now, .seconds(1))
+        max(deadline - ContinuousClock.now, .zero)
     }
     /// Races the private addresses of a dual-stack machine through the hub.
     /// Tests that expect every address to fail pass a short deadline.
