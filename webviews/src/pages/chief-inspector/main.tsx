@@ -1,6 +1,8 @@
 // Boots the remote Chief memory inspector (`cmux-page://cmux.chief-inspector/`): the same app as
 // the local inspector (src/optchat-inspector), with its API calls carried by the `cmuxPage`
 // bridge to the app, which relays them to the paired server's brain daemon (`chief-inspect`).
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { App } from "../../optchat-inspector/App";
 import { ApiStore, fetcherFor } from "../../optchat-inspector/store";
