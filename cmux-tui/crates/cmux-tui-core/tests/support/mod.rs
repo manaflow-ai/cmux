@@ -8,7 +8,15 @@ use cmux_tui_core::{Actor, Mux, PaneId, RunPlacement, Surface, SurfaceId};
 
 pub trait DaemonMuxOps {
     #[allow(clippy::too_many_arguments)]
-    fn run_command_surface(&self, argv: Vec<String>, pane: Option<PaneId>, new_workspace: bool, cwd: Option<String>, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<RunPlacement>;
+    fn run_command_surface(
+        &self,
+        argv: Vec<String>,
+        pane: Option<PaneId>,
+        new_workspace: bool,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<RunPlacement>;
     fn close_surface(&self, target: SurfaceId) -> anyhow::Result<bool>;
     fn new_browser_tab(
         &self,
@@ -30,7 +38,15 @@ pub trait DaemonMuxOps {
 }
 
 impl DaemonMuxOps for Arc<Mux> {
-    fn run_command_surface(&self, argv: Vec<String>, pane: Option<PaneId>, new_workspace: bool, cwd: Option<String>, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<RunPlacement> {
+    fn run_command_surface(
+        &self,
+        argv: Vec<String>,
+        pane: Option<PaneId>,
+        new_workspace: bool,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<RunPlacement> {
         self.run_command_surface_as(&Actor::Daemon, argv, pane, new_workspace, cwd, name, size)
     }
 

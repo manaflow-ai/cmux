@@ -6,6 +6,8 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
@@ -15,8 +17,6 @@ use std::sync::mpsc::{RecvTimeoutError, TrySendError as StdTrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-#[cfg(test)]
-use std::cell::Cell;
 
 use base64::Engine;
 use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
@@ -25368,7 +25368,6 @@ mod tests {
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
-    use {crate::local_actor::TuiMuxOps, crossbeam_channel::Receiver};
     use serde_json::Value;
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -25376,6 +25375,7 @@ mod tests {
     use std::sync::mpsc::Receiver as StdReceiver;
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
+    use {crate::local_actor::TuiMuxOps, crossbeam_channel::Receiver};
 
     use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{
