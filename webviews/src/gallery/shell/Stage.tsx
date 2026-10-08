@@ -1,7 +1,7 @@
 // The gallery's stage and controls: a stage is an iframe of frame.html under the controls (in
 // window mode the real-size window, scaled down by one transform); the controls edit the URL
 // contract (env.ts). A developer tool: its own labels are English, like the native gallery's.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_ENV,
   DENSITIES,
@@ -129,8 +129,6 @@ export function Stage({
   // Replay mounts the stage again, so its play steps run from the start.
   const [run, setRun] = useState(0);
   const [report, setReport] = useState<PlayReport | undefined>();
-  const [display, setDisplay] = useState({ query, frame: { width: 0, height: 0 }, scale: 1 });
-  const [pending, setPending] = useState<{ query: string; frame: { width: number; height: number }; scale: number }>();
   const hasPlay = Boolean(entry.variants[state]?.play);
   const note = entry.variants[state]?.note;
   // Component entries have their own natural bounds. Keep the window frame for page entries,
@@ -153,35 +151,58 @@ export function Stage({
   }
   const frameWidth = frame.width;
   const frameHeight = frame.height;
+  type FrameState = { query: string; run: number; frame: { width: number; height: number }; scale: number };
+  const [display, setDisplay] = useState<FrameState>({ query, run, frame, scale });
+  const [pending, setPending] = useState<FrameState>();
+  const promotion = useRef(0);
+  const pendingRef = useRef<FrameState>();
+  pendingRef.current = pending;
   useEffect(() => {
-    if (display.query === query) return;
-    setPending({ query, frame: { width: frameWidth, height: frameHeight }, scale });
-  }, [display.query, frameHeight, frameWidth, query, scale]);
+    const requested = { query, run, frame: { width: frameWidth, height: frameHeight }, scale };
+    if (display.query === query && display.run === run) {
+      setDisplay((current) => ({ ...current, frame: requested.frame, scale }));
+      setPending(undefined);
+      return;
+    }
+    setPending((current) =>
+      current?.query === requested.query && current.run === requested.run && current.frame.width === frameWidth && current.frame.height === frameHeight && current.scale === scale
+        ? current
+        : requested,
+    );
+  }, [display.query, display.run, frameHeight, frameWidth, query, run, scale]);
   const frameRef = useCallback(
-    (iframe: HTMLIFrameElement | null) => {
+    (content: FrameState) => (iframe: HTMLIFrameElement | null) => {
       if (!iframe) return;
       const receive = (event: MessageEvent) => {
         const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
-        if (event.source !== iframe.contentWindow || iframe.dataset.galleryQuery !== query) return;
+        if (event.source !== iframe.contentWindow || iframe.dataset.galleryQuery !== content.query) return;
         if (data?.type === "cmux-gallery-play") setReport(data.report);
-        if (data?.type === "cmux-gallery-stage" && data.status === "ready") {
+        if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
+          const token = ++promotion.current;
           requestAnimationFrame(() => {
-            setDisplay({ query, frame: { width: frameWidth, height: frameHeight }, scale });
+            if (token !== promotion.current) return;
+            const current = pendingRef.current;
+            if (!current || current.query !== content.query || current.run !== content.run) return;
+            pendingRef.current = undefined;
+            setDisplay(current);
             setPending(undefined);
           });
         }
       };
       addEventListener("message", receive);
-      return () => removeEventListener("message", receive);
+      return () => {
+        removeEventListener("message", receive);
+        promotion.current += 1;
+      };
     },
-    [frameHeight, frameWidth, query, scale],
+    [content],
   );
-  const shown = display.frame.width === 0 ? { query, frame, scale } : display;
-  const next = pending?.query === query ? pending : undefined;
+  const shown = display;
+  const next = pending;
   const iframe = (content: typeof shown, hidden: boolean) => (
     <iframe
-      key={`${run}:${content.query}`}
-      ref={frameRef}
+      key={`${content.run}:${content.query}`}
+      ref={frameRef(content)}
       data-gallery-query={content.query}
       title={`${entry.id} ${state}`}
       src={`frame.html?${content.query}`}

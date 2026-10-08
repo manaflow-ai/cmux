@@ -402,7 +402,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         ) : (
           stages.map((stage) => (
             <Stage
-              key={stage.key}
+              key={search.view === "variant" ? "stage" : stage.key}
               entry={entry}
               state={stage.variant}
               env={stage.env}
