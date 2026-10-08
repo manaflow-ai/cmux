@@ -1,6 +1,9 @@
 //! `cmux host team-ssh …`:
 //! - `apply [--root DIR]`: a `team_vm.ssh_ca` value on stdin; writes the
 //!   KRL, CA keys and state, then ends revoked sessions. Exit 4 = refused.
+//! - `accounts-apply [--root DIR]`: a `team_vm.accounts` value on stdin;
+//!   creates the members' users and principals files, removes the
+//!   principals of members who left, then runs the reaper (Linux only).
 //! - `principals <user> [--root DIR]`: sshd `AuthorizedPrincipalsCommand`;
 //!   prints nothing unless trust is fresh.
 //! - `session-open [--root DIR]`: pam_exec hook (open_session records the
@@ -39,7 +42,7 @@ fn split_root(args: &[String]) -> Result<(Paths, Vec<String>), String> {
 
 fn usage(msg: &str) -> u8 {
     eprintln!(
-        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap|sync [--once] [--root DIR]"
+        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--once] [--root DIR]"
     );
     2
 }
@@ -52,6 +55,7 @@ pub fn run(args: &[String]) -> u8 {
     };
     match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["apply"] => apply_verb(&paths),
+        ["accounts-apply"] => accounts_verb(&paths),
         ["principals", user] => {
             let out = store::principals(&paths, user, now());
             if out.is_empty() {
@@ -79,12 +83,58 @@ fn sync_verb(_paths: &Paths, _once: bool) -> u8 {
     4
 }
 
-fn apply_verb(paths: &Paths) -> u8 {
+fn read_stdin(verb: &str) -> Option<String> {
     let mut text = String::new();
-    if let Err(e) = std::io::stdin().take(MAX_SNAPSHOT_BYTES).read_to_string(&mut text) {
-        eprintln!("cmux host team-ssh apply: stdin: {e}");
-        return 2;
+    match std::io::stdin().take(MAX_SNAPSHOT_BYTES).read_to_string(&mut text) {
+        Ok(_) => Some(text),
+        Err(e) => {
+            eprintln!("cmux host team-ssh {verb}: stdin: {e}");
+            None
+        }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn accounts_verb(paths: &Paths) -> u8 {
+    let Some(text) = read_stdin("accounts-apply") else { return 2 };
+    let wanted = match serde_json::from_str(&text)
+        .map_err(|e| e.to_string())
+        .and_then(|view| super::accounts::verify(&view))
+    {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("cmux host team-ssh accounts-apply: refused: {e}");
+            return 4;
+        }
+    };
+    let done = super::accounts::reconcile(
+        paths,
+        &wanted,
+        &super::accounts_linux::LinuxAccounts::default(),
+    );
+    let reaped = reap_pass(paths);
+    println!(
+        "{}",
+        serde_json::json!({
+            "created": done.created,
+            "written": done.written,
+            "removed": done.removed,
+            "refused": done.refused,
+            "ended": reaped.ended,
+            "errors": done.errors.iter().chain(&reaped.errors).collect::<Vec<_>>(),
+        })
+    );
+    if done.errors.is_empty() && reaped.errors.is_empty() { 0 } else { 1 }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn accounts_verb(_paths: &Paths) -> u8 {
+    eprintln!("cmux host team-ssh accounts-apply: Linux only");
+    4
+}
+
+fn apply_verb(paths: &Paths) -> u8 {
+    let Some(text) = read_stdin("apply") else { return 2 };
     let snapshot: trust::Snapshot = match serde_json::from_str(&text) {
         Ok(s) => s,
         Err(e) => {

@@ -34,7 +34,7 @@ const GOOD = [
   "authorizedprincipalscommanduser nobody",
   `revokedkeys ${SSH_KRL_FILE}`,
   "usepam yes",
-  "allowusers cmux",
+  "allowgroups cmux-ssh",
 ].join("\n");
 
 const edit = (key: string, value: string | null) =>
@@ -75,8 +75,9 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
   });
 
   test("only the work user may log in", () => {
-    expect(sshdPolicyProblems(edit("allowusers", null), "cmux")).toContain("allowusers is missing, want cmux");
-    expect(sshdPolicyProblems(edit("allowusers", "cmux root"), "cmux")).toContain("allowusers is cmux root, want cmux");
+    expect(sshdPolicyProblems(edit("allowgroups", null), "cmux")).toContain("allowgroups is missing, want cmux-ssh");
+    expect(sshdPolicyProblems(edit("allowgroups", "cmux-ssh root"), "cmux")).toContain("allowgroups is cmux-ssh root, want cmux-ssh");
+    expect(sshdPolicyProblems(`${GOOD}\nallowusers cmux`, "cmux")).toContain("allowusers is cmux, want none (AllowGroups cmux-ssh decides)");
   });
 
   test("sshd listens on loopback only (the link forwards the ssh service to it)", () => {

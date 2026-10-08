@@ -3,7 +3,11 @@
 //! [`SYNC_INTERVAL`] and apply it ([`super::store::apply`], then the
 //! revoked-session reaper). A revocation reaches sshd within one interval;
 //! a VM that cannot sync refuses new logins after
-//! [`super::trust::STALE_AFTER_SECS`] (fail closed).
+//! [`super::trust::STALE_AFTER_SECS`] (fail closed). After each accepted
+//! apply, the same pass reads `team_vm.accounts` and reconciles the
+//! members' Linux users and principals ([`accounts_once`]), so a new
+//! member's first certificate works and a member who left loses access
+//! within one interval.
 
 use std::time::Duration;
 
@@ -14,6 +18,7 @@ use crate::cloud::sender::Answer;
 use crate::cloud::wire::Bound;
 use crate::config::Paths;
 
+use super::accounts::{self, Accounts, Reconciled};
 use super::enroll::TeamBound;
 use super::store::{self, Applied, KrlCheck};
 use super::trust::Snapshot;
@@ -63,6 +68,33 @@ pub fn sync_once<H: Http>(
     }
 }
 
+/// One account pass: the team's members' Linux users, refused unless they
+/// name this VM's team, then [`accounts::reconcile`].
+pub fn accounts_once<H: Http>(
+    client: &mut CloudClient<H>,
+    paths: &Paths,
+    host: &dyn Accounts,
+    now_wall_ms: u64,
+) -> Result<Reconciled, String> {
+    match client.read("team_vm.accounts", &json!({}), now_wall_ms) {
+        Answer::Transport => Err("team_vm.accounts: no answer (token or network)".into()),
+        Answer::Http { status: 200, body } => {
+            let value = body.get("value").cloned().unwrap_or(Value::Null);
+            if value["team"] != client.bound().team.as_str() {
+                return Err("team_vm.accounts answered for another team".into());
+            }
+            let view: accounts::View =
+                serde_json::from_value(value).map_err(|e| format!("team_vm.accounts: {e}"))?;
+            let wanted = accounts::verify(&view).map_err(|e| format!("team_vm.accounts: {e}"))?;
+            Ok(accounts::reconcile(paths, &wanted, host))
+        }
+        Answer::Http { status, body } => {
+            let code = body["error"]["code"].as_str().or(body["code"].as_str()).unwrap_or("");
+            Err(format!("team_vm.accounts: HTTP {status} {code}"))
+        }
+    }
+}
+
 /// `cmux host team-ssh sync [--once]`: the loop the image's unit runs.
 #[cfg(target_os = "linux")]
 pub fn run(paths: &Paths, once: bool) -> u8 {
@@ -108,6 +140,22 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
         if let Some((_, c)) = client.as_mut() {
             match sync_once(c, paths, &store::ssh_keygen_check, wall_ms()) {
                 Ok(applied) => {
+                    let linux_accounts = super::accounts_linux::LinuxAccounts::default();
+                    let mut account_errors = false;
+                    match accounts_once(c, paths, &linux_accounts, wall_ms()) {
+                        Ok(done) if done.changed() => {
+                            account_errors = !done.errors.is_empty();
+                            eprintln!(
+                                "cmux host team-ssh sync: accounts created {:?} written {:?} removed {:?} refused {:?} errors {:?}",
+                                done.created, done.written, done.removed, done.refused, done.errors
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            account_errors = true;
+                            eprintln!("cmux host team-ssh sync: {e}");
+                        }
+                    }
                     let host = super::linux_host::LinuxHost::new(paths.at(super::SESSIONS_DIR));
                     let reaped = super::sessions::reap(paths, &host);
                     if applied.krl_changed
@@ -127,7 +175,7 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
                     for e in &reaped.errors {
                         eprintln!("cmux host team-ssh sync: {e}");
                     }
-                    code = if reaped.errors.is_empty() { 0 } else { 1 };
+                    code = if reaped.errors.is_empty() && !account_errors { 0 } else { 1 };
                 }
                 Err(e) => eprintln!("cmux host team-ssh sync: {e}"),
             }

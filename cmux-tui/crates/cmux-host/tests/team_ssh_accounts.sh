@@ -39,7 +39,7 @@ SSHD_UNIT=cmuxtembr-sshd.service
 SSH_DIR=/etc/cmux/ssh
 SESSIONS=/run/cmux-host/ssh-sessions
 LOGIN_GROUP=cmux-ssh
-TEAM_USERS=(cmuxtalice cmuxtalice-agents cmuxtbob cmuxtbob-agents cmuxtsys cmuxtcarol)
+TEAM_USERS=(cmuxtalice cmuxtalice-agents cmuxtbob cmuxtbob-agents cmuxtsys cmuxtcarol cmuxtother)
 d="$(mktemp -d)"
 chmod 0755 "$d"
 fails=0
@@ -51,7 +51,9 @@ cleanup() {
   for u in "${TEAM_USERS[@]}"; do
     if id "$u" >/dev/null 2>&1; then
       loginctl terminate-user "$u" 2>/dev/null
-      userdel -r "$u" 2>/dev/null
+      systemctl stop "user@$(id -u "$u").service" 2>/dev/null
+      # userdel refuses while the user still has processes (the user manager stops asynchronously).
+      for i in $(seq 50); do userdel -r "$u" 2>/dev/null && break; sleep 0.1; done
     fi
     getent group "$u" >/dev/null && groupdel "$u" 2>/dev/null
   done
@@ -69,7 +71,7 @@ not() { ! "$@"; }
 for u in "${TEAM_USERS[@]}"; do
   if id "$u" >/dev/null 2>&1; then echo "user $u already exists; not a throwaway host" >&2; exit 2; fi
 done
-for uid in 20000 20002 20004 20006 20008; do
+for uid in 20000 20002 20004 20006 20008 20010; do
   if getent passwd "$uid" >/dev/null; then echo "uid $uid is taken; not a throwaway host" >&2; exit 2; fi
 done
 install -d -m 0755 "$LIBEXEC"
@@ -79,6 +81,8 @@ install -m 0755 "$(command -v sshd)" "$SSHD"
 groupadd --system "$LOGIN_GROUP"
 # A name the team never allocated to this UID (the reconciler must not take it).
 useradd --system --no-create-home --shell /usr/sbin/nologin cmuxtsys
+# A local user that holds a UID in the team range (the reconciler must not reuse it).
+useradd --uid 20010 --no-create-home --shell /usr/sbin/nologin cmuxtother
 
 install -d -m 0755 "$SSH_DIR" "$SSH_DIR/principals"
 rm -f "$SSH_DIR/trust.json" "$SSH_DIR/revoked.krl" "$SSH_DIR/user-ca.pub" "$SSH_DIR/accounts.json"
@@ -185,12 +189,12 @@ out="$(accounts "$(view "$ALICE" "$BOB")")"
 
 # --- D: refusals ----------------------------------------------------------
 echo "--- D"
-out="$(accounts "$(view "$ALICE" "$BOB" "$(entry cmuxtsys 20008 human)" "$(entry cmuxtcarol 20000 human)")" || true)"
+out="$(accounts "$(view "$ALICE" "$BOB" "$(entry cmuxtsys 20008 human)" "$(entry cmuxtcarol 20010 human)")" || true)"
 echo "D apply: $out"
 [[ ! -e "$SSH_DIR/principals/cmuxtsys" && "$(id -u cmuxtsys)" -lt 1000 ]] && pass "D an existing system name is not taken over" || fail "D cmuxtsys: $(id cmuxtsys) $(ls "$SSH_DIR/principals")"
 [[ "$out" == *cmuxtsys* && "$out" == *refused* ]] && pass "D the system name is reported" || fail "D cmuxtsys not reported: $out"
 not id cmuxtcarol >/dev/null 2>&1 && [[ ! -e "$SSH_DIR/principals/cmuxtcarol" ]] && pass "D a UID another user holds is refused" || fail "D cmuxtcarol: $(id cmuxtcarol 2>&1)"
-[[ "$out" == *cmuxtcarol* ]] && pass "D the UID clash is reported" || fail "D cmuxtcarol not reported: $out"
+[[ "$out" == *"cmuxtcarol: uid 20010 belongs to cmuxtother"* ]] && pass "D the UID clash is reported" || fail "D cmuxtcarol not reported: $out"
 [[ "$(cat "$SSH_DIR/principals/cmuxtalice")" == cmuxtalice ]] && pass "D a refusal leaves the other users alone" || fail "D cmuxtalice principals changed"
 
 # --- E: a removed member ---------------------------------------------------

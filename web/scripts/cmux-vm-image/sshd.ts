@@ -19,6 +19,11 @@ export const SSH_TRUST_FILE = `${SSH_DIR}/trust.json`;
 export const SSHD_DROP_IN = "/etc/ssh/sshd_config.d/10-cmux.conf";
 export const SSHD_PAM_FILE = "/etc/pam.d/sshd";
 /**
+ * sshd `AllowGroups`: the work user is in it from the bake, and the team VM's account reconciler
+ * (`cmux host team-ssh sync`, crate cmux-host team_ssh/accounts.rs) adds each team member's users.
+ */
+export const SSH_LOGIN_GROUP = "cmux-ssh";
+/**
  * `cmux host team-ssh` (crate cmux-host, module team_ssh): `principals` prints
  * the principals file's lines only while the last trust sync is at most 120 s
  * old (fail closed), and `session-open` records each certificate session so a
@@ -53,7 +58,7 @@ export function sshSyncUnit(): string {
 export const SSHD_PAM_LINE = `session required pam_exec.so quiet ${SSH_TRUST_CMD} session-open`;
 
 /** The baked drop-in. Ubuntu's sshd_config includes sshd_config.d/*.conf first, and the first value of a key wins. */
-export function sshdDropIn(workUser: string): string {
+export function sshdDropIn(_workUser: string): string {
   return [
     "# cmux: loopback sshd for the link `ssh` service; certificates from the bound CA only.",
     "ListenAddress 127.0.0.1",
@@ -70,13 +75,13 @@ export function sshdDropIn(workUser: string): string {
     "AuthorizedPrincipalsCommandUser nobody",
     `RevokedKeys ${SSH_KRL_FILE}`,
     "UsePAM yes",
-    `AllowUsers ${workUser}`,
+    `AllowGroups ${SSH_LOGIN_GROUP}`,
     "",
   ].join("\n");
 }
 
 /** Keys of `sshd -T` output that must have exactly this value. */
-function requiredValues(workUser: string): ReadonlyArray<[string, string]> {
+function requiredValues(_workUser: string): ReadonlyArray<[string, string]> {
   return [
     ["permitrootlogin", "no"],
     ["passwordauthentication", "no"],
@@ -89,7 +94,7 @@ function requiredValues(workUser: string): ReadonlyArray<[string, string]> {
     ["authorizedprincipalscommanduser", "nobody"],
     ["revokedkeys", SSH_KRL_FILE],
     ["usepam", "yes"],
-    ["allowusers", workUser],
+    ["allowgroups", SSH_LOGIN_GROUP],
   ];
 }
 
@@ -117,6 +122,8 @@ export function sshdPolicyProblems(effective: string, workUser: string): string[
     if (got === undefined) problems.push(`${key} is missing, want ${want}`);
     else if (got !== want) problems.push(`${key} is ${got}, want ${want}`);
   }
+  // AllowUsers would lock out the team users the reconciler adds to the login group.
+  if (values.has("allowusers")) problems.push(`allowusers is ${values.get("allowusers")?.join(" ")}, want none (AllowGroups ${SSH_LOGIN_GROUP} decides)`);
   const listen = values.get("listenaddress") ?? [];
   if (listen.length === 0) problems.push("listenaddress is missing");
   for (const address of listen) if (!LOOPBACK_LISTEN.test(address)) problems.push(`listenaddress ${address} is not loopback`);
@@ -155,6 +162,8 @@ export function sshdPamProblems(pam: string): string[] {
  */
 export function sshdBakeCommand(workUser: string): string {
   return [
+    `{ getent group ${SSH_LOGIN_GROUP} >/dev/null || groupadd --system ${SSH_LOGIN_GROUP}; }`,
+    `usermod --append --groups ${SSH_LOGIN_GROUP} ${sq(workUser)}`,
     `install -d -m 0755 ${SSH_DIR} ${SSH_PRINCIPALS_DIR}`,
     `install -m 0644 /dev/null ${SSH_CA_FILE}`,
     `install -m 0644 /dev/null ${SSH_PRINCIPALS_DIR}/${workUser}`,
