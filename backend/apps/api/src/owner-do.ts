@@ -7,17 +7,12 @@ import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./own
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
 import { earliest, recordWakeFailure } from "./owner-wake.ts"
+import { doSql } from "./owner-sql.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
 import { answerHello, readFields, readReply, type MobileSession } from "./mobile-session.ts"
 
 /** cmux.mobile/1 caps every owner socket offers in `hello.ok`. */
 const OWNER_CAPS = ["read"]
-
-/** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
-const doSql = (storage: DurableObjectStorage): SqlStore => ({
-  exec: <T>(q: string, ...params: Array<unknown>) => storage.sql.exec(q, ...params).toArray() as Array<T>,
-  transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
-})
 
 export interface Attachment {
   readonly principal: Principal
