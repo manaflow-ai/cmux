@@ -31,7 +31,8 @@ the Mac's own `seq`, and replays them. Clients see the Mac's sequence end to end
 `GET /v1/wire/host/<host>[?team=<team>]`, subprotocols `cmux.wire.v1, bearer.<token>` (as `/v1/wire/*`).
 
 1. The Worker authenticates the bearer: an install access token, else a Stack session token
-   (fallback for a signed-in client without an install yet). VM installs are refused.
+(fallback for a signed-in client without an install yet). VM installs are refused on every general
+socket; the phase-2 cloud daemon is admitted only as the `host` of its own CloudDO-bound host id.
 2. SSO and minimum-version policy (`ssoGate`, `versionRefusal`), then `withGrantClasses` (UserDO
    confirms the install is active).
 3. `TeamDO.hostAccess(team, host, principal)` decides the role: `host` when the principal is the

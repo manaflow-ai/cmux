@@ -10,7 +10,8 @@ import { MOBILE_RATE_LIMITED, MOBILE_RATE_RETRY_SECONDS, mobileRateKey, takeMobi
  * Worker routes of the mobile control plane (b1-control-do.md sections 2, 6 and 7): the HostDO
  * control socket, TURN credential minting and the remote config. Each authenticates the bearer
  * the same way as `/v1/wire/*`: install token or Stack session, team SSO and version policy, and
- * (for installs) UserDO's live grant check. VM installs are refused everywhere here.
+ * (for installs) UserDO's live grant check. VM installs are refused everywhere here except the
+ * HostDO host socket, where TeamDO/CloudDO still restrict them to their own bound host.
  */
 
 const refuse = (status: number, code: string, message: string) => Response.json({ error: { code, message } }, { status })
@@ -20,11 +21,13 @@ const refuse = (status: number, code: string, message: string) => Response.json(
  * `bearer.` subprotocol (sockets) or the Authorization header (HTTP). `grants` resolves the
  * install's grant classes (owners other than UserDO cannot see UserDO's revocations).
  */
-export const requestPrincipal = async (request: Request, env: Env, token: string | undefined, grants: boolean, otherTeam?: string): Promise<Principal | Response> => {
+export const requestPrincipal = async (request: Request, env: Env, token: string | undefined, grants: boolean, otherTeam?: string, allowVmHost = false): Promise<Principal | Response> => {
   const authenticated = await authenticate(env, token)
   if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
-  // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
-  if (authenticated.install_kind === "vm") return refuse(403, "auth.forbidden", "a VM install has no socket")
+  // A VM install has no general socket (review P1).  The phase-2 VM daemon is
+  // the one exception: its own HostDO host socket is admitted later by
+  // TeamDO/CloudDO after the machine/installation binding is checked.
+  if (authenticated.install_kind === "vm" && !allowVmHost) return refuse(403, "auth.forbidden", "a VM install has no socket")
   // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
   const rules = await signInRules(env, authenticated.team, authenticated.user)
   const gate = await ssoGate(env, authenticated)
@@ -40,7 +43,7 @@ export const requestPrincipal = async (request: Request, env: Env, token: string
   if (refused) return Response.json({ error: refused }, { status: 403 })
   if (!grants) return authed
   const principal = await withGrantClasses(env, authed)
-  if (!principal || principal.install_kind === "vm") return new Response("forbidden", { status: 403 })
+  if (!principal || (principal.install_kind === "vm" && !allowVmHost)) return new Response("forbidden", { status: 403 })
   return principal
 }
 
@@ -64,7 +67,7 @@ const TEAM_ID = /^team_[A-Za-z0-9]{2,64}$/
 export const handleHostWire = async (request: Request, env: Env, host: string): Promise<Response> => {
   const asked = new URL(request.url).searchParams.get("team") ?? undefined
   if (asked !== undefined && !TEAM_ID.test(asked)) return refuse(400, "validation.invalid", "team must be a team id")
-  const principal = await requestPrincipal(request, env, bearerOfProtocols(request), true, asked)
+  const principal = await requestPrincipal(request, env, bearerOfProtocols(request), true, asked, true)
   if (principal instanceof Response) return principal
   const team = asked ?? principal.team
   if (!team) return refuse(400, "validation.invalid", "team must be a team id")

@@ -375,7 +375,30 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
-  async hostAccess(entity: string, host: string, principal: Principal): Promise<HostAccess | null> { return this.isBound(entity) ? hostAccessFor(this.bind(entity).currentState, this.rows, host, principal) : null } // RPC from the Worker before a HostDO control socket (b1-control-do.md 2)
+  async hostAccess(entity: string, host: string, principal: Principal): Promise<HostAccess | null> {
+    if (!this.isBound(entity)) return null
+    const state = this.bind(entity).currentState
+
+    // Cloud VM hosts are intentionally absent from TeamDO's ordinary host rows:
+    // CloudDO owns the machine/VM-install binding.  Never let a VM install fall
+    // through to the team-member device rule for another host; ask CloudDO for
+    // its own host placement instead.
+    if (principal.install_kind === "vm") {
+      if (principal.agent !== undefined) return null
+      const cloud = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(entity)) as unknown as { cloudHostAccess(e: string, h: string, p: Principal, role: "host" | "device"): Promise<HostAccess | null> }
+      return cloud.cloudHostAccess(entity, host, principal, "host").catch(() => null)
+    }
+
+    const ordinary = hostAccessFor(state, this.rows, host, principal)
+    if (ordinary) return ordinary
+
+    // A Cloud host has no TeamDO host row, but team members still need a
+    // device socket for workspace/terminal access.  Membership is checked here
+    // (rather than in CloudDO) so CloudDO never becomes a second team directory.
+    if (!principal.user || principal.agent !== undefined || !memberOf(state, this.rows, principal.user)) return null
+    const cloud = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(entity)) as unknown as { cloudHostAccess(e: string, h: string, p: Principal, role: "host" | "device"): Promise<HostAccess | null> }
+    return cloud.cloudHostAccess(entity, host, principal, "device").catch(() => null)
+  } // RPC from the Worker before a HostDO control socket (b1-control-do.md 2)
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> { return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows) }

@@ -83,9 +83,9 @@ Everything in section 2's stream plane needs the VM side, which is Rust and is n
 3. Carrier on the VM: B3's lane ARQ (overlay IPv6/UDP 4104) in Rust next to `cmux-wg`, accepting the
    phone's WireGuard key from its B6 `wg` link cert through the `TeamDO` peer map; then a WebRTC data
    channel endpoint (webrtc-rs or libdatachannel) for underlay (b).
-4. `HostDO` admits a `vm` install as `host` for its own bound host id (today VM installs are refused on
-   `/v1/wire/host/<host>`, b1-control-do.md section 2) and the Rust uplink publishes `host:` presence and
-   `workspace:` snapshots and events (a Rust `HostControlUplink`).
+4. `HostDO` admits a `vm` install as `host` for its own bound host id (the backend admission boundary is
+   now landed; the Rust uplink still has to publish `host:` presence and `workspace:` snapshots and
+   events through a Rust `HostControlUplink`).
 5. The link-token verifier gates G1 and G2 (F1, F2) before any daemon runs with `control_plane`.
 
 Sizing: 1 and 3 are the large parts (a second implementation of A3 and B3); 2 and 4 are mechanical once
@@ -187,16 +187,28 @@ The added interleaving and grant-binding tests are syntax-checked; native execut
 by the hosted package/toolchain issue.
 
 This is a phone-side implementation with static and contract-test evidence only. The VM Rust session host,
-WireGuard/WebRTC underlays, HostDO VM admission, and live token verification
-remain unimplemented; `cloudWorkspaces` stays disabled and no live VM attach is
-claimed.
+WireGuard/WebRTC underlays and live link-token verification remain unimplemented;
+`cloudWorkspaces` stays disabled and no live VM attach is claimed. HostDO VM
+admission is now implemented as a backend boundary, but it does not by itself
+claim that a VM session host or carrier is live.
 
-## 10. HostDO admission guard (2026-10-08)
+## 10. HostDO admission boundary (2026-10-08)
 
-The VM install isolation contract now covers the HostDO route as well as the existing user, team, feed,
-and cloud sockets. `backend/apps/api/test/cloud-vm-isolation.test.ts` sends the VM install bearer to
-`/v1/wire/host/<host>` and requires HTTP 403 before `HostDO` admission. This preserves the phase-2
-boundary: the VM may call only its own `cloud.vm.*` operations until the Rust session host and the
-corresponding HostDO VM admission contract are implemented. The focused Vitest file passes (4 tests).
-This is route-level regression evidence only; it does not claim a VM session host, WireGuard/WebRTC
-underlay, token verification, or live attach.
+`TeamDO.hostAccess` now treats Cloud machine hosts as a separate placement
+source owned by `CloudDO` (they are not ordinary TeamDO host rows). A VM
+principal is admitted as `host` only when its active grant is kind `vm`, its
+`bound_machine` is the machine selected by the current CloudDO row, and that
+row names the same `vm_install` and overlay `host`; deleting or failed machines
+are refused. A VM cannot fall through to the team-member device rule or reach
+another host. A signed-in member or non-VM install is admitted as `device`
+only after TeamDO confirms membership. `requestPrincipal` permits VM installs
+only on the HostDO route; all user/team/feed/cloud sockets and HTTP surfaces
+retain the VM isolation gate.
+
+`backend/apps/api/test/cloud-vm-isolation.test.ts` now proves the bound VM
+receives a HostDO `welcome` with role `host`, and the creator's session receives
+role `device`; the same suite keeps the unrelated-host 403 assertion. The
+focused Vitest file passes (5 tests), and the API TypeScript typecheck passes.
+This is admission evidence only: the Rust session host, WireGuard/WebRTC
+underlays, one-shot link-token verifier and live terminal attach remain
+unimplemented.

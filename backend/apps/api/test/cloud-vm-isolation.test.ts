@@ -25,19 +25,41 @@ const vmSetup = async (sub: string) => {
     const tok = await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: b64u(sig) })
     return { status: tok.status, token: tok.body.access_token as string }
   }
-  return { a, machine, install, mint, vmToken: (await mint()).token }
+  return { a, machine, host: bound.body.value.host as string, install, mint, vmToken: (await mint()).token }
 }
 
 describe("VM install isolation", { timeout: 60_000 }, () => {
+  it("admits the VM install as the host of its bound machine and members as devices", async () => {
+    const s = await vmSetup("cloud-bind-4")
+    const host = s.host
+    const open = async (token: string) => {
+      const res = await worker.fetch(`https://api.test/v1/wire/host/${host}`, {
+        headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` }
+      })
+      expect(res.status).toBe(101)
+      const socket = res.webSocket!
+      const frame = new Promise<any>((resolve) => socket.addEventListener("message", (e) => resolve(JSON.parse(e.data as string)), { once: true }))
+      socket.accept()
+      return { socket, first: await frame }
+    }
+
+    const vm = await open(s.vmToken)
+    expect(vm.first).toMatchObject({ t: "welcome", role: "host" })
+    vm.socket.close()
+
+    const member = await open(s.a.session)
+    expect(member.first).toMatchObject({ t: "welcome", role: "device" })
+    member.socket.close()
+  })
+
   it("a VM token reaches no user, team or wire surface (review P1)", async () => {
     const s = await vmSetup("cloud-bind-5")
     expect((await read(s.vmToken, "cloud.vm.self.get", { machine: s.machine })).status).toBe(200)
     for (const op of ["install.list", "team.directory", "team.members.list"]) expect((await read(s.vmToken, op, {})).status, op).toBe(403)
     expect((await post("/v1/ops", s.vmToken, { op: "install.rename", params: { install: s.install.id, name: "x" }, idempotency_key: crypto.randomUUID(), origin: "cli" })).status).toBe(403)
-    // HostDO is deliberately still closed to VM installs until the phase-2
-    // Rust session host and VM admission contract land. Keep this endpoint in
-    // the isolation matrix so a route refactor cannot accidentally expose a
-    // control socket before that work is complete.
+    // General sockets and an unrelated HostDO remain closed to VM installs.
+    // The bound machine's own HostDO exception is covered by the admission
+    // test above, so this matrix catches a route refactor that broadens it.
     for (const scope of ["user", "team", "feed", "cloud", "host/host_h0000000000000000009"]) {
       const res = await worker.fetch(`https://api.test/v1/wire/${scope}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${s.vmToken}` } })
       expect(res.status, scope).toBe(403)
