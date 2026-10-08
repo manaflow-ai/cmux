@@ -273,7 +273,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             let details = try await BillingPlanClient().fetch(
                 from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
                 accessToken: tokens?.accessToken,
-                refreshToken: tokens?.refreshToken
+                refreshToken: tokens?.refreshToken,
+                teamID: requestedTeamID
             )
             guard currentIdentity?.id == identityID,
                   confirmedTeamID == requestedTeamID,

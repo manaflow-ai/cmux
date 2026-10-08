@@ -73,8 +73,22 @@ public struct BillingPlanClient: Sendable {
     ///   - refreshToken: An optional session refresh token.
     /// - Returns: The decoded entitlement details.
     /// - Throws: A URL-loading or decoding error when the request fails.
-    public func fetch(from url: URL, accessToken: String?, refreshToken: String? = nil) async throws -> BillingPlanDetails {
-        var request = URLRequest(url: url)
+    public func fetch(
+        from url: URL,
+        accessToken: String?,
+        refreshToken: String? = nil,
+        teamID: String? = nil
+    ) async throws -> BillingPlanDetails {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
+        if let teamID {
+            components.queryItems = (components.queryItems ?? []) + [
+                URLQueryItem(name: "teamId", value: teamID)
+            ]
+        }
+        guard let requestURL = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -95,6 +109,11 @@ public struct BillingPlanClient: Sendable {
         guard decoded.authenticated == true else {
             throw URLError(.userAuthenticationRequired)
         }
+        // The server's no-argument route may choose a paid team as a fallback.
+        // Explicit requests must prove that the response is for that team.
+        guard decoded.teamID == teamID else {
+            throw URLError(.cannotParseResponse)
+        }
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
@@ -111,10 +130,21 @@ public struct BillingPlanClient: Sendable {
 
     private struct Response: Decodable {
         let authenticated: Bool?
+        let teamID: String?
         let isPro: Bool?
         let planId: String?
         let billingManagement: String?
         let teamPlanId: String?
         let teamBillingManagement: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case authenticated
+            case teamID = "teamId"
+            case isPro
+            case planId
+            case billingManagement
+            case teamPlanId
+            case teamBillingManagement
+        }
     }
 }
