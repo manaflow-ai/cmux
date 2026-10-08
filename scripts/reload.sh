@@ -1387,7 +1387,8 @@ fi
 CMUX_GIT_SHA_VALUE=""
 if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
   CMUX_GIT_SHA_VALUE="$CMUX_SOURCE_GIT_SHA"
-  if [[ -n "$CMUX_GIT_SHA_VALUE" && -n "$CMUX_SOURCE_GIT_DIRTY" ]]; then
+  if [[ -n "$CMUX_GIT_SHA_VALUE" && -n "$CMUX_SOURCE_GIT_DIRTY" \
+      && -z "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
     CMUX_GIT_SHA_VALUE="${CMUX_GIT_SHA_VALUE}+"
   fi
 fi

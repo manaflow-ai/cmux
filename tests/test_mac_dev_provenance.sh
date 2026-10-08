@@ -32,6 +32,7 @@ assert project.count('CMUX_DEV_TAG = "";') == 2
 assert project.count('CMUX_GIT_SHA = "";') == 2
 
 reload = (root / "scripts/reload.sh").read_text(encoding="utf-8")
+ios_reload = (root / "ios/scripts/reload.sh").read_text(encoding="utf-8")
 assert 'git -C "$SCRIPT_DIR/.." rev-parse --short HEAD' in reload
 assert 'git -C "$SCRIPT_DIR/.." status --porcelain' in reload
 assert 'CMUX_GIT_SHA="$CMUX_GIT_SHA_VALUE"' in reload
@@ -40,6 +41,8 @@ capture = reload.index('CMUX_SOURCE_GIT_SHA=')
 args = reload.index('RELOAD_ORIGINAL_ARGS=')
 assert capture < args, "source provenance must be captured before reload/build setup"
 assert 'CMUX_SOURCE_GIT_DIRTY' in reload
+assert 'CMUX_FLEET_BUILD_TAG' in reload
+assert 'CMUX_FLEET_BUILD_TAG' in ios_reload
 
 debug_guard = re.search(
     r'if \[\[ "\$BUILD_CONFIGURATION" == Debug \]\]; then\n'

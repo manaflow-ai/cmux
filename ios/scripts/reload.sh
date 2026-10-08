@@ -578,7 +578,8 @@ auto_setup_launch() {
 # empty in Shared.xcconfig, so a TestFlight/release build shows a clean "1.0.0"
 # while a reload shows "1.0.0 (123) · <tag> · <sha>".
 GIT_SHA="$(git -C "$IOS_DIR" rev-parse --short HEAD 2>/dev/null || true)"
-if [[ -n "$GIT_SHA" && -n "$(git -C "$IOS_DIR" status --porcelain 2>/dev/null)" ]]; then
+if [[ -n "$GIT_SHA" && -n "$(git -C "$IOS_DIR" status --porcelain 2>/dev/null)" \
+    && -z "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
   GIT_SHA="$GIT_SHA+"
 fi
 
