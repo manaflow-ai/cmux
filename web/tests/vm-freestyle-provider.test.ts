@@ -631,6 +631,18 @@ function recoverableTunnel(clientPublicKey: string) {
 }
 
 describe("FreestyleProvider create with edge rules", () => {
+  test("records whether the source image protects cmux-tui state", async () => {
+    const current = await providerWith(fakeFreestyle({ probeExit: 0 })).create({
+      image: "sh-1b0dc82174cf450891606ec5fee9139f",
+    });
+    const legacy = await providerWith(fakeFreestyle({ probeExit: 0 })).create({
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
+    });
+
+    expect(current.providerMetadata).toMatchObject({ cmuxTuiStateProtection: "reserved-v1" });
+    expect(legacy.providerMetadata).toMatchObject({ cmuxTuiStateProtection: "legacy" });
+  });
+
   test("creates persistent machines with idle pausing disabled", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     await providerWith(fake).create({ image: "sh-devbox" });
