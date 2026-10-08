@@ -29,9 +29,13 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 mkdir -p "$src/.github/workflows"
-echo "env: {NIGHTLY_NEXT_NOTARY_PAUSED: x}" > "$src/.github/workflows/nightly.yml"
+# A real nightly.yml is large and names the gate early: a reader that stops at
+# the first match must not turn that into a failure (feat-cmux-next push run
+# 37818675501 refused 551654ba57bc, whose nightly.yml has the gate).
+{ echo "env: {NIGHTLY_NEXT_NOTARY_PAUSED: x}"; for i in $(seq 1 20000); do echo "# filler line $i of a large workflow"; done; } > "$src/.github/workflows/nightly.yml"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty
