@@ -359998,6 +359998,65 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.accessibility-screen-text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText accessibility screen text Speak Selection spoken content VoiceOver TUI selection whole terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText Barrierefreiheit Terminaltext Auswahl vorlesen VoiceOver TUI Auswahl ganzer Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText accessibilité texte terminal énoncer la sélection VoiceOver TUI sélection terminal entier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText تسهيلات الاستخدام نص الطرفية نطق التحديد VoiceOver تحديد TUI الطرفية بالكامل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText accesibilidad texto de terminal Hablar selección VoiceOver TUI selección terminal completa"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText 輔助使用 終端機文字 朗讀所選範圍 VoiceOver TUI 選取內容 整個終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText 辅助功能 终端文本 朗读所选内容 VoiceOver TUI 选择 整个终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText 손쉬운 사용 터미널 텍스트 선택 항목 말하기 VoiceOver TUI 선택 전체 터미널"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.accessibilityScreenText アクセシビリティ ターミナルテキスト 選択項目を読み上げ VoiceOver TUI 選択 全体のターミナル"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy": {
       "extractionState": "manual",
       "localizations": {

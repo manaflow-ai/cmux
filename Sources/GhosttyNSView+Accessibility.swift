@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 
 extension GhosttyNSView {
@@ -56,7 +57,9 @@ extension GhosttyNSView {
         let inject = {
             // Diff against what clients recently read, on the main thread
             // where the snapshot lives.
-            let inserted = self.terminalAccessibilityText.insertedText(settingValue: content)
+            let inserted = self.accessibilityScreenTextEnabled
+                ? self.terminalAccessibilityText.insertedText(settingValue: content)
+                : content
             self.insertAccessibilityCommittedText(inserted)
         }
         if Thread.isMainThread {
@@ -100,9 +103,18 @@ extension GhosttyNSView {
     }
 
     private func accessibilityTextValue() -> String {
-        terminalAccessibilityText.value {
+        guard accessibilityScreenTextEnabled else {
+            // Keep a native selection available to AX clients while hiding the
+            // unselected screen that makes Speak Selection read a whole TUI.
+            return readSelectionSnapshot()?.string ?? ""
+        }
+        return terminalAccessibilityText.value {
             terminalSurface?.readText(region: .active)
         }
+    }
+
+    private var accessibilityScreenTextEnabled: Bool {
+        TerminalCatalogSection().accessibilityScreenText.value(in: .standard)
     }
 
     private static func accessibilityCommittedString(_ value: Any?) -> String? {

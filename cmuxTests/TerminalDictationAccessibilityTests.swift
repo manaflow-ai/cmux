@@ -60,7 +60,8 @@ struct TerminalDictationAccessibilityTests {
             let recorder = GhosttyKeyPressRecorder()
             defer { recorder.stop() }
             fixture.view.setAccessibilitySelectedText("dictated words")
-            #expect(recorder.texts == ["dictated words"])
+            fixture.view.setAccessibilityValue("literal words")
+            #expect(recorder.texts == ["dictated words", "literal words"])
             #expect(fixture.view.isAccessibilitySelectorAllowed(#selector(GhosttyNSView.setAccessibilityValue(_:))))
             #expect(fixture.view.isAccessibilitySelectorAllowed(#selector(GhosttyNSView.setAccessibilitySelectedText(_:))))
 

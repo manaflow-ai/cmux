@@ -24,6 +24,7 @@ public struct TerminalSection: View {
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var showCopyConfirmation: DefaultsValueModel<Bool>
+    @State private var accessibilityScreenText: DefaultsValueModel<Bool>
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
@@ -62,6 +63,9 @@ public struct TerminalSection: View {
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _showCopyConfirmation = State(
             initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showCopyConfirmation)
+        )
+        _accessibilityScreenText = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.accessibilityScreenText)
         )
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
@@ -113,6 +117,7 @@ public struct TerminalSection: View {
             scrollBar,
             copyOnSelect,
             showCopyConfirmation,
+            accessibilityScreenText,
             reflowHardWrapOnCopy,
             confirmUnsafePaste,
             textEditingGestures,
@@ -430,6 +435,20 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyConfirmationToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.accessibilityScreenText"),
+                String(localized: "settings.terminal.accessibilityScreenText", defaultValue: "Expose Terminal Text to Accessibility"),
+                subtitle: String(
+                    localized: "settings.terminal.accessibilityScreenText.subtitle",
+                    defaultValue: "Lets accessibility tools read the rendered terminal screen. Turn this off if Speak Selection reads a whole terminal-based app instead of the selected text."
+                )
+            ) {
+                Toggle("", isOn: Binding(get: { accessibilityScreenText.current }, set: { accessibilityScreenText.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalAccessibilityScreenTextToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
