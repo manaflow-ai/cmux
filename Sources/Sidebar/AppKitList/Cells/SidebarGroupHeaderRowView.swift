@@ -324,7 +324,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model, forcingActive: true).cgColor
         applySelectionEdge(model.anchorActiveEdgeColor)
         CATransaction.commit()
         nameField.textColor = labelColor
@@ -374,8 +374,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applyModel(model)
     }
 
-    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
-        if model.isAnchorActive {
+    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel, forcingActive: Bool = false) -> NSColor {
+        if model.isAnchorActive || forcingActive {
             let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
             if SidebarGlassSelection.usesStockLightLook(colorScheme) { return SidebarGlassSelection.fill(for: colorScheme) }
             return SidebarAppearanceColorResolver().resolvedColor(
