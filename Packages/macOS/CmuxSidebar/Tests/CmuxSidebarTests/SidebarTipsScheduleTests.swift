@@ -44,6 +44,18 @@ struct SidebarTipsScheduleTests {
         #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: late.addingTimeInterval(120)) == nil)
     }
 
+    @Test func elapsedDayTakesPrecedenceOverMatchingCalendarHistory() {
+        // A fall-back day or time-zone change can leave the stored local day
+        // unchanged even after the rolling 24-hour allowance has elapsed.
+        let progress = SidebarTipsProgress(
+            currentTipID: "a",
+            seenTipIDs: ["a"],
+            lastOpenedDay: schedule.dayKey(for: now),
+            lastOpenedAt: now.addingTimeInterval(-86_401)
+        )
+        #expect(schedule.automaticTip(progress, tipIDs: tipIDs, now: now) == "b")
+    }
+
     @Test func anEarlierClockDoesNotReopenTips() {
         let opened = schedule.opened(SidebarTipsProgress(), tipIDs: tipIDs, now: now)
         #expect(schedule.automaticTip(opened, tipIDs: tipIDs, now: now.addingTimeInterval(-86_400)) == nil)
