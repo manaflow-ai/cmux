@@ -337,9 +337,14 @@ TAB="$(printf '\\t')"
 STRIP_FMT="#{pane_id}${TAB}#{socket_path}${TAB}#{pid}"
 stripped_split="$(env -u TMUX tmux -S "$identity_socket" split-window -t "${TMUX_PANE}" -h -l 60% -d -P -F "$STRIP_FMT")"
 printf '%s\\n' "$stripped_split" > "$FAKE_STRIPPED_SPLIT_LOG"
-guarded="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -n '$identity_socket'" "split-window -t ${TMUX_PANE} -h -d -P -F '$STRIP_FMT'" "display-message -p GUARD_FAIL")"
+guarded="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -n '$identity_socket'" "split-window -t${TMUX_PANE} -h -d -P -F '$STRIP_FMT'" "display-message -p GUARD_FAIL")"
 printf '%s\\n' "$guarded" > "$FAKE_GUARDED_SPLIT_LOG"
-env -u TMUX tmux -S "$identity_socket" if-shell -F "true" "display-message -p NOPE" > "$FAKE_IFSHELL_FLAG_LOG" 2>&1 || true
+failed_guard="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -z '#{pid}'" "display-message -p NOPE" "display-message -p GUARD_FAIL")"
+printf '%s\\n' "$failed_guard" >> "$FAKE_GUARDED_SPLIT_LOG"
+set +e
+env -u TMUX tmux -S "$identity_socket" if-shell -F "true" "display-message -p NOPE" > "$FAKE_IFSHELL_FLAG_LOG" 2>&1
+printf '%s\\n' "$?" > "${FAKE_IFSHELL_FLAG_LOG}.status"
+set -e
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
@@ -442,15 +447,18 @@ tmux kill-session -t "$window_target"
         # OMC >= 5.6 wraps pane creation in if-shell with the server-identity
         # guard; the guarded branch must produce the same three-field record
         # with socket_path resolving from the invocation's -S endpoint.
-        guarded_split = read_text(guarded_split_log)
-        if guarded_split != expected_stripped_split:
-            print(f"FAIL: expected guarded split record {expected_stripped_split!r}, got {guarded_split!r}")
+        guarded_lines = guarded_split_log.read_text(encoding="utf-8").splitlines()
+        if guarded_lines[:1] != [expected_stripped_split]:
+            print(f"FAIL: expected guarded split record {expected_stripped_split!r}, got {guarded_lines!r}")
+            return 1
+        if guarded_lines[1:] != ["GUARD_FAIL"]:
+            print(f"FAIL: expected failed guard output ['GUARD_FAIL'], got {guarded_lines[1:]!r}")
             return 1
 
         # The shim documents plain if-shell only; -F/-b must be rejected
         # instead of being misread as the shell condition.
         ifshell_flag = read_text(ifshell_flag_log)
-        if "flags beyond -t" not in ifshell_flag:
+        if read_text(Path(f"{ifshell_flag_log}.status")) == "0" or "flags beyond -t" not in ifshell_flag or "NOPE" in ifshell_flag:
             print(f"FAIL: expected if-shell -F rejection, got {ifshell_flag!r}")
             return 1
 

@@ -3109,9 +3109,6 @@ final class SocketClient {
     /// the kernel lookup fails.
     var serverProcessID: pid_t? {
         guard relayEndpoint == nil else { return nil }
-        if socketFD < 0 {
-            try? connect()
-        }
         guard socketFD >= 0 else { return nil }
         return SocketTransport().peerProcessID(of: socketFD)
     }
@@ -28499,7 +28496,10 @@ struct CMUXCLI {
             // would surface as the shell condition rather than an error. The
             // parsed form is still what the positional extraction uses.
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-            let rejectedFlags = rawArgs.filter { $0.hasPrefix("-") && $0 != "-" && !$0.hasPrefix("--") && $0 != "-t" }
+            let rejectedFlags = rawArgs.filter {
+                guard $0.hasPrefix("-"), $0 != "-", !$0.hasPrefix("--") else { return false }
+                return $0 != "-t" && !$0.hasPrefix("-t")
+            }
             guard rejectedFlags.isEmpty else {
                 throw CLIError(message: "tmux shim if-shell: flags beyond -t are not supported; only if-shell <shell-command> <success> [failure]")
             }
@@ -28523,18 +28523,18 @@ struct CMUXCLI {
             let shell = Process()
             shell.executableURL = URL(fileURLWithPath: "/bin/sh")
             shell.arguments = ["-c", expandedCondition]
-            let shellStdout = Pipe()
-            shell.standardOutput = shellStdout
-            shell.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            // The condition's output is not part of tmux's result. Discard it
+            // so a condition that writes a large amount cannot fill a pipe
+            // before the process exits.
+            shell.standardOutput = FileHandle.nullDevice
+            shell.standardError = FileHandle.nullDevice
             do {
                 try shell.run()
             } catch {
-                throw CLIError(message: "if-shell: failed to launch /bin/sh: \(error.localizedDescription)")
+                throw CLIError(message: "tmux compatibility condition could not be started")
             }
-            let conditionData = shellStdout.fileHandleForReading.readDataToEndOfFile()
             shell.waitUntilExit()
             let conditionSucceeded = shell.terminationStatus == 0
-            _ = conditionData
 
             let branchText = conditionSucceeded ? successCommand : failureCommand
             var branchOutput: [String] = []
@@ -28554,14 +28554,22 @@ struct CMUXCLI {
                     branchCommandArgs.insert("-S", at: 0)
                 }
                 // Swift's `print` writes to the POSIX stdout fd, so capture at
-                // the fd level: dup2 a pipe over STDOUT_FILENO, replay the
-                // branch command, then restore. Swift print buffers its own
-                // stdout, so flush before and after the swap.
+                // the fd level. Use a temporary file instead of a pipe: the
+                // branch may emit more than a pipe buffer before it returns.
                 fflush(stdout)
                 let originalFD = dup(STDOUT_FILENO)
-                let capturePipe = Pipe()
+                guard originalFD >= 0 else {
+                    throw CLIError(message: "tmux compatibility output could not be captured")
+                }
+                let captureURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-tmux-ifshell-\(UUID().uuidString)")
+                guard FileManager.default.createFile(atPath: captureURL.path, contents: nil),
+                      let captureHandle = FileHandle(forWritingAtPath: captureURL.path) else {
+                    close(originalFD)
+                    throw CLIError(message: "tmux compatibility output could not be captured")
+                }
                 var branchError: Error?
-                dup2(capturePipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+                dup2(captureHandle.fileDescriptor, STDOUT_FILENO)
                 do {
                     try runClaudeTeamsTmuxCompat(
                         commandArgs: branchCommandArgs,
@@ -28576,11 +28584,13 @@ struct CMUXCLI {
                 fflush(stdout)
                 dup2(originalFD, STDOUT_FILENO)
                 close(originalFD)
-                try? capturePipe.fileHandleForWriting.close()
+                try? captureHandle.close()
                 if let branchError {
+                    try? FileManager.default.removeItem(at: captureURL)
                     throw branchError
                 }
-                let capturedData = capturePipe.fileHandleForReading.readDataToEndOfFile()
+                let capturedData = (try? Data(contentsOf: captureURL)) ?? Data()
+                try? FileManager.default.removeItem(at: captureURL)
                 branchOutput = (String(data: capturedData, encoding: .utf8) ?? "")
                     .split(separator: "\n", omittingEmptySubsequences: false)
                     .map(String.init)
