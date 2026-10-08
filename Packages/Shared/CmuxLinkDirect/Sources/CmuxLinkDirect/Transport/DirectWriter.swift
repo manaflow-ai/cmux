@@ -56,7 +56,7 @@ actor DirectWriter {
         let id = nextID
         nextID &+= 1
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -152,7 +152,7 @@ actor DirectWriter {
         let id = nextID
         nextID &+= 1
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 if closing {
                     continuation.resume(throwing: DirectTransportError.closed)
                 } else if canEnqueueBulk(bytes: bytes) {
