@@ -1,6 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { personalTeamIdFor } from "./user.ts"
 import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
@@ -124,6 +125,8 @@ export const teamDomain: Domain<TeamState> = {
       }
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")
+        // Only the caller's own personal team (cx-er4p review): never a shared team id, whatever builds the principal.
+        if (p.team !== personalTeamIdFor(p.user)) return reject("auth.forbidden", "not your personal team")
         if (state.team && state.team.id !== p.team) return reject("auth.forbidden", "not this team")
         const name = p.display_name ?? "Personal"
         const member: typeof TeamMember.Type = { user: p.user, role: "owner", display_name: name }

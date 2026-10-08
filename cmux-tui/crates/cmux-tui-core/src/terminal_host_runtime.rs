@@ -872,6 +872,7 @@ mod unix {
     mod control_responses;
     mod exited_drain;
     mod host_accept;
+    mod host_crash;
     mod host_parser;
     mod host_scope;
     mod host_signals;
