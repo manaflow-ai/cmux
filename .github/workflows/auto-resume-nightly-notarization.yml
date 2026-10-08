@@ -335,6 +335,14 @@ jobs:
         if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -euo pipefail
+          python3 scripts/prune_nightly_release_assets.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --name-prefix "${DMG_PREFIX}-" \
+            --keep-builds 100 \
+            --max-assets 950 \
+            --best-effort \
+            --execute
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --immutable nightly-out/${DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg \
@@ -393,7 +401,11 @@ jobs:
         if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -euo pipefail
-          gh release edit "$RELEASE_TAG" --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" --notes-file nightly-notes.published.md --prerelease
+          gh release edit "$RELEASE_TAG" \
+            --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" \
+            --notes-file nightly-notes.published.md \
+            --draft=false \
+            --prerelease
 
       - name: Upload accepted appcasts to R2
         if: env.ALREADY_PUBLISHED != 'true'

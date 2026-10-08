@@ -462,8 +462,6 @@ assert "if:" not in smoke and "if:" not in cli_smoke
 notarize = step("Notarize app ticket through final DMG")
 assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
 assert "id: notarize-nightly" in notarize
-assert "notarization_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}" in workflow
-assert "needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true'" in workflow
 
 recovery = step("Upload pending notarization recovery artifact")
 prepare_recovery = step("Prepare pending notarization recovery artifact")
@@ -523,6 +521,8 @@ assert "resolve-notarization-recovery.py" in auto
 assert "Reject stale continuation before publication" in auto
 assert "cmux-published-build" in auto
 assert "final_dmg_sha256" in auto
+assert "--draft=false" in auto
+assert "prune_nightly_release_assets.py" in auto
 assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow
 PY
 then
@@ -815,7 +815,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-sign-notarize-nightly)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true' && $PUBLISH_SCHEDULE" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && $PUBLISH_SCHEDULE" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi

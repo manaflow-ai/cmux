@@ -1522,8 +1522,6 @@ jobs:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
-    outputs:
-      notarization_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -2241,7 +2239,10 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # Published paths are completed by auto-resume-nightly-notarization after
+    # Apple accepts every exact DMG. This job remains only for private branch
+    # artifacts, where no Apple ticket or release publication is involved.
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
