@@ -362,6 +362,56 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
     assert_ne!(next.token, request.token);
 }
 
+/// A clock that, each time the broker reads it, records whether the owner
+/// could already see the read request.
+struct OwnerProbeClock {
+    now: Instant,
+    owner_inbox: Mutex<Receiver<Frame>>,
+    request_visible_at_read: Mutex<Vec<bool>>,
+}
+
+impl ClipboardClock for OwnerProbeClock {
+    fn now(&self) -> Instant {
+        let visible = self.owner_inbox.lock().unwrap().try_recv().is_ok();
+        self.request_visible_at_read.lock().unwrap().push(visible);
+        self.now
+    }
+
+    fn wait_timeout<'a>(
+        &self,
+        _changed: &Condvar,
+        _state: MutexGuard<'a, ClipboardReadState>,
+        _timeout: Duration,
+    ) -> MutexGuard<'a, ClipboardReadState> {
+        unreachable!("no timer runs in this test")
+    }
+}
+
+/// The sixty seconds start before the owner can see the read. Otherwise a
+/// clock step between the owner receiving the request and the host reading
+/// the clock moves the deadline later than the owner was told.
+#[test]
+fn a_read_takes_its_deadline_before_the_owner_can_see_it() {
+    let (tap_sender, owner_inbox) = mpsc_channel();
+    let clock = Arc::new(OwnerProbeClock {
+        now: Instant::now(),
+        owner_inbox: Mutex::new(owner_inbox),
+        request_visible_at_read: Mutex::new(Vec::new()),
+    });
+    let clipboard = ClipboardReads::new(clock.clone());
+    let term = Mutex::new(Terminal::new(80, 24, 0, Callbacks::default()).unwrap());
+    let (socket, _peer) = UnixStream::pair().unwrap();
+    clipboard.register_owner(&term, 7, HostTap::new(tap_sender, Arc::new(socket), usize::MAX));
+    (clipboard.callback())(ClipboardReadRequest { token: 1, location: ClipboardLocation::Standard });
+    clipboard.dispatch(&mut term.lock().unwrap(), &Mutex::new(()));
+    assert_eq!(clipboard.open_token_for_test(), Some(1));
+    assert_eq!(
+        *clock.request_visible_at_read.lock().unwrap(),
+        [false],
+        "the host read its clock for the deadline after the owner could see the request"
+    );
+}
+
 #[test]
 fn owner_disconnect_refuses_the_open_read_and_stops_deferral() {
     let mut h = Harness::new();
