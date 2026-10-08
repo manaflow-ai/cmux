@@ -79,8 +79,19 @@ export function sessionBelongsToTUI(ctx, id) {
 
 function createOwnership(ctx) {
   let roots = new Set();
+  let routeKey = null;
+  const currentRouteKey = () => {
+    try {
+      const route = ctx?.ui?.router?.current?.() || ctx?.ui?.route?.current;
+      const routeID = route?.sessionID || route?.sessionId || route?.params?.sessionID || route?.params?.sessionId;
+      return `${route?.type || route?.name || ""}:${routeID || ""}`;
+    } catch (_) {
+      return "";
+    }
+  };
   const refresh = () => {
     roots = visibleRoots(ctx);
+    routeKey = currentRouteKey();
   };
   refresh();
   const disposers = [];
@@ -97,11 +108,16 @@ function createOwnership(ctx) {
   }
   return {
     // OpenCode v2.0.21 exposes current()/list() but no stable route-change
-    // notification. Refresh on the event boundary so newly opened sessions
-    // are admitted and a closed starter surface cannot retain ownership.
+    // notification. Invalidate the cache when the active route changes, and
+    // retry a miss after refreshing so sessions opened in another tab are
+    // admitted without rebuilding the tab-root set for every event.
     belongs: (id) => {
+      if (!id) return false;
+      if (currentRouteKey() !== routeKey) refresh();
+      const root = rootFor(ctx, id);
+      if (roots.has(root)) return true;
       refresh();
-      return Boolean(id && roots.has(rootFor(ctx, id)));
+      return roots.has(root);
     },
     refresh,
     dispose: () => disposers.forEach((stop) => { try { stop(); } catch (_) {} }),
@@ -198,7 +214,9 @@ async function handleEvent(ctx, ownership, feed, details, environment) {
       hook_event_name: hook === "stop" ? "Stop" : event.type,
     }, spawn, environment);
   }
-  await feed.event({ event });
+  // The ownership check above is also the admission decision for the Feed
+  // bridge. Avoid scanning the visible tab set a second time for this event.
+  await feed.event({ event, ownedSessionId: id });
 }
 
 export async function createCMUXTUIBridge(ctx, options = {}) {

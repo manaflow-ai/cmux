@@ -705,10 +705,10 @@ const createCMUXFeed = async (ctx, options = {}) => {
     });
   };
 
-  const handleEvent = async (event) => {
+  const handleEvent = async (event, ownedSessionId = null) => {
       if (options.tui) {
         const sid = sessionIdFromEvent(event);
-        if (!sid || !(await ownsSession(sid))) return;
+        if (!sid || (sid !== ownedSessionId && !(await ownsSession(sid)))) return;
       }
       const tracked = trackMessage(event);
       if (tracked) {
@@ -931,8 +931,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
   };
 
   return {
-    event: async ({ event }) => {
-      if (!disposed) await handleEvent(event?.event || event);
+    event: async ({ event, ownedSessionId }) => {
+      if (!disposed) await handleEvent(event?.event || event, ownedSessionId || null);
     },
     dispose() {
       disposed = true;

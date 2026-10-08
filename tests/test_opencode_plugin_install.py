@@ -343,6 +343,55 @@ await v1Hooks.event({
             print(f"stderr={reinstall.stderr.strip()}")
             return 1
 
+        # Project-local removal must only touch the selected .opencode tree;
+        # a user's global Feed and TUI bridge remain installed.
+        project_dir = root / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        project_env = env.copy()
+        project_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--project", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if project_install.returncode != 0:
+            print("FAIL: project-local OpenCode plugin install failed")
+            print(f"exit={project_install.returncode}")
+            print(f"stdout={project_install.stdout.strip()}")
+            print(f"stderr={project_install.stderr.strip()}")
+            return 1
+        project_plugin_dir = project_dir / ".opencode" / "plugins"
+        project_feed = project_plugin_dir / "cmux-feed.js"
+        project_tui = project_plugin_dir / "cmux"
+        if not project_feed.exists() or not project_tui.exists():
+            print("FAIL: project-local install did not create the Feed and TUI bridge")
+            return 1
+
+        project_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--project"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if project_uninstall.returncode != 0:
+            print("FAIL: project-local OpenCode plugin uninstall failed")
+            print(f"exit={project_uninstall.returncode}")
+            print(f"stdout={project_uninstall.stdout.strip()}")
+            print(f"stderr={project_uninstall.stderr.strip()}")
+            return 1
+        if project_feed.exists() or project_tui.exists():
+            print("FAIL: project-local uninstall left cmux plugin files behind")
+            return 1
+        if not feed_plugin_path.exists() or not tui_directory.exists():
+            print("FAIL: project-local uninstall removed the global OpenCode bridge")
+            return 1
+
         # Never follow a user symlink while validating or overwriting the
         # shared TUI package directory.
         symlink_root = root / "symlink-config"
