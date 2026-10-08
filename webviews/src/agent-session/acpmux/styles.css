@@ -107,6 +107,16 @@
 @media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:acpmux-mp-spin 700ms linear infinite}}
 @keyframes acpmux-mp-spin{to{transform:rotate(360deg)}}
 .acpmux-mp-empty{padding:9px;color:var(--agent-muted);font-size:12px}
+/* A docked pane can be narrower than the desktop two-column minimum. Stack the
+   harness and model lists instead of letting the grid's intrinsic minimum clip
+   the model rows off the right edge. */
+@media (max-width:407px){
+  .acpmux-menu.acpmux-mp-t3{width:calc(100vw - 16px);max-width:calc(100vw - 16px)}
+  .acpmux-mp-columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,148px) minmax(0,1fr);max-height:min(420px,50vh);overflow:hidden}
+  .acpmux-mp-harnesses{min-height:0;max-height:148px;overflow:hidden}
+  .acpmux-mp-harness-list-inner{min-height:0;justify-content:flex-start}
+  .acpmux-mp-models{min-height:0;max-height:240px}
+}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
