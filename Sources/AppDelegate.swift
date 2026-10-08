@@ -1873,11 +1873,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
-                // Report Objective-C exceptions that reach NSApplication's run loop
-                // with their reason and throw stack. CmuxMain terminates them at
-                // the throw; without this, Sentry only sees the later, unrelated
-                // crash caused by the corrupted executor state.
-                options.enableUncaughtNSExceptionReporting = true
+                // Sentry Cocoa's uncaught-NSException hook captures the reason and
+                // throw stack through NSApplication's instance reportException:
+                // hook. macOS 26 routes this through the class-level
+                // _crashOnException: path instead, so enabling the option there
+                // cannot provide the original exception details.
+                if #unavailable(macOS 26) {
+                    options.enableUncaughtNSExceptionReporting = true
+                }
                 // Structured logs power the transport diagnostics bridge
                 // (TransportSentryReporter on the host diagnostic ring below).
                 options.enableLogs = true
