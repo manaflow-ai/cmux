@@ -112,7 +112,14 @@ struct AgentFeedView: View {
             }
         }
         .sheet(item: $composeContext) { context in
-            AgentFeedReplyComposer(context: context, actions: actions)
+            Group {
+                switch context.kind {
+                case .question:
+                    AgentFeedQuestionComposer(context: context, actions: actions)
+                case .terminalReply, .planRevise:
+                    AgentFeedReplyComposer(context: context, actions: actions)
+                }
+            }
         }
         .sheet(item: $readingItem) { item in
             AgentFeedFullTextView(item: item, load: actions.loadFullText)
