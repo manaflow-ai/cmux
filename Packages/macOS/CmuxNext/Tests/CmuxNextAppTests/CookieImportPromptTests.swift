@@ -70,7 +70,7 @@ struct CookieImportPromptTests {
         let service = CookieImportPromptService(services: nil, defaults: defaults,
                                                 locate: { [(browser: .chrome, app: URL(fileURLWithPath: "/Applications/Google Chrome.app"))] })
         service.enabledOverride = true
-        let agentTab = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .cef, completesNavigationsImmediately: true)
+        let agentTab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration())
         agentTab.markAgentDriven()
         let agent = BrowserEntry(tab: agentTab)
         service.attach(agent)
@@ -78,7 +78,7 @@ struct CookieImportPromptTests {
         for _ in 0..<200 where service.browsers == nil { await Task.yield() }
         #expect(!agent.chrome.showsCookieImportOffer, "an agent's tab never shows the card")
 
-        let tab = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .cef, completesNavigationsImmediately: true)
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration())
         let entry = BrowserEntry(tab: tab)
         service.attach(entry)
         tab.load(URL(string: "https://example.com/")!)
