@@ -34,6 +34,7 @@ jobs:
       SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
       SOURCE_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+      SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
     steps:
       - name: Verify source run and recovery artifacts
         id: check
@@ -74,17 +75,21 @@ jobs:
           fi
           short_sha="${SOURCE_HEAD_SHA:0:7}"
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
-          python3 - "$RUNNER_TEMP/artifacts.json" "$channel" "$short_sha" <<'PY' > "$RUNNER_TEMP/artifact-check"
+          python3 - "$RUNNER_TEMP/artifacts.json" "$channel" "$short_sha" "$SOURCE_CONCLUSION" <<'PY' > "$RUNNER_TEMP/artifact-check"
           import json
           import pathlib
           import sys
 
           artifacts = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")).get("artifacts", [])
-          channel, short_sha = sys.argv[2:]
+          channel, short_sha, conclusion = sys.argv[2:]
           names = {artifact["name"] for artifact in artifacts if not artifact.get("expired")}
           expected = [f"cmux-{channel}-notarization-recovery-{variant}-{short_sha}" for variant in ("arm64", "x86_64", "universal")]
           missing = [name for name in expected if name not in names]
           if missing:
+              if conclusion == "success":
+                  print("ready=false")
+                  print("reason=no-published-recovery-artifacts")
+                  raise SystemExit(0)
               raise SystemExit("missing exact recovery artifacts: " + ", ".join(missing))
           print("ready=true")
           PY

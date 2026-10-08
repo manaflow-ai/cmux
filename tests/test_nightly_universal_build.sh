@@ -524,6 +524,7 @@ assert "final_dmg_sha256" in auto
 assert "--draft=false" in auto
 assert "prune_nightly_release_assets.py" in auto
 assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow
+assert "reason=no-published-recovery-artifacts" in auto
 PY
 then
   echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"
