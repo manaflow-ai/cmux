@@ -49,4 +49,37 @@ struct BrowserAutomationDocumentStateTests {
         #expect(state.frameSelector(surfaceID: docs) == "#sidebar")
         #expect(state.selector(forElementRef: search, surfaceID: docs) == "#search")
     }
+
+    /// The selected frame is a selector in the old page. Kept across a
+    /// navigation it either matches nothing, and commands silently run in the
+    /// new top document, or it matches an unrelated frame.
+    @Test("a main-frame commit returns the surface to the main frame")
+    func mainFrameCommitDropsTheSelectedFrame() {
+        var state = BrowserAutomationDocumentState()
+        state.selectFrame("#checkout", surfaceID: checkout)
+        state.selectFrame("#sidebar", surfaceID: docs)
+
+        state.mainFrameDidCommit(surfaceID: checkout)
+
+        #expect(state.frameSelector(surfaceID: checkout) == nil)
+        #expect(state.frameSelector(surfaceID: docs) == "#sidebar")
+    }
+
+    @Test("a main-frame commit invalidates the surface's element refs for good")
+    func mainFrameCommitDropsElementRefs() {
+        var state = BrowserAutomationDocumentState()
+        let pay = state.allocateElementRef(selector: "#pay", surfaceID: checkout)
+        let search = state.allocateElementRef(selector: "#search", surfaceID: docs)
+
+        state.mainFrameDidCommit(surfaceID: checkout)
+
+        #expect(state.selector(forElementRef: pay, surfaceID: checkout) == nil)
+        #expect(state.selector(forElementRef: search, surfaceID: docs) == "#search")
+
+        // A ref from the old page must not come back to life for an element of the new one.
+        let next = state.allocateElementRef(selector: "#cancel", surfaceID: checkout)
+        #expect(next != pay)
+        #expect(state.selector(forElementRef: pay, surfaceID: checkout) == nil)
+        #expect(state.selector(forElementRef: next, surfaceID: checkout) == "#cancel")
+    }
 }

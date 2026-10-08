@@ -77,6 +77,11 @@ public struct BrowserAutomationDocumentState: Sendable {
         return entry.selector
     }
 
+    /// Records that a surface's main frame committed a new document.
+    /// - Parameter surfaceID: The browser surface whose top-level document was replaced.
+    public mutating func mainFrameDidCommit(surfaceID: UUID) {
+    }
+
     /// Forgets the selected frame and every element ref of a closed surface.
     /// - Parameter surfaceID: The browser surface that went away.
     public mutating func removeSurface(_ surfaceID: UUID) {
