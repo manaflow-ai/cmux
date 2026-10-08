@@ -20,6 +20,27 @@ seconds.
 | artifact upload | 84 / 8.5 / 11.9 | 185 / 5.4 / 8.4 | upload phase duration |
 | storage cleanup snapshot | 120 / 0.018 / 0.028 | 264 / 0.162 / 1.686 | `after_cleanup` minus `before_cleanup` |
 
+The recovered host JSONL read adds this setup and run split. These are
+historical host receipt subsets, not rows in the current controller export;
+the raw host files are not mounted in this checkout.
+
+| host receipt subset | started / completed | admission wait p50 / p90 / max (s) | host run p50 / p90 (s) | telemetry and contention |
+| --- | ---: | ---: | ---: | --- |
+| AWS relay A | 159 / 159 | 13.5 / 365.4 / 978.3 | 205.2 / 218.2 | 58 contended, 95 refused, no compile telemetry |
+| AWS relay B | 86 / 85 | 0.8 / 3.4 / 1,077.5 | 646.2 / 1,014.5 | compile telemetry 22 rows, 16 contended |
+| AWS relay C | 89 / 88 | 0.8 / 3.7 / 297.3 | 322.2 / 835.3 | compile telemetry 26 rows, 19 contended |
+| local mini control | 3,287 / 3,283 | 0.9 / 167 / 1,037 | 344.3 / 716.3 | compile telemetry 752 rows, 280 contended |
+
+For the telemetry subsets, nested compile fetch was 35.6/61.8 seconds on
+relay B, 91.8/97.4 on relay C, and 54.9/102.7 on the mini control. The
+corresponding disk-throughput p50/p90 was 52.8/69.4 MB/s and 57.8/131.5 MB/s
+on relays B and C. The isolated mini subset had admission 0.8/4.7 seconds and
+run 255.8/647.3 seconds, with 710 of 1,188 rows contended. Host run is
+started-to-completed and is not a substitute for the controller's compile
+phase.
+No recovered host row carried paired eviction start and finish timestamps, so
+cleanup and eviction remain unproven beyond the controller cleanup snapshot.
+
 The controller has no host-side runner-ready or admission-wait breakdown. The
 zero admission phase is therefore not evidence that setup is free. The current
 export also has no rows for the affected AWS relay hosts, so their setup stalls
