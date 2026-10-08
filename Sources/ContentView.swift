@@ -1865,11 +1865,10 @@ struct ContentView: View {
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
         }
-        // Inner insets: panes sit inside the workspace card, clear of its
-        // rounded border.
-        .padding(.top, WorkspaceCardMetrics.bandGap)
-        // No leading inset: the panes meet the sidebar edge.
-        .padding(.trailing, WorkspaceCardMetrics.paneInset)
+        // Panes meet the band and both sidebars, so the band line, the split
+        // dividers and the tab bar hairline join the sidebars' own lines.
+        // They keep an inset only where the card meets the window edge.
+        .padding(.trailing, rightSidebarVisible ? 0 : WorkspaceCardMetrics.paneInset)
         .padding(.bottom, WorkspaceCardMetrics.paneInset)
         // Reserves the titlebar band's height inside the card, so the band
         // (drawn by the window-level overlay at the same fixed position)
