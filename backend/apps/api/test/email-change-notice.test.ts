@@ -66,4 +66,15 @@ describe("verified email change", () => {
     expect(s.previous_emails?.[0]?.email).toBe("Owner@Example.com")
     expect(confirmEnv(s, "", t0 + DAY).emails).toContain("Owner@Example.com")
   })
+
+  it("a full list cannot drop the owner's address: revert to it, then change away (review finding)", () => {
+    const t0 = 10 * DAY
+    let s = ensure(userDomain.initial(), session("a@example.com"), t0).state
+    for (let i = 1; i <= 5; i++) s = ensure(s, session(`b${i}@example.com`), t0 + 20 * 60_000 * i).state
+    s = ensure(s, session("a@example.com"), t0 + 20 * 60_000 * 7).state
+    const away = ensure(s, session("c@example.com"), t0 + 20 * 60_000 * 9)
+    expect(mails(away.outbox).map((m) => m.to)).toContain("a@example.com")
+    expect(away.state.previous_emails?.length).toBe(5)
+    expect(confirmEnv(away.state, "", t0 + DAY).emails).toContain("a@example.com")
+  })
 })

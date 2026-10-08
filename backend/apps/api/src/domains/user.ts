@@ -37,6 +37,8 @@ export interface UserState extends PushTargetsState, ChiefsState {
    * at the next change.
    */
   readonly previous_emails?: ReadonlyArray<{ readonly email: string; readonly changed_at: number }>
+  /** The address the last email change replaced, and when (the stale-token guard reads it). */
+  readonly last_email_change?: { readonly email: string; readonly at: number }
   /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
   readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
 }
@@ -186,9 +188,11 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         // A token minted before an email change still carries the old email until it expires
         // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
         // replaced keeps the current email, so devices with older tokens cannot flap it.
-        const latest = state.previous_emails?.at(-1)
-        const stale = state.user !== null && latest !== undefined && ctx.now < latest.changed_at + EMAIL_REVERT_GUARD_MS && sameEmail(claimed.email, latest.email)
-        const profile: UserProfile = stale && state.user ? { ...claimed, email: state.user.email, email_verified: state.user.email_verified } : claimed
+        const last = state.last_email_change
+        const stale = state.user !== null && last !== undefined && ctx.now < last.at + EMAIL_REVERT_GUARD_MS && sameEmail(claimed.email, last.email)
+        const profile: UserProfile = stale && state.user
+          ? { ...claimed, email: state.user.email, email_verified: state.user.email_verified, display_name: p.display_name ?? state.user.display_name }
+          : claimed
         const same = JSON.stringify(state.user) === JSON.stringify(profile)
         // A verified address that is replaced (or stops being verified) keeps getting security
         // notices for 14 days (cx-44j.45); a replaced one is also told of the change (never the new
@@ -198,14 +202,16 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         let next: UserState = { ...state, user: profile }
         let notices: ReadonlyArray<OutboxItem> = []
         if (oldVerified && !sameEmail(oldVerified, newVerified)) {
-          const live = (state.previous_emails ?? []).filter((e) => ctx.now < e.changed_at + PREVIOUS_EMAIL_WINDOW_MS && !sameEmail(e.email, newVerified))
-          const kept = live.filter((e) => !sameEmail(e.email, oldVerified))
-          const prior = live.find((e) => sameEmail(e.email, oldVerified))
-          const entry = prior ?? { email: oldVerified, changed_at: ctx.now }
-          next = { ...next, previous_emails: [...kept, entry].sort((a, b) => a.changed_at - b.changed_at).slice(0, MAX_PREVIOUS_EMAILS) }
+          // The replaced address always stays (its window starts now); the others keep their
+          // times, and when the list is full the newest of them go, never the earliest.
+          const others = (state.previous_emails ?? [])
+            .filter((e) => ctx.now < e.changed_at + PREVIOUS_EMAIL_WINDOW_MS && !sameEmail(e.email, newVerified) && !sameEmail(e.email, oldVerified))
+            .sort((a, b) => a.changed_at - b.changed_at)
+            .slice(0, MAX_PREVIOUS_EMAILS - 1)
+          next = { ...next, previous_emails: [...others, { email: oldVerified, changed_at: ctx.now }], last_email_change: { email: oldVerified, at: ctx.now } }
           // The same mailbox in other letter case is no change of address: no notice.
           if (!sameEmail(oldVerified, profile.email)) {
-            notices = homeUser.emailChangedNotice({ user: profile.id, locale: "en", emails: (next.previous_emails ?? []).map((e) => e.email) }, ctx.now)
+            notices = homeUser.emailChangedNotice({ user: profile.id, locale: "en", emails: [oldVerified, ...others.map((e) => e.email)] }, ctx.now)
           }
         }
         return {
