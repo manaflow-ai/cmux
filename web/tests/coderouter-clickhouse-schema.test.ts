@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ClickHouseDependencies } from "../services/coderouter/clickhouse";
 import {
@@ -16,7 +17,7 @@ import {
 } from "../services/observability/coderouterAlerts";
 import type { VmAlertStateStore } from "../services/observability/vmAlerts";
 
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "db", "clickhouse");
+const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "db", "clickhouse");
 
 /**
  * Every column the migration files create, attributed to the LAST file that
