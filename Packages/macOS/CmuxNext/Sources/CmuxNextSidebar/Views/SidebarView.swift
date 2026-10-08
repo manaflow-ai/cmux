@@ -67,8 +67,7 @@ public final class SidebarView: NSView {
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
     }
-    /// When the spaces strip shows (`sidebar.spacesVisibility`, cx-5k3r):
-    /// on hover it fades with the sidebar's other hover chrome.
+    /// `sidebar.spacesVisibility` (cx-5k3r): on hover the strip fades with the other hover chrome.
     public var spacesVisibility: SpacesVisibilityMode = .hover {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
