@@ -2,10 +2,12 @@
 //!
 //! Daemon start must not depend on decoding every historical journal
 //! segment (cx-6b12). The roster folds what decodes; a range that does not
-//! decode is skipped, logged with its range and error, and reported once to
-//! the frontend diagnostic sink. The fold never invents entries: it applies
-//! only decoded records. An agent with events in a skipped range is missing
-//! or shows its last decoded state until it reports again.
+//! decode is skipped, logged with its range and segment id (never record
+//! contents or decode error text), and reported once to the frontend
+//! diagnostic sink. The fold never invents entries: it applies only decoded
+//! records. An agent with events in a skipped range keeps its last decoded
+//! state, except that a live claim (working, blocked) becomes `unknown`, so
+//! no view says a stopped agent is working. Its next report corrects it.
 
 use super::{AgentRosterHost, WorkspaceRegistry};
 use crate::workspace_registry::session_journal::salvage::{
@@ -14,6 +16,11 @@ use crate::workspace_registry::session_journal::salvage::{
 
 /// Ranges listed by name in the diagnostic; the rest are counted.
 const LISTED_SKIPPED_RANGES: usize = 4;
+
+/// Roster states that claim the agent is active right now.
+const LIVE_STATES: [&str; 2] = ["working", "blocked"];
+/// The spec's neutral agent state; every agents view hides it.
+const NEUTRAL_STATE: &str = "unknown";
 
 pub(super) struct RestoredAgentRoster {
     pub(super) host: AgentRosterHost,
@@ -35,9 +42,9 @@ pub(super) fn restore_agent_roster(
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
     let mut problems = Vec::new();
-    let state = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap_or_else(|error| {
-        eprintln!("cmux-tui: agent roster snapshot is unreadable, rebuilding it: {error:#}");
-        problems.push(format!("its snapshot was unreadable ({error:#})"));
+    let state = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap_or_else(|_| {
+        eprintln!("cmux-tui: agent roster snapshot is unreadable; rebuilding it from the journal");
+        problems.push("its snapshot was unreadable".to_owned());
         Some((0, 0, String::new()))
     });
     let (mut host, mut needs_repair) = match state {
@@ -80,7 +87,7 @@ pub(super) fn restore_agent_roster(
                 eprintln!(
                     "cmux-tui: agent roster restore skipped journal {}: {}",
                     describe_range(&skip),
-                    skip.error
+                    skip.reason
                 );
                 host.cursor = host.cursor.max(skip.end_sequence);
                 skipped.push(skip);
@@ -88,24 +95,60 @@ pub(super) fn restore_agent_roster(
         }
     }
     if !skipped.is_empty() {
+        neutralize_live_claims(registry, &mut host, &skipped);
         problems.push(skipped_ranges_problem(&skipped));
     }
     if needs_repair || host.cursor != started_at {
         // The in-memory roster is already correct. A failed write only means
         // the next start folds this tail again.
-        if let Err(error) = registry.put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            host.cursor,
-            &host.roster.snapshot().to_string(),
-        ) {
-            eprintln!("cmux-tui: persisting the restored agent roster failed: {error:#}");
-            problems.push(format!("its snapshot was not saved ({error:#})"));
+        if registry
+            .put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                &host.roster.snapshot().to_string(),
+            )
+            .is_err()
+        {
+            eprintln!("cmux-tui: persisting the restored agent roster failed");
+            problems.push("its snapshot was not saved".to_owned());
         }
     }
     let diagnostic = (!problems.is_empty())
         .then(|| format!("agent roster restored with problems: {}", problems.join("; ")));
     Ok(RestoredAgentRoster { host, diagnostic })
+}
+
+/// Entries whose terminal has records in a skipped range may be stale: the
+/// range can hold the event that ended their live state. The subject index
+/// names those terminals without decoding the range; if it cannot be read,
+/// every live entry is treated as affected.
+fn neutralize_live_claims(
+    registry: &WorkspaceRegistry,
+    host: &mut AgentRosterHost,
+    skipped: &[SkippedJournalRange],
+) {
+    let mut affected = std::collections::HashSet::new();
+    let mut all = false;
+    for skip in skipped {
+        match registry.journal_subject_ids_in_range(
+            "terminal",
+            skip.start_sequence,
+            skip.end_sequence,
+        ) {
+            Ok(ids) => affected.extend(ids),
+            Err(_) => all = true,
+        }
+    }
+    for (terminal_id, entry) in &mut host.roster.entries {
+        if LIVE_STATES.contains(&entry.state.as_str()) && (all || affected.contains(terminal_id)) {
+            eprintln!(
+                "cmux-tui: agent roster marks terminal {terminal_id} {NEUTRAL_STATE}: its events \
+                 overlap a skipped journal range"
+            );
+            entry.state = NEUTRAL_STATE.to_owned();
+        }
+    }
 }
 
 fn describe_range(skip: &SkippedJournalRange) -> String {
@@ -124,7 +167,7 @@ fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String {
     let mut listed = skipped
         .iter()
         .take(LISTED_SKIPPED_RANGES)
-        .map(|skip| format!("{}: {}", describe_range(skip), skip.error))
+        .map(|skip| format!("{}: {}", describe_range(skip), skip.reason))
         .collect::<Vec<_>>();
     if skipped.len() > LISTED_SKIPPED_RANGES {
         listed.push(format!("{} more", skipped.len() - LISTED_SKIPPED_RANGES));

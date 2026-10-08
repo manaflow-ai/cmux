@@ -20,8 +20,14 @@ pub(crate) struct SkippedJournalRange {
     pub(crate) end_sequence: u64,
     /// The sealed segment that holds the range, when one does.
     pub(crate) segment_id: Option<String>,
-    pub(crate) error: String,
+    /// A fixed description. Decode errors are not kept: their text can
+    /// quote stored record contents, and skips are logged.
+    pub(crate) reason: &'static str,
 }
+
+const UNDECODABLE_SEGMENT: &str = "sealed segment does not decode";
+const UNDECODABLE_ROW: &str = "journal row does not decode";
+const MISSING_RANGE: &str = "no sealed segment or journal row holds these sequences";
 
 pub(crate) enum SalvagedJournalPage {
     Page(SessionJournalPage),
@@ -40,6 +46,29 @@ impl WorkspaceRegistry {
         limit: usize,
     ) -> anyhow::Result<SalvagedJournalPage> {
         salvage_session_journal_after(&self.connection, sequence, limit)
+    }
+}
+
+impl WorkspaceRegistry {
+    /// Distinct subject ids of one kind that records in `start..=end` name.
+    /// It reads the append-only subject index, so it works for a range whose
+    /// records do not decode.
+    pub(crate) fn journal_subject_ids_in_range(
+        &self,
+        kind: &str,
+        start: u64,
+        end: u64,
+    ) -> anyhow::Result<Vec<String>> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT id FROM journal_subject_index
+             WHERE kind = ?1 AND sequence >= ?2 AND sequence <= ?3",
+        )?;
+        let ids = statement
+            .query_map(params![kind, i64::try_from(start)?, i64::try_from(end)?], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ids)
     }
 }
 
@@ -112,10 +141,9 @@ fn unit_after(connection: &Connection, sequence: u64, limit: usize) -> anyhow::R
         if start > next {
             return missing_range(connection, next, start - 1);
         }
-        let error = match load_and_decode_segment(connection, &segment_id)? {
-            Ok(_) => return Ok(Unit::Decodes),
-            Err(error) => error,
-        };
+        if load_and_decode_segment(connection, &segment_id)?.is_ok() {
+            return Ok(Unit::Decodes);
+        }
         if let Some(unit) = unit_shadowed_by_bad_segment(connection, sequence, &segment_id, limit)?
         {
             return Ok(unit);
@@ -125,7 +153,7 @@ fn unit_after(connection: &Connection, sequence: u64, limit: usize) -> anyhow::R
             start_sequence: next,
             end_sequence: end,
             segment_id: Some(segment_id),
-            error: format!("{error:#}"),
+            reason: UNDECODABLE_SEGMENT,
         }));
     }
 
@@ -178,7 +206,7 @@ fn unit_shadowed_by_bad_segment(
                     .take(limit)
                     .collect(),
             ),
-            Err(error) => Unit::Skip(SkippedJournalRange {
+            Err(_) => Unit::Skip(SkippedJournalRange {
                 start_sequence: next,
                 end_sequence: bounded_skip_end(
                     connection,
@@ -187,7 +215,7 @@ fn unit_shadowed_by_bad_segment(
                 )?
                 .max(next),
                 segment_id: Some(segment_id),
-                error: format!("{error:#}"),
+                reason: UNDECODABLE_SEGMENT,
             }),
         }));
     }
@@ -250,12 +278,12 @@ fn active_rows_from(
         };
         match decoded {
             Ok(record) => records.push(record),
-            Err(error) if records.is_empty() => {
+            Err(_) if records.is_empty() => {
                 return Ok(Some(Unit::Skip(SkippedJournalRange {
                     start_sequence: first,
                     end_sequence: first,
                     segment_id: None,
-                    error: format!("{error:#}"),
+                    reason: UNDECODABLE_ROW,
                 })));
             }
             Err(_) => break,
@@ -301,7 +329,7 @@ fn missing_range(connection: &Connection, start: u64, end: u64) -> anyhow::Resul
         start_sequence: start,
         end_sequence: end,
         segment_id: None,
-        error: "no sealed segment or journal row holds these sequences".into(),
+        reason: MISSING_RANGE,
     }))
 }
 
@@ -412,7 +440,7 @@ mod tests {
             assert_eq!(skipped.len(), 1, "page limit {limit}");
             assert_eq!((skipped[0].start_sequence, skipped[0].end_sequence), (bad, bad));
             assert_eq!(skipped[0].segment_id, None);
-            assert!(skipped[0].error.contains("unknown journal class"), "{}", skipped[0].error);
+            assert_eq!(skipped[0].reason, UNDECODABLE_ROW);
         }
         drop(registry);
         fs::remove_dir_all(root).unwrap();

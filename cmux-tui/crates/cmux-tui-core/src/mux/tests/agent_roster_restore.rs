@@ -35,6 +35,10 @@ fn sealed_roster_store(session: &'static str) -> SealedRosterStore {
         }
         seals.push(seal_journal(&mux, &format!("roster_bad_segment_{step}")));
     }
+    // Segments written by this build (actor-era records) decode on the
+    // strict path: only the corruption below makes the restore skip.
+    let strict = mux.session_journal_after(0, 1024).unwrap();
+    assert!(strict.records.iter().any(|record| record.kind.starts_with("agent.")));
     mux.shutdown();
     drop(mux);
     SealedRosterStore { root, session, terminals, seals }
