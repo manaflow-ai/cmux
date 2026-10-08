@@ -121,6 +121,17 @@ final class IconPickerService {
         return centerAnchor(in: content)
     }
 
+    /// An anchor at personal group `id`'s header in the active window, else
+    /// the middle of the active window's content.
+    func anchor(group id: String) -> Anchor? {
+        guard let controller = services?.windows?.active, let content = controller.window?.contentView else { return nil }
+        if let screen = controller.sidebar.container.sidebarView.groupRowFrameOnScreen(for: CmuxNextSidebar.GroupID(id)),
+           let window = content.window {
+            return Anchor(view: content, rect: content.convert(window.convertFromScreen(screen), from: nil))
+        }
+        return centerAnchor(in: content)
+    }
+
     /// An anchor at the top middle of the active window (objects with no row on screen).
     func activeWindowAnchor() -> Anchor? {
         services?.windows?.active?.window?.contentView.map { centerAnchor(in: $0) }

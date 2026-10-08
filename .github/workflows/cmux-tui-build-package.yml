@@ -186,6 +186,12 @@ jobs:
   build:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
+      # The cmux server's release public keys (decision SV-R1), compiled into
+      # the `cmux` binary with option_env!; the binary never reads them at run
+      # time. Public keys, so a repository variable, not a secret. Unset means
+      # a build that trusts no manifest (`cmux server install` exits 7); a
+      # malformed value fails the build.
+      CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     name: build ${{ matrix.target }}
     needs: plan-build
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner }}
@@ -511,6 +517,12 @@ jobs:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
+      # The cmux server's release public keys (decision SV-R1), compiled into
+      # the `cmux` binary with option_env!; the binary never reads them at run
+      # time. Public keys, so a repository variable, not a secret. Unset means
+      # a build that trusts no manifest (`cmux server install` exits 7); a
+      # malformed value fails the build.
+      CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     permissions:
       contents: read
     steps:

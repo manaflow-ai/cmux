@@ -392,3 +392,89 @@ fn a_spent_ticket_expires() {
     std::thread::sleep(std::time::Duration::from_secs(11));
     assert_eq!(get(addr, "GET", &url, &host, "").status, 401);
 }
+
+/// The tools socket's `inspect` tool (a remote owner's route, through the
+/// brain's daemon): the same answers as HTTP for the seven read-only paths,
+/// nothing else, GET only, and a size cap.
+#[test]
+fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
+    let mut h = harness(true, 120);
+    h.say("user_local", "a question");
+    h.settle();
+    assert!(h.chat.wait_idle(None, Some(WAIT)));
+    let insp = inspector(&h);
+    let sock = h.dir.path().join("tools.sock");
+    optchat_chief::tools::serve_all(
+        &sock,
+        optchat_chief::tools::Served {
+            memory: h.chat.clone(),
+            orchestrator: None,
+            control: None,
+            inspector: Some(insp.clone()),
+        },
+    )
+    .unwrap();
+    let ask = |req: Value| -> Value {
+        use std::io::{BufRead, BufReader};
+        let mut s = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+        writeln!(s, "{req}").unwrap();
+        let mut line = String::new();
+        BufReader::new(s).read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+    let db = h.chat.db_path();
+    let before = std::fs::read(&db).unwrap();
+    for (path, query) in [
+        ("/api/status", serde_json::json!({})),
+        ("/api/turns", serde_json::json!({})),
+        ("/api/turn", serde_json::json!({"key": "now"})),
+        ("/api/node", serde_json::json!({"name": "0+8"})),
+        ("/api/level", serde_json::json!({"l": "1"})),
+        ("/api/date", serde_json::json!({"id": "3"})),
+        ("/api/search", serde_json::json!({"q": "context"})),
+    ] {
+        let got = ask(
+            serde_json::json!({"tool": "inspect", "method": "GET", "path": path, "query": query}),
+        );
+        assert_eq!(got["status"], 200, "{path}: {got}");
+        let pairs: Vec<(String, String)> = query
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+            .collect();
+        let direct = insp.answer(path, &pairs).unwrap();
+        if path != "/api/status" && path != "/api/turns" {
+            assert_eq!(got["body"], direct, "{path}: same answer as HTTP");
+        }
+    }
+    // Only the seven paths; GET only; an unknown tool path is refused.
+    for path in [
+        "/api/ticket",
+        "/",
+        "/index.html",
+        "/api/../etc",
+        "/api/write",
+    ] {
+        let got = ask(serde_json::json!({"tool": "inspect", "path": path}));
+        assert_eq!(got["status"], 404, "{path}: {got}");
+    }
+    for method in ["POST", "PUT", "DELETE"] {
+        let got =
+            ask(serde_json::json!({"tool": "inspect", "method": method, "path": "/api/status"}));
+        assert_eq!(got["status"], 405, "{method}");
+    }
+    // Answers above the cap are refused, not cut.
+    const { assert!(optchat_chief::inspect::INSPECT_MAX_BYTES <= 8 * 1024 * 1024) };
+    let big = optchat_chief::inspect::tool_answer(
+        &insp,
+        &serde_json::json!({"tool": "inspect", "path": "/api/turn", "query": {"key": "now"}}),
+        64,
+    );
+    assert_eq!(big["status"], 413);
+    assert!(big.get("body").is_none());
+    assert!(
+        std::fs::read(&db).unwrap() == before,
+        "the tool never writes the memory"
+    );
+}
