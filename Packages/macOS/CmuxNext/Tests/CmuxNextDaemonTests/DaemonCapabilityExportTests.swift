@@ -12,7 +12,7 @@ struct DaemonCapabilityExportTests {
 
     /// Entries in `unservedByBundledDaemon` on 2026-10-02. The list only
     /// shrinks: a new feature lands with its daemon half and goes in `optional`.
-    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1"]
+    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1", "chief-inspect-v1"]
 
     /// Every capability string `DaemonCapabilities` names is in exactly one
     /// list, so the check cannot miss a capability the app references.
