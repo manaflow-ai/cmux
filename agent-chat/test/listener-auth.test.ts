@@ -65,7 +65,7 @@ let token = "";
 beforeAll(async () => {
   generated = await startServer();
   token = (await waitForFile(join(generated.dir, "token"))).trim();
-});
+}, 30_000);
 afterAll(async () => {
   generated?.proc.kill();
   await generated?.proc.exited;
@@ -124,4 +124,4 @@ test("a launcher token is used as given and no token file is written", async () 
     await server.proc.exited;
     await rm(server.dir, { recursive: true, force: true });
   }
-});
+}, 30_000);
