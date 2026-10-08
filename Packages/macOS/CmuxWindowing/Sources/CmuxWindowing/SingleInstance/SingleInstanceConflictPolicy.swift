@@ -34,7 +34,7 @@ public struct SingleInstanceConflictPolicy: Sendable {
 
     public func action(
         currentBundleURL _: URL,
-        existingBundleURL: URL?
+        existingBundleURL _: URL?
     ) -> Action {
         // Keep the deliberate reload escape hatch independent of bundle-path
         // discovery. The old behavior allowed this override to replace an
