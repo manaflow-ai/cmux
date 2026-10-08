@@ -80,4 +80,36 @@ struct DividerHoverTests {
         screen.userScroll(deltaX: -120, timestamp: 1)
         #expect(!first.isHovered)
     }
+
+    private func settle(_ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    /// A layout change removes the handle under a drag (its column closed):
+    /// the mouse-up never reaches it, so the owner ends the drag. The model
+    /// leaves gesture mode and the display link comes to rest (it spun).
+    @Test func removingTheHandleMidDragEndsTheDrag() async {
+        let pointer = Pointer()
+        let (view, window) = makeRoot(pointer)
+        defer { window.close() }
+        let screen = view.screenViews["s"]!
+        let edge = edges(screen).first { $0.kind == .columnEdge("ca") }!
+        let point = screen.convert(NSPoint(x: edge.frame.midX, y: edge.frame.midY), to: nil)
+        edge.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                clickCount: 1, pressure: 1)!)
+        #expect(view.model.isGestureActive)
+        #expect(screen.activeDrag != nil)
+
+        let rest = ["b", "c", "d"].map { id in LayoutColumn(id: ColumnID("c\(id)"), width: 0.5, root: .leaf(PaneID(id))) }
+        view.model.apply(screens: [LayoutScreen(id: "s", name: "", layout: .columns(rest))])
+        await settle { !edges(screen).contains { $0.kind == .columnEdge("ca") } }
+        #expect(edge.superview == nil)
+        #expect(screen.activeDrag == nil)
+        #expect(!view.model.isGestureActive)
+        var frames = 0
+        while frames < 600, view.driver.onFrame?(1.0 / 60) == true { frames += 1 }
+        #expect(frames < 600, "the display link comes to rest")
+    }
 }
