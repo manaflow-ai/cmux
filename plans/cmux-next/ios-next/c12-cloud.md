@@ -210,5 +210,21 @@ receives a HostDO `welcome` with role `host`, and the creator's session receives
 role `device`; the same suite keeps the unrelated-host 403 assertion. The
 focused Vitest file passes (5 tests), and the API TypeScript typecheck passes.
 This is admission evidence only: the Rust session host, WireGuard/WebRTC
-underlays, one-shot link-token verifier and live terminal attach remain
-unimplemented.
+underlays, daemon startup wiring for the one-shot verifier (still G1/G2-gated)
+and live terminal attach remain unimplemented.
+
+## 11. Rust link-token verifier seam (2026-10-08)
+
+The VM-side `cmux-link` crate now contains a `ControlPlaneTokenVerifier` for the backend's
+`cmux-link+jwt` compact JWS format. It verifies Ed25519 signatures against the held public keyset,
+checks the host, epoch, service, expiry and 300-second maximum lifetime, and atomically consumes each
+`jti` until its expiry. Keyset replacement is explicit and atomic so the future VM keyset refresh can
+rotate keys without racing an inbound hello. The verifier uses an injected clock in tests and wall-clock
+Unix seconds in production.
+
+The verifier is deliberately not selected by daemon startup yet. `StampChecks` continues to refuse a
+real verifier until G1 binds the checked stamp to the supervised link child and G2 carries the token's
+`iat` into the recorded check. `host_inbound` still defaults to `DenyAllTokens`, so this slice cannot
+serve a VM link by itself. The tests replay the shared backend vector's valid token, expiry, host/epoch/
+service/signature/refusal and replay cases, plus key rotation. Rust execution remains a hosted Testbox
+requirement; no local cargo or live VM evidence is claimed.
