@@ -123,4 +123,29 @@ struct FeedWaiterRegistryTests {
         }
         registry.replyStored(reply)
     }
+
+    @Test func blockingWaiterIsDismissedWhenAgentProcessExits() throws {
+        let registry = FeedWaiterRegistry()
+        let request = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            requestId: "request",
+            ppid: 4242
+        )
+        let registration = try #require(registry.register(
+            requestID: "request",
+            event: request,
+            waitUntilResolved: true
+        ))
+        registry.accepted(registration, event: request, item: item())
+
+        let dismissed = registry.invalidateOptInWaiters(forPpid: 4242)
+        #expect(dismissed.count == 1)
+        #expect(registration.semaphore.wait(timeout: .now()) == .success)
+        guard case .unavailable = registry.finish(registration).outcome.result else {
+            Issue.record("agent exit must dismiss an opted-in blocking waiter")
+            return
+        }
+    }
 }

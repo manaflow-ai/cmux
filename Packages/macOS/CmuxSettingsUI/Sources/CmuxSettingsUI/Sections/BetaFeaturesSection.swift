@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
+    @State private var feedBlockingQuestions: DefaultsValueModel<Bool>
     @State private var conversationSidebar: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
@@ -19,6 +20,7 @@ public struct BetaFeaturesSection: View {
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
+        _feedBlockingQuestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.feed.blockingQuestions))
         _conversationSidebar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.conversationSidebar))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
@@ -36,6 +38,8 @@ public struct BetaFeaturesSection: View {
                 )
                 SettingsCardDivider()
                 feedRow
+                SettingsCardDivider()
+                feedBlockingQuestionsRow
                 SettingsCardDivider()
                 conversationSidebarRow
                 SettingsCardDivider()
@@ -62,6 +66,7 @@ public struct BetaFeaturesSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             feed,
+            feedBlockingQuestions,
             conversationSidebar,
             extensions,
             customSidebars,
@@ -138,6 +143,24 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaFeedToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var feedBlockingQuestionsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:feed-blockingQuestions",
+            String(localized: "settings.feed.blockingQuestions", defaultValue: "Keep Feed requests blocking"),
+            subtitle: feedBlockingQuestions.current
+                ? String(localized: "settings.feed.blockingQuestions.subtitleOn", defaultValue: "Questions and permissions stay pending until you answer or dismiss them.")
+                : String(localized: "settings.feed.blockingQuestions.subtitleOff", defaultValue: "Questions and permissions use the default 120-second soft wait."),
+            controlWidth: 196
+        ) {
+            Toggle("", isOn: Binding(get: { feedBlockingQuestions.current }, set: { feedBlockingQuestions.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsFeedBlockingQuestionsToggle")
         }
     }
 

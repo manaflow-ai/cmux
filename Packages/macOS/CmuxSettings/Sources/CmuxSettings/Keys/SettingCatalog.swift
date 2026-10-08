@@ -38,6 +38,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for the local computer-use MCP integration and its menu-bar UI.
     public let computerUse = ComputerUseCatalogSection()
     public let browser = BrowserCatalogSection()
+    /// Settings for the right-sidebar Feed request bridge.
+    public let feed = FeedCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()
     /// Settings for the freeform canvas workspace layout (the `canvas.*` keys).

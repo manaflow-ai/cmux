@@ -106,6 +106,19 @@ struct SettingCatalogTests {
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
         #expect(ids.contains("automation.canonicalAgentScratch"))
+        #expect(ids.contains("feed.blockingQuestions"))
+    }
+
+    @Test func feedBlockingQuestionsDefaultsOffAndPersists() {
+        let suiteName = "feed-blocking-questions-(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().feed.blockingQuestions
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+
+        #expect(settings.value(for: key) == false)
+        settings.set(true, for: key)
+        #expect(settings.value(for: key) == true)
     }
 
     @Test func browserCatalogIncludesDefaultZoomLevel() {
