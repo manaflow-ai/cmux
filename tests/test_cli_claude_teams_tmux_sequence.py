@@ -313,6 +313,7 @@ def main() -> int:
         stripped_identity_log = tmp / "stripped-identity.log"
         stripped_split_log = tmp / "stripped-split.log"
         guarded_split_log = tmp / "guarded-split.log"
+        ifshell_flag_log = tmp / "ifshell-flag.log"
         window_target_log = tmp / "window-target.log"
         split_pane_log = tmp / "split-pane.log"
         pane_list_log = tmp / "pane-list.log"
@@ -338,6 +339,7 @@ stripped_split="$(env -u TMUX tmux -S "$identity_socket" split-window -t "${TMUX
 printf '%s\\n' "$stripped_split" > "$FAKE_STRIPPED_SPLIT_LOG"
 guarded="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -n '$identity_socket'" "split-window -t ${TMUX_PANE} -h -d -P -F '$STRIP_FMT'" "display-message -p GUARD_FAIL")"
 printf '%s\\n' "$guarded" > "$FAKE_GUARDED_SPLIT_LOG"
+env -u TMUX tmux -S "$identity_socket" if-shell -F "true" "display-message -p NOPE" > "$FAKE_IFSHELL_FLAG_LOG" 2>&1 || true
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
@@ -360,6 +362,7 @@ tmux kill-session -t "$window_target"
         env["FAKE_STRIPPED_IDENTITY_LOG"] = str(stripped_identity_log)
         env["FAKE_STRIPPED_SPLIT_LOG"] = str(stripped_split_log)
         env["FAKE_GUARDED_SPLIT_LOG"] = str(guarded_split_log)
+        env["FAKE_IFSHELL_FLAG_LOG"] = str(ifshell_flag_log)
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
         env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
@@ -442,6 +445,13 @@ tmux kill-session -t "$window_target"
         guarded_split = read_text(guarded_split_log)
         if guarded_split != expected_stripped_split:
             print(f"FAIL: expected guarded split record {expected_stripped_split!r}, got {guarded_split!r}")
+            return 1
+
+        # The shim documents plain if-shell only; -F/-b must be rejected
+        # instead of being misread as the shell condition.
+        ifshell_flag = read_text(ifshell_flag_log)
+        if "flags beyond -t" not in ifshell_flag:
+            print(f"FAIL: expected if-shell -F rejection, got {ifshell_flag!r}")
             return 1
 
         window_target = read_text(window_target_log)

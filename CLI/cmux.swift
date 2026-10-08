@@ -28403,8 +28403,13 @@ struct CMUXCLI {
             // so without it those invocations fail as unsupported. Only the
             // plain no-flag form is implemented: OMC passes no flags, and -F
             // (format) or -b (background) would need different semantics.
+            // Scan rawArgs instead of the parsed result: parseTmuxArguments
+            // drops unknown flags into positional, so a rejected flag like -F
+            // would surface as the shell condition rather than an error. The
+            // parsed form is still what the positional extraction uses.
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-            guard parsed.flags.isEmpty || (parsed.flags == ["-t"] && parsed.value("-t") != nil) else {
+            let rejectedFlags = rawArgs.filter { $0.hasPrefix("-") && $0 != "-" && !$0.hasPrefix("--") && $0 != "-t" }
+            guard rejectedFlags.isEmpty else {
                 throw CLIError(message: "tmux shim if-shell: flags beyond -t are not supported; only if-shell <shell-command> <success> [failure]")
             }
             guard parsed.positional.count >= 2, parsed.positional.count <= 3 else {
