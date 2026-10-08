@@ -35,6 +35,18 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
+  in_build && /^      - name:/ { in_build=0 }
+  in_build && /notary_test_flags=\(build\)/ { saw_default=1 }
+  in_build && /notary_test_flags=/ && /OTHER_SWIFT_FLAGS/ && /build\)/ { saw_notary=1 }
+  in_build && /"\$\{notary_test_flags\[@\]\}" build/ { saw_unsafe_empty_expansion=1 }
+  END { exit !(saw_default && saw_notary && !saw_unsafe_empty_expansion) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must make notary-test xcodebuild arguments non-empty under bash -u"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -423,6 +435,21 @@ if ! awk '
   exit 1
 fi
 
+# Published nightly-next must hand Apple the signed DMG asynchronously and
+# retain state for continuation. It cannot run distribution policy, appcast or
+# release publication from the unaccepted build job.
+for expected in \
+  "id: notarize-nightly" \
+  "CMUX_NOTARY_SUBMIT_ONLY: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}" \
+  "- name: Prepare pending notarization recovery artifact" \
+  "- name: Upload pending notarization recovery artifact" \
+  "needs.decide.outputs.track != 'nightly-next'"; do
+  if ! grep -Fq -- "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly-next recovered notarization contract is missing: $expected"
+    exit 1
+  fi
+done
+
 RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
 if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$RELEASE_WORKFLOW_FILE"; then
   echo "FAIL: release still handles the legacy tunnel extension or Computer Use helper"
@@ -719,7 +746,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.track != 'nightly-next' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true'" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi

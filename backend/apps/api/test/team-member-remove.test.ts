@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest"
 import type { Principal } from "@cmux/ownership"
 import { hostOf, hostUpsert, memberUpsert } from "../src/domains/team-members.ts"
 import { ensureSshTables } from "../src/team-ssh-ca.ts"
+import { ensureLoginTables } from "../src/team-sso-login.ts"
+import { withGrantClasses, withLiveSsoTeam } from "../src/auth.ts"
 import { approvalDigest } from "../src/integrations/approval-gate.ts"
 import { approvalByRequest, insertApproval, APPROVAL_TTL_MS } from "../src/integrations/approvals.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -166,7 +168,7 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     expect(delivered).toBe("auth.forbidden")
   })
 
-  it("revokes the member's installs that the team's SSO authorized, even when not bound to the team", async () => {
+  it("keeps the member's own installs that the team's SSO authorized but takes the team's authority away at once", async () => {
     const owner = await signIn("rm-owner6")
     const member = await signIn("rm-member6")
     await join(owner.team, member.user)
@@ -174,10 +176,28 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     const viaOtherSso = await boundInstall(member.user, undefined, "laptop via other sso", member.team)
     // Bound to another team (that team's VM) while carrying this team's SSO: the other team's authority stays.
     const otherTeamVm = await boundInstall(member.user, member.team, "other team box", owner.team)
+    // A token minted before the removal still carries the team's SSO claim.
+    const before = await installOf(member.user, viaSso)
+    const tokenPrincipal: Principal = { identity: viaSso, kind: "install", user: member.user, team: member.team, install: viaSso, grant: before.grant, sso_team: owner.team }
+    expect((await withLiveSsoTeam(testEnv as any, tokenPrincipal)).sso_team).toBe(owner.team)
     await removeMember(owner.team, member.user)
-    expect((await installOf(member.user, viaSso)).revoked_at).not.toBeNull()
-    expect((await installOf(member.user, viaOtherSso)).revoked_at).toBeNull()
-    expect((await installOf(member.user, otherTeamVm)).revoked_at).toBeNull()
+    // Not signed out: the install stays and still signs in for the person's own work.
+    const kept = await installOf(member.user, viaSso)
+    expect(kept.revoked_at).toBeNull()
+    expect(kept.sso_team).toBeUndefined()
+    const challenge = await worker.fetch("https://api.test/v1/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user: member.user, install: viaSso }) })
+    expect(challenge.status).toBe(200)
+    // The old token's claim no longer counts anywhere: the SSO gate and every owner see no team SSO.
+    expect((await withLiveSsoTeam(testEnv as any, tokenPrincipal)).sso_team).toBeUndefined()
+    const resolved = await withGrantClasses(testEnv as any, tokenPrincipal)
+    expect(resolved).toBeDefined()
+    expect(resolved!.sso_team).toBeUndefined()
+    expect(resolved!.grant_classes?.length).toBeGreaterThan(0)
+    expect((await installOf(member.user, viaOtherSso))).toMatchObject({ revoked_at: null, sso_team: member.team })
+    // Bound to another team: that team's authority stays, this team's SSO goes.
+    const otherVm = await installOf(member.user, otherTeamVm)
+    expect(otherVm).toMatchObject({ revoked_at: null, bound_team: member.team })
+    expect(otherVm.sso_team).toBeUndefined()
   })
 
   it("puts every live team SSH certificate of the member on the revocation list at once and orphans their hosts", async () => {
@@ -214,5 +234,29 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     // The host stays for an owner to reassign; it says whose it was.
     expect(after.host).toMatchObject({ id: hostId, owner_user: member.user, orphaned: { former_owner: member.user } })
     expect(after.other?.orphaned).toBeUndefined()
+  })
+
+  it("ends the member's SSO sessions of the team, so no new install gets the team's SSO from them", async () => {
+    const owner = await signIn("rm-owner8")
+    const member = await signIn("rm-member8")
+    const other = await signIn("rm-other8")
+    await join(owner.team, member.user)
+    await join(owner.team, other.user)
+    const sessions = () => inDO(team(owner.team), async (_i, st) => st.storage.sql.exec<{ refresh_token_id: string }>(`SELECT refresh_token_id FROM sso_sessions3 ORDER BY refresh_token_id`).toArray().map((r) => r.refresh_token_id))
+    await inDO(team(owner.team), async (_i, st) => {
+      ensureLoginTables(st.storage.sql)
+      const now = Date.now()
+      // Stack subjects as signIn uses them (the user id derives from the Stack project and subject).
+      for (const [rt, sub] of [["rt_member_a", "rm-member8"], ["rt_member_b", "rm-member8"], ["rt_other", "rm-other8"]] as const)
+        st.storage.sql.exec(`INSERT INTO sso_sessions3 (refresh_token_id, stack_user, connection, signed_in_at, expires_at) VALUES (?, ?, 'ssoc_x', ?, ?)`, rt, sub, now, now + 3_600_000)
+    })
+    await removeMember(owner.team, member.user)
+    expect(await sessions()).toEqual(["rt_other"])
+  })
+
+  it("a KRL notice to a team that does not exist creates nothing there", async () => {
+    const ghost = `team_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+    expect(await team(ghost).revokeInstallCerts(ghost, "user_x", "inst_x")).toEqual({ ok: true, revoked: [] })
+    expect(await inDO(team(ghost), async (instance) => instance.isBound(ghost))).toBe(false)
   })
 })
