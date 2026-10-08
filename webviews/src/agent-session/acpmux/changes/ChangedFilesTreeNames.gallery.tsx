@@ -19,7 +19,7 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/changes/ChangedFilesTree.tsx#ChangedFilesTree"],
   load: () => import("../../../gallery/fixtures/ChangedFilesTreeStage").then((module) => module.ChangedFilesTreeStage),
   pane: true,
-  widths: { narrow: 250, normal: 250, wide: 320 },
+  widths: { narrow: 200, normal: 250, wide: 320 },
   height: 360,
   experiment: {
     definition: treeNameFade,
