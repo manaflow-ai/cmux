@@ -100,6 +100,10 @@ const snapshot: AcpmuxSnapshot = {
 /// the WebKit host takes everything else, dictation included.
 async function mountPane(options: { refuse?: string } = {}) {
   const posted: Posted[] = [];
+  // The composer restores session "s1"'s unsent prompt on mount (composerDraft.ts): an earlier
+  // test's words must not reach this pane. The host below answers chat.readDraft with nothing;
+  // this clears the page's synchronous draft cache.
+  localStorage.clear();
   host.cmuxAcpmuxActions = {
     ready: async () => ({ protocolVersion: 1, transport: "test" }),
     "chat.send": async (params) => {
