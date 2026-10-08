@@ -358,6 +358,14 @@ final class AppControl {
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
             },
+            // Reduce Transparency as overlays follow it (toasts, menus): `enabled: bool`
+            // overrides macOS for this app only, `enabled: null` follows macOS again.
+            .mainActor("debug.reduce_transparency") { call in
+                let mode = ReduceTransparency.shared
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)])
+            },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
                 let end = ContinuousClock.now + .milliseconds(milliseconds)
