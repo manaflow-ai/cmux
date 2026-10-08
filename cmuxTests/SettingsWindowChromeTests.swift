@@ -63,7 +63,7 @@ extension SettingsWindowSharedStateSuites {
             let presenter = SettingsWindowPresenter { _ in
                 SettingsWindowFactory.makeSettingsWindow(onContentAppear: readiness.signal)
             }
-            #expect(presenter.show() == .presented)
+            try #require(presenter.show() == .presented)
             await readiness.wait()
             let window = try #require(
                 NSApp.windows.first {
