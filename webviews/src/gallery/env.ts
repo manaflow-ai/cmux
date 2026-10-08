@@ -3,12 +3,11 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout, tune.
+// frame, window, zoom, layout.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME } from "./theme/ghostty";
 import { PANE_LAYOUTS, WINDOW_PRESETS, type PaneLayout } from "./window";
-import { readTunes, writeTunes } from "../experiments/tunable";
 
 /** The 21 languages the app ships (Localizable.xcstrings, scripts/pages/gen-strings.mjs LOCALES). */
 export const LOCALES = [
@@ -84,8 +83,6 @@ export type GalleryEnv = {
   zoom: "fit" | number;
   /** The panes around the entry. */
   layout: PaneLayout;
-  /** Edited tunables (experiments/tunable.ts): `<id>=<value>` pairs split by `;`. */
-  tune: string;
 };
 
 export const DEFAULT_ENV: GalleryEnv = {
@@ -106,7 +103,6 @@ export const DEFAULT_ENV: GalleryEnv = {
   window: "16x9",
   zoom: "fit",
   layout: "one",
-  tune: "",
 };
 
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
@@ -152,7 +148,6 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   if (zoom && zoom !== "fit") env.zoom = finite(zoom, 1, 0.1, 2);
   const layout = params.get("layout");
   if (layout && layout in PANE_LAYOUTS) env.layout = layout as PaneLayout;
-  env.tune = writeTunes(readTunes(params.get("tune") ?? ""));
   return env;
 }
 
@@ -167,12 +162,17 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   return params;
 }
 
-/** What a stage frame renders: one variant of one entry, under the controls. */
-export type StageAddress = { entry: string; variant: string };
+/**
+ * What a stage frame renders: one variant of one entry, under the controls. `tune` is the web
+ * gallery's edited tunables (experiments/tunable.ts `writeTunes`), outside the shared contract:
+ * the native gallery has no tunables.
+ */
+export type StageAddress = { entry: string; variant: string; tune?: string };
 
 export function frameQuery(address: StageAddress, env: GalleryEnv): string {
   const params = writeEnv(env);
   params.set("entry", address.entry);
   params.set("variant", address.variant);
+  if (address.tune) params.set("tune", address.tune);
   return params.toString();
 }

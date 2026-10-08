@@ -156,19 +156,25 @@ function BezierEditor({
             {preset === "custom" && <option value="custom">custom</option>}
           </select>
         </label>
-        <label>
-          Value
-          <input
-            key={formatBezier(curve)}
-            aria-label={`${tunable.title} value`}
-            defaultValue={formatBezier(curve)}
-            spellCheck={false}
-            onBlur={(event) => commitText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") commitText(event.currentTarget.value);
-            }}
-          />
-        </label>
+        {/* Return submits the form; leaving the field commits too. */}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            commitText(new FormData(event.currentTarget).get("value")?.toString() ?? "");
+          }}
+        >
+          <label>
+            Value
+            <input
+              key={formatBezier(curve)}
+              name="value"
+              aria-label={`${tunable.title} value`}
+              defaultValue={formatBezier(curve)}
+              spellCheck={false}
+              onBlur={(event) => commitText(event.target.value)}
+            />
+          </label>
+        </form>
         <code className="gallery-tunable-css">{cssBezier(curve)}</code>
         {/* The track replays the curve: 0.9 s of motion, then a rest at the end. */}
         <div className="gallery-tunable-track" aria-hidden="true">

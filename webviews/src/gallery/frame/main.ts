@@ -106,7 +106,7 @@ if (experiment && arm) {
 }
 
 // Edited tunables (the stage's curve editors): the page reads them through tunableValue().
-globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(env.tune) };
+globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(params.get("tune") ?? "") };
 
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;
