@@ -874,43 +874,6 @@ fn push_unique_installation(
     candidates.push(GhosttyInstallation { binary, resources_dir });
 }
 
-/// Persistent profile directory for launched Chrome/Chromium sessions.
-pub fn chrome_user_data_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        home_dir().map(|home| {
-            home.join("Library").join("Application Support").join("cmux-tui").join("chrome-profile")
-        })
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        env_path("XDG_DATA_HOME")
-            .map(|data_home| data_home.join("cmux-tui").join("chrome-profile"))
-            .or_else(|| {
-                home_dir().map(|home| {
-                    home.join(".local").join("share").join("cmux-tui").join("chrome-profile")
-                })
-            })
-    }
-
-    #[cfg(windows)]
-    {
-        env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("chrome-profile"))
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
-    {
-        env_path("XDG_DATA_HOME").map(|dir| dir.join("cmux-tui").join("chrome-profile")).or_else(
-            || {
-                home_dir().map(|home| {
-                    home.join(".local").join("share").join("cmux-tui").join("chrome-profile")
-                })
-            },
-        )
-    }
-}
-
 pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }

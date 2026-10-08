@@ -399,6 +399,9 @@ fn host_death_keeps_tab_under_running_daemon() {
 #[path = "stray_signals.rs"]
 mod stray_signals;
 
+#[path = "host_self_errors.rs"]
+mod host_self_errors;
+
 #[path = "pty_custody.rs"]
 mod pty_custody;
 

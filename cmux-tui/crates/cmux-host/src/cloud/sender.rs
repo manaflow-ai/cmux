@@ -169,6 +169,10 @@ impl Reporter {
         let reasons = self.in_flight.take().unwrap_or_default();
         if answer.ok() {
             self.backoff.reset();
+            // The server counts its 10 s from when it received this report, which is
+            // after the send and before `now` (the answer): count from the answer, so
+            // the next report never lands inside the server's window and is held.
+            self.last_sent_at = Some(now);
             self.heartbeat_at = Some(now + self.heartbeat_ms);
         } else {
             for r in reasons {
