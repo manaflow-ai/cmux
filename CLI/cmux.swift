@@ -3103,22 +3103,17 @@ final class SocketClient {
 
     /// The pid of the process listening on the control socket (the cmux app),
     /// resolved locally via LOCAL_PEERPID. The tmux shim reports this as
-    /// `#{pid}`: tmux server identity probes (kill(pid, 0), start-time checks)
-    /// need a process that stays alive for the session, and the app owns the
-    /// socket the shim speaks to. Nil for relay endpoints, where no local
-    /// process owns the far end, or when the kernel lookup fails.
+    /// `#{pid}`: tmux server identity probes need a process that stays alive
+    /// for the session, and the app owns the socket the shim speaks to. Nil
+    /// for relay endpoints, where no local process owns the far end, or when
+    /// the kernel lookup fails.
     var serverProcessID: pid_t? {
         guard relayEndpoint == nil else { return nil }
         if socketFD < 0 {
             try? connect()
         }
         guard socketFD >= 0 else { return nil }
-        var pid: pid_t = 0
-        var pidSize = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(socketFD, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize) == 0, pid > 0 else {
-            return nil
-        }
-        return pid
+        return SocketTransport().peerProcessID(of: socketFD)
     }
 
     func operationTelemetryContext() -> [String: Any] {
@@ -24278,8 +24273,9 @@ struct CMUXCLI {
         return parsed
     }
 
-    private func splitTmuxCommand(_ args: [String]) throws -> (command: String, args: [String]) {
+    private func splitTmuxCommand(_ args: [String]) throws -> (command: String, args: [String], socketOverride: String?) {
         var index = 0
+        var socketOverride: String?
         let globalValueFlags: Set<String> = ["-L", "-S", "-f"]
         let globalBoolFlags: Set<String> = ["-V", "-v"]
 
@@ -24294,21 +24290,31 @@ struct CMUXCLI {
                 if arg.contains(where: \.isWhitespace) {
                     let words = tmuxShellWords(arg)
                     if let name = words.first {
-                        return (name.lowercased(), Array(words.dropFirst()) + remaining)
+                        return (name.lowercased(), Array(words.dropFirst()) + remaining, socketOverride)
                     }
                 }
-                return (arg.lowercased(), remaining)
+                return (arg.lowercased(), remaining, socketOverride)
             }
             if arg == "--" {
                 break
             }
             // Handle -V (version) as a pseudo-command
             if globalBoolFlags.contains(arg) {
-                return (arg, [])
+                return (arg, [], socketOverride)
             }
             if let flag = globalValueFlags.first(where: { arg == $0 || arg.hasPrefix($0) }) {
                 if arg == flag {
                     index += 1
+                    // tmux semantics: an explicit -S endpoint names the server for
+                    // the whole invocation, including #{socket_path} in formats.
+                    if flag == "-S", index < args.count {
+                        socketOverride = args[index]
+                    }
+                } else {
+                    // Attached form (-Svalue): the value shares the flag token.
+                    if flag == "-S" {
+                        socketOverride = String(arg.dropFirst(flag.count))
+                    }
                 }
             }
             index += 1
@@ -24827,7 +24833,8 @@ struct CMUXCLI {
         workspaceId: String,
         paneId: String? = nil,
         surfaceId: String? = nil,
-        client: SocketClient
+        client: SocketClient,
+        tmuxSocketOverride: String? = nil
     ) throws -> [String: String] {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
@@ -24848,14 +24855,30 @@ struct CMUXCLI {
         // Server identity formats. oh-my-claude-sisyphus >= 5.6 requires both
         // at team startup (`tmux display-message -p '#{socket_path}\t#{pid}'`)
         // and aborts with tmux_server_identity_unavailable when they render
-        // empty. socket_path mirrors the fake $TMUX endpoint this shim
-        // injected so it round-trips with the `-S` endpoint the caller used;
-        // pid is the control socket's owner (the cmux app), which stays alive
-        // for the caller's kill(pid, 0) liveness probes.
-        if let tmuxEnv = ProcessInfo.processInfo.environment["TMUX"], !tmuxEnv.isEmpty,
-           let socketPath = tmuxEnv.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).first,
-           !socketPath.isEmpty {
-            context["socket_path"] = String(socketPath)
+        // empty. tmux semantics for #{socket_path}: the explicit -S endpoint
+        // when the caller passed one, else the socket path in $TMUX. OMC sends
+        // -S-bound commands with TMUX stripped from the environment, so the
+        // override is what keeps those invocations rendering the endpoint it
+        // compares against. pid is the control socket's owner (the cmux app),
+        // which stays alive for the caller's start-time liveness probes.
+        let resolvedSocketPath: String?
+        if let trimmedOverride = tmuxSocketOverride.map({
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }), !trimmedOverride.isEmpty {
+            resolvedSocketPath = trimmedOverride
+        } else if let tmuxEnv = ProcessInfo.processInfo.environment["TMUX"], !tmuxEnv.isEmpty {
+            let firstField = tmuxEnv.split(
+                separator: ",",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).first.map { String($0) } ?? ""
+            let trimmedField = firstField.trimmingCharacters(in: .whitespacesAndNewlines)
+            resolvedSocketPath = trimmedField.isEmpty ? nil : trimmedField
+        } else {
+            resolvedSocketPath = nil
+        }
+        if let resolvedSocketPath {
+            context["socket_path"] = resolvedSocketPath
         }
         if let serverPid = client.serverProcessID {
             context["pid"] = String(serverPid)
@@ -27835,7 +27858,7 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let (command, rawArgs) = try splitTmuxCommand(commandArgs)
+        let (command, rawArgs, socketOverride) = try splitTmuxCommand(commandArgs)
 
         switch command {
         case "new-session", "new":
@@ -27857,7 +27880,7 @@ struct CMUXCLI {
                         ])
                     }
                     if parsed.hasFlag("-P") {
-                        let context = try tmuxFormatContext(workspaceId: existingWorkspaceId, client: client)
+                        let context = try tmuxFormatContext(workspaceId: existingWorkspaceId, client: client, tmuxSocketOverride: socketOverride)
                         print(tmuxRenderFormat(
                             parsed.value("-F"),
                             context: context,
@@ -27893,7 +27916,7 @@ struct CMUXCLI {
                 ])
             }
             if parsed.hasFlag("-P") {
-                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client, tmuxSocketOverride: socketOverride)
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: "@\(workspaceId)"))
             }
 
@@ -27930,7 +27953,7 @@ struct CMUXCLI {
                 ])
             }
             if parsed.hasFlag("-P") {
-                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client, tmuxSocketOverride: socketOverride)
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: "@\(workspaceId)"))
             }
 
@@ -28071,7 +28094,8 @@ struct CMUXCLI {
                     workspaceId: target.workspaceId,
                     paneId: paneId,
                     surfaceId: surfaceId,
-                    client: client
+                    client: client,
+                    tmuxSocketOverride: socketOverride
                 )
                 let fallback = context["pane_id"] ?? surfaceId
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
@@ -28202,7 +28226,8 @@ struct CMUXCLI {
                 workspaceId: target.workspaceId,
                 paneId: target.paneId,
                 surfaceId: target.surfaceId,
-                client: client
+                client: client,
+                tmuxSocketOverride: socketOverride
             )
             // Enrich with geometry for format strings like #{pane_width},#{window_width}
             let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
@@ -28225,7 +28250,7 @@ struct CMUXCLI {
             let items = try tmuxWorkspaceItems(client: client)
             for item in items {
                 guard let workspaceId = item["id"] as? String else { continue }
-                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client, tmuxSocketOverride: socketOverride)
                 let fallback = [
                     context["window_index"] ?? "?",
                     context["window_name"] ?? workspaceId
@@ -28252,7 +28277,7 @@ struct CMUXCLI {
                 // targetable tmux surface, so omit them from the tmux projection.
                 guard tmuxPaneHasTargetableSurface(pane) else { continue }
                 guard let paneId = pane["id"] as? String else { continue }
-                var context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
+                var context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client, tmuxSocketOverride: socketOverride)
                 tmuxEnrichContextWithGeometry(&context, pane: pane, containerFrame: containerFrame)
                 if tmuxFormatRequestsPaneCommand(parsed.value("-F")),
                    context["pane_start_command"] == nil,
@@ -28367,6 +28392,107 @@ struct CMUXCLI {
             let store = try loadTmuxCompatStore()
             if let buffer = store.buffers[name] {
                 print(buffer)
+            }
+
+        case "if-shell", "if":
+            // tmux if-shell [-bF] [-t target] shell-command success-command
+            // [failure-command]: run the condition through /bin/sh; on success
+            // replay the success tmux command, otherwise the failure command.
+            // oh-my-claude-sisyphus >= 5.6 wraps every pane-creation command in
+            // this guard (server-identity check with `#{pid}` in the condition),
+            // so without it those invocations fail as unsupported. Only the
+            // plain no-flag form is implemented: OMC passes no flags, and -F
+            // (format) or -b (background) would need different semantics.
+            let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+            guard parsed.flags.isEmpty || (parsed.flags == ["-t"] && parsed.value("-t") != nil) else {
+                throw CLIError(message: "tmux shim if-shell: flags beyond -t are not supported; only if-shell <shell-command> <success> [failure]")
+            }
+            guard parsed.positional.count >= 2, parsed.positional.count <= 3 else {
+                throw CLIError(message: "if-shell requires <shell-command> <success-command> [failure-command]")
+            }
+            let conditionText = parsed.positional[0]
+            let successCommand = parsed.positional[1]
+            let failureCommand = parsed.positional.count == 3 ? parsed.positional[2] : nil
+
+            // Expand #{...} formats in the condition the way tmux does, so a
+            // guard can read server state (`#{pid}`) at evaluation time.
+            let conditionContext = try tmuxFormatContext(
+                workspaceId: try tmuxResolvedCallerWorkspaceId(client: client)
+                    ?? tmuxResolveWorkspaceTarget(nil, client: client),
+                client: client,
+                tmuxSocketOverride: socketOverride
+            )
+            let expandedCondition = tmuxRenderFormatContent(conditionText, context: conditionContext)
+
+            let shell = Process()
+            shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+            shell.arguments = ["-c", expandedCondition]
+            let shellStdout = Pipe()
+            shell.standardOutput = shellStdout
+            shell.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            do {
+                try shell.run()
+            } catch {
+                throw CLIError(message: "if-shell: failed to launch /bin/sh: \(error.localizedDescription)")
+            }
+            let conditionData = shellStdout.fileHandleForReading.readDataToEndOfFile()
+            shell.waitUntilExit()
+            let conditionSucceeded = shell.terminationStatus == 0
+            _ = conditionData
+
+            let branchText = conditionSucceeded ? successCommand : failureCommand
+            var branchOutput: [String] = []
+            if let branchText {
+                // tmux treats the branch as one tmux command string. `;`-joined
+                // sequences are not needed by the known callers, so a single
+                // command replay through this same dispatch keeps every shim
+                // command (split-window, display-message, ...) working under
+                // the guard. Its stdout, not the condition's, is if-shell's
+                // output, so capture it instead of printing inline.
+                // The branch replays under this invocation's -S endpoint so
+                // server-identity formats resolve the same inside the guard as
+                // outside (OMC's tmuxArgsForIdentity prepends -S the same way).
+                var branchCommandArgs = [branchText]
+                if let socketOverride {
+                    branchCommandArgs.insert(socketOverride, at: 0)
+                    branchCommandArgs.insert("-S", at: 0)
+                }
+                // Swift's `print` writes to the POSIX stdout fd, so capture at
+                // the fd level: dup2 a pipe over STDOUT_FILENO, replay the
+                // branch command, then restore. Swift print buffers its own
+                // stdout, so flush before and after the swap.
+                fflush(stdout)
+                let originalFD = dup(STDOUT_FILENO)
+                let capturePipe = Pipe()
+                var branchError: Error?
+                dup2(capturePipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+                do {
+                    try runClaudeTeamsTmuxCompat(
+                        commandArgs: branchCommandArgs,
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowOverride: windowOverride
+                    )
+                } catch {
+                    branchError = error
+                }
+                fflush(stdout)
+                dup2(originalFD, STDOUT_FILENO)
+                close(originalFD)
+                try? capturePipe.fileHandleForWriting.close()
+                if let branchError {
+                    throw branchError
+                }
+                let capturedData = capturePipe.fileHandleForReading.readDataToEndOfFile()
+                branchOutput = (String(data: capturedData, encoding: .utf8) ?? "")
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .map(String.init)
+            }
+            // tmux prints the branch command's output with surrounding
+            // whitespace trimmed per line and empty lines dropped.
+            for line in branchOutput where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                print(line.trimmingCharacters(in: .whitespaces))
             }
 
         case "show-options", "show-option", "show":
