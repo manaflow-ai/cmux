@@ -120,9 +120,9 @@ def wait(predicate, seconds, step=0.5):
     return None
 
 
-def snap(name):
+def snap(name, window=None):
     path = os.path.join(opts.out, f"{name}.png")
-    reply = rpc("debug.window_snapshot", {"path": path})
+    reply = rpc("debug.window_snapshot", {"path": path, **({"window": window} if window is not None else {})})
     if not os.path.exists(path):
         failures.append(f"snapshot {name}: {json.dumps(reply)[:300]}")
     return path
@@ -186,6 +186,14 @@ def run(theme, basic_port, remembered_port=None):
         notes.append({"theme": theme, "dialog": {k: dialog.get(k) for k in ("title", "scope", "lines")}})
         rpc("debug.dialog", {"id": dialog["id"], "set": {"user": "ada", "password": PASSWORD, "remember": True}})
         snap(f"signin-sheet-{tag}")
+        # The sheet is a child window, which a main-window snapshot leaves out.
+        windows = (rpc("debug.window_list") or {}).get("windows") or []
+        notes.append({"theme": theme, "windows": windows})
+        children = [w for w in windows if w.get("parent") is not None and w.get("visible")]
+        for index, window in enumerate(children):
+            snap(f"signin-sheet-window-{tag}-{index}", window=window.get("id"))
+        if not children:
+            failures.append(f"{theme}: no visible child window for the sign-in sheet")
         rpc("debug.dialog", {"id": dialog["id"], "press": "sign-in"})
         time.sleep(4)
         again = auth_dialog()
