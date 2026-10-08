@@ -11280,23 +11280,7 @@ class TerminalController {
         }
 
         return v2BrowserWithPanelContext(params: params) { ctx in
-            let storageScript = """
-            (() => {
-              const readStorage = (st) => {
-                const out = {};
-                if (!st) return out;
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
-                }
-                return out;
-              };
-              return {
-                local: readStorage(window.localStorage),
-                session: readStorage(window.sessionStorage)
-              };
-            })()
-            """
+            let storageScript = v2BrowserControl.storageSnapshotScript()
 
             let storageValue: Any
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: storageScript, timeout: 10.0) {
@@ -11405,22 +11389,7 @@ class TerminalController {
                     guard let storage = raw["storage"] as? [String: Any] else {
                         return true
                     }
-                    let storageLiteral = v2JSONLiteral(storage)
-                    let script = """
-                    (() => {
-                      const payload = \(storageLiteral);
-                      const apply = (st, data) => {
-                        if (!st || !data || typeof data !== 'object') return;
-                        st.clear();
-                        for (const [k, v] of Object.entries(data)) {
-                          st.setItem(String(k), v == null ? '' : String(v));
-                        }
-                      };
-                      apply(window.localStorage, payload.local);
-                      apply(window.sessionStorage, payload.session);
-                      return true;
-                    })()
-                    """
+                    let script = v2BrowserControl.storageRestoreScript(storageLiteral: v2JSONLiteral(storage))
                     switch v2RunBrowserJavaScript(
                         context.webView,
                         browserPanel: context.browserPanel,
