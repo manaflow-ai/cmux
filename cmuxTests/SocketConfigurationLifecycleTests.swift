@@ -9,6 +9,47 @@ import CmuxSettings
 #endif
 
 extension SocketACLReloadRegressionTests {
+    @Test(arguments: [SocketControlMode.allowAll, .password])
+    func updateRelaunchPreparationKeepsSocketAvailable(mode: SocketControlMode) async throws {
+        let controller = TerminalController.shared
+        let originalTabManager = controller.tabManager
+        let originalDelegate = AppDelegate.shared
+        controller.stop(cleanupDiscoveryState: true)
+
+        let directory = lifecycleTemporaryDirectory(prefix: "scfu")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let appDelegate = AppDelegate()
+        defer {
+            controller.stop(cleanupDiscoveryState: true)
+            controller.setActiveTabManager(originalTabManager)
+            AppDelegate.shared = originalDelegate
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: mode)
+        let identity = try #require(controller.socketServer.transport.pathIdentity(at: socketPath))
+        let expectedResponse = mode == .password
+            ? controller.passwordAuthRequiredResponse(for: "ping")
+            : "PONG"
+        let before = await Task.detached {
+            SocketTransport().probeCommand("ping", at: socketPath, timeout: 2)
+        }.value
+        try #require(before == expectedResponse)
+
+        // Sparkle can announce a relaunch without the app subsequently exiting.
+        // Both new clients and the original bound path must remain available.
+        appDelegate.updaterWillRelaunchApplication()
+
+        #expect(controller.socketServer.isRunning)
+        #expect(controller.socketServer.accessMode == mode)
+        #expect(controller.socketServer.transport.pathIdentity(at: socketPath) == identity)
+        let after = await Task.detached {
+            SocketTransport().probeCommand("ping", at: socketPath, timeout: 2)
+        }.value
+        #expect(after == expectedResponse)
+    }
+
     @Test(arguments: [
         "{",
         #"{"automation":{"socketControlMode":"invalid-mode"}}"#,

@@ -69,7 +69,7 @@ struct AgentAutoResumePolicyTests {
         #expect(tracker.totalResumes(surfaceId: surface) == 2)
     }
 
-    @Test func aCompletedTurnResetsTheStreakButKeepsTheTotal() {
+    @Test func aCompletedTurnEndsTheStreakAndClearsTheTotal() {
         var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
         guard case let .schedule(_, _, _, token) = tracker.observe(
             kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
@@ -78,14 +78,70 @@ struct AgentAutoResumePolicyTests {
             return
         }
         _ = tracker.resumeSent(surfaceId: surface, token: token)
+        #expect(tracker.totalResumes(surfaceId: surface) == 1)
         #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        // The agent recovered, so the "Auto-resumed ×N" marker has nothing
+        // left to say.
+        #expect(tracker.totalResumes(surfaceId: surface) == 0)
         guard case .schedule(_, 1, _, _) = tracker.observe(
             kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
         ) else {
             Issue.record("a new streak should start at attempt 1")
             return
         }
-        #expect(tracker.totalResumes(surfaceId: surface) == 1)
+    }
+
+    /// Subrouter's 503 when every pooled account is exhausted, as Claude Code
+    /// reports it, carrying the time the first account frees up.
+    private static let exhaustedPoolDetail = "api_error: API Error: 503 no non-exhausted claude accounts available; "
+        + "next account frees up in 47m (retry after 2820s). This is a server-side issue, usually temporary — "
+        + "try again in a moment. If it persists, check your inference gateway (127.0.0.1:31415)."
+
+    @Test func aRetryAfterHintIsParsedFromTheFailure() {
+        let classifier = AgentRetryableFailureClassifier()
+        #expect(classifier.isRetryable(detail: Self.exhaustedPoolDetail))
+        #expect(classifier.retryAfter(detail: Self.exhaustedPoolDetail) == .seconds(2820))
+        #expect(classifier.retryAfter(detail: "Retry After 90s") == .seconds(90))
+        #expect(classifier.retryAfter(detail: "overloaded") == nil)
+        #expect(classifier.retryAfter(detail: "retry after 0s") == nil)
+        #expect(classifier.retryAfter(detail: "retry after 2820 lines") == nil)
+        #expect(classifier.retryAfter(detail: "retry after 99999999999999999999999s") == nil)
+        #expect(classifier.retryAfter(detail: nil) == nil)
+    }
+
+    @Test func aRetryAfterHintWaitsForCapacityInsteadOfTheBackoff() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(20)], retryHintJitterSeconds: 0...0)
+        guard case let .schedule(_, attempt, delay, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: Self.exhaustedPoolDetail
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        #expect(attempt == 1)
+        #expect(delay == .seconds(2820))
+    }
+
+    @Test func aRetryAfterHintIsSpreadByTheJitter() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(20)], retryHintJitterSeconds: 30...180)
+        guard case let .schedule(_, _, delay, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: Self.exhaustedPoolDetail
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        #expect(delay >= .seconds(2850))
+        #expect(delay <= .seconds(3000))
+    }
+
+    @Test func aShortRetryAfterHintNeverUndercutsTheBackoff() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(45)], retryHintJitterSeconds: 0...0)
+        guard case let .schedule(_, _, delay, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "API Error: 503 busy (retry after 5s)"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        #expect(delay == .seconds(45))
     }
 
     @Test(arguments: [
@@ -164,6 +220,43 @@ struct AgentAutoResumePolicyTests {
         #expect(!tracker.isPending(surfaceId: surface, token: token))
         #expect(tracker.resumeSent(surfaceId: surface, token: token) == nil)
         #expect(tracker.totalResumes(surfaceId: surface) == 0)
+    }
+
+    @Test func theSameSessionStartingAgainKeepsTheMarkerCount() {
+        // Claude Code re-sends SessionStart after a compact or resume. The
+        // agent has not finished a turn yet, so the marker must stay.
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported,
+            surfaceId: surface,
+            isSubagent: false,
+            detail: "overloaded",
+            sessionId: "session-a"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        _ = tracker.resumeSent(surfaceId: surface, token: token)
+        _ = tracker.observe(kind: .sessionStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: "session-a")
+        #expect(tracker.totalResumes(surfaceId: surface) == 1)
+    }
+
+    @Test func anErrorNamingTheSessionForTheFirstTimeKeepsTheMarkerCount() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1), .seconds(2)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        _ = tracker.resumeSent(surfaceId: surface, token: token)
+        guard case .schedule(_, 2, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded", sessionId: "session-a"
+        ) else {
+            Issue.record("the streak should continue at attempt 2")
+            return
+        }
+        #expect(tracker.totalResumes(surfaceId: surface) == 1)
     }
 
     @Test func aLateErrorFromAnOlderSessionCannotReplaceTheCurrentSession() {

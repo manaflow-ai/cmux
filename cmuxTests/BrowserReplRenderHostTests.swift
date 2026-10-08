@@ -16,6 +16,18 @@ import WebKit
 struct BrowserReplRenderHostTests {
     private static let renderWindowIdentifier = "cmux.browserVisualAutomationRender"
 
+    /// Render windows other suites in this test process left on screen; only
+    /// a render window that appears during a test belongs to it.
+    private let preexistingRenderWindows: Set<ObjectIdentifier>
+
+    init() {
+        preexistingRenderWindows = Set(
+            NSApp.windows
+                .filter { $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible }
+                .map(ObjectIdentifier.init)
+        )
+    }
+
     private func makeWindow() throws -> (NSWindow, NSView) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -34,7 +46,10 @@ struct BrowserReplRenderHostTests {
     }
 
     private func visibleRenderWindows() -> [NSWindow] {
-        NSApp.windows.filter { $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible }
+        NSApp.windows.filter {
+            $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible
+                && !preexistingRenderWindows.contains(ObjectIdentifier($0))
+        }
     }
 
     @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() throws {
@@ -130,7 +145,7 @@ struct BrowserReplRenderHostTests {
         #expect(visibleRenderWindows().isEmpty)
     }
 
-    @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() throws {
+    @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() async throws {
         // The user works in another app: the page needs a key window for
         // focus and hover, and the pane must not go blank meanwhile.
         let (window, anchor, panel, paneHost) = try makePane(key: false)
@@ -147,6 +162,9 @@ struct BrowserReplRenderHostTests {
 
         window.reportsKey = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        // The key observer crosses into the MainActor explicitly because AppKit
+        // notification callbacks do not carry a Swift executor token.
+        await Task.yield()
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         #expect(panel.webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(panel.webView.window === window)

@@ -228,6 +228,7 @@ class SideLaneVariable(unittest.TestCase):
         for name in ("CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER"):
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-26.6"}), [])
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-26.6"}), [])
+            self.assertEqual(drifted_runner_variables({name: "glaeda-aws-side-std-xcode-26.3"}), [])
             self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-26"}), [])
             for label in ("glaeda-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-side-nonsense",
                           "warp-macos-26-arm64-12x"):
@@ -300,7 +301,7 @@ class OwnedPoolLabels(unittest.TestCase):
                 )
 
     def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
-        order = "glaeda-std-xcode-26.6, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
+        order = "glaeda-std-xcode-26.6, glaeda-aws-std-xcode-26.3, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
         self.assertIsNone(pool_order_reason(order))
         self.assertIsNone(pool_order_reason(""))
         self.assertEqual(drifted_runner_variables({"CI_PR_POOL_ORDER": order}), [])

@@ -745,6 +745,14 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
+# Main NIGHTLY and nightly-next use the same app identity and Sparkle build
+# ordering. Their full publish runs must share a concurrency group so an older
+# next run cannot finish after a newer main run and fail the cross-feed floor.
+if ! grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
+  echo "FAIL: main and nightly-next publishing runs must share one concurrency group"
+  exit 1
+fi
+
 # Every nightly lane must let an in-flight build finish. GitHub still keeps one
 # pending run per group, so a newer push replaces only an older queued run.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
