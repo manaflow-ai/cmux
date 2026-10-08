@@ -179,6 +179,7 @@ export function VisualMediaBoard() {
               key={value}
               type="button"
               className={filter === value ? "is-active" : ""}
+              aria-pressed={filter === value}
               onClick={() => setFilter(value)}
             >
               {value === "all" ? "All" : value === "still" ? "Static" : "Motion"}
@@ -195,15 +196,16 @@ export function VisualMediaBoard() {
               key={value}
               type="button"
               className={fit === value ? "is-active" : ""}
+              aria-pressed={fit === value}
               onClick={() => setFit(value)}
             >
               {value}
             </button>
           ))}
         </fieldset>
-        <span className="cmux-gallery-media-count-label">
+        <output className="cmux-gallery-media-count-label" aria-live="polite">
           {items.length} previews · {motionCount} motion
-        </span>
+        </output>
       </div>
       <p className="cmux-gallery-media-help">
         A quick visual board for stills and motion. The fixtures are portable inline SVG, so they can be reviewed
