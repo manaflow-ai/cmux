@@ -5,7 +5,9 @@ import Foundation
 // (CMUXCLI+Coderouter.swift), run the separately distributed CodeRouter CLI.
 // This file owns that passthrough end to end: locating the executable,
 // bootstrapping it on a machine that has none, and replacing this process
-// with it. The cmux socket is never opened on this path.
+// with it. The only socket use is a short, read-only `auth.status` probe that
+// lets the child follow the team selected in the app (see
+// `coderouterAppSelectedTeamID`); every failure there runs CodeRouter unchanged.
 extension CMUXCLI {
     /// The installer documented at https://cmux.com/coderouter. Every message
     /// quotes this exact command, and the interactive bootstrap runs it: cmux
@@ -37,14 +39,19 @@ extension CMUXCLI {
     /// receive cmux's ambient terminal or control-plane context: CMUX_* and
     /// CMUXD_* may carry socket paths, capabilities, passwords, auth state, or
     /// internal paths. There is intentionally no auth handoff; a future one
-    /// must be explicit and narrowly allowlisted.
+    /// must be explicit and narrowly allowlisted. The one value cmux adds is
+    /// the non-secret team ID the app has selected (`CODEROUTER_TEAM_ID`).
     static func coderouterChildEnvironment(from environment: [String: String]) -> [String: String] {
         environment.filter { key, _ in
             !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
         }
     }
 
-    func runCoderouterAlias(commandArgs: [String]) throws {
+    func runCoderouterAlias(
+        commandArgs: [String],
+        explicitSocketPath: String? = nil,
+        explicitSocketPassword: String? = nil
+    ) throws {
         let environment = ProcessInfo.processInfo.environment
         let executablePath: String
         if let installed = resolveCoderouterExecutable(environment: environment) {
@@ -52,7 +59,93 @@ extension CMUXCLI {
         } else {
             executablePath = try bootstrapCoderouter(environment: environment)
         }
-        try execCoderouter(at: executablePath, commandArgs: commandArgs, environment: environment)
+        // Follow the team selected in the app unless the user already named
+        // one. The probe is skipped entirely when it could not change anything.
+        var scopedEnvironment = environment
+        if CoderouterTeamEnvironment.wantsAppTeam(arguments: commandArgs, environment: environment) {
+            scopedEnvironment = CoderouterTeamEnvironment.environment(
+                environment,
+                arguments: commandArgs,
+                appTeamID: coderouterAppSelectedTeamID(
+                    explicitSocketPath: explicitSocketPath,
+                    explicitSocketPassword: explicitSocketPassword,
+                    environment: environment
+                )
+            )
+        }
+        try execCoderouter(at: executablePath, commandArgs: commandArgs, environment: scopedEnvironment)
+    }
+
+    /// The team selected in the running app, read with the read-only
+    /// `auth.status` method. Nil whenever the app is not running, the socket
+    /// refuses this process, the request outlives a short bound, or nobody is
+    /// signed in; CodeRouter then runs exactly as it would without cmux.
+    private func coderouterAppSelectedTeamID(
+        explicitSocketPath: String?,
+        explicitSocketPassword: String?,
+        environment: [String: String]
+    ) -> String? {
+        // Conflicting socket variables are an error for socket commands; here
+        // they only mean there is no single app to ask.
+        let environmentSocketPath: String?
+        do {
+            environmentSocketPath = try CLISocketEnvironment.socketPath(in: environment)
+        } catch {
+            return nil
+        }
+        let requestedPath = explicitSocketPath ?? environmentSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
+            environment: environment
+        )
+        let source: CLISocketPathSource = explicitSocketPath != nil
+            ? .explicitFlag
+            : (environmentSocketPath != nil ? .environment : .implicitDefault)
+        guard let socketPath = CLISocketPathResolver(environment: environment)
+            .resolve(requestedPath: requestedPath, source: source)
+            .selectedPath else { return nil }
+        let scale = Self.coderouterTeamProbeScale(environment: environment)
+        let deadline = Date.now.addingTimeInterval(Self.coderouterTeamProbeBudgetSeconds * scale)
+        let client = SocketClient(path: socketPath)
+        defer { client.close() }
+        // A relayed socket belongs to another machine's app; a remote or
+        // Cloud VM CodeRouter keeps the scope its own host selects.
+        guard !client.isRelayBacked else { return nil }
+        do {
+            try client.connectWithoutRetry(responseTimeout: Self.coderouterTeamProbeStepSeconds * scale)
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: explicitSocketPassword,
+                socketPath: socketPath,
+                responseTimeout: Self.coderouterTeamProbeStepSeconds * scale,
+                deadline: deadline
+            )
+            let status = try client.sendV2(
+                method: "auth.status",
+                responseTimeout: Self.coderouterTeamProbeRequestSeconds * scale,
+                deadline: deadline
+            )
+            return CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: status)
+        } catch {
+            cliDebugLog("cli.coderouter.team_probe_unavailable error=\(error)")
+            return nil
+        }
+    }
+
+    /// The same bounds as the hook lifecycle probe: a live app answers
+    /// `auth.status` immediately, and an absent one must not delay CodeRouter.
+    private static let coderouterTeamProbeStepSeconds: TimeInterval = 0.25
+    private static let coderouterTeamProbeRequestSeconds: TimeInterval = 0.5
+    private static let coderouterTeamProbeBudgetSeconds: TimeInterval = 0.75
+
+    /// Tests on a loaded CI host may stretch the bounds; release builds never do.
+    private static func coderouterTeamProbeScale(environment: [String: String]) -> TimeInterval {
+#if DEBUG
+        if let raw = environment["CMUX_TEST_CODEROUTER_TEAM_PROBE_SCALE"],
+           let scale = TimeInterval(raw), scale.isFinite, scale >= 1, scale <= 20 {
+            return scale
+        }
+#endif
+        return 1
     }
 
     /// The app-bundled core first, then PATH (`coderouter`, then `cr`), then the

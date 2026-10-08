@@ -1,8 +1,10 @@
 import CmuxCloud
 
 /// Adds persistent create rows to their categories after the catalog tree is built.
-/// A machine's Workspaces category leads with its own New Workspace. New Cloud
-/// Machine is not a row: the Cloud panel shows it as a button above the tree.
+/// A machine's Workspaces category leads with its own New Workspace. Account
+/// creation is a section-level menu, so provider groups contain accounts only.
+/// New Cloud Machine is not a row: the Cloud panel shows it as a button above
+/// the tree.
 enum CloudTreeCreateActionBuilder {
     static func add(to nodes: [CloudTreeNode]) -> [CloudTreeNode] {
         for node in nodes {
@@ -19,12 +21,10 @@ enum CloudTreeCreateActionBuilder {
                     id: "\(CloudTreeNodeBuilder.nodeID(workspacesGroup: machine))/new-workspace",
                     kind: .createAction(.newWorkspace(machine))
                 ), at: 0)
-            case .coderouterProviderGroup(let provider, _)
-                where provider.canAdd && !node.children.contains(where: { $0.structureTag == "createAction" }):
-                node.children.insert(CloudTreeNode(
-                    id: "\(node.id)/new-account",
-                    kind: .createAction(.newCoderouterAccount(provider))
-                ), at: 0)
+            // Account creation lives in the CodeRouter section header's Add
+            // menu. Keeping a permanent "New … Account" child in every
+            // provider group made the account roster read like a file tree
+            // and repeated the same action for every provider.
             default:
                 break
             }

@@ -2,10 +2,10 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 import SwiftUI
 
-/// A persistent create row in its owning Cloud category: New Workspace at the
-/// top of a machine's workspaces, and New Terminal and New Display leading
-/// their tabs. New Cloud Machine is the panel's button above the tree
-/// (`CloudNewMachineButton`).
+/// A create action in its owning Cloud category: New Workspace at the top of a
+/// machine's workspaces, New Terminal and New Display leading their tabs, and
+/// Add Account in the CodeRouter header menu. New Cloud Machine is the panel's
+/// button above the tree (`CloudNewMachineButton`).
 enum CloudTreeCreateAction: Equatable {
     case newWorkspace(SurfaceMachineID)
     /// Leads a Cloud machine's Terminals tab.

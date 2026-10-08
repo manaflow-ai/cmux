@@ -4961,7 +4961,11 @@ struct CMUXCLI {
         // owns (`status`, `machines`, `claude`, help), which manage the team's
         // model plane through the app socket (CMUXCLI+Coderouter.swift).
         if command == "cr" || (command == "coderouter" && !Self.isCmuxOwnedCoderouterInvocation(rawCommandArgs)) {
-            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            try runCoderouterAlias(
+                commandArgs: rawCommandArgs,
+                explicitSocketPath: explicitSocketPath,
+                explicitSocketPassword: socketPasswordArg
+            )
             return
         }
         if command == SudoPrivilegedExecutor.hiddenCommand {

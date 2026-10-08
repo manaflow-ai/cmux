@@ -739,4 +739,212 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 127, result.stderr)
         XCTAssertTrue(state.commands.isEmpty, "passthrough verbs must not touch the cmux socket: \(state.commands)")
     }
+
+    // MARK: - `cmux cr` follows the app's selected team
+
+    /// A PATH holding a fake CodeRouter that records the team variable it saw
+    /// (or `<unset>`) and its arguments, under an isolated HOME.
+    private func makeTeamRecordingCoderouter() throws -> (home: URL, path: String) {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cr-team-\(UUID().uuidString)", isDirectory: true)
+        let bin = home.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("coderouter").path
+        try """
+        #!/bin/sh
+        printf '%s\\n' "${CODEROUTER_TEAM_ID-<unset>}" > "$HOME/team"
+        printf '<%s>' "$@" > "$HOME/args"
+        """.write(toFile: executable, atomically: true, encoding: .utf8)
+        chmod(executable, 0o755)
+        return (home, bin.path + ":/usr/bin:/bin")
+    }
+
+    private func recordedTeam(in home: URL) throws -> String {
+        try String(contentsOf: home.appendingPathComponent("team"), encoding: .utf8)
+    }
+
+    func testCoderouterPassthroughSetsTheAppSelectedTeam() throws {
+        let fake = try makeTeamRecordingCoderouter()
+        defer { try? FileManager.default.removeItem(at: fake.home) }
+
+        let (result, state) = try runCoderouterCLI(
+            ["cr", "accounts", "--json"],
+            socketName: "cr-team-follow",
+            extraEnvironment: [
+                "PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path,
+                "CMUX_TEST_CODEROUTER_TEAM_PROBE_SCALE": "8",
+            ]
+        ) { method, _ in
+            guard method == "auth.status" else { return nil }
+            return self.okResponse(["signed_in": true, "selected_team_id": "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13"])
+        }
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(try recordedTeam(in: fake.home), "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13\n")
+        XCTAssertEqual(try String(contentsOf: fake.home.appendingPathComponent("args"), encoding: .utf8), "<accounts><--json>")
+        XCTAssertEqual(state.commands.filter { $0.contains(#""method":"auth.status""#) }.count, 1)
+        XCTAssertFalse(state.commands.contains { !$0.contains(#""method":"auth.status""#) && !$0.hasPrefix("auth ") },
+                       "the probe must only read auth.status: \(state.commands)")
+    }
+
+    func testCoderouterPassthroughLeavesTheTeamUnsetWhenSignedOut() throws {
+        let fake = try makeTeamRecordingCoderouter()
+        defer { try? FileManager.default.removeItem(at: fake.home) }
+
+        let (result, _) = try runCoderouterCLI(
+            ["cr", "accounts"],
+            socketName: "cr-team-signed-out",
+            extraEnvironment: [
+                "PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path,
+                "CMUX_TEST_CODEROUTER_TEAM_PROBE_SCALE": "8",
+            ]
+        ) { method, _ in
+            guard method == "auth.status" else { return nil }
+            return self.okResponse(["signed_in": false, "selected_team_id": "stale-team"])
+        }
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(try recordedTeam(in: fake.home), "<unset>\n")
+    }
+
+    func testCoderouterPassthroughKeepsTheUsersTeamAndSkipsTheProbe() throws {
+        let cases: [(name: String, arguments: [String], environment: [String: String], expected: String)] = [
+            ("env", ["cr", "accounts"], ["CODEROUTER_TEAM_ID": "team-from-user"], "team-from-user\n"),
+            ("empty-env", ["cr", "accounts"], ["CODEROUTER_TEAM_ID": ""], "\n"),
+            ("flag", ["cr", "accounts", "--team", "team-from-flag"], [:], "<unset>\n"),
+            ("flag-equals", ["cr", "add", "codex", "--team=team-from-flag"], [:], "<unset>\n"),
+            // Commands that manage the saved default are never pinned.
+            ("org-switch", ["cr", "org", "switch", "team-x"], [:], "<unset>\n"),
+            ("login", ["cr", "login"], [:], "<unset>\n"),
+        ]
+        for testCase in cases {
+            let fake = try makeTeamRecordingCoderouter()
+            defer { try? FileManager.default.removeItem(at: fake.home) }
+            var environment = ["PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path]
+            environment.merge(testCase.environment) { _, new in new }
+
+            let (result, state) = try runCoderouterCLI(
+                testCase.arguments,
+                socketName: "cr-team-user-\(testCase.name)",
+                extraEnvironment: environment,
+                waitForSocket: false
+            ) { method, _ in
+                guard method == "auth.status" else { return nil }
+                return self.okResponse(["signed_in": true, "selected_team_id": "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13"])
+            }
+
+            XCTAssertEqual(result.status, 0, "\(testCase.name): \(result.stderr)")
+            XCTAssertEqual(try recordedTeam(in: fake.home), testCase.expected, testCase.name)
+            XCTAssertTrue(state.commands.isEmpty, "\(testCase.name): no probe when the user chose a team: \(state.commands)")
+        }
+    }
+
+    func testCoderouterPassthroughRunsUnchangedWhenTheAppIsUnreachable() throws {
+        let fake = try makeTeamRecordingCoderouter()
+        defer { try? FileManager.default.removeItem(at: fake.home) }
+        var environment = ProcessInfo.processInfo.environment
+        for key in environment.keys where key.hasPrefix("CMUX_") || key.hasPrefix("CMUXD_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["PATH"] = fake.path
+        environment["HOME"] = fake.home.path
+        environment["CFFIXED_USER_HOME"] = fake.home.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = fake.home.appendingPathComponent("absent.sock").path
+        environment.removeValue(forKey: "CODEROUTER_TEAM_ID")
+
+        let result = runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: ["cr", "accounts"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stderr, "")
+        XCTAssertEqual(try recordedTeam(in: fake.home), "<unset>\n")
+    }
+}
+
+@Suite("cmux cr team environment")
+struct CoderouterTeamEnvironmentTests {
+    @Test("The app's team is added only when the user named none")
+    func injection() {
+        let base = ["PATH": "/usr/bin"]
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["accounts"], appTeamID: "team-a")
+            == ["PATH": "/usr/bin", "CODEROUTER_TEAM_ID": "team-a"])
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["accounts"], appTeamID: " team-a ")["CODEROUTER_TEAM_ID"] == "team-a")
+        // The user's variable wins, even when empty.
+        #expect(CoderouterTeamEnvironment.environment(base.merging(["CODEROUTER_TEAM_ID": "mine"]) { $1 }, arguments: [], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "mine")
+        #expect(CoderouterTeamEnvironment.environment(base.merging(["CODEROUTER_TEAM_ID": ""]) { $1 }, arguments: [], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "")
+        // So does an explicit option, in either spelling.
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["accounts", "--team", "t"], appTeamID: "team-a") == base)
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["add", "codex", "--team=t"], appTeamID: "team-a") == base)
+        // Mirrors coderouter's extract_team_flag: after a pass-through command
+        // (codex, opencode, pi, naked, direct, claude-david) every argument,
+        // `--team` included, belongs to the wrapped program, and `--` has no
+        // special meaning.
+        for command in ["codex", "opencode", "pi", "naked", "direct", "claude-david"] {
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: [command, "exec", "--team", "x"], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "team-a", "\(command)")
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: [command, "--team=x"], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "team-a", "\(command)")
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: ["--team", "x", command], appTeamID: "team-a") == base, "\(command)")
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: ["--team=x", command, "exec"], appTeamID: "team-a") == base, "\(command)")
+        }
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["codex", "--", "--team", "x"], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "team-a")
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["accounts", "--", "--team", "x"], appTeamID: "team-a") == base)
+        // Only the first command word starts pass-through.
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["add", "codex", "--team", "x"], appTeamID: "team-a") == base)
+        // No app team: unchanged.
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: [], appTeamID: nil) == base)
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: [], appTeamID: "  ") == base)
+    }
+
+    @Test("Commands that manage the saved default organization or sign-in are never pinned", arguments: [
+        ["org", "switch", "x"], ["org"], ["organization", "list"], ["team", "use", "x"],
+        ["login"], ["login", "--api-key", "k"], ["logout"], ["auth"], ["transfer", "a", "--to", "t"],
+        ["--team", "x", "org", "current"],
+    ])
+    func persistedScopeCommandsAreNotPinned(arguments: [String]) {
+        #expect(!CoderouterTeamEnvironment.wantsAppTeam(arguments: arguments, environment: [:]))
+        #expect(CoderouterTeamEnvironment.environment(["PATH": "/usr/bin"], arguments: arguments, appTeamID: "team-a") == ["PATH": "/usr/bin"])
+    }
+
+    @Test("Other commands follow the app's team", arguments: [
+        [], ["accounts"], ["--json"], ["add", "codex"], ["remove", "a", "--yes"], ["codex", "exec"],
+        ["doctor"], ["codex", "org", "switch"],
+    ])
+    func otherCommandsArePinned(arguments: [String]) {
+        #expect(CoderouterTeamEnvironment.wantsAppTeam(arguments: arguments, environment: [:]))
+        #expect(!CoderouterTeamEnvironment.wantsAppTeam(arguments: arguments, environment: ["CODEROUTER_TEAM_ID": "mine"]))
+    }
+
+    @Test("auth.status yields a team only for a signed-in app with a team")
+    func authStatusParsing() {
+        let team = "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13"
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": team]) == team)
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": false, "selected_team_id": team]) == nil)
+        // Not a Stack team UUID, so not a CodeRouter organization ID.
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": "team-a"]) == nil)
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true]) == nil)
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": ""]) == nil)
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: [:]) == nil)
+    }
+
+    @Test("capabilities --json: only a listed team-override counts")
+    func capabilityParsing() {
+        // CodeRouter 0.3.15/0.3.16 output: capabilities exist, no team-override.
+        let current = #"{"product":"coderouter","cliVersion":"0.3.16","protocolVersion":1,"authModes":["standalone-stack","api-key","cmux-broker-v1"],"features":["route-session","organization-scope"]}"#
+        #expect(!CoderouterTeamEnvironment.supportsTeamOverride(capabilitiesJSON: Data(current.utf8)))
+        let next = #"{"product":"coderouter","features":["route-session","organization-scope","team-override"]}"#
+        #expect(CoderouterTeamEnvironment.supportsTeamOverride(capabilitiesJSON: Data(next.utf8)))
+        #expect(!CoderouterTeamEnvironment.supportsTeamOverride(capabilitiesJSON: Data("coderouter: usage".utf8)))
+        #expect(!CoderouterTeamEnvironment.supportsTeamOverride(capabilitiesJSON: Data(#"{"features":"team-override"}"#.utf8)))
+    }
+
+    @Test("The shell assignment survives quotes in the team ID")
+    func shellAssignment() {
+        #expect(CoderouterTeamEnvironment.shellAssignment(teamID: "team's-id") == "CODEROUTER_TEAM_ID='team'\\''s-id'")
+    }
 }

@@ -1654,6 +1654,8 @@
 		67F13AB1D70935EB1DA98379 /* CoderouterGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */; };
 		ECC272858DDDFFEA5700CCE4 /* CoderouterProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */; };
 		C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */; };
+		7002A406C68B8E2772E2EB69 /* CoderouterTeamEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = E087E06824D801CBC96ADE5E /* CoderouterTeamEnvironment.swift */; };
+		C0DE7EA0000000000000A003 /* CoderouterTeamEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = E087E06824D801CBC96ADE5E /* CoderouterTeamEnvironment.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
@@ -6090,6 +6092,7 @@
 		673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterGuideView.swift; sourceTree = "<group>"; };
 		2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterProvider.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterSocketCommands.swift; sourceTree = "<group>"; };
+		E087E06824D801CBC96ADE5E /* CoderouterTeamEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterTeamEnvironment.swift; sourceTree = "<group>"; };
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
@@ -9726,6 +9729,7 @@
 				2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */,
 				673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */,
 				B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */,
+				E087E06824D801CBC96ADE5E /* CoderouterTeamEnvironment.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -15007,6 +15011,7 @@
 				67F13AB1D70935EB1DA98379 /* CoderouterGuideView.swift in Sources */,
 				ECC272858DDDFFEA5700CCE4 /* CoderouterProvider.swift in Sources */,
 				C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */,
+				7002A406C68B8E2772E2EB69 /* CoderouterTeamEnvironment.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 				9D04DE21C5281E376C0FE450 /* CodexRestoreHookEvidence.swift in Sources */,
@@ -17127,6 +17132,7 @@
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */,
 				9A1AE2D805738CFC3CE38382 /* CmuxTuiRemoteTreeRendering.swift in Sources */,
+				C0DE7EA0000000000000A003 /* CoderouterTeamEnvironment.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
