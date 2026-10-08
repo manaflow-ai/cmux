@@ -13,7 +13,8 @@
 //!   `crontab`, other `cmux` nouns, `restricted-shell` itself) is refused
 //!   with a message on stderr that starts `restricted-shell:`.
 //! - The verb runs as this program with a fixed environment: PATH is
-//!   `/usr/bin:/bin`, and only HOME, USER, LOGNAME and LANG pass through.
+//!   `/usr/bin:/bin`, and only HOME, USER and LOGNAME pass through (sshd
+//!   accepts LANG and LC_* from the client; they do not reach the verb).
 //!   "This program" is the absolute argv[0] sshd ran (the force-command's
 //!   path, `/opt/cmux/current/bin/cmux`, whose name keeps the `cmux`
 //!   surface), else the resolved executable.
@@ -25,7 +26,7 @@ pub const MAX_COMMAND_BYTES: usize = 16 * 1024;
 /// `cmux team` verbs an ordinary agent may run, with their most arguments.
 pub const ALLOWED: &[(&str, usize)] = &[("whoami", 0)];
 /// Environment variables passed to the verb.
-const KEEP_ENV: &[&str] = &["HOME", "USER", "LOGNAME", "LANG"];
+const KEEP_ENV: &[&str] = &["HOME", "USER", "LOGNAME"];
 
 /// Splits `line` into words the way a POSIX shell quotes them, with no
 /// expansion of any kind. Control characters are refused.

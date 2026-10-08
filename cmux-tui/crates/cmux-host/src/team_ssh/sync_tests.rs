@@ -144,7 +144,7 @@ fn the_vm_reads_its_teams_accounts_as_its_own_install_and_reconciles_them() {
 }
 
 #[test]
-fn another_teams_accounts_a_bad_view_and_errors_change_nothing() {
+fn another_teams_accounts_a_bad_row_and_errors_change_nothing() {
     let (_d, paths, api, mut client) = setup();
     let host = FakeAccounts::default();
     *api.read.borrow_mut() =
@@ -152,7 +152,9 @@ fn another_teams_accounts_a_bad_view_and_errors_change_nothing() {
     assert!(accounts_once(&mut client, &paths, &host, 1_000_000).is_err());
     *api.read.borrow_mut() =
         (200, json!({ "value": accounts_value("team_t", &[("root", 0, "human")]) }));
-    assert!(accounts_once(&mut client, &paths, &host, 1_000_000).is_err(), "uid 0");
+    // A bad row is refused on its own; nothing is made for it.
+    let done = accounts_once(&mut client, &paths, &host, 1_000_000).expect("rows");
+    assert!(done.refused.iter().any(|r| r.contains("root") && r.contains("uid 0")), "{done:?}");
     *api.read.borrow_mut() =
         (400, json!({ "ok": false, "error": { "code": "validation.invalid" } }));
     let err = accounts_once(&mut client, &paths, &host, 1_000_000).expect_err("old backend");

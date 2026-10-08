@@ -85,8 +85,11 @@ pub fn accounts_once<H: Http>(
             }
             let view: accounts::View =
                 serde_json::from_value(value).map_err(|e| format!("team_vm.accounts: {e}"))?;
-            let wanted = accounts::verify(&view).map_err(|e| format!("team_vm.accounts: {e}"))?;
-            Ok(accounts::reconcile(paths, &wanted, host))
+            let (wanted, bad_rows) =
+                accounts::verify(&view).map_err(|e| format!("team_vm.accounts: {e}"))?;
+            let mut done = accounts::reconcile(paths, &view.team, &wanted, host);
+            done.refused.extend(bad_rows);
+            Ok(done)
         }
         Answer::Http { status, body } => {
             let code = body["error"]["code"].as_str().or(body["code"].as_str()).unwrap_or("");
@@ -109,6 +112,8 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
             .map_or(0, |d| d.as_millis() as u64)
     };
     let mut client: Option<(TeamBound, CloudClient<PosterHttp>)> = None;
+    // Refusals repeat every pass; they are logged when they change.
+    let mut last_refused: Vec<String> = Vec::new();
     loop {
         let bound = super::enroll::machine_instance(paths)
             .ok()
@@ -141,21 +146,29 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
             match sync_once(c, paths, &store::ssh_keygen_check, wall_ms()) {
                 Ok(applied) => {
                     let linux_accounts = super::accounts_linux::LinuxAccounts::default();
-                    let mut account_errors = false;
-                    match accounts_once(c, paths, &linux_accounts, wall_ms()) {
-                        Ok(done) if done.changed() => {
-                            account_errors = !done.errors.is_empty();
-                            eprintln!(
-                                "cmux host team-ssh sync: accounts created {:?} written {:?} removed {:?} refused {:?} errors {:?}",
-                                done.created, done.written, done.removed, done.refused, done.errors
-                            );
+                    let account_errors = match accounts_once(c, paths, &linux_accounts, wall_ms()) {
+                        Ok(done) => {
+                            if done.changed() || done.refused != last_refused {
+                                eprintln!(
+                                    "cmux host team-ssh sync: accounts created {:?} written {:?} restored {:?} removed {:?} retired {:?} refused {:?} errors {:?}",
+                                    done.created,
+                                    done.written,
+                                    done.restored,
+                                    done.removed,
+                                    done.retired,
+                                    done.refused,
+                                    done.errors
+                                );
+                            }
+                            let failed = !done.errors.is_empty();
+                            last_refused = done.refused;
+                            failed
                         }
-                        Ok(_) => {}
                         Err(e) => {
-                            account_errors = true;
                             eprintln!("cmux host team-ssh sync: {e}");
+                            true
                         }
-                    }
+                    };
                     let host = super::linux_host::LinuxHost::new(paths.at(super::SESSIONS_DIR));
                     let reaped = super::sessions::reap(paths, &host);
                     if applied.krl_changed

@@ -18,17 +18,24 @@
 #   D. A name that exists with another UID, or a UID another user holds, is
 #      refused and gets no principals file.
 #   E. A member removed from the view: the principals file goes, the open
-#      session ends, a new login is refused, and the Linux user (and its UID)
-#      stays.
+#      session and the work it left running end, the account is expired with
+#      shell nologin and leaves the login groups, a new login is refused, and
+#      the Linux user (and its UID) stays. Added back, it logs in again.
+#   F. sshd itself forces the restricted shell on agent users (Match Group
+#      cmux-agents), even for a certificate without the force-command.
+#
+# An optional second argument is the `cmux` binary (cmux-tui): then the
+# force-command runs through it, the production path.
 #
 # Destructive for the host it runs on (throwaway users, /etc/cmux/ssh,
 # /run/cmux-host). Run it only on a throwaway Testbox or a cmuxnp-dev VM:
-#   sudo bash cmux-tui/crates/cmux-host/tests/team_ssh_accounts.sh <cmux-host binary>
+#   sudo bash cmux-tui/crates/cmux-host/tests/team_ssh_accounts.sh <cmux-host binary> [<cmux binary>]
 set -euo pipefail
 
 if [[ "$(id -u)" != 0 ]]; then echo "run as root" >&2; exit 2; fi
 if [[ "$(ps -p 1 -o comm=)" != systemd ]]; then echo "needs systemd as PID 1" >&2; exit 2; fi
-SRC_BIN="${1:?usage: team_ssh_accounts.sh <cmux-host binary>}"
+SRC_BIN="${1:?usage: team_ssh_accounts.sh <cmux-host binary> [<cmux binary>]}"
+CMUX_SRC="${2:-}"
 
 PORT=2239
 LIBEXEC=/usr/local/libexec/cmuxtembr
@@ -39,6 +46,7 @@ SSHD_UNIT=cmuxtembr-sshd.service
 SSH_DIR=/etc/cmux/ssh
 SESSIONS=/run/cmux-host/ssh-sessions
 LOGIN_GROUP=cmux-ssh
+AGENTS_GROUP=cmux-agents
 TEAM_USERS=(cmuxtalice cmuxtalice-agents cmuxtbob cmuxtbob-agents cmuxtsys cmuxtcarol cmuxtother)
 d="$(mktemp -d)"
 chmod 0755 "$d"
@@ -58,6 +66,7 @@ cleanup() {
     getent group "$u" >/dev/null && groupdel "$u" 2>/dev/null
   done
   getent group "$LOGIN_GROUP" >/dev/null && groupdel "$LOGIN_GROUP" 2>/dev/null
+  getent group "$AGENTS_GROUP" >/dev/null && groupdel "$AGENTS_GROUP" 2>/dev/null
   rm -rf "$d" "$LIBEXEC" "$SSHD" "$PAM_FILE" "$SESSIONS" "$SSH_DIR"
 }
 trap cleanup EXIT
@@ -76,9 +85,17 @@ for uid in 20000 20002 20004 20006 20008 20010; do
 done
 install -d -m 0755 "$LIBEXEC"
 install -m 0755 "$SRC_BIN" "$BIN"
+# The program the force-command runs: the production `cmux` when given.
+FORCE_BIN="$BIN"
+if [[ -n "$CMUX_SRC" ]]; then
+  install -m 0755 "$CMUX_SRC" "$LIBEXEC/cmux"
+  FORCE_BIN="$LIBEXEC/cmux"
+fi
+echo "force-command program: $FORCE_BIN"
 install -m 0755 "$(command -v sshd)" "$SSHD"
 # The image bakes the login group (web/scripts/cmux-vm-image/sshd.ts).
 groupadd --system "$LOGIN_GROUP"
+groupadd --system "$AGENTS_GROUP"
 # A name the team never allocated to this UID (the reconciler must not take it).
 useradd --system --no-create-home --shell /usr/sbin/nologin cmuxtsys
 # A local user that holds a UID in the team range (the reconciler must not reuse it).
@@ -101,7 +118,8 @@ cert() {
 }
 cert alice embr-alice cmuxtalice 1
 cert alice2 embr-alice2 cmuxtalice 2
-cert agent embr-agent cmuxtalice-agents 3 "$BIN team restricted-shell"
+cert agent embr-agent cmuxtalice-agents 3 "$FORCE_BIN team restricted-shell"
+cert agentbare embr-agentbare cmuxtalice-agents 7
 cert bob embr-bob cmuxtbob 4
 cert sys embr-sys cmuxtsys 5
 cert carol embr-carol cmuxtcarol 6
@@ -123,6 +141,11 @@ AuthorizedPrincipalsCommandUser nobody
 RevokedKeys $SSH_DIR/revoked.krl
 UsePAM yes
 AllowGroups $LOGIN_GROUP
+Match Group $AGENTS_GROUP
+  ForceCommand $FORCE_BIN team restricted-shell
+  DisableForwarding yes
+  PermitTTY no
+  PermitUserRC no
 EOF
 
 ssh-keygen -q -k -z 1 -f "$d/krl"
@@ -159,14 +182,16 @@ for pair in cmuxtalice:20000 cmuxtalice-agents:20002 cmuxtbob:20004 cmuxtbob-age
   u="${pair%%:*}" want="${pair#*:}"
   if [[ "$(id -u "$u" 2>/dev/null)" == "$want" && "$(id -g "$u")" == "$want" ]]; then pass "B $u has uid and gid $want"; else fail "B $u: $(id "$u" 2>&1)"; fi
   id -nG "$u" | tr ' ' '\n' | grep -qx "$LOGIN_GROUP" && pass "B $u is in $LOGIN_GROUP" || fail "B $u not in $LOGIN_GROUP: $(id -nG "$u")"
+  agent_group=no; id -nG "$u" | tr ' ' '\n' | grep -qx "$AGENTS_GROUP" && agent_group=yes
+  [[ "$agent_group" == "$([[ "$u" == *-agents ]] && echo yes || echo no)" ]] && pass "B $u $AGENTS_GROUP membership is $agent_group" || fail "B $u $AGENTS_GROUP membership is $agent_group"
   [[ "$(cat "$SSH_DIR/principals/$u" 2>/dev/null)" == "$u" ]] && pass "B $u principals file" || fail "B $u principals: $(cat "$SSH_DIR/principals/$u" 2>&1)"
   [[ "$(getent shadow "$u" | cut -d: -f2)" == '!'* ]] && pass "B $u password locked" || fail "B $u password not locked"
 done
 [[ "$(getent passwd cmuxtalice-agents | cut -d: -f7)" == /bin/sh ]] && pass "B agent user shell is /bin/sh" || fail "B agent shell: $(getent passwd cmuxtalice-agents)"
-[[ "$(as alice cmuxtalice id -u)" == 20000 ]] && pass "B person certificate gets a shell as cmuxtalice" || fail "B person login: $(as alice cmuxtalice id -u)"
+[[ "$(as alice cmuxtalice id -u || true)" == 20000 ]] && pass "B person certificate gets a shell as cmuxtalice" || fail "B person login: $(as alice cmuxtalice id -u || true)"
 out="$(as agent cmuxtalice-agents cmux team whoami)"
 [[ "$out" == "cmuxtalice-agents 20002" ]] && pass "B agent runs cmux team whoami" || fail "B agent whoami: $out"
-out="$(as agent cmuxtalice-agents "$BIN" team whoami)"
+out="$(as agent cmuxtalice-agents "$FORCE_BIN" team whoami)"
 [[ "$out" == "cmuxtalice-agents 20002" ]] && pass "B agent runs the absolute cmux path" || fail "B agent absolute whoami: $out"
 for cmd in "" "id" "bash -c id" "sh" "systemd-run --user sleep 1" "at now" "crontab -l" "cmux host team-ssh reap" \
   "cmux team restricted-shell" "cmux team whoami; id" "cmux team whoami && id" 'cmux team whoami $(id)' "cmux team whoami extra" \
@@ -178,6 +203,14 @@ out="$(as agent cmuxtalice-agents "cmux 'team' \"whoami\"")"
 [[ "$out" == "cmuxtalice-agents 20002" ]] && pass "B quoted words are words, not shell" || fail "B quoted whoami: $out"
 out="$(as sys cmuxtsys echo opened || true)"
 [[ "$out" != *opened* ]] && pass "B a user outside the team view cannot log in" || fail "B cmuxtsys logged in: $out"
+
+# --- F: sshd forces the restricted shell on agent users -------------------
+echo "--- F"
+out="$(as agentbare cmuxtalice-agents id || true)"
+[[ "$out" == *"restricted-shell:"* && "$out" != *"uid="* ]] && pass "F a bare agent certificate still gets only the restricted shell" || fail "F bare agent cert ran id: $out"
+out="$(as agentbare cmuxtalice-agents cmux team whoami)"
+[[ "$out" == "cmuxtalice-agents 20002" ]] && pass "F a bare agent certificate runs allowlisted verbs" || fail "F bare whoami: $out"
+[[ "$(as alice cmuxtalice id -u)" == 20000 ]] && pass "F person users are not forced" || fail "F person login forced"
 
 # --- C: idempotent, drift reverted ---------------------------------------
 echo "--- C"
@@ -199,7 +232,7 @@ not id cmuxtcarol >/dev/null 2>&1 && [[ ! -e "$SSH_DIR/principals/cmuxtcarol" ]]
 
 # --- E: a removed member ---------------------------------------------------
 echo "--- E"
-as alice2 cmuxtalice 'echo ready; exec sleep 600' > "$d/hold.out" 2>&1 &
+as alice2 cmuxtalice 'nohup setsid sleep 9301 >/dev/null 2>&1 & echo ready; exec sleep 600' > "$d/hold.out" 2>&1 &
 client=$!
 wait_for 10 grep -qs ready "$d/hold.out" || fail "E setup: held session did not open: $(cat "$d/hold.out")"
 wait_for 5 grep -qs embr-alice2 "$SESSIONS"/*.json || fail "E setup: session not recorded"
@@ -207,6 +240,10 @@ out="$(accounts "$(view "$BOB")")"
 echo "E apply: $out"
 [[ ! -e "$SSH_DIR/principals/cmuxtalice" && ! -e "$SSH_DIR/principals/cmuxtalice-agents" ]] && pass "E principals of the removed member are gone" || fail "E principals left: $(ls "$SSH_DIR/principals")"
 wait_for 10 not kill -0 "$client" 2>/dev/null && pass "E the removed member's open session ended" || fail "E session still open"
+left() { pgrep -u 20000 -f 'sleep 9301' >/dev/null; }
+wait_for 10 not left && pass "E work the member left running ended" || fail "E escaped process still running: $(pgrep -a -u 20000)"
+[[ "$(getent passwd cmuxtalice | cut -d: -f7)" == /usr/sbin/nologin && "$(getent shadow cmuxtalice | cut -d: -f8)" == 1 ]] && pass "E the account is expired with shell nologin" || fail "E account: $(getent passwd cmuxtalice) expire=$(getent shadow cmuxtalice | cut -d: -f8)"
+if id -nG cmuxtalice-agents | tr ' ' '\n' | grep -qxE "$LOGIN_GROUP|$AGENTS_GROUP"; then fail "E groups: $(id -nG cmuxtalice-agents)"; else pass "E the agents user left the login groups"; fi
 out="$(as alice cmuxtalice echo opened || true)"
 [[ "$out" != *opened* ]] && pass "E the removed member cannot log in" || fail "E removed member logged in: $out"
 out="$(as agent cmuxtalice-agents cmux team whoami || true)"
@@ -214,7 +251,9 @@ out="$(as agent cmuxtalice-agents cmux team whoami || true)"
 [[ "$(id -u cmuxtalice)" == 20000 ]] && pass "E the Linux user and its UID stay" || fail "E cmuxtalice: $(id cmuxtalice 2>&1)"
 [[ "$(as bob cmuxtbob id -u)" == 20004 ]] && pass "E the remaining member still logs in" || fail "E bob login"
 out="$(accounts "$(view "$ALICE" "$BOB")")"
-[[ "$(as alice cmuxtalice id -u)" == 20000 ]] && pass "E a member added back gets the same user" || fail "E re-add: $out"
+[[ "$(as alice cmuxtalice id -u || true)" == 20000 ]] && pass "E a member added back gets the same user" || fail "E re-add: $out"
+[[ "$(getent passwd cmuxtalice | cut -d: -f7)" == /bin/bash && -z "$(getent shadow cmuxtalice | cut -d: -f8)" ]] && pass "E the account is active again" || fail "E still retired: $(getent passwd cmuxtalice)"
+[[ "$(as agent cmuxtalice-agents cmux team whoami || true)" == "cmuxtalice-agents 20002" ]] && pass "E the agents user works again" || fail "E agents after re-add"
 
 echo "--- $fails failure(s)"
 [[ "$fails" == 0 ]]

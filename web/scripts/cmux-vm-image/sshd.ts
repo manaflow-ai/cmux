@@ -24,6 +24,13 @@ export const SSHD_PAM_FILE = "/etc/pam.d/sshd";
  */
 export const SSH_LOGIN_GROUP = "cmux-ssh";
 /**
+ * The team VM's agent users (`<name>-agents`, added by the account reconciler). sshd forces the restricted
+ * shell on them whatever the certificate says, so an agent principal never gets a shell even from a
+ * certificate without the force-command (the backend's agent certificates carry the same command).
+ */
+export const SSH_AGENTS_GROUP = "cmux-agents";
+export const SSH_AGENT_FORCE_COMMAND = `${CURRENT_BIN}/cmux team restricted-shell`;
+/**
  * `cmux host team-ssh` (crate cmux-host, module team_ssh): `principals` prints
  * the principals file's lines only while the last trust sync is at most 120 s
  * old (fail closed), and `session-open` records each certificate session so a
@@ -76,6 +83,12 @@ export function sshdDropIn(_workUser: string): string {
     `RevokedKeys ${SSH_KRL_FILE}`,
     "UsePAM yes",
     `AllowGroups ${SSH_LOGIN_GROUP}`,
+    // Last: a Match block runs to the end of this file (sshd scopes it to the included file).
+    `Match Group ${SSH_AGENTS_GROUP}`,
+    `  ForceCommand ${SSH_AGENT_FORCE_COMMAND}`,
+    "  DisableForwarding yes",
+    "  PermitTTY no",
+    "  PermitUserRC no",
     "",
   ].join("\n");
 }
@@ -163,6 +176,7 @@ export function sshdPamProblems(pam: string): string[] {
 export function sshdBakeCommand(workUser: string): string {
   return [
     `{ getent group ${SSH_LOGIN_GROUP} >/dev/null || groupadd --system ${SSH_LOGIN_GROUP}; }`,
+    `{ getent group ${SSH_AGENTS_GROUP} >/dev/null || groupadd --system ${SSH_AGENTS_GROUP}; }`,
     `usermod --append --groups ${SSH_LOGIN_GROUP} ${sq(workUser)}`,
     `install -d -m 0755 ${SSH_DIR} ${SSH_PRINCIPALS_DIR}`,
     `install -m 0644 /dev/null ${SSH_CA_FILE}`,

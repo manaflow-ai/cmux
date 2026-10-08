@@ -97,28 +97,32 @@ fn read_stdin(verb: &str) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn accounts_verb(paths: &Paths) -> u8 {
     let Some(text) = read_stdin("accounts-apply") else { return 2 };
-    let wanted = match serde_json::from_str(&text)
+    let checked = serde_json::from_str::<super::accounts::View>(&text)
         .map_err(|e| e.to_string())
-        .and_then(|view| super::accounts::verify(&view))
-    {
-        Ok(w) => w,
+        .and_then(|view| super::accounts::verify(&view).map(|v| (view.team, v)));
+    let (team, (wanted, bad_rows)) = match checked {
+        Ok(v) => v,
         Err(e) => {
             eprintln!("cmux host team-ssh accounts-apply: refused: {e}");
             return 4;
         }
     };
-    let done = super::accounts::reconcile(
+    let mut done = super::accounts::reconcile(
         paths,
+        &team,
         &wanted,
         &super::accounts_linux::LinuxAccounts::default(),
     );
+    done.refused.extend(bad_rows);
     let reaped = reap_pass(paths);
     println!(
         "{}",
         serde_json::json!({
             "created": done.created,
             "written": done.written,
+            "restored": done.restored,
             "removed": done.removed,
+            "retired": done.retired,
             "refused": done.refused,
             "ended": reaped.ended,
             "errors": done.errors.iter().chain(&reaped.errors).collect::<Vec<_>>(),
