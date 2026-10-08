@@ -54,6 +54,8 @@ public final class SidebarView: NSView {
     let cardStack = SidebarCardStackView()
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
+    /// The pointer over the sidebar now (cx-3wu5).
+    private(set) var chromeHover: PointerHover?
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
@@ -80,6 +82,8 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.reload(animated: false)
         observe()
+        // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
+        chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
@@ -212,6 +216,7 @@ public final class SidebarView: NSView {
 
     @objc private func clipBoundsChanged(_ note: Notification) {
         list.realizeVisibleRows()
+        PointerHover.refresh(in: window)
     }
 
     @objc private func clipFrameChanged(_ note: Notification) {
@@ -272,6 +277,8 @@ public final class SidebarView: NSView {
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
+        // Everything above may have moved under a still pointer (cx-3wu5).
+        PointerHover.refresh(in: window)
     }
 
     // MARK: Titlebar row
@@ -288,14 +295,7 @@ public final class SidebarView: NSView {
 
     // MARK: Hover reveal
 
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override public func mouseEntered(with event: NSEvent) { setChromeRevealed(true) }
-    override public func mouseExited(with event: NSEvent) { setChromeRevealed(false) }
+    // The pointer over the sidebar reveals its chrome: `chromeHover`, set up in init.
 
     // MARK: Observation
 

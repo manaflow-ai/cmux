@@ -34,11 +34,17 @@ struct PaneBrowserTabOpener {
     /// surface once the daemon made the tab. `opener` is the tab of the page
     /// that asked for it: the new tab goes next to it in Chrome's order
     /// (`BrowserTabOpeners`); without it the tab goes to the end.
-    /// False when the tab is refused (no tab, no daemon request).
+    /// False when the tab is refused (no tab, no daemon request). A local file goes where
+    /// `LocalFileHandoff` shows it (a tab's first load is not guarded): Markdown opens the markdown
+    /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?,
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
               then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
+        if child == nil, then == nil, let url, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
+            return true
+        }
+        let requested = requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
