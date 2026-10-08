@@ -247,7 +247,8 @@ body {
   align-items: flex-start;
 }
 .gallery-stages--variants .gallery-stage {
-  flex: 0 1 420px;
+  flex: 1 1 420px;
+  min-width: 0;
   max-width: 100%;
 }
 .gallery-stage {
@@ -255,6 +256,8 @@ body {
 }
 .gallery-stage figcaption {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
   margin-bottom: 4px;
@@ -461,7 +464,15 @@ main .gallery-entry-error {
   color: var(--g-muted);
 }
 /* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
-.gallery .variant-pick-option { flex: 0 0 auto; }
+.gallery-stages--variants .variant-pick-options {
+  align-self: stretch;
+}
+.gallery-stages--variants .variant-pick-option {
+  flex: 1 0 220px;
+}
+.gallery-stages--variants .variant-pick-option .gallery-stage {
+  flex: 0 0 auto;
+}
 /* The compare view (CompareView.tsx): one cell per experiment arm, same size and scale. */
 .gallery-compare-bar {
   display: flex;
