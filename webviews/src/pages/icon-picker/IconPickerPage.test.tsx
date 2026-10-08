@@ -12,11 +12,18 @@ const GLOBALS = [
   "window",
   "document",
   "navigator",
+  "Element",
   "HTMLElement",
   "HTMLInputElement",
+  "HTMLTextAreaElement",
   "Node",
   "Event",
   "KeyboardEvent",
+  "MouseEvent",
+  "MutationObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 const saved: Record<string, unknown> = {};
@@ -36,9 +43,11 @@ let picker: MountedPicker;
 beforeEach(async () => {
   dom = new JSDOM("<!doctype html><html><body><main id='root'></main></body></html>", {
     url: "http://localhost/icon-picker/",
+    pretendToBeVisual: true,
   });
   for (const name of GLOBALS) saved[name] = (globalThis as any)[name];
   for (const name of GLOBALS.slice(0, -1)) (globalThis as any)[name] = (dom.window as any)[name];
+  (globalThis as any).getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   Object.assign(dom.window.HTMLElement.prototype, {
     attachEvent: () => undefined,
@@ -74,12 +83,39 @@ const type = (text: string) =>
   });
 const activeLabel = () => doc().querySelector(".icon-cell[data-active] [aria-label]")?.getAttribute("aria-label");
 
-test("opens on the emoji tab with search focused and a virtualized grid", () => {
+const settle = () =>
+  act(async () => {
+    for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+/** Opens a shared menu by its trigger (a primary mouse press, as the shared Menu opens). */
+const openMenu = async (selector: string) => {
+  const trigger = doc().querySelector<HTMLElement>(selector)!;
+  const event = new dom.window.Event("pointerdown", { bubbles: true, cancelable: true });
+  Object.assign(event, { pointerId: 1, pointerType: "mouse", button: 0, clientX: 0, clientY: 0 });
+  await act(async () => {
+    trigger.dispatchEvent(event);
+  });
+  await settle();
+};
+const menuItems = () => [...doc().querySelectorAll<HTMLElement>('[role^="menuitem"]')];
+const menuItem = (text: string) => menuItems().find((item) => item.textContent?.includes(text));
+const choose = async (text: string) => {
+  await act(async () => menuItem(text)!.click());
+  await settle();
+};
+const headerTitles = () =>
+  [...doc().querySelectorAll(".icon-grid-header")].map((header) => header.firstElementChild?.textContent);
+
+test("opens on All Categories with search focused, large tiles and a virtualized grid", () => {
   expect(doc().activeElement).toBe(search());
+  expect(search().placeholder).toBe("Search Emoji & Symbols…");
   const cells = doc().querySelectorAll(".icon-cell").length;
   expect(cells).toBeGreaterThan(0);
-  expect(cells).toBeLessThan(200); // ~1900 emoji, only the viewport mounts
-  expect(doc().querySelector(".icon-grid-header")?.textContent).toBe("Smileys & Emotion");
+  expect(cells).toBeLessThan(200); // ~1900 emoji and the symbols, only the viewport mounts
+  const header = doc().querySelector(".icon-grid-header")!;
+  expect(header.firstElementChild?.textContent).toBe("Smileys & Emotion");
+  expect(Number(header.querySelector(".icon-grid-count")?.textContent)).toBeGreaterThan(100);
+  expect(doc().querySelector(".icon-category-button")?.textContent).toContain("All Categories");
 });
 
 test("search, keyboard move and Return pick an emoji", async () => {
@@ -97,37 +133,114 @@ test("search, keyboard move and Return pick an emoji", async () => {
   expect(finish.value).toBe(picker.store.getSnapshot().layout.items[1].emoji ?? "");
 });
 
-test("a pick goes to Frequently Used and the tone is remembered", async () => {
+test("search finds emoji and SF Symbols in one grid", async () => {
+  await type("terminal");
+  expect(headerTitles()).toContain("SF Symbols");
+  const symbol = picker.store.getSnapshot().layout.items.findIndex((cell) => cell.symbol === "terminal");
+  expect(symbol).toBeGreaterThanOrEqual(0);
+  await act(async () => picker.store.setActive(symbol));
+  await press("Enter");
+  expect((host.finishes().at(-1) as { value: string }).value).toBe("terminal");
+});
+
+test("a pick goes to Frequently Used, with its count, and the tone is remembered", async () => {
   await type("thumbs up");
   await press("Enter");
   await act(async () => host.open({ id: "s2" }));
   expect(search().value).toBe("");
-  expect(doc().querySelector(".icon-grid-header")?.textContent).toBe("Frequently Used");
+  const header = doc().querySelector(".icon-grid-header")!;
+  expect(header.firstElementChild?.textContent).toBe("Frequently Used");
+  expect(header.querySelector(".icon-grid-count")?.textContent).toBe("1");
   expect(activeLabel()).toBe("thumbs up");
-  await act(async () => picker.store.setTone(4));
+  await openMenu(".icon-tone-button");
+  await choose("Medium-Dark");
   expect((host.prefs as { tone: number }).tone).toBe(4);
+  expect(doc().querySelector('[role="menu"]')).toBeNull();
   await type("thumbs up");
   await press("Enter");
   expect((host.finishes().at(-1) as { value: string }).value).toBe("👍🏾");
 });
 
-test("Ctrl-Tab reaches Symbols; Escape cancels; Remove clears", async () => {
+test("the All Categories menu lists categories with counts and narrows the grid", async () => {
+  await openMenu(".icon-category-button");
+  const flags = menuItem("Flags")!;
+  expect(flags.querySelector(".ui-menu-shortcut")?.textContent).toMatch(/^\d+$/);
+  expect(menuItem("SF Symbols")).toBeDefined();
+  await choose("Flags");
+  expect(doc().querySelector('[role="menu"]')).toBeNull();
+  expect(headerTitles()).toEqual(["Flags"]);
+  expect(doc().querySelector(".icon-category-button")?.textContent).toContain("Flags");
+  expect(doc().activeElement).toBe(search());
+  // Ctrl-Tab steps to the next category (SF Symbols follows the emoji groups).
   await press("Tab", { ctrlKey: true });
-  expect(doc().querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Symbols");
-  await type("terminal");
-  expect(activeLabel()).toBe("terminal");
-  await press("Enter");
-  expect((host.finishes().at(-1) as { value: string }).value).toBe("terminal");
+  expect(picker.store.getSnapshot().category).toBe("sfSymbols");
+});
+
+test("Escape clears the search, then returns to All Categories, then cancels", async () => {
+  await act(async () => picker.store.setCategory("flags"));
+  await type("japan");
+  await press("Escape");
+  expect(search().value).toBe("");
+  expect(host.finishes()).toEqual([]);
+  await press("Escape");
+  expect(picker.store.getSnapshot().category).toBe("all");
+  expect(host.finishes()).toEqual([]);
   await press("Escape");
   expect(host.finishes().at(-1)).toEqual({ session: "s1", cancel: true });
-  await act(() => doc().querySelector<HTMLButtonElement>(".icon-picker-clear")!.click());
+});
+
+test("the bottom bar names the selected icon; Set Icon and Return pick it", async () => {
+  await type("tada");
+  expect(doc().querySelector(".icon-bar-name")?.textContent).toBe("party popper");
+  expect(doc().querySelector(".icon-bar-detail")?.textContent).toBe(":tada:");
+  const primary = doc().querySelector<HTMLButtonElement>(".icon-bar-primary")!;
+  expect(primary.textContent).toBe("Set Icon↩");
+  await act(async () => primary.click());
+  expect((host.finishes().at(-1) as { value: string }).value).toBe("🎉");
+});
+
+test("Cmd-K opens Actions: Copy writes the clipboard, Remove Icon clears", async () => {
+  await type("tada");
+  await press("k", { metaKey: true });
+  await settle();
+  expect(menuItems().map((item) => item.textContent)).toEqual([
+    "Set Icon↩",
+    "Copy Emoji⌘C",
+    "Use Image…",
+    "Use SVG…",
+    "Remove Icon",
+  ]);
+  await choose("Copy Emoji");
+  expect(host.clipboard).toBe("🎉");
+  expect(host.finishes()).toEqual([]);
+  await press("k", { metaKey: true });
+  await settle();
+  await choose("Remove Icon");
   expect(host.finishes().at(-1)).toEqual({ session: "s1", clear: true });
 });
 
-test("the detail bar shows the name and shortcode; Cmd-C copies the selected emoji", async () => {
+test("Use Image shows the image sheet; the back button returns to the grid", async () => {
+  await press("k", { metaKey: true });
+  await settle();
+  await choose("Use Image");
+  expect(doc().querySelector(".icon-picker-heading")?.textContent).toBe("Image");
+  expect(doc().querySelector(".icon-asset")).not.toBeNull();
+  await act(async () => doc().querySelector<HTMLButtonElement>(".icon-picker-back")!.click());
+  expect(doc().querySelector(".icon-grid-scroll")).not.toBeNull();
+  expect(host.finishes()).toEqual([]);
+});
+
+test("typing while a button has focus searches", async () => {
+  const back = doc().querySelector<HTMLButtonElement>(".icon-picker-back")!;
+  await act(async () => back.focus());
+  await act(async () => {
+    back.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "c", bubbles: true, cancelable: true }));
+  });
+  expect(doc().activeElement).toBe(search());
+});
+
+test("Cmd-C copies the selected emoji", async () => {
   await type("tada");
-  expect(doc().querySelector(".icon-footer-name")?.textContent).toBe("party popper");
-  expect(doc().querySelector(".icon-footer-detail")?.textContent).toBe(":tada:");
   const copy = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
     clipboardData: unknown;
   };
@@ -164,37 +277,20 @@ test("a refused pick is shown and logged, and the next session clears it", async
 
 test("no results shows the empty state", async () => {
   await type("zzzzqq");
-  expect(doc().querySelector(".icon-grid-empty")?.textContent).toBe("No emoji found");
+  expect(doc().querySelector(".icon-grid-empty")?.textContent).toBe("No emoji or symbols found");
   await press("Enter");
   expect(host.calls.some((call) => call.op === IconPickerOps.finish)).toBe(false);
 });
 
-test("the category bar names each group and jumps the grid to its header", async () => {
-  const bar = doc().querySelector('[role="toolbar"]')!;
-  expect(bar.getAttribute("aria-label")).toBe("Categories");
-  const buttons = [...bar.querySelectorAll<HTMLButtonElement>("button")];
-  expect(buttons.map((button) => button.getAttribute("aria-label"))).toContain("Flags");
-  // One tab stop: the current section's button; arrows move between the others.
-  expect(buttons.filter((button) => button.tabIndex === 0).length).toBe(1);
-  await act(() => buttons.find((button) => button.getAttribute("aria-label") === "Flags")!.click());
-  const flags = picker.store.getSnapshot().layout.sections.find((section) => section.id === "flags")!;
-  expect(doc().querySelector<HTMLElement>(".icon-grid-scroll")!.scrollTop).toBe(flags.top);
-  expect(picker.store.getSnapshot().active).toBe(flags.first);
-  await type("cat");
-  expect(doc().querySelector('[role="toolbar"]')).toBeNull();
-});
-
 test("monochrome and hierarchical symbols are masks in the theme color; multicolor is a host image", async () => {
   await act(async () => host.open({ id: "s2", tab: "symbol", symbolStyle: "ff0000-dark" }));
+  expect(picker.store.getSnapshot().category).toBe("sfSymbols");
   await type("terminal");
   const cell = () => doc().querySelector<HTMLElement>(".icon-cell[data-active] .icon-symbol")!;
   expect(cell().style.maskImage).toContain("__symbol/terminal.png");
-  // The mode menu sits in the search row and saves the choice.
-  await act(() => doc().querySelector<HTMLButtonElement>(".icon-mode-button")!.click());
-  const hierarchical = [...doc().querySelectorAll<HTMLButtonElement>(".icon-mode-menu button")].find(
-    (button) => button.textContent === "Hierarchical",
-  )!;
-  await act(() => hierarchical.click());
+  // The rendering menu sits in the search row and saves the choice.
+  await openMenu(".icon-mode-button");
+  await choose("Hierarchical");
   expect((host.prefs as { symbolMode: string }).symbolMode).toBe("hierarchical");
   // Hierarchical is a template too: the page tints its layers with the theme foreground.
   expect(cell().style.maskImage).toContain("__symbol/hierarchical/terminal.png");
