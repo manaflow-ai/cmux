@@ -4,6 +4,7 @@
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
+import { readTunes } from "../../experiments/tunable";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { entryStore } from "../registry";
@@ -103,6 +104,9 @@ if (experiment && arm) {
   root.dataset.galleryArm = arm;
   experimentRunner!.installAnimationControl();
 }
+
+// Edited tunables (the stage's curve editors): the page reads them through tunableValue().
+globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(env.tune) };
 
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;
