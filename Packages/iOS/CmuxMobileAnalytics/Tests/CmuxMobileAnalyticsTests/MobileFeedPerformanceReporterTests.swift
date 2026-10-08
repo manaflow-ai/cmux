@@ -216,6 +216,7 @@ import Testing
         for seconds in [10.0, 20.0] {
             clock.seconds = seconds
             await reporter.flush()
+            reporter.setVisible(true, itemCount: 3)
         }
         #expect(await uploader.uploadedEvents.isEmpty)
 
@@ -227,6 +228,7 @@ import Testing
         let events = await uploader.uploadedEvents
         #expect(events.count == 1)
         #expect(events.first?.properties["window_ms"] == .int(10_000))
+        #expect(events.first?.properties["item_count"] == .int(3))
         #expect(events.first?.properties["callback_count"] == .int(1))
     }
 
