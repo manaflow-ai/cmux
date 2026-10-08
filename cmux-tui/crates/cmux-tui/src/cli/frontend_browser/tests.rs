@@ -14,7 +14,7 @@ fn no_parent_means_no_named_pane() {
     let route = object(json!({"machine": "current", "session": "current"}));
     let params =
         object(json!({"url": "https://a.test", "machine": "current", "session": "current"}));
-    assert_eq!(named_pane_tab(&route, &params), None);
+    assert_eq!(named_parents(&route, &params), None);
 }
 
 #[test]
@@ -22,21 +22,20 @@ fn a_named_workspace_resolves_to_its_current_screen_pane_and_tab() {
     let route = object(json!({"session": "current"}));
     let params = object(json!({"workspace": "ws_a"}));
     assert_eq!(
-        Value::Object(named_pane_tab(&route, &params).unwrap()),
+        Value::Object(with_current_below(named_parents(&route, &params).unwrap())),
         json!({"session": "current", "workspace": "ws_a", "screen": "current",
                "pane": "current", "tab": "current"})
     );
 }
 
 #[test]
-fn a_named_pane_id_gets_no_ancestors_it_did_not_name() {
-    // An exact pane id resolves alone; a `current` screen above it could be
-    // another screen and fail the parent check.
-    let route = Map::new();
-    let params = object(json!({"pane": "pane_b"}));
+fn a_named_pane_keeps_its_parents_and_gets_the_current_tab() {
+    // The daemon-read screen and workspace of the named pane are parents too;
+    // only the levels below the pane become `current`.
+    let selector = object(json!({"workspace": "ws_a", "screen": "screen_b", "pane": "pane_c"}));
     assert_eq!(
-        Value::Object(named_pane_tab(&route, &params).unwrap()),
-        json!({"pane": "pane_b", "tab": "current"})
+        Value::Object(with_current_below(selector)),
+        json!({"workspace": "ws_a", "screen": "screen_b", "pane": "pane_c", "tab": "current"})
     );
 }
 
