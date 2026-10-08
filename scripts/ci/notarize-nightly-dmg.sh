@@ -135,12 +135,14 @@ for notary_sidecar in "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"; do
     exit 1
   fi
 done
-notary_submit_args=(notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" --output-format json)
-if [ "$SUBMIT_ONLY" != true ]; then
-  notary_submit_args+=(--wait --timeout "$NOTARY_WAIT_TIMEOUT")
-fi
 set +e
-"$XCRUN_TOOL" "${notary_submit_args[@]}" >"$NOTARY_SUBMIT_OUTPUT" 2>&1
+if [ "$SUBMIT_ONLY" != true ]; then
+  "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
+    --output-format json --wait --timeout "$NOTARY_WAIT_TIMEOUT"
+else
+  "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
+    --output-format json
+fi >"$NOTARY_SUBMIT_OUTPUT" 2>&1
 NOTARY_SUBMIT_EXIT=$?
 set -e
 

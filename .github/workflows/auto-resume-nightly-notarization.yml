@@ -62,12 +62,12 @@ jobs:
               raise SystemExit("source run attempt mismatch")
           if run.get("event") not in {"push", "schedule", "workflow_dispatch"}:
               raise SystemExit("source run event cannot publish")
-          if branch != "main" and not branch.startswith("rc/"):
+          if branch not in {"main", "nightly-next"} and not branch.startswith("rc/"):
               raise SystemExit("source run is not a published branch")
           if run.get("conclusion") not in {"failure", "success"}:
               raise SystemExit("source run did not complete")
           PY
-          if [ "$SOURCE_BRANCH" = main ]; then
+          if [ "$SOURCE_BRANCH" = main ] || [ "$SOURCE_BRANCH" = nightly-next ]; then
             channel=nightly
             release_tag=nightly
           else
@@ -142,24 +142,6 @@ jobs:
           artifact="cmux-${CHANNEL}-notarization-recovery-${VARIANT}-${SHORT_SHA}"
           gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir recovery
           test -f recovery/cmux-nightly-notarization-recovery-app.tar.gz
-          python3 - recovery/cmux-nightly-notarization-recovery-app.tar.gz <<'PY'
-          import pathlib
-          import tarfile
-          import sys
-
-          with tarfile.open(sys.argv[1], "r:gz") as archive:
-              for member in archive.getmembers():
-                  path = pathlib.PurePosixPath(member.name)
-                  if path.is_absolute() or ".." in path.parts:
-                      raise SystemExit(f"unsafe recovery archive member: {member.name}")
-                  if member.issym() or member.islnk():
-                      target = pathlib.PurePosixPath(member.linkname)
-                      if target.is_absolute() or ".." in target.parts:
-                          raise SystemExit(f"unsafe recovery archive link: {member.name}")
-          PY
-          mkdir -p recovery/cmux-nightly-notarization-recovery-app
-          tar -xzf recovery/cmux-nightly-notarization-recovery-app.tar.gz \
-            -C recovery/cmux-nightly-notarization-recovery-app
 
       - name: Resolve manifest and verify exact DMG
         run: |
@@ -224,6 +206,8 @@ jobs:
   publish:
     needs: [preflight, wait-and-staple]
     if: needs.preflight.outputs.ready == 'true' && needs.wait-and-staple.result == 'success'
+    outputs:
+      published: ${{ steps.publication-result.outputs.published }}
     environment: release
     permissions:
       actions: read
@@ -465,7 +449,21 @@ jobs:
           [ "$RELEASE_TAG" = nightly ] || args+=(--allow-non-descendant)
           python3 scripts/ci/update-release-tag.py "${args[@]}"
 
+      - name: Record publication result
+        id: publication-result
+        if: always()
+        env:
+          PUBLISH_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_JOB_STATUS" = success ] && [ "${ALREADY_PUBLISHED:-false}" != true ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Close deferred nightly failure incident
+        if: env.ALREADY_PUBLISHED != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -477,6 +475,7 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
             for (const issue of open.data) {
+              if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
                 body: `Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}: ${runUrl}`,
@@ -490,7 +489,7 @@ jobs:
     needs: [preflight, wait-and-staple, publish]
     if: >-
       always() && needs.preflight.outputs.ready == 'true' &&
-      needs.wait-and-staple.result == 'success' && needs.publish.result == 'success'
+      needs.wait-and-staple.result == 'success' && needs.publish.outputs.published == 'true'
     permissions:
       actions: read
       contents: read
@@ -575,7 +574,7 @@ jobs:
     needs: [preflight, publish, generate-deltas]
     if: >-
       always() && needs.preflight.outputs.ready == 'true' &&
-      needs.publish.result == 'success' && needs.generate-deltas.result == 'success'
+      needs.publish.outputs.published == 'true' && needs.generate-deltas.result == 'success'
     permissions:
       actions: read
       contents: write
