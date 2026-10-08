@@ -69,7 +69,7 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
       const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("did not listen on port 1337");
+      expect(result.stderr).toBe("cmux fork daemon did not become ready\n");
     });
   });
 
@@ -109,16 +109,14 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
     });
   });
 
-  test("names the stalled stage when the daemon never listens", async () => {
+  test("returns a generic failure when the daemon never listens", async () => {
     await withFakeGuest("vm-source", async (env, root, boundFile) => {
       const bin = env.PATH.split(":")[0];
       writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\ncase \"$*\" in *is-active*) echo failed; exit 3;; esac\nexit 1\n", { mode: 0o755 });
       const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("did not listen on port 1337");
-      expect(result.stderr).toContain("supervisor failed");
-      expect(result.stderr).toContain("not bound to this machine");
+      expect(result.stderr).toBe("cmux fork daemon did not become ready\n");
     });
   });
 });
