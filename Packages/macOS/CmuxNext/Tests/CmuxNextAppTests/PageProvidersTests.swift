@@ -126,4 +126,28 @@ struct PageProvidersTests {
             #expect(error.code == "cmux.app.action_refused")
         }
     }
+
+    /// cx-qoxe: a page writes the pasteboard only right after the person's own key, click or
+    /// native menu choice in that page view (`PageCallContext.userGesture`, tracked by the host's
+    /// PageWKWebView, never trusted from page script). Script alone cannot replace the clipboard.
+    @Test func aPageWritesTheClipboardOnlyOnTheUsersGesture() async throws {
+        let native = AppPageNativeProvider(services: ActionBindingCoverageTests.boundServices(), page: .history)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        native.pasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.setString("mine", forType: .string)
+        do {
+            _ = try await native.call(PageNativeOp.clipboardWrite, params: ["text": "page script"],
+                                      context: PageCallContext(page: PageDescriptor.history.id))
+            Issue.record("the clipboard write ran without a gesture")
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(pasteboard.string(forType: .string) == "mine")
+
+        _ = try await native.call(PageNativeOp.clipboardWrite, params: ["text": "https://example.com"],
+                                  context: PageCallContext(page: PageDescriptor.history.id, userGesture: true))
+        #expect(pasteboard.string(forType: .string) == "https://example.com")
+    }
 }

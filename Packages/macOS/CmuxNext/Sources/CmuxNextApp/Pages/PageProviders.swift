@@ -18,6 +18,8 @@ final class AppPageNativeProvider: PageProvider {
     var presenter: any PageConfirmationPresenter = DialogPageConfirmationPresenter()
     /// The page view the sheet attaches to.
     var anchor: () -> NSView? = { nil }
+    /// The pasteboard `cmux.app.clipboard.write` writes (tests use a private one).
+    var pasteboard: NSPasteboard = .general
 
     init(services: AppServices, page: PageDescriptor) {
         self.services = services
@@ -55,8 +57,8 @@ final class AppPageNativeProvider: PageProvider {
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:
             guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
             return .object([:])
         default:
             throw PageError.unknownOp(op)
