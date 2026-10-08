@@ -214,6 +214,12 @@ final class cmuxUITests: XCTestCase {
         }
         let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
         XCTAssertGreaterThan(frames, 120, value)
+        if #available(iOS 18.0, *) {
+            let callbacks = try XCTUnwrap(fields["native_scroll_callbacks"].flatMap(Int.init), value)
+            XCTAssertGreaterThan(callbacks, 60, "Native Feed scroll phase hook must produce callbacks: " + value)
+        }
+        let projections = try XCTUnwrap(fields["published_projections"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(projections, 0, "Feed updates must reach the observation port: " + value)
         XCTAssertNotNil(fields["frame_p95_ms"], value)
         XCTAssertNotNil(fields["hitches"], value)
     }
