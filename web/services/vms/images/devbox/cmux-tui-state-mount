@@ -1,14 +1,19 @@
 #!/bin/sh
-# Keep cmux-tui's durable state on a fixed-size filesystem inside the existing
-# VM disk. The image is fully allocated during the bake, so general writes
-# cannot consume the daemon's state budget and leave SQLite/WAL writes with no
-# room. The VM's provisioned disk size is unchanged.
+# Keep cmux-tui's durable state on a reserved filesystem inside the existing VM
+# disk. The image is fully allocated during the bake, so general writes cannot
+# consume the daemon's state budget and leave SQLite/WAL writes with no room.
+# When the state filesystem is low, this helper grows it in bounded steps while
+# preserving root-filesystem headroom. The VM's provisioned disk size is
+# unchanged.
 
 set -eu
 
 STATE_IMAGE=/var/lib/cmux/cmux-tui-state.ext4
 STATE_RESERVATION_MARKER=/etc/cmux/cmux-tui-state-reservation
 STATE_SIZE_BYTES=1073741824
+STATE_MAX_BYTES=8589934592
+STATE_MIN_FREE_KB=131072
+ROOT_MIN_FREE_KB=1048576
 
 usage() {
   echo "usage: $0 ensure|create HOME USER" >&2
@@ -33,17 +38,59 @@ is_mounted() {
   mountpoint -q "$state" 2>/dev/null
 }
 
+free_kb() {
+  df -Pk "$1" | awk 'NR == 2 { print $4; exit }'
+}
+
+grow_if_needed() {
+  state_free_kb=$(free_kb "$state")
+  [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot read state filesystem free space" >&2; return 1; }
+  [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
+
+  current_bytes=$(stat -c %s "$STATE_IMAGE")
+  [ "$current_bytes" -lt "$STATE_MAX_BYTES" ] || {
+    echo "cmux-tui-state-mount: state filesystem reached its ${STATE_MAX_BYTES}-byte cap" >&2
+    return 1
+  }
+  next_bytes=$((current_bytes * 2))
+  [ "$next_bytes" -le "$STATE_MAX_BYTES" ] || next_bytes=$STATE_MAX_BYTES
+  growth_kb=$(((next_bytes - current_bytes + 1023) / 1024))
+  root_free_kb=$(free_kb "$STATE_IMAGE")
+  [ -n "$root_free_kb" ] || { echo "cmux-tui-state-mount: cannot read root filesystem free space" >&2; return 1; }
+  if [ "$root_free_kb" -lt $((growth_kb + ROOT_MIN_FREE_KB)) ]; then
+    echo "cmux-tui-state-mount: insufficient root headroom to grow state image (free=${root_free_kb}KiB required=$((growth_kb + ROOT_MIN_FREE_KB))KiB)" >&2
+    return 1
+  fi
+
+  command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required for state growth" >&2; return 1; }
+  command -v findmnt >/dev/null 2>&1 || { echo "cmux-tui-state-mount: findmnt is required for state growth" >&2; return 1; }
+  command -v losetup >/dev/null 2>&1 || { echo "cmux-tui-state-mount: losetup is required for state growth" >&2; return 1; }
+  command -v resize2fs >/dev/null 2>&1 || { echo "cmux-tui-state-mount: resize2fs is required for state growth" >&2; return 1; }
+
+  echo "cmux-tui-state-mount: growing state image from ${current_bytes} to ${next_bytes} bytes" >&2
+  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE")
+  loop_device=$(findmnt -n -o SOURCE --target "$state")
+  case "$loop_device" in
+    /dev/loop*) ;;
+    *) echo "cmux-tui-state-mount: state mount is not backed by a loop device" >&2; return 1 ;;
+  esac
+  losetup -c "$loop_device"
+  resize2fs "$loop_device" >/dev/null
+}
+
 ensure() {
   # Older images do not carry a reservation. Keep their existing layout
   # working until they are replaced by an image that does.
   [ -f "$STATE_IMAGE" ] || return 0
   mkdir -p "$state"
   if is_mounted; then
+    grow_if_needed
     return 0
   fi
   mount -o loop "$STATE_IMAGE" "$state"
   chown "$user:$user" "$state"
   chmod 0700 "$state"
+  grow_if_needed
 }
 
 create() {

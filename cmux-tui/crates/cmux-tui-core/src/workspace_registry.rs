@@ -56,7 +56,7 @@ pub use journal_extensions::{
 pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
-    JournalSegmentSealCommit, JournalSegmentSealStart,
+    JournalSegmentSealCommit, JournalSegmentSealStart, JOURNAL_LIST_MAX_ITEMS,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;

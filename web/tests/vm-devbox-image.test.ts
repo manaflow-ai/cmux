@@ -24,6 +24,7 @@ import {
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
+  CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
   devboxCuaDriverVersion,
@@ -200,7 +201,15 @@ describe("devbox image template", () => {
   test("reserves an isolated, preallocated cmux-tui state filesystem without resizing the VM", () => {
     const mount = read("cmux-tui-state-mount");
     const freestyle = readScript("build-devbox-freestyle.ts");
+    const upgrade = readScript("upgrade-fleet-cmux-tui.ts");
     expect(mount).toContain(`STATE_SIZE_BYTES=${CMUX_TUI_STATE_RESERVATION_BYTES}`);
+    expect(mount).toContain(`STATE_MAX_BYTES=${CMUX_TUI_STATE_MAX_BYTES}`);
+    expect(mount).toContain("grow_if_needed");
+    expect(mount).toContain("losetup -c");
+    expect(mount).toContain("resize2fs");
+    expect(mount).toContain("ROOT_MIN_FREE_KB");
+    expect(upgrade).toContain('writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript)');
+    expect(upgrade).toContain(CMUX_TUI_STATE_MOUNT_HELPER_PATH);
     expect(mount).toContain("fallocate -l \"$STATE_SIZE_BYTES\"");
     expect(mount).toContain("mkfs.ext4 -F -m 0");
     expect(mount).toContain("mount -o loop");
