@@ -99,7 +99,7 @@ def main() -> int:
         if stale:
             print(f"FAIL: expected stale cmux plugin registrations removed, got {plugins!r}")
             return 1
-        if "./plugins" not in plugins:
+        if "./plugins/cmux" not in plugins:
             print(f"FAIL: expected local cmux session plugin registration, got {plugins!r}")
             return 1
         if "oh-my-opencode" not in plugins or ["existing-plugin", {"enabled": True}] not in plugins:

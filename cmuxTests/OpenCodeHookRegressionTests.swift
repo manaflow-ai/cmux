@@ -114,8 +114,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginURL = configDir.appendingPathComponent("plugins", isDirectory: true).appendingPathComponent("cmux-session.js", isDirectory: false)
         let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("id: \"cmux.session\""))
-        XCTAssertTrue(pluginSource.contains("ctx.event.subscribe({ signal"))
+        XCTAssertTrue(pluginSource.contains("id: \"cmux.server\""))
+        XCTAssertFalse(pluginSource.contains("ctx.event.subscribe({ signal"))
         XCTAssertTrue(pluginSource.contains("event.properties || event.data"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
         XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
@@ -127,12 +127,21 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(secondResult.stdout.contains("OpenCode hooks already up to date"), secondResult.stdout)
         let feedSource = try String(contentsOf: configDir.appendingPathComponent("plugins/cmux-feed.js"), encoding: .utf8)
         XCTAssertTrue(feedSource.contains("cmux-feed-plugin-marker"))
-        XCTAssertTrue(feedSource.contains("id: \"cmux.feed\""))
-        XCTAssertTrue(feedSource.contains("ctx.event.subscribe({ signal"))
+        XCTAssertTrue(feedSource.contains("id: \"cmux.server\""))
+        XCTAssertFalse(feedSource.contains("ctx.event.subscribe({ signal"))
+        let tuiDirectory = configDir.appendingPathComponent("plugins/cmux", isDirectory: true)
+        let packageSource = try String(contentsOf: tuiDirectory.appendingPathComponent("package.json"), encoding: .utf8)
+        XCTAssertTrue(packageSource.contains("\"./tui\": \"./tui.js\""))
+        let tuiSource = try String(contentsOf: tuiDirectory.appendingPathComponent("tui.js"), encoding: .utf8)
+        XCTAssertTrue(tuiSource.contains("data.listen"))
+        XCTAssertTrue(tuiSource.contains("sessionBelongsToTUI"))
+        XCTAssertTrue(tuiSource.contains("client.permission.reply"))
+        XCTAssertTrue(tuiSource.contains("session.form.reply"))
+        XCTAssertTrue(tuiSource.contains("spawn"))
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
         XCTAssertNil(json["plugin"])
-        XCTAssertEqual(try XCTUnwrap(json["plugins"] as? [String]), ["other-plugin", "./plugins"])
+        XCTAssertEqual(try XCTUnwrap(json["plugins"] as? [String]), ["other-plugin", "./plugins/cmux"])
     }
 
     // Regression for https://github.com/manaflow-ai/cmux/issues/7140: opencode resolves
@@ -167,7 +176,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
         XCTAssertTrue(rawConfig.contains("{file:./AGENTS.md}"), rawConfig)
         XCTAssertTrue(rawConfig.contains("https://opencode.ai/config.json"), rawConfig)
-        XCTAssertTrue(rawConfig.contains("./plugins"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("./plugins/cmux"), rawConfig)
     }
 
     func testLegacyHookAliasesAreHiddenFromHelp() throws {
