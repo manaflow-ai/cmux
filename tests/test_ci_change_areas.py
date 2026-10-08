@@ -6609,6 +6609,17 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Install Release helpers" in release_block
 
 
+def test_lag_consumer_does_not_checkout_or_update_source_submodules() -> None:
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["tests-build-and-lag"]
+    checkout = next(
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+
+    assert checkout.get("with", {}).get("submodules") != "recursive"
+    assert all("git submodule update" not in step.get("run", "") for step in job["steps"])
+
+
 def test_swift_package_selection_precedes_optional_tool_setup() -> None:
     block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
 
