@@ -66,6 +66,17 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // DEV only: starts this build's remote browser host on a free
+            // loopback port and opens a remote tab to it; closing the tab
+            // stops the host (RemoteBrowserPages.openLocal).
+            ActionDescriptor(
+                id: "remote.openLocalBrowserTab",
+                title: String(localized: "action.remote.openLocalBrowserTab", defaultValue: "Open Remote Browser Tab (Local Host)", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host", "local", "loopback"], category: .remote, symbol: "globe",
+                surfaces: [.palette],
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 }
