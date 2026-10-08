@@ -32,9 +32,9 @@ the raw host files are not mounted in this checkout.
 | local mini control | 3,287 / 3,283 | 0.9 / 167 / 1,037 | 344.3 / 716.3 | compile telemetry 752 rows, 280 contended |
 
 For the telemetry subsets, nested compile fetch was 35.6/61.8 seconds on
-relay B, 91.8/97.4 on relay C, and 54.9/102.7 on the mini control. The
+relay 8, 91.8/97.4 on relay 9, and 54.9/102.7 on the mini control. The
 corresponding disk-throughput p50/p90 was 52.8/69.4 MB/s and 57.8/131.5 MB/s
-on relays B and C. The isolated mini subset had admission 0.8/4.7 seconds and
+on relays 8 and 9. The isolated mini subset had admission 0.8/4.7 seconds and
 run 255.8/647.3 seconds, with 710 of 1,188 rows contended. Host run is
 started-to-completed and is not a substitute for the controller's compile
 phase.
