@@ -68510,6 +68510,661 @@
           }
         }
       }
+    },
+    "settings.workspaces.newPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Position"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موضع مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Položaj novog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placering af nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position neuer Arbeitsbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posición del nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position du nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posizione del nuovo spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំងកន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 워크스페이스 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plassering av nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozycja nowego obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posição do novo espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Положение нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanının konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розташування нового робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作区位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作區位置"
+          }
+        }
+      }
+    },
+    "settings.workspaces.newPlacement.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المكان الذي يضع فيه Cmd-N وزر + وواجهة سطر الأوامر مساحة العمل الجديدة في الشريط الجانبي. تبقى مساحات العمل المثبتة فوقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje Cmd-N, dugme + i CLI stavljaju novi radni prostor na bočnoj traci. Prikačeni radni prostori ostaju iznad njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor Cmd-N, knappen + og CLI'en placerer et nyt arbejdsområde i sidepanelet. Fastgjorte arbejdsområder bliver over det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo Cmd-N, die Schaltfläche + und die CLI einen neuen Arbeitsbereich in der Seitenleiste ablegen. Angeheftete Arbeitsbereiche bleiben darüber."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde colocan Cmd-N, el botón + y la CLI un nuevo espacio de trabajo en la barra lateral. Los espacios de trabajo fijados quedan encima."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Où Cmd-N, le bouton + et la CLI placent un nouvel espace de travail dans la barre latérale. Les espaces de travail épinglés restent au-dessus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove Cmd-N, il pulsante + e la CLI mettono un nuovo spazio di lavoro nella barra laterale. Gli spazi di lavoro fissati restano sopra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-N、+ ボタン、CLI で作成した新しいワークスペースをサイドバーのどこに置くか。ピン留めしたワークスペースはその上に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែល Cmd-N ប៊ូតុង + និង CLI ដាក់កន្លែងធ្វើការថ្មីនៅក្នុងរបារចំហៀង។ កន្លែងធ្វើការដែលបានខ្ទាស់នៅខាងលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N, + 버튼, CLI가 새 워크스페이스를 사이드바의 어디에 둘지 정합니다. 고정된 워크스페이스는 그 위에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor Cmd-N, +-knappen og CLI-en legger et nytt arbeidsområde i sidefeltet. Festede arbeidsområder blir over det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdzie Cmd-N, przycisk + i CLI umieszczają nowy obszar roboczy na pasku bocznym. Przypięte obszary robocze zostają nad nim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde Cmd-N, o botão + e a CLI colocam um novo espaço de trabalho na barra lateral. Os espaços de trabalho fixados ficam acima dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куда Cmd-N, кнопка + и CLI помещают новое рабочее пространство на боковой панели. Закреплённые рабочие пространства остаются выше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งที่ Cmd-N ปุ่ม + และ CLI วางพื้นที่ทำงานใหม่ในแถบด้านข้าง พื้นที่ทำงานที่ปักหมุดจะอยู่ด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N, + düğmesi ve CLI'nin yeni bir çalışma alanını kenar çubuğunda nereye koyduğu. Sabitlenmiş çalışma alanları üstünde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куди Cmd-N, кнопка + і CLI додають новий робочий простір на бічній панелі. Закріплені робочі простори залишаються вище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nơi Cmd-N, nút + và CLI đặt không gian làm việc mới trong thanh bên. Các không gian làm việc đã ghim vẫn ở phía trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N、+ 按钮和 CLI 将新工作区放在侧边栏中的位置。已固定的工作区保持在其上方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N、+ 按鈕和 CLI 將新工作區放在側邊欄中的位置。已釘選的工作區保持在其上方。"
+          }
+        }
+      }
+    },
+    "settings.choice.afterCurrentWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Current Workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعد مساحة العمل الحالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nakon trenutnog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efter nuværende arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach aktuellem Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Después del espacio de trabajo actual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Après l'espace de travail actuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dopo lo spazio di lavoro attuale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のワークスペースの後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់ពីកន្លែងធ្វើការបច្ចុប្បន្ន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "현재 워크스페이스 다음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etter gjeldende arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po bieżącym obszarze roboczym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depois do espaço de trabalho atual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "После текущего рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถัดจากพื้นที่ทำงานปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geçerli çalışma alanından sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Після поточного робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sau không gian làm việc hiện tại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当前工作区之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前工作區之後"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupByComputer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Workspaces by Computer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجميع مساحات العمل حسب الكمبيوتر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupiši radne prostore po računaru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppér arbejdsområder efter computer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche nach Computer gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar espacios de trabajo por ordenador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grouper les espaces de travail par ordinateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggruppa gli spazi di lavoro per computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをコンピュータごとにまとめる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់កន្លែងធ្វើការជាក្រុមតាមកុំព្យូទ័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "컴퓨터별로 워크스페이스 묶기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper arbeidsområder etter datamaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupuj obszary robocze według komputera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar espaços de trabalho por computador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группировать рабочие пространства по компьютерам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดกลุ่มพื้นที่ทำงานตามคอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanlarını bilgisayara göre grupla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групувати робочі простори за комп'ютером"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm không gian làm việc theo máy tính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按电脑分组工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依電腦分組工作區"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupByComputer.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف: قائمة واحدة لمساحات العمل، وتعرض مساحة العمل الموجودة على كمبيوتر آخر اسمه تحت عنوانها. تشغيل: قسم لكل كمبيوتر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključeno: jedna lista radnih prostora, a radni prostor na drugom računaru navodi ga ispod naslova. Uključeno: odjeljak po računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fra: én liste med arbejdsområder, og et arbejdsområde på en anden computer viser dens navn under titlen. Til: en sektion pr. computer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aus: eine Liste der Arbeitsbereiche; ein Arbeitsbereich auf einem anderen Computer nennt ihn unter seinem Titel. An: ein Abschnitt pro Computer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado: una sola lista de espacios de trabajo; uno en otro ordenador muestra su nombre bajo el título. Activado: una sección por ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé : une seule liste d'espaces de travail ; un espace sur un autre ordinateur le nomme sous son titre. Activé : une section par ordinateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattivato: un solo elenco di spazi di lavoro; uno su un altro computer ne mostra il nome sotto il titolo. Attivato: una sezione per computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ: ワークスペースを 1 つのリストで表示し、別のコンピュータのワークスペースはタイトルの下にそのコンピュータ名を表示します。オン: コンピュータごとにセクションを分けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ៖ បញ្ជីកន្លែងធ្វើការតែមួយ ហើយកន្លែងធ្វើការនៅលើកុំព្យូទ័រផ្សេងបង្ហាញឈ្មោះវានៅក្រោមចំណងជើង។ បើក៖ ផ្នែកមួយសម្រាប់កុំព្យូទ័រនីមួយៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끔: 워크스페이스를 하나의 목록으로 보여 주고, 다른 컴퓨터의 워크스페이스는 제목 아래에 그 컴퓨터 이름을 표시합니다. 켬: 컴퓨터마다 섹션을 나눕니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Av: én liste med arbeidsområder, og et arbeidsområde på en annen datamaskin viser navnet under tittelen. På: én seksjon per datamaskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłączone: jedna lista obszarów roboczych, a obszar na innym komputerze podaje jego nazwę pod tytułem. Włączone: sekcja dla każdego komputera."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativado: uma única lista de espaços de trabalho; um espaço em outro computador mostra o nome dele abaixo do título. Ativado: uma seção por computador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выкл.: один список рабочих пространств; у пространства на другом компьютере его имя показано под названием. Вкл.: раздел для каждого компьютера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด: แสดงพื้นที่ทำงานเป็นรายการเดียว และพื้นที่ทำงานบนคอมพิวเตอร์อื่นจะแสดงชื่อเครื่องใต้ชื่อเรื่อง เปิด: แยกส่วนตามคอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalı: tek bir çalışma alanı listesi; başka bir bilgisayardaki çalışma alanı başlığının altında onun adını gösterir. Açık: her bilgisayar için bir bölüm."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимк.: один список робочих просторів; простір на іншому комп'ютері показує його назву під заголовком. Увімк.: розділ для кожного комп'ютера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt: một danh sách không gian làm việc; không gian trên máy tính khác hiện tên máy dưới tiêu đề. Bật: mỗi máy tính một mục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭：所有工作区显示为一个列表，其他电脑上的工作区在标题下显示该电脑名称。开启：每台电脑一个分区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉：所有工作區顯示為一個清單，其他電腦上的工作區在標題下顯示該電腦名稱。開啟：每台電腦一個區段。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
