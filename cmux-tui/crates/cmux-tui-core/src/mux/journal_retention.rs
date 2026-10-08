@@ -10,10 +10,12 @@
 //! (reason `host_reconnect`) to its terminal journal lane, so a restore
 //! preview reports the no-tap interval instead of claiming an exact stream,
 //! and it marks the terminal in [`RetentionSchedule`]. One retention worker
-//! per mux coalesces the marks into at most one checkpoint per interval. The
-//! checkpoint after a wave covers every gap of that wave. A teardown that ends
-//! terminals postpones the checkpoint, and terminals that ended meanwhile are
-//! dropped from it, so ending N terminals costs no checkpoint work.
+//! per mux coalesces the marks into one checkpoint once the wave settles (no
+//! reconnect for one settle time, capped), at most one per interval. That
+//! checkpoint covers every gap of the wave, also of terminals that ended
+//! meanwhile. While `shutdown-daemon end_terminals` ends terminals no capture
+//! starts, and a daemon that is shutting down or handing off captures
+//! nothing, so ending N terminals costs no checkpoint work.
 //!
 //! Trade-off: a crash between a reconnect and its coalesced checkpoint
 //! restores from an older checkpoint whose tail contains the gap record, so
@@ -23,9 +25,11 @@ use super::*;
 
 /// At most one coalesced reconnect checkpoint per interval.
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(30);
-/// A reconnect wave settles this long before its checkpoint, so the
-/// terminals of one wave share one capture.
+/// A reconnect wave settles (no new reconnect) this long before its
+/// checkpoint, so the terminals of one wave share one capture.
 const WAVE_SETTLE: Duration = Duration::from_secs(1);
+/// A wave that keeps going is captured after at most this many settle times.
+const WAVE_MAX_SETTLES: u32 = 10;
 /// First retry delay after a failed capture; it doubles up to the interval.
 const RETRY_INITIAL: Duration = Duration::from_millis(250);
 const CHECKPOINT_ORIGIN: &str = "terminal_host_reconnect";
@@ -38,6 +42,7 @@ pub(crate) struct RetentionSchedule {
     settle: Duration,
     pending: BTreeSet<TerminalPublicId>,
     first_pending_at: Option<Instant>,
+    last_note_at: Option<Instant>,
     last_capture_at: Option<Instant>,
     retry_at: Option<Instant>,
     failures: u32,
@@ -52,6 +57,7 @@ impl RetentionSchedule {
             settle,
             pending: BTreeSet::new(),
             first_pending_at: None,
+            last_note_at: None,
             last_capture_at: None,
             retry_at: None,
             failures: 0,
@@ -65,6 +71,7 @@ impl RetentionSchedule {
         if self.pending.is_empty() {
             self.first_pending_at = Some(now);
         }
+        self.last_note_at = Some(now);
         self.pending.insert(terminal);
     }
 
@@ -74,7 +81,10 @@ impl RetentionSchedule {
         if self.shutdown || self.teardowns > 0 || self.pending.is_empty() {
             return None;
         }
-        let mut due = self.first_pending_at? + self.settle;
+        // Debounce on the last reconnect, capped for a wave that keeps going.
+        let settled = self.last_note_at.unwrap_or(self.first_pending_at?) + self.settle;
+        let capped = self.first_pending_at? + self.settle.saturating_mul(WAVE_MAX_SETTLES);
+        let mut due = settled.min(capped);
         if let Some(last) = self.last_capture_at {
             due = due.max(last + self.interval);
         }
@@ -90,6 +100,7 @@ impl RetentionSchedule {
             return None;
         }
         self.first_pending_at = None;
+        self.last_note_at = None;
         Some(std::mem::take(&mut self.pending).into_iter().collect())
     }
 
@@ -104,11 +115,20 @@ impl RetentionSchedule {
     pub(crate) fn failed(&mut self, batch: Vec<TerminalPublicId>, now: Instant) {
         if self.pending.is_empty() && !batch.is_empty() {
             self.first_pending_at = Some(now);
+            self.last_note_at = Some(now);
         }
         self.pending.extend(batch);
         let delay = RETRY_INITIAL.saturating_mul(1_u32 << self.failures.min(10)).min(self.interval);
         self.failures = self.failures.saturating_add(1);
         self.retry_at = Some(now + delay);
+    }
+
+    /// A teardown began after this batch was taken: keep it pending without
+    /// counting a failure.
+    pub(crate) fn requeue(&mut self, batch: Vec<TerminalPublicId>, now: Instant) {
+        for terminal in batch {
+            self.note(terminal, now);
+        }
     }
 
     pub(crate) fn begin_teardown(&mut self) {
@@ -151,6 +171,12 @@ impl Default for JournalRetention {
     }
 }
 
+impl JournalRetention {
+    fn teardown_active(&self) -> bool {
+        self.shared.schedule.lock().unwrap_or_else(PoisonError::into_inner).teardowns > 0
+    }
+}
+
 impl Drop for JournalRetention {
     fn drop(&mut self) {
         self.shared.schedule.lock().unwrap_or_else(PoisonError::into_inner).shutdown = true;
@@ -175,7 +201,10 @@ fn configured_interval() -> (Duration, Duration) {
 
 enum CaptureOutcome {
     Captured,
-    NothingLive,
+    /// The daemon is shutting down or handing off: no capture.
+    Skipped,
+    /// A teardown started after the batch was taken: capture later.
+    Deferred,
     Failed,
 }
 
@@ -251,13 +280,19 @@ impl Mux {
     }
 
     fn capture_coalesced_checkpoint(&self, batch: &[TerminalPublicId]) -> CaptureOutcome {
-        if self.shutting_down.load(Ordering::Acquire) {
-            return CaptureOutcome::NothingLive;
+        // A daemon that is shutting down or handing off its hosts (also right
+        // after shutdown-daemon end_terminals) captures nothing more.
+        if self.shutting_down.load(Ordering::Acquire)
+            || self.control_clients.daemon_handoff_in_progress()
+        {
+            return CaptureOutcome::Skipped;
         }
-        let live = batch.iter().filter(|id| self.terminal_resource_surface(id).is_some()).count();
-        let Some(first) = batch.first().filter(|_| live > 0) else {
-            return CaptureOutcome::NothingLive;
-        };
+        if self.journal_retention.teardown_active() {
+            return CaptureOutcome::Deferred;
+        }
+        let Some(first) = batch.first() else { return CaptureOutcome::Skipped };
+        // Terminals of the batch that ended still left gap records in the
+        // journal tail, so the checkpoint is taken for them too.
         let sequence = self.journal_retention.captures.load(Ordering::Acquire);
         let key = format!(
             "host-reconnects:{}:{}:{sequence}:{}",
@@ -266,21 +301,27 @@ impl Mux {
             first.as_str()
         );
         let started = Instant::now();
-        match self.create_journal_checkpoint(CHECKPOINT_ORIGIN, &key) {
+        let captured = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.create_journal_checkpoint(CHECKPOINT_ORIGIN, &key)
+        }))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("checkpoint capture panicked")));
+        match captured {
             Ok(_) => {
                 self.journal_retention.captures.fetch_add(1, Ordering::AcqRel);
                 self.note_reconnect_checkpoint_captured();
                 let elapsed = started.elapsed();
                 if elapsed >= SLOW_CAPTURE {
                     eprintln!(
-                        "cmux-tui: coalesced reconnect checkpoint for {live} terminal(s) took {} ms",
+                        "cmux-tui: coalesced reconnect checkpoint for {} terminal(s) took {} ms",
+                        batch.len(),
                         elapsed.as_millis()
                     );
                 }
                 CaptureOutcome::Captured
             }
             Err(error) => {
-                self.report_skipped_reconnect_checkpoint(first.as_str(), &error);
+                let subject = format!("{} (and {} more)", first.as_str(), batch.len() - 1);
+                self.report_skipped_reconnect_checkpoint(subject, &error);
                 CaptureOutcome::Failed
             }
         }
@@ -317,7 +358,8 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
         schedule = shared.schedule.lock().unwrap_or_else(PoisonError::into_inner);
         match outcome {
             CaptureOutcome::Captured => schedule.captured(Instant::now()),
-            CaptureOutcome::NothingLive => {}
+            CaptureOutcome::Skipped => {}
+            CaptureOutcome::Deferred => schedule.requeue(batch, Instant::now()),
             CaptureOutcome::Failed => schedule.failed(batch, Instant::now()),
         }
     }
@@ -328,7 +370,7 @@ mod tests {
     use super::*;
 
     fn terminal(index: u8) -> TerminalPublicId {
-        TerminalPublicId::parse(&format!("term_{index:032x}")).unwrap()
+        TerminalPublicId::parse(format!("term_{index:032x}")).unwrap()
     }
 
     fn schedule() -> RetentionSchedule {
@@ -342,9 +384,10 @@ mod tests {
         for index in 0..100 {
             schedule.note(terminal(index), start + Duration::from_millis(u64::from(index)));
         }
-        assert_eq!(schedule.due_at(), Some(start + Duration::from_secs(1)));
-        assert!(schedule.take_due(start + Duration::from_millis(999)).is_none());
-        let batch = schedule.take_due(start + Duration::from_secs(1)).unwrap();
+        // One second after the last reconnect of the wave.
+        assert_eq!(schedule.due_at(), Some(start + Duration::from_millis(1_099)));
+        assert!(schedule.take_due(start + Duration::from_millis(1_098)).is_none());
+        let batch = schedule.take_due(start + Duration::from_millis(1_099)).unwrap();
         assert_eq!(batch.len(), 100);
         assert_eq!(schedule.due_at(), None);
     }
@@ -398,13 +441,31 @@ mod tests {
     }
 
     #[test]
-    fn ending_every_reconnected_terminal_commits_no_checkpoint() {
+    fn a_wave_that_keeps_reconnecting_is_debounced_then_capped() {
+        let start = Instant::now();
+        let mut schedule = schedule();
+        schedule.note(terminal(1), start);
+        schedule.note(terminal(2), start + Duration::from_millis(900));
+        assert_eq!(schedule.due_at(), Some(start + Duration::from_millis(1_900)));
+        for step in 1..30_u64 {
+            schedule.note(terminal(3), start + Duration::from_millis(900 * step));
+        }
+        assert_eq!(schedule.due_at(), Some(start + Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn a_capture_during_teardown_or_handoff_does_not_run() {
         let mux = Mux::new_for_test("retention", SurfaceOptions::default());
-        mux.journal_retention.shared.schedule.lock().unwrap().note(terminal(7), Instant::now());
-        // The terminal does not exist (it ended): nothing to capture.
+        let teardown = mux.begin_terminal_teardown();
         assert!(matches!(
             mux.capture_coalesced_checkpoint(&[terminal(7)]),
-            CaptureOutcome::NothingLive
+            CaptureOutcome::Deferred
+        ));
+        drop(teardown);
+        mux.shutting_down.store(true, Ordering::Release);
+        assert!(matches!(
+            mux.capture_coalesced_checkpoint(&[terminal(7)]),
+            CaptureOutcome::Skipped
         ));
         assert_eq!(mux.coalesced_reconnect_checkpoints(), 0);
     }

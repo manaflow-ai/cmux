@@ -3385,8 +3385,15 @@ impl Surface {
                         // worker coalesces one checkpoint for the whole wave
                         // (mux/journal_retention.rs). Capturing a session
                         // checkpoint here made a wave of N reconnects O(N^2).
+                        // The capture gate orders the gap before a shutdown's
+                        // final terminal barrier, as for output.
+                        let journal_gate = pty
+                            .journal_capture_gate
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         if reconnect_mux.terminal_journal_enabled()
                             && pty.journal_capture_supported
+                            && pty.journal_capture_open.load(Ordering::Acquire)
                             && let Some(terminal_id) = pty.terminal_public_id.clone()
                         {
                             reconnect_mux.journal_terminal_host_reconnect(
@@ -3394,6 +3401,7 @@ impl Surface {
                                 pty.journal_generation.clone(),
                             );
                         }
+                        drop(journal_gate);
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,

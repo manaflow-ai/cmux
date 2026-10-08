@@ -602,15 +602,18 @@ replacement, and the exit sidecar preserves the final process outcome, but the
 host does not currently retain an acknowledged raw-output spool. Bytes emitted
 while no daemon tap exists can therefore be recovered visually from a snapshot
 but cannot be reconstructed as exact historical `terminal.output` records.
-After the mux applies such a reconnect snapshot, and before it accepts output
-from the new live boundary, it appends a required `terminal.output.gap` record
-with reason `host_reconnect` to that terminal's journal lane. This is O(1) per
-reconnect. A journal retention worker then commits one checkpoint that covers
-every terminal that reconnected since the last one: at most one per 30 s
-interval, after a reconnect wave settles for one second, and never while
-`shutdown-daemon` is ending terminals (terminals that ended are dropped from
-it). A restore from an older checkpoint reports the gap as unsupported until
-that checkpoint exists. Consumers must not claim byte-exact output history
+After the mux applies such a reconnect snapshot (also after a live host's
+`ResyncRequired`), and before it accepts output from the new live boundary, it
+appends a required `terminal.output.gap` record with reason `host_reconnect` to
+that terminal's journal lane. This is O(1) per reconnect. A journal retention
+worker then commits one checkpoint that covers every terminal that reconnected
+since the last one, including terminals that ended meanwhile: once the
+reconnect wave has had no new reconnect for one second (at most ten seconds
+after its first), and at most one per 30 s interval. No such capture starts
+while `shutdown-daemon` is ending terminals, and a daemon that is shutting
+down or handing off its hosts captures none, so those gaps stay in the tail
+until a later checkpoint. A restore from an older checkpoint reports the
+gap as unsupported until a later checkpoint exists. Consumers must not claim byte-exact output history
 across an unplanned no-tap interval until a durable host spool exists.
 
 ## Version compatibility
