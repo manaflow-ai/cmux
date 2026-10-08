@@ -200,6 +200,39 @@ struct ManagedPolicyCloudGateTests {
         #expect(listRequest.timeoutInterval == 15)
     }
 
+    @Test func coderouterClaudeImportsAreSharedWithTheSelectedTeam() async throws {
+        let suiteName = "ManagedPolicyCloudGateTests.coderouter.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        try #require(coordinator.isAuthenticated)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingCloudURLProtocol.self]
+        RecordingCloudURLProtocol.recorder.reset()
+        defer { RecordingCloudURLProtocol.recorder.reset() }
+        let client = CoderouterClient(
+            session: URLSession(configuration: configuration),
+            auth: coordinator
+        )
+
+        _ = try await client.addClaudeAccount(
+            .anthropicOAuth(token: "sk-ant-oat01-test-token"),
+            label: "work",
+            teamID: "team-explicit"
+        )
+
+        let request = try #require(RecordingCloudURLProtocol.recorder.requests.first)
+        let bodyData = try #require(request.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        #expect(body["visibility"] as? String == "team")
+        #expect(body["token"] as? String == "sk-ant-oat01-test-token")
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == "team-explicit")
+    }
+
     // MARK: - Helpers
 
     private func makeObserver(
