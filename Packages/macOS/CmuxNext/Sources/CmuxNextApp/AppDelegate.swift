@@ -118,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             #if DEBUG
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
+            // An App Store request made while no window existed shows in this window (S22).
+            if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
             if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
             CATransaction.setCompletionBlock {

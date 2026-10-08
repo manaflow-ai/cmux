@@ -550,6 +550,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
 
+      - name: Validate password-import reader binary guard
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: bash tests/test_ci_password_import_readers_guard.sh
+
       - name: Validate Ghostty Zig workflow pinning
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_check_ghostty_zig_workflows.py

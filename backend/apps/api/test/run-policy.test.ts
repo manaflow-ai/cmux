@@ -42,6 +42,23 @@ const postHook = async (path: string, secret: string, body: string) => {
 }
 const steps = { type: "steps", steps: [{ type: "note", text: "hi" }] }
 
+/**
+ * Inside SchedulerDO: makes TeamDO unreachable for this instance, then creates the automation.
+ * The create commits and arms the scheduler's alarm, and a real alarm run pulls the run policy
+ * (onWake -> ensureRunPolicy). Creating over HTTP first let that alarm win the race under
+ * parallel load (cx-nfts), so the "no policy yet" state must be built with TeamDO already down.
+ */
+const createWithTeamDown = async (s: any, team: string, principal: unknown, params: unknown): Promise<string> => {
+  s.env = { ...s.env, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
+  const r = await s.submit(team, principal, { t: "op", op: "automation.create", params, idempotency_key: crypto.randomUUID(), origin: "cli" })
+  const result = r.frames.find((f: { t: string }) => f.t === "result")
+  expect(result, JSON.stringify(r.frames)).toBeDefined()
+  // Run the alarm the create armed now, as a loaded runtime may: its pull fails, so no policy.
+  await s.alarm()
+  expect(s.boundEngine.currentState.run_policy).toBeUndefined()
+  return result.value.id as string
+}
+
 /** Sets agents.allowedClasses, then runs TeamDO's alarm until it has nothing left to push. */
 const setClasses = async (t: string, team: string, classes: ReadonlyArray<string>) => {
   const version = ((await read(t, "team.policy.get")).value?.policy?.version ?? 0) as number
@@ -121,17 +138,15 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
   it("fails closed: a scheduler without the policy pulls it from TeamDO, and refuses runs while TeamDO is unreachable", async () => {
     const t = await token("run-policy-5")
     const team = (await op(t, "user.ensure", {})).value.personal_team as string
-    const a = await op(t, "automation.create", { name: "m", triggers: [{ type: "manual" }], body: steps })
     const stub = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
     await inDO(stub, async (s) => {
-      expect(s.boundEngine.currentState.run_policy).toBeUndefined()
       const realEnv = s.env
-      s.env = { ...realEnv, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
       const principal = { identity: "session:x", kind: "session", user: "user_cccccccccccccccccccc", team }
-      const r = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation: a.value.id }, idempotency_key: "k-down", origin: "cli" })
+      const automation = await createWithTeamDown(s, team, principal, { name: "m", triggers: [{ type: "manual" }], body: steps })
+      const r = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation }, idempotency_key: "k-down", origin: "cli" })
       expect(r.frames.find((f: { t: string }) => f.t === "reject")).toMatchObject({ code: "policy.pending" })
       s.env = realEnv
-      const ok = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation: a.value.id }, idempotency_key: "k-up", origin: "cli" })
+      const ok = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation }, idempotency_key: "k-up", origin: "cli" })
       expect(ok.frames.find((f: { t: string }) => f.t === "result"), JSON.stringify(ok.frames)).toBeDefined()
       expect(s.boundEngine.currentState.run_policy).toMatchObject({ runs_allowed: true })
     })
@@ -234,15 +249,12 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
   it("a cron fire refused as policy.pending retries in a second, without backoff (review P2)", async () => {
     const t = await token("run-policy-pending")
     const team = (await op(t, "user.ensure", {})).value.personal_team as string
-    const created = await op(t, "automation.create", { name: "cron", triggers: [{ type: "cron", expr: "* * * * *", tz: "UTC" }], body: steps })
-    expect(created.ok, JSON.stringify(created)).toBe(true)
-    const automation = created.value.id as string
     const stub = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
     await inDO(stub, async (s) => {
-      expect(s.boundEngine.currentState.run_policy).toBeUndefined()
       const realEnv = s.env
       // TeamDO is unreachable, so the policy stays unloaded and the fire is refused as policy.pending.
-      s.env = { ...realEnv, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
+      const principal = { identity: "session:x", kind: "session", user: "user_cccccccccccccccccccc", team }
+      const automation = await createWithTeamDown(s, team, principal, { name: "cron", triggers: [{ type: "cron", expr: "* * * * *", tz: "UTC" }], body: steps })
       const at = s.boundEngine.currentState.automations[automation].triggers[0].next_at as number
       await s.onWake(at + 1)
       const rows = s.ctx.storage.sql.exec("SELECT key, attempts, at FROM retry_state WHERE key LIKE 'fire:%'").toArray()

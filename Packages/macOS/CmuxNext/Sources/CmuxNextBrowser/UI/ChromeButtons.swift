@@ -176,6 +176,17 @@ class ChromeTextButton: NSButton {
 
     override var isHighlighted: Bool { didSet { updateFill() } }
 
+    /// The themed title: a plain `title` write would be replaced by the old
+    /// text at the next repaint (hover, appearance change).
+    override var title: String {
+        get { titleText }
+        set {
+            titleText = newValue
+            applyTitle()
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     override var intrinsicContentSize: NSSize {
         let size = attributedTitle.size()
         return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: BrowserMetrics.controlHeight)

@@ -9,9 +9,9 @@
 //   - deriveAppTheme(colors) returns opaque `#rrggbb` tokens that meet every pair.
 //
 // Colors start from the theme and move only as far as a contrast target needs: a token keeps its
-// OKLCH hue and chroma and changes lightness (color.ts). The accent hue comes from the palette
-// (ANSI 4 when it has color, else the most colorful slot); a palette with no color gets a neutral
-// accent. No hue is hard-coded. test/app-theme.test.ts checks every pair on all bundled themes.
+// OKLCH hue and chroma and changes lightness (color.ts). The accent is neutral: the theme
+// foreground's lightness without hue (the no-blue rule; never a palette slot such as ANSI 4).
+// No hue is hard-coded. test/app-theme.test.ts checks every pair on all bundled themes.
 import {
   BLACK,
   WHITE,
@@ -122,8 +122,6 @@ export const APP_THEME_CONTRACT: ReadonlyArray<ContrastPair> = [
 
 export type AppTheme = {
   isDark: boolean;
-  /** The palette slot the accent hue came from; null for a palette without color. */
-  accentSource: number | null;
   tokens: Readonly<Record<AppTokenName, string>>;
 };
 
@@ -146,26 +144,6 @@ const GHOSTTY_DEFAULT_PALETTE = [
   "#70c0b1",
   "#eaeaea",
 ];
-
-/** A slot "has color" from this OKLCH chroma up (grays and near-grays are below it). */
-export const ACCENT_MIN_CHROMA = 0.05;
-/** ANSI 4 (the theme's blue slot, the conventional accent) first, then the most colorful of these. */
-const ACCENT_FALLBACK_SLOTS = [12, 5, 13, 6, 14, 2, 10, 3, 11];
-
-/** The palette slot that gives the accent its hue, or null when no slot has color. */
-export function accentSlot(palette: ReadonlyArray<RGB>): number | null {
-  if (toOklch(palette[4]!).c >= ACCENT_MIN_CHROMA) return 4;
-  let best: number | null = null;
-  let bestChroma = ACCENT_MIN_CHROMA;
-  for (const slot of ACCENT_FALLBACK_SLOTS) {
-    const chroma = toOklch(palette[slot]!).c;
-    if (chroma >= bestChroma + 1e-9) {
-      best = slot;
-      bestChroma = chroma;
-    }
-  }
-  return best;
-}
 
 type Constraint = { on: RGB; min: number };
 
@@ -205,6 +183,11 @@ export function fit(color: RGB, constraints: Constraint[], prefer?: "lighter" | 
 const rgbOf = (hex: string | null | undefined, fallback: string): RGB =>
   (hex ? parseHex(hex) : null) ?? parseHex(fallback)!;
 
+/** `color` without hue: its OKLCH lightness at zero chroma (a gray). */
+export function neutral(color: RGB): RGB {
+  return fromOklch({ l: toOklch(color).l, c: 0, h: 0 });
+}
+
 /** The more colorful of two slots (the normal and the bright variant of one ANSI color). */
 function colorful(palette: ReadonlyArray<RGB>, normal: number, bright: number): RGB {
   return toOklch(palette[bright]!).c > toOklch(palette[normal]!).c + 0.02 ? palette[bright]! : palette[normal]!;
@@ -242,13 +225,12 @@ function derive(colors: TerminalColors, tint: number): AppTheme {
   tokens.separator = quantized(mix(bg, fg, isDark ? 0.13 : 0.11));
   const on = (names: AppTokenName[], min: number): Constraint[] => names.map((name) => ({ on: tokens[name], min }));
 
-  // The accent: the palette's hue, light enough (dark themes) or dark enough (light themes) to
-  // read as a mark on every surface and to carry text in the window color (dark) or white (light).
-  const slot = accentSlot(palette);
+  // The accent: a neutral from the theme's foreground (the no-blue rule: never a palette hue such
+  // as ANSI 4), light enough (dark themes) or dark enough (light themes) to read as a mark on
+  // every surface and to carry text in the window color (dark) or white (light).
   const onAccentWanted = isDark ? tokens.window : WHITE;
-  const accentSeed = slot === null ? fg : palette[slot]!;
   tokens.accent = fit(
-    accentSeed,
+    neutral(fg),
     [...on(PLAIN_SURFACES, UI_MINIMUM), { on: onAccentWanted, min: TEXT_MINIMUM }],
     isDark ? "lighter" : "darker",
   );
@@ -277,7 +259,7 @@ function derive(colors: TerminalColors, tint: number): AppTheme {
   tokens.success = fit(colorful(palette, 2, 10), on(STATUS_SURFACES, TEXT_MINIMUM), away);
 
   const hex = Object.fromEntries(Object.entries(tokens).map(([name, color]) => [name, toHex(color)]));
-  return { isDark, accentSource: slot, tokens: hex as Record<AppTokenName, string> };
+  return { isDark, tokens: hex as Record<AppTokenName, string> };
 }
 
 export type ContrastResult = ContrastPair & { ratio: number; pass: boolean };
