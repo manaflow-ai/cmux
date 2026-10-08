@@ -13,13 +13,14 @@ use crate::apps::provider::ProviderClaim;
 const PROVIDER: u64 = 9;
 const MAC_APP: ProviderClaim = ProviderClaim { agent: false, verified_app: true };
 
-/// A server that sends the lines of the file in `$2` once, then appends
-/// every line it receives to the file in `$1`.
+/// A server that sends the lines of the file in `$2` once, appends every
+/// line it receives to the file in `$1`, and sends the lines of the file in
+/// `$3` (when it exists) each time an op line arrives.
 fn write_relay_probe(dir: &Path) {
     write_script(
         dir,
         "relay-probe",
-        "#!/bin/sh\ncat \"$2\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+        "#!/bin/sh\ncat \"$2\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\n  case \"$line\" in\n    *'\"type\":\"op\"'*) [ -f \"$3\" ] && cat \"$3\" ;;\n  esac\ndone\n",
     );
 }
 
@@ -29,6 +30,14 @@ struct Probe {
     dir: &'static str,
     scoped: bool,
     lines: Vec<Value>,
+    /// Lines it sends while an op runs.
+    on_op: Vec<Value>,
+}
+
+impl Probe {
+    fn new(dir: &'static str, scoped: bool, lines: Vec<Value>) -> Self {
+        Self { dir, scoped, lines, on_op: vec![] }
+    }
 }
 
 /// Writes the probe apps, then the fixture (the catalog loads at start).
@@ -43,10 +52,15 @@ fn setup(probes: &[Probe]) -> (Fixture, Vec<PathBuf>) {
             let send = root.0.join(format!("{}.send", probe.dir));
             let text: String = probe.lines.iter().map(|l| format!("{l}\n")).collect();
             std::fs::write(&send, text).unwrap();
+            let on_op = root.0.join(format!("{}.on-op", probe.dir));
+            if !probe.on_op.is_empty() {
+                let text: String = probe.on_op.iter().map(|l| format!("{l}\n")).collect();
+                std::fs::write(&on_op, text).unwrap();
+            }
             let mut server = json!({
                 "kind": "native",
                 "binaries": { "darwin-arm64": "relay-probe", "darwin-x64": "relay-probe", "linux-arm64": "relay-probe", "linux-x64": "relay-probe" },
-                "args": [out.to_string_lossy(), send.to_string_lossy()],
+                "args": [out.to_string_lossy(), send.to_string_lossy(), on_op.to_string_lossy()],
                 "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" }
             });
             if probe.scoped {
@@ -89,7 +103,7 @@ fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() 
         relay_op("r1", "cloud.machine.connect_info"),
         json!({ "type": "relay.session", "id": "r2" }),
     ];
-    let (f, outs) = setup(&[Probe { dir: "relay", scoped: true, lines }]);
+    let (f, outs) = setup(&[Probe::new("relay", true, lines)]);
     let rx = credential_provider(&f);
     f.install("cmux/relay");
     let out = &outs[0];
@@ -147,7 +161,7 @@ fn relay_errors_keep_the_contract_shapes() {
         relay_op("r3", "cloud.machine.get"),
         json!({ "type": "relay.op", "id": "r4", "params": {} }),
     ];
-    let (f, outs) = setup(&[Probe { dir: "relay", scoped: true, lines }]);
+    let (f, outs) = setup(&[Probe::new("relay", true, lines)]);
     let rx = credential_provider(&f);
     f.install("cmux/relay");
     let out = &outs[0];
@@ -202,8 +216,8 @@ fn relay_errors_keep_the_contract_shapes() {
 #[test]
 fn relay_needs_the_scope_and_a_provider() {
     let (f, outs) = setup(&[
-        Probe { dir: "lonely", scoped: true, lines: vec![relay_op("r1", "cloud.machine.get")] },
-        Probe { dir: "unscoped", scoped: false, lines: vec![relay_op("r1", "cloud.machine.get")] },
+        Probe::new("lonely", true, vec![relay_op("r1", "cloud.machine.get")]),
+        Probe::new("unscoped", false, vec![relay_op("r1", "cloud.machine.get")]),
     ]);
     // No provider connected: unavailable at once.
     f.install("cmux/lonely");
@@ -229,11 +243,7 @@ fn relay_needs_the_scope_and_a_provider() {
 
 #[test]
 fn a_stopped_server_cancels_its_relay_calls_and_a_late_answer_goes_nowhere() {
-    let (f, _outs) = setup(&[Probe {
-        dir: "relay",
-        scoped: true,
-        lines: vec![relay_op("r1", "cloud.machine.get")],
-    }]);
+    let (f, _outs) = setup(&[Probe::new("relay", true, vec![relay_op("r1", "cloud.machine.get")])]);
     let rx = credential_provider(&f);
     f.install("cmux/relay");
     let call = next_event(&rx, "apps-provider-request");
@@ -245,4 +255,54 @@ fn a_stopped_server_cancels_its_relay_calls_and_a_late_answer_goes_nowhere() {
         f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": 1 })).unwrap_err().code,
         "apps.provider.unknown"
     );
+}
+
+fn with_origin(id: &str, origin: &str) -> Value {
+    let mut line = relay_op(id, "cloud.machine.start");
+    line["origin"] = json!(origin);
+    line
+}
+
+/// Starts a run of `cmux/<dir>.ping` with `origin` and does not wait for it.
+fn start_run(f: &Fixture, dir: &str, origin: Origin) {
+    f.supervisor.run(run_request(&format!("cmux/{dir}"), &format!("{dir}.ping"), None, origin, None), Box::new(|_| {}));
+}
+
+#[test]
+fn a_relay_claims_origin_user_only_while_a_user_run_is_in_flight() {
+    let user_run = Probe { on_op: vec![with_origin("r2", "user")], ..Probe::new("userrun", true, vec![with_origin("r1", "user")]) };
+    let cli_run = Probe { on_op: vec![with_origin("r1", "user")], ..Probe::new("clirun", true, vec![]) };
+    let (f, outs) = setup(&[user_run, cli_run]);
+    let rx = credential_provider(&f);
+    f.install("cmux/userrun");
+    // No run in flight: the claim is refused, never downgraded.
+    let refused = &frames(&outs[0], 1)[0];
+    assert_eq!((refused["id"].clone(), refused["code"].clone()), (json!("r1"), json!("apps.origin_forbidden")));
+    // During a user run the claim goes to the provider.
+    start_run(&f, "userrun", Origin::User);
+    let call = next_event(&rx, "apps-provider-request");
+    assert_eq!((call["origin"].clone(), call["params"]["origin"].clone()), (json!("user"), json!("user")));
+    // During a cli run it is refused.
+    f.install("cmux/clirun");
+    start_run(&f, "clirun", Origin::Cli);
+    let lines = frames(&outs[1], 2);
+    let answer = lines.iter().find(|l| l["id"] == "r1").cloned().unwrap();
+    assert_eq!(answer["code"], json!("apps.origin_forbidden"));
+}
+
+#[test]
+fn one_server_has_at_most_four_relay_calls_and_ids_are_short_strings() {
+    let mut lines: Vec<Value> = (1..=6).map(|n| relay_op(&format!("r{n}"), "cloud.machine.get")).collect();
+    lines.push(json!({ "type": "relay.session", "id": 5 }));
+    let (f, outs) = setup(&[Probe::new("relay", true, lines)]);
+    let rx = credential_provider(&f);
+    f.install("cmux/relay");
+    for _ in 0..4 {
+        next_event(&rx, "apps-provider-request");
+    }
+    let answers = frames(&outs[0], 3);
+    let code = |id: Value| answers.iter().find(|a| a["id"] == id).map(|a| a["code"].clone());
+    assert_eq!(code(json!("r5")), Some(json!("unavailable")));
+    assert_eq!(code(json!("r6")), Some(json!("unavailable")));
+    assert_eq!(code(json!(5)), Some(json!("validation.invalid")));
 }
