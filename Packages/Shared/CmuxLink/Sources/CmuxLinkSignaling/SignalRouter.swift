@@ -100,7 +100,10 @@ public actor SignalRouter {
     }
 
     private static func finishedStream<Element>() -> AsyncStream<Element> {
-        let (stream, sink) = AsyncStream<Element>.makeStream()
+        // Even a stream that finishes immediately should declare a bounded
+        // policy: callers can retain and resubscribe to it after shutdown,
+        // and the concurrency guard rejects implicit unbounded buffers.
+        let (stream, sink) = AsyncStream<Element>.makeStream(bufferingPolicy: .bufferingOldest(1))
         sink.finish()
         return stream
     }
