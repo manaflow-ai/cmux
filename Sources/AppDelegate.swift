@@ -2209,9 +2209,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
         let hasSudoApprovalRuntime = sudoApprovalCoordinator?.requiresShutdown == true
+        // A mirror that owes tmux a goodbye is owned cleanup too. Without this the app can quit
+        // with the deferred phase never running, and the remote half keeps the tmux client —
+        // along with the per-window size claims that pin those windows for everyone else.
+        let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
+            || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
             || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
@@ -2223,6 +2228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "mirrorsOwingDetach": String(mirrorsOwingDetach),
                     "freshAgentIndex": "1",
                     "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
@@ -2230,6 +2236,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                // Before anything else: let go of the remote tmux clients, and wait for the
+                // server to say it heard us. Everything after this stops transports, which is
+                // what would otherwise swallow the goodbye.
+                await self.remoteTmuxController.detachAllAwaitingExit()
                 await self.sudoApprovalCoordinator?.stop()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
@@ -3702,7 +3712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
             }
         }
@@ -14506,14 +14516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self?.handleShortcutDefaultsDidChange()
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.handleShortcutDefaultsDidChange()
-                }
+            Task { @MainActor [weak self] in
+                self?.handleShortcutDefaultsDidChange()
             }
         }
     }
@@ -14577,7 +14581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.ghosttyConfigDidReloadForLiveReload()
             }
         }
@@ -14643,7 +14647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             GhosttyConfig.invalidateLoadCache()
-            _ = MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.reloadConfiguration(
                     source: "globalFontMagnificationDidChange",
                     reloadSettingsFromFile: false
@@ -18607,7 +18611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.handleBrowserWebViewFirstResponderNotification(notification)
             }
         }
@@ -19652,7 +19656,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19663,7 +19666,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19677,8 +19679,7 @@ private extension NSWindow {
                 "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
                 "window=\(ObjectIdentifier(self)) " +
                 "web=\(ObjectIdentifier(webView)) " +
-                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0)"
             )
         }
 #endif
