@@ -2586,7 +2586,11 @@ export function forkVm(input: {
             new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
           );
         }
-        return { snapshot: null, fork: vmEntryFromRow(existing) };
+        // A Max-sized native fork can be created just before a caller's plan
+        // changes to Pro. Keep an idempotent retry from handing that row back
+        // without applying the same current-plan check as ordinary creates.
+        const entitled = yield* requireExistingMachineFitsPlan(input.billingPlanId, repo, providers, existing);
+        return { snapshot: null, fork: vmEntryFromRow(entitled) };
       }
 
       const creditReservation = yield* reserveCreateCredit(billing, repo, {

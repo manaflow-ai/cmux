@@ -98,6 +98,68 @@ test("a gateway fork method cannot override the provider capability", async () =
   expect(creates).toBe(0);
 });
 
+test("a native fork retry cannot return a Max-sized row to Pro", async () => {
+  let forks = 0;
+  const source = {
+    id: "source",
+    userId: "u",
+    billingTeamId: "u",
+    ownerTeamId: "u",
+    coderouterPoolId: null,
+    status: "running" as const,
+    provider: "freestyle" as const,
+    providerVmId: "source-provider-vm",
+    imageId: "snapshot",
+    imageVersion: null,
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    displayName: null,
+    slug: null,
+    providerMetadata: {
+      cmuxResourceReservation: { memoryMb: 8192, vcpus: 4, diskMb: 32768 },
+    },
+  };
+  const existing = {
+    ...source,
+    id: "fork",
+    providerVmId: "fork-provider-vm",
+    providerMetadata: {
+      cmuxResourceReservation: { memoryMb: 24576, vcpus: 12, diskMb: 98304 },
+    },
+  };
+  const repo = {
+    findUserVm: () => Effect.succeed(source),
+    beginCreate: () => Effect.succeed({ inserted: false as const, vm: existing }),
+  } as unknown as VmRepositoryShape;
+  const providers = {
+    capabilities: () => ({ fork: true }),
+    fork: () => Effect.sync(() => {
+      forks += 1;
+      throw new Error("must not fork after the entitlement check");
+    }),
+  } as unknown as VmProviderGatewayShape;
+  const layer = Layer.mergeAll(
+    Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, providers),
+    Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+  );
+
+  const result = await Effect.runPromiseExit(forkVm({
+    userId: "u",
+    billingCustomerType: "user",
+    billingTeamId: "u",
+    billingPlanId: "pro",
+    maxActiveVms: 5,
+    providerVmId: "source-provider-vm",
+    idempotencyKey: "retry",
+  }).pipe(Effect.provide(layer)));
+
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") {
+    expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
+  }
+  expect(forks).toBe(0);
+});
+
 
 test("Pro cannot bypass the memory gate with unknown snapshot or fork dimensions", async () => {
   const repo = {
