@@ -141,7 +141,15 @@ pub(crate) struct FrontendBrowserTabOutcome {
 
 impl Mux {
     /// `new-frontend-browser-tab {idempotency_key}`.
-    pub(crate) fn new_frontend_browser_tab_keyed_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, record: FrontendBrowserRecord, size: Option<(u16, u16)>, key: &str, placement: FrontendTabPlacement) -> anyhow::Result<FrontendBrowserTabOutcome> {
+    pub(crate) fn new_frontend_browser_tab_keyed_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+        key: &str,
+        placement: FrontendTabPlacement,
+    ) -> anyhow::Result<FrontendBrowserTabOutcome> {
         record.validate()?;
         WorkspaceMutation::daemon(key, "new-frontend-browser-tab")?;
         let _serial = KEYED_CREATION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -183,7 +191,8 @@ impl Mux {
         }
         let fields = frontend_browser_fields(&browser_id, placement);
         // A failed keyed creation keeps its rows, so a retry resumes it.
-        let surface = self.new_browser_tab_with_fields_as(actor, record.url.clone(), pane, size, fields)?;
+        let surface =
+            self.new_browser_tab_with_fields_as(actor, record.url.clone(), pane, size, fields)?;
         if let Some(runtime) = surface.as_browser()
             && runtime.set_frontend_location(None, record.title)
         {
@@ -214,7 +223,14 @@ pub(crate) fn insert_key(
 #[cfg(test)]
 #[allow(dead_code, reason = "test convenience")]
 impl Mux {
-    pub(crate) fn new_frontend_browser_tab_keyed(self: &Arc<Self>, pane: Option<PaneId>, record: FrontendBrowserRecord, size: Option<(u16, u16)>, key: &str, placement: FrontendTabPlacement) -> anyhow::Result<FrontendBrowserTabOutcome> {
+    pub(crate) fn new_frontend_browser_tab_keyed(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+        key: &str,
+        placement: FrontendTabPlacement,
+    ) -> anyhow::Result<FrontendBrowserTabOutcome> {
         self.new_frontend_browser_tab_keyed_as(&Actor::Daemon, pane, record, size, key, placement)
     }
 }

@@ -856,7 +856,14 @@ impl Session {
                             .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
-                        mux.create_terminal_in_workspace_as(&cmux_tui_core::Actor::local_user(), workspace, None, None, None, size)?;
+                        mux.create_terminal_in_workspace_as(
+                            &cmux_tui_core::Actor::local_user(),
+                            workspace,
+                            None,
+                            None,
+                            None,
+                            size,
+                        )?;
                     }
                     InitialBootstrap::LayoutIntact => {}
                 }
@@ -1820,9 +1827,16 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_split_ratio_checked_as(&cmux_tui_core::Actor::local_user(), split, ratio),
+                    || {
+                        mux.set_split_ratio_checked_as(
+                            &cmux_tui_core::Actor::local_user(),
+                            split,
+                            ratio,
+                        )
+                    },
                     |(owner, transaction)| {
-                        mux.set_split_ratio_in_process_transaction_checked_as(&cmux_tui_core::Actor::local_user(), 
+                        mux.set_split_ratio_in_process_transaction_checked_as(
+                            &cmux_tui_core::Actor::local_user(),
                             split,
                             ratio,
                             owner,
@@ -1863,9 +1877,16 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_viewport_pane_width_checked_as(&cmux_tui_core::Actor::local_user(), pane, width),
+                    || {
+                        mux.set_viewport_pane_width_checked_as(
+                            &cmux_tui_core::Actor::local_user(),
+                            pane,
+                            width,
+                        )
+                    },
                     |(owner, transaction)| {
-                        mux.set_viewport_pane_width_in_process_transaction_checked_as(&cmux_tui_core::Actor::local_user(), 
+                        mux.set_viewport_pane_width_in_process_transaction_checked_as(
+                            &cmux_tui_core::Actor::local_user(),
                             pane,
                             width,
                             owner,
@@ -2180,7 +2201,11 @@ impl Session {
             crate::localization::catalog().menu.move_tab_workspace_unsupported
         );
         match self {
-            Session::Local(mux) => mux.move_tab_to_workspace_as(&cmux_tui_core::Actor::local_user(), surface, workspace),
+            Session::Local(mux) => mux.move_tab_to_workspace_as(
+                &cmux_tui_core::Actor::local_user(),
+                surface,
+                workspace,
+            ),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
@@ -3296,7 +3321,9 @@ mod tests {
         use cmux_tui_core::sizing_policy::TerminalDeviceKind;
 
         let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
-        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
+        let surface = mux
+            .new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24)))
+            .unwrap();
         let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

@@ -6516,7 +6516,8 @@ mod tests {
             SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
         );
         mux.set_default_colors(defaults);
-        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 4))).unwrap();
+        let surface =
+            mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 4))).unwrap();
         surface
             .try_with_terminal(|term| {
                 term.vt_write(b"\x1b[31mR");

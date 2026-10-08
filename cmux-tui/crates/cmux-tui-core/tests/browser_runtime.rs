@@ -1630,8 +1630,9 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface =
-        mux.new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    let surface = mux
+        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
+        .expect("browser tab");
     let _provider = browser_provider(
         &socket_path,
         format!("ws://{addr}/devtools/browser/fake"),
@@ -1705,8 +1706,9 @@ fn provider_disconnect_reconnects_without_closing_canonical_browser_topology() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface =
-        mux.new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    let surface = mux
+        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
+        .expect("browser tab");
     let tab_id = surface_tab_id(&mux, surface.id);
     let mut provider = browser_provider(
         &socket_path,
@@ -1850,8 +1852,9 @@ fn provider_target_revision_reattaches_on_the_same_browser_connection() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface =
-        mux.new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    let surface = mux
+        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
+        .expect("browser tab");
     let tab_id = surface_tab_id(&mux, surface.id);
     let endpoint = format!("ws://{addr}/devtools/browser/shared");
     let mut provider = browser_provider(&socket_path, endpoint.clone(), &tab_id, "target-first");

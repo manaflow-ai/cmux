@@ -52,7 +52,14 @@ pub(crate) struct ConversationTabOutcome {
 }
 
 impl Mux {
-    pub(crate) fn new_conversation_tab_as(self: &Arc<Self>, actor: &Actor, target: ConversationTabTarget, record: ConversationTabRecord, mutation: Option<&WorkspaceMutation>, size: Option<(u16, u16)>) -> anyhow::Result<ConversationTabOutcome> {
+    pub(crate) fn new_conversation_tab_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: ConversationTabTarget,
+        record: ConversationTabRecord,
+        mutation: Option<&WorkspaceMutation>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
         // Held for the whole keyed creation, before every other lock.
@@ -119,7 +126,8 @@ impl Mux {
             Value::String(browser_id.as_str().to_string()),
         )]);
         let created = match target {
-            ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(actor, 
+            ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(
+                actor,
                 CONVERSATION_TAB_URL.to_string(),
                 pane,
                 size,
@@ -149,13 +157,19 @@ impl Mux {
 
     /// A conversation tab in `workspace`'s active pane, or in a new first
     /// pane of an empty workspace.
-    fn new_conversation_tab_in(self: &Arc<Self>, actor: &Actor, workspace: WorkspaceId, mut fields: Map<String, Value>) -> anyhow::Result<Arc<Surface>> {
+    fn new_conversation_tab_in(
+        self: &Arc<Self>,
+        actor: &Actor,
+        workspace: WorkspaceId,
+        mut fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
         fields.insert("url".into(), Value::String(CONVERSATION_TAB_URL.to_string()));
         let operation = crate::resource::ResourceOperation::TabCreateBrowser;
-        let commit = self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
+        let commit =
+            self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
         self.ordinary_created_surface(&commit)
     }
@@ -291,7 +305,13 @@ impl Mux {
 #[cfg(test)]
 #[allow(dead_code, reason = "test convenience")]
 impl Mux {
-    pub(crate) fn new_conversation_tab(self: &Arc<Self>, target: ConversationTabTarget, record: ConversationTabRecord, mutation: Option<&WorkspaceMutation>, size: Option<(u16, u16)>) -> anyhow::Result<ConversationTabOutcome> {
+    pub(crate) fn new_conversation_tab(
+        self: &Arc<Self>,
+        target: ConversationTabTarget,
+        record: ConversationTabRecord,
+        mutation: Option<&WorkspaceMutation>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<ConversationTabOutcome> {
         self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size)
     }
 }

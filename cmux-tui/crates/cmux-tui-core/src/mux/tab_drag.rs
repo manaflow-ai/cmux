@@ -11,9 +11,9 @@
 //! (undo never closes the tab). Other drags fence that screen's undo history
 //! and report `undoable: false`.
 
-use crate::Actor;
 use super::dock_columns::reduce_column_dock;
 use super::*;
+use crate::Actor;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
@@ -235,7 +235,16 @@ impl Mux {
     /// closes the fresh tab again; a daemon that dies between the two commits
     /// keeps both tabs, so no tab is lost.
     #[allow(clippy::too_many_arguments)]
-    pub fn move_tab_to_split_respawning_as(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, pane: PaneId, edge: TabDropEdge, ratio: Option<f32>, respawn: SplitRespawn, transaction: Option<String>) -> anyhow::Result<TabDragOutcome> {
+    pub fn move_tab_to_split_respawning_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        pane: PaneId,
+        edge: TabDropEdge,
+        ratio: Option<f32>,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
         validate_split_ratio(ratio)?;
         let model = {
             let state = self.state.lock().unwrap();
@@ -266,7 +275,14 @@ impl Mux {
     /// pane's only tab into a new (optionally docked) column and leave a fresh
     /// tab in its pane, guarded like [`Self::move_tab_to_split_respawning`].
     /// Docking a screen's only tab uses it, so the strip keeps a column.
-    pub fn move_tab_to_column_respawning_as(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, destination: ColumnMove, respawn: SplitRespawn, transaction: Option<String>) -> anyhow::Result<TabDragOutcome> {
+    pub fn move_tab_to_column_respawning_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        destination: ColumnMove,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
         let ColumnMove { pane, after_column, width, dock } = destination;
         let width = validated_column_width(width)?;
         let source = self.with_state(|state| state.pane_of(surface));
@@ -285,7 +301,15 @@ impl Mux {
     /// Creates the fresh tab in `source` first (the pane never empties), then
     /// commits while `source` holds exactly the fresh and the dragged tab. A
     /// failed drag closes the fresh tab again.
-    fn commit_tab_drag_respawning(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, source: PaneId, destination: TabDragDestination, respawn: SplitRespawn, transaction: Option<String>) -> anyhow::Result<TabDragOutcome> {
+    fn commit_tab_drag_respawning(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        source: PaneId,
+        destination: TabDragDestination,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
         let size = self.surface(surface).map(|runtime| runtime.size());
         let fresh = match respawn {
             SplitRespawn::Terminal(spawn) => {
@@ -422,7 +446,14 @@ impl Mux {
     /// one commit. A move between two panes of one screen whose origin pane
     /// survives records a layout-undo entry that moves the tab back.
     /// Returns whether the tab moved and whether the move is undoable.
-    pub fn move_tab_with_undo_as(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, pane: PaneId, index: usize, transaction: Option<String>) -> (bool, bool) {
+    pub fn move_tab_with_undo_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        pane: PaneId,
+        index: usize,
+        transaction: Option<String>,
+    ) -> (bool, bool) {
         let origin = self.with_state(|state| {
             let source = state.pane_of(surface)?;
             let tabs = &state.panes.get(&source)?.tabs;

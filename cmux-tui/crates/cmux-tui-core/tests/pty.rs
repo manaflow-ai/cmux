@@ -1,5 +1,5 @@
-use std::io::{BufRead, BufReader, Write};
 use cmux_tui_core::Actor;
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -287,7 +287,15 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
 fn terminal_surface_follows_the_latest_view_and_never_freezes() {
     let mux = Mux::new("terminal-geometry-authority", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface_as(&Actor::Daemon, vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     // This test is about latest-activity ownership; the default is "Fit everyone".

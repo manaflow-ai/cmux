@@ -944,7 +944,13 @@ impl Mux {
     /// terminal still running is reattached (a new view of the same
     /// terminal), other terminals start in their saved directory, and
     /// browsers reopen at their saved URL.
-    pub fn reopen_saved_tab_group_as(self: &Arc<Self>, actor: &Actor, saved_id: &str, pane: PaneId, transaction: Option<&str>) -> anyhow::Result<TabGroupOutcome> {
+    pub fn reopen_saved_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        saved_id: &str,
+        pane: PaneId,
+        transaction: Option<&str>,
+    ) -> anyhow::Result<TabGroupOutcome> {
         let presentation = self.presentation_snapshot();
         let saved = presentation
             .saved_tab_groups
@@ -985,7 +991,8 @@ impl Mux {
                 }
                 SavedTabMember::Browser { url, engine, profile_id, title } => match engine {
                     Some(engine) => {
-                        self.new_frontend_browser_tab_as(actor, 
+                        self.new_frontend_browser_tab_as(
+                            actor,
                             Some(pane),
                             crate::workspace_registry::FrontendBrowserRecord {
                                 engine: engine.clone(),

@@ -74,7 +74,8 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
     let size = paired_surface_size("new-frontend-browser-tab", cols, rows)?;
     let (surface, replayed) = match idempotency_key {
         Some(key) => {
-            let outcome = mux.new_frontend_browser_tab_keyed_as(&origin_gate::connection_actor(mux, client), 
+            let outcome = mux.new_frontend_browser_tab_keyed_as(
+                &origin_gate::connection_actor(mux, client),
                 pane,
                 record,
                 size,
@@ -84,7 +85,8 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
             (outcome.surface, outcome.replayed)
         }
         None => (
-            mux.new_frontend_browser_tab_placed_as(&origin_gate::connection_actor(mux, client), 
+            mux.new_frontend_browser_tab_placed_as(
+                &origin_gate::connection_actor(mux, client),
                 pane,
                 record,
                 size,

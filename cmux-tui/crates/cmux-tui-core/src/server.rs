@@ -13312,7 +13312,8 @@ fn handle_command_with_cancellation(
             if key.is_some() && !new_workspace {
                 anyhow::bail!("key requires new_workspace");
             }
-            let result = mux.run_command_result_with_options_as(&actor, 
+            let result = mux.run_command_result_with_options_as(
+                &actor,
                 argv,
                 crate::mux::RunCommandOptions {
                     pane,
@@ -13513,8 +13514,12 @@ fn handle_command_with_cancellation(
                 shell_args,
                 frontend_shell(mux, client),
             )?;
-            let surface =
-                mux.new_tab_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
+            let surface = mux.new_tab_with_options_as(
+                &actor,
+                pane,
+                spawn,
+                optional_surface_size(cols, rows),
+            )?;
             placed_terminal_result(mux, &surface, keep)
         }
         Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, client, params),
@@ -13526,7 +13531,8 @@ fn handle_command_with_cancellation(
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {
-            let surface = mux.new_browser_tab_as(&actor, url, pane, optional_surface_size(cols, rows))?;
+            let surface =
+                mux.new_browser_tab_as(&actor, url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::GetCellPixels => {
@@ -13746,8 +13752,9 @@ fn handle_command_with_cancellation(
                 }))
             } else {
                 let (workspace, key) = resolved?;
-                let created =
-                    mux.create_terminal_result_in_workspace_as(&actor, workspace, argv, cwd, name, size)?;
+                let created = mux.create_terminal_result_in_workspace_as(
+                    &actor, workspace, argv, cwd, name, size,
+                )?;
                 if keep {
                     keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
                 }
@@ -13888,7 +13895,9 @@ fn handle_command_with_cancellation(
                     .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
                     .context("no workspace to reopen the screen group into")?,
             };
-            Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group_as(&actor, &saved, workspace)?))
+            Ok(screen_group_outcome_json(
+                &mux.reopen_saved_screen_group_as(&actor, &saved, workspace)?,
+            ))
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let spawn = placement_spawn_options(
@@ -13898,8 +13907,12 @@ fn handle_command_with_cancellation(
                 shell_args,
                 frontend_shell(mux, client),
             )?;
-            let surface =
-                mux.new_pane_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
+            let surface = mux.new_pane_with_options_as(
+                &actor,
+                pane,
+                spawn,
+                optional_surface_size(cols, rows),
+            )?;
             placed_terminal_result(mux, &surface, keep)
         }
         Command::NewPaneRight(params) => split_kind::new_pane_right(mux, client, params),
@@ -13913,7 +13926,13 @@ fn handle_command_with_cancellation(
             transaction.map_or_else(
                 || mux.set_split_ratio_checked_as(&actor, split, ratio),
                 |transaction| {
-                    mux.set_split_ratio_in_transaction_checked_as(&actor, split, ratio, client, transaction)
+                    mux.set_split_ratio_in_transaction_checked_as(
+                        &actor,
+                        split,
+                        ratio,
+                        client,
+                        transaction,
+                    )
                 },
             )?;
             Ok(json!({}))
@@ -13922,7 +13941,8 @@ fn handle_command_with_cancellation(
             transaction.map_or_else(
                 || mux.set_viewport_pane_width_checked_as(&actor, pane, width),
                 |transaction| {
-                    mux.set_viewport_pane_width_in_transaction_checked_as(&actor, 
+                    mux.set_viewport_pane_width_in_transaction_checked_as(
+                        &actor,
                         pane,
                         width,
                         client,
@@ -14070,7 +14090,8 @@ fn handle_command_with_cancellation(
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
-            let workspace = mux.move_tab_to_new_workspace_as(&actor, surface, group.clone(), index, name)?;
+            let workspace =
+                mux.move_tab_to_new_workspace_as(&actor, surface, group.clone(), index, name)?;
             mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
             let (key, workspace_index) = mux
                 .with_state(|state| {
@@ -14100,7 +14121,8 @@ fn handle_command_with_cancellation(
                 anyhow::bail!("unknown surface/pane");
             }
             let index = mux.pinned_tab_move_index(surface, pane, index);
-            let (moved, undoable) = mux.move_tab_with_undo_as(&actor, surface, pane, index, transaction);
+            let (moved, undoable) =
+                mux.move_tab_with_undo_as(&actor, surface, pane, index, transaction);
             Ok(json!({"moved": moved, "undoable": undoable}))
         }
         Command::ListTabGroups => {
@@ -14229,7 +14251,8 @@ fn handle_command_with_cancellation(
         Command::ReopenSavedTabGroup { saved, pane, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             let pane = resolve_pane_ref(mux, &pane)?;
-            let outcome = mux.reopen_saved_tab_group_as(&actor, &saved, pane, transaction.as_deref())?;
+            let outcome =
+                mux.reopen_saved_tab_group_as(&actor, &saved, pane, transaction.as_deref())?;
             Ok(tab_group_outcome_json(&outcome))
         }
         Command::AckTabNotifications { surface } => {

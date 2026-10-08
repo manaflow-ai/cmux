@@ -277,7 +277,13 @@ impl Mux {
         )
     }
 
-    fn reopen_member(self: &Arc<Self>, actor: &Actor, closed_id: &str, member: &Value, reopened: &mut Reopened) -> anyhow::Result<()> {
+    fn reopen_member(
+        self: &Arc<Self>,
+        actor: &Actor,
+        closed_id: &str,
+        member: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
         match member["kind"].as_str() {
             Some("tab") => self.reopen_closed_tab(actor, member, reopened),
             Some("screen") => self.reopen_closed_screen(actor, member, reopened),
@@ -306,7 +312,13 @@ impl Mux {
 
     /// Restore one tab record into `pane`. `reattach` lets a still-running
     /// terminal get a new view instead of a new process.
-    fn reopen_tab_record(self: &Arc<Self>, actor: &Actor, pane: PaneId, tab: &Value, reattach: bool) -> anyhow::Result<SurfaceId> {
+    fn reopen_tab_record(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: PaneId,
+        tab: &Value,
+        reattach: bool,
+    ) -> anyhow::Result<SurfaceId> {
         let surface = match tab["kind"].as_str() {
             Some("browser") if tab.get("conversation").is_some_and(|value| !value.is_null()) => {
                 let record = ConversationTabRecord::from_wire(&tab["conversation"])
@@ -318,7 +330,8 @@ impl Mux {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
                     Some(engine) => {
-                        self.new_frontend_browser_tab_as(actor, 
+                        self.new_frontend_browser_tab_as(
+                            actor,
                             Some(pane),
                             crate::workspace_registry::FrontendBrowserRecord {
                                 engine: engine.to_string(),
@@ -360,7 +373,12 @@ impl Mux {
     }
 
     /// The recorded name and pin of a reopened tab.
-    fn restore_tab_details(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, tab: &Value) -> anyhow::Result<()> {
+    fn restore_tab_details(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        tab: &Value,
+    ) -> anyhow::Result<()> {
         if let Some(name) = tab["name"].as_str() {
             self.rename_surface_as(actor, surface, name.to_string());
         }
@@ -374,7 +392,12 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_tab(self: &Arc<Self>, actor: &Actor, record: &Value, reopened: &mut Reopened) -> anyhow::Result<()> {
+    fn reopen_closed_tab(
+        self: &Arc<Self>,
+        actor: &Actor,
+        record: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
         let tab = &record["screens"][0]["tabs"][0];
         let pane = self.with_state(|state| {
             record["pane_id"]
@@ -416,7 +439,13 @@ impl Mux {
     /// tab is always the LAST tab of its pane (new tabs and reattached
     /// views append), so `move_tab`'s insertion index equals the recorded
     /// index (it only subtracts one for an index past the old position).
-    fn restore_tab_index(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, record: &Value, tab: &Value)  {
+    fn restore_tab_index(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        record: &Value,
+        tab: &Value,
+    ) {
         if tab["pinned"].as_bool() == Some(true) {
             return;
         }
@@ -437,7 +466,13 @@ impl Mux {
     /// Fill a fresh screen whose first terminal tab `first` already exists.
     /// The first terminal record reuses it (it started in that record's
     /// directory); every other record becomes a new tab in order.
-    fn fill_screen(self: &Arc<Self>, actor: &Actor, first: SurfaceId, screen: &Value, reopened: &mut Reopened) -> anyhow::Result<()> {
+    fn fill_screen(
+        self: &Arc<Self>,
+        actor: &Actor,
+        first: SurfaceId,
+        screen: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
         let pane =
             self.with_state(|state| state.pane_of(first)).context("new screen has no pane")?;
         let (workspace, screen_id) = self.public_screen_of_pane(pane)?;
@@ -478,7 +513,12 @@ impl Mux {
             .map(str::to_string)
     }
 
-    fn reopen_closed_screen(self: &Arc<Self>, actor: &Actor, record: &Value, reopened: &mut Reopened) -> anyhow::Result<()> {
+    fn reopen_closed_screen(
+        self: &Arc<Self>,
+        actor: &Actor,
+        record: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
         let screen = &record["screens"][0];
         let workspace = record["workspace_id"].as_str().and_then(|workspace| {
             self.with_state(|state| {
@@ -490,15 +530,23 @@ impl Mux {
             })
         });
         let first = match workspace {
-            Some(workspace) => {
-                self.new_screen_with_cwd_as(actor, Some(workspace), Self::first_terminal_cwd(screen), None)?
-            }
+            Some(workspace) => self.new_screen_with_cwd_as(
+                actor,
+                Some(workspace),
+                Self::first_terminal_cwd(screen),
+                None,
+            )?,
             None => self.new_workspace_as(actor, None, None)?,
         };
         self.fill_screen(actor, first.id, screen, reopened)
     }
 
-    fn reopen_closed_workspace(self: &Arc<Self>, actor: &Actor, record: &Value, reopened: &mut Reopened) -> anyhow::Result<()> {
+    fn reopen_closed_workspace(
+        self: &Arc<Self>,
+        actor: &Actor,
+        record: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
         let screens = record["screens"].as_array().cloned().unwrap_or_default();
         let name = record["name"].as_str().map(str::to_string);
         let first = self.new_workspace_as(actor, name, None)?;
@@ -515,7 +563,12 @@ impl Mux {
             let surface = if index == 0 {
                 first.clone()
             } else {
-                self.new_screen_with_cwd_as(actor, Some(workspace), Self::first_terminal_cwd(screen), None)?
+                self.new_screen_with_cwd_as(
+                    actor,
+                    Some(workspace),
+                    Self::first_terminal_cwd(screen),
+                    None,
+                )?
             };
             self.fill_screen(actor, surface.id, screen, reopened)?;
         }

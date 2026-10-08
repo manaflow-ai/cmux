@@ -207,7 +207,7 @@ fn send_legacy(mux: &Arc<Mux>, conn: &Conn, request: &Value) -> Value {
         &conn.writer,
         &conn.scheduler
     ));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some(message) = conn.outbound.try_pop() {
             let reply: Value = serde_json::from_str(&message).unwrap();
@@ -216,8 +216,8 @@ fn send_legacy(mux: &Arc<Mux>, conn: &Conn, request: &Value) -> Value {
             }
             continue;
         }
-        assert!(std::time::Instant::now() < deadline, "no reply to {request}");
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(Instant::now() < deadline, "no reply to {request}");
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -232,7 +232,8 @@ fn a_legacy_topology_command_records_its_connection_actor() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(newest_legacy_actor(&mux).as_deref(), Some("user:user_local"));
     let websocket = connect_websocket(&mux);
-    let reply = send_legacy(&mux, &websocket, &json!({"id": 2, "cmd": "new-workspace", "name": "b"}));
+    let reply =
+        send_legacy(&mux, &websocket, &json!({"id": 2, "cmd": "new-workspace", "name": "b"}));
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(newest_legacy_actor(&mux).as_deref(), Some("peer:websocket"));
 }

@@ -138,7 +138,13 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(conversation, owner, agent_session, page)?;
-    let outcome = mux.new_conversation_tab_as(&super::origin_gate::connection_actor(mux, client), target, record.clone(), mutation.as_ref(), size)?;
+    let outcome = mux.new_conversation_tab_as(
+        &super::origin_gate::connection_actor(mux, client),
+        target,
+        record.clone(),
+        mutation.as_ref(),
+        size,
+    )?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);

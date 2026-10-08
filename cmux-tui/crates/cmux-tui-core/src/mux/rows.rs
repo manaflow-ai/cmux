@@ -8,8 +8,8 @@
 //! (`LayoutOpKind::SetRowHeights`) on the model of the live state, then
 //! commits like `set-column-dock` and records one layout-undo entry.
 
-use crate::Actor;
 use super::*;
+use crate::Actor;
 use crate::model::{LayoutMutationKey, LayoutResizeOwner, ROW_HEIGHT_PERMILLE};
 use cmux_layout_reducer::{LayoutOp, LayoutOpKind, Reject};
 
@@ -152,7 +152,15 @@ impl Mux {
     /// permille below the row of `target`. On a split screen the tree becomes
     /// the first row of one column. The screen's `screen-changed` delta after
     /// the commit echoes `transaction` (mutation-echo).
-    pub fn new_row_with_options_as(self: &Arc<Self>, actor: &Actor, target: PaneId, height: u64, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>, transaction: Option<String>) -> anyhow::Result<Arc<Surface>> {
+    pub fn new_row_with_options_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        height: u64,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+        transaction: Option<String>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let height = checked_height(height)?;
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
@@ -164,7 +172,8 @@ impl Mux {
         ]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation_by(actor, 
+        let commit = self.commit_ordinary_topology_operation_by(
+            actor,
             ResourceOperation::PaneSplit,
             selectors,
             fields,

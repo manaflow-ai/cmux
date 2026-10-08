@@ -6,8 +6,8 @@
 //! snapshot of them, replaced after every commit while the registry lock is
 //! held, so tree serialization never reads SQLite.
 
-use crate::Actor;
 use super::*;
+use crate::Actor;
 use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -802,14 +802,33 @@ impl Mux {
     /// registered durably before the tab commits, under the browser id the
     /// creation then uses, so neither a live daemon nor a restarted one ever
     /// bootstraps a CDP target for it. A failed creation removes the record.
-    pub fn new_frontend_browser_tab_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, record: FrontendBrowserRecord, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
-        self.new_frontend_browser_tab_placed_as(actor, pane, record, size, FrontendTabPlacement::default())
+    pub fn new_frontend_browser_tab_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_placed_as(
+            actor,
+            pane,
+            record,
+            size,
+            FrontendTabPlacement::default(),
+        )
     }
 
     /// [`Mux::new_frontend_browser_tab`] with a [`FrontendTabPlacement`]: a
     /// background tab (`frontend-browser-activate-v1`) and a slot right
     /// after another tab of the pane (`frontend-browser-insert-after-v1`).
-    pub(crate) fn new_frontend_browser_tab_placed_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, record: FrontendBrowserRecord, size: Option<(u16, u16)>, placement: FrontendTabPlacement) -> anyhow::Result<Arc<Surface>> {
+    pub(crate) fn new_frontend_browser_tab_placed_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+        placement: FrontendTabPlacement,
+    ) -> anyhow::Result<Arc<Surface>> {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
         {
