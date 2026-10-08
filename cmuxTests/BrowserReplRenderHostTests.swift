@@ -174,7 +174,9 @@ struct BrowserReplRenderHostTests {
     }
 
     /// A key-window transition must not release a render host while the
-    /// original pane hierarchy is still hidden.
+    /// original pane hierarchy is still hidden. Once the portal reveals that
+    /// hierarchy, its presentability signal releases the host without another
+    /// pane visibility-state transition.
     @Test func renderHostStaysWhenPaneHidesBeforeWindowBecomesKey() async throws {
         let (window, _, panel, paneHost) = try makePane(key: false)
         defer { window.orderOut(nil) }
@@ -196,7 +198,6 @@ struct BrowserReplRenderHostTests {
         #expect(attachment.isMirroringPane)
 
         paneHost.isHidden = false
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         await Task.yield()
 
         #expect(!attachment.isInRenderWindow)

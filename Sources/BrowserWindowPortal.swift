@@ -1317,7 +1317,18 @@ final class WindowBrowserSlotView: NSView {
     nonisolated override var isOpaque: Bool { false }
     nonisolated override var isHidden: Bool {
         didSet {
-            guard isHidden, !oldValue else { return }
+            if !isHidden {
+                guard oldValue, let hostedWebView else { return }
+                // Browser REPL may still own the WebView in its render host
+                // when this retained pane slot becomes visible again. Let its
+                // attachment re-evaluate the shared portal visibility rule.
+                NotificationCenter.default.post(
+                    name: .browserPortalDidBecomePresentable,
+                    object: hostedWebView
+                )
+                return
+            }
+            guard !oldValue else { return }
             clearLinkHoverURLs()
             guard let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
@@ -4078,6 +4089,20 @@ final class WindowBrowserPortal: NSObject {
         )
     }
 
+    /// Reports visibility from the pane container retained by the portal.
+    ///
+    /// The live WebView may be temporarily reparented into an automation
+    /// render window, so its own hierarchy cannot answer whether the original
+    /// pane is ready to receive the view back.
+    func paneHierarchyIsVisible(forWebViewId webViewId: ObjectIdentifier) -> Bool? {
+        guard let entry = entriesByWebViewId[webViewId],
+              let container = entry.containerView else { return nil }
+        return entry.visibleInUI &&
+            !container.isHiddenOrHasHiddenAncestor &&
+            container.superview === hostView &&
+            container.window === window
+    }
+
     func isPresented(
         _ webView: WKWebView,
         webViewId: ObjectIdentifier? = nil
@@ -4415,6 +4440,18 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return nil }
         return portal.debugSnapshot(forWebViewId: webViewId)
+    }
+
+    /// Reports whether the portal-owned pane hierarchy for `webView` is visible.
+    ///
+    /// This remains available while Browser REPL owns the WebView in an
+    /// offscreen render host and is the source of truth for releasing that
+    /// host.
+    static func paneHierarchyIsVisible(for webView: WKWebView) -> Bool? {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.paneHierarchyIsVisible(forWebViewId: webViewId)
     }
 
     static func isPresented(_ webView: WKWebView) -> Bool {

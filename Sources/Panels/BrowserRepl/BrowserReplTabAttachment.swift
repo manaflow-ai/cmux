@@ -134,6 +134,8 @@ final class BrowserReplTabAttachment {
     private weak var occlusionDisabledWebView: WKWebView?
     /// Watches the pane's window becoming key while a mirror stands in for the page.
     private var keyObserver: NSObjectProtocol?
+    /// Watches the portal slot becoming visible while a mirror stands in for the page.
+    private var portalPresentabilityObserver: NSObjectProtocol?
     private var mirrorCaptureInFlight = false
     private var mirrorNeedsCapture = false
 
@@ -386,9 +388,9 @@ final class BrowserReplTabAttachment {
         let shown = panel.isWebViewVisibleInPane
         let paneWindow = renderHostWebView === webView ? renderHost?.paneWindow : webView.window
         // The pane flag can lead the hierarchy while a workspace is changing.
-        // Once a host is active, use its retained pane hierarchy because the
-        // WebView itself now belongs to the render window.
-        let paneHierarchyIsVisible = renderHost?.paneHierarchyIsVisible
+        // The portal owns the original pane container even while the WebView
+        // is temporarily reparented into the render window.
+        let paneHierarchyIsVisible = BrowserWindowPortalRegistry.paneHierarchyIsVisible(for: webView)
             ?? webView.cmuxBrowserViewportAttachmentSuperview.map {
                 !$0.isHiddenOrHasHiddenAncestor
             }
@@ -425,6 +427,13 @@ final class BrowserReplTabAttachment {
             keyObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification,
                 object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.keepRendering() }
+            }
+            portalPresentabilityObserver = NotificationCenter.default.addObserver(
+                forName: .browserPortalDidBecomePresentable,
+                object: webView,
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.keepRendering() }
@@ -492,6 +501,10 @@ final class BrowserReplTabAttachment {
         if let keyObserver {
             NotificationCenter.default.removeObserver(keyObserver)
             self.keyObserver = nil
+        }
+        if let portalPresentabilityObserver {
+            NotificationCenter.default.removeObserver(portalPresentabilityObserver)
+            self.portalPresentabilityObserver = nil
         }
         guard let host = renderHost else { return }
         renderHost = nil

@@ -177,17 +177,6 @@ public final class BrowserOffscreenRenderHost {
     /// The window of the pane that held the page, if it had one.
     public var paneWindow: NSWindow? { previousSuperview?.window }
 
-    /// Whether the pane hierarchy that held the page is currently visible.
-    ///
-    /// The live WebView is in this render host while the host is active, so
-    /// its own hierarchy describes the render window rather than the pane.
-    /// Keep the pane's original superview as the visibility source of truth
-    /// while deciding whether a key-window transition can release the host.
-    public var paneHierarchyIsVisible: Bool {
-        guard let previousSuperview else { return false }
-        return !previousSuperview.isHiddenOrHasHiddenAncestor
-    }
-
     /// Feeds the latest streamed frame to the Mac-side mirror shown in the pane.
     public func updateMirror(_ image: NSImage) {
         guard !isFinished else { return }
