@@ -143,7 +143,8 @@ export class FreestyleDriver implements TeamVmDriver {
     if (r.status === 404) throw new DriverError("team_vm.vm_missing", "exec: 404", true)
     if (r.status !== 200) this.fail(r.status, r.json, "exec")
     const code = typeof r.json.statusCode === "number" ? r.json.statusCode : -1
-    return { code, stdout: typeof r.json.stdout === "string" ? r.json.stdout : "" }
+    // Only the last line is read (the proof); a large output is cut to its end.
+    return { code, stdout: typeof r.json.stdout === "string" ? r.json.stdout.slice(-16_384) : "" }
   }
 
   /** GET /v5/vms?limit&offset answers { vms: VmData[], totalCount } (freestyle SDK 0.2.16, ListVmsOptions / ListVmsResult). */

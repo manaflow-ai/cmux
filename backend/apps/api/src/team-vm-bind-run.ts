@@ -33,9 +33,10 @@ const teamOwner = async (env: Env, team: string): Promise<string | null> => {
 }
 
 /**
- * Registers the VM's key as a server install of the team's owner: kind daemon, bound to the team
- * (its tokens name the team), grant read + mutate-own (journal and team reads; never execute,
- * mutate-shared or cloud-link). Keyed by team, epoch and key, so a retried bind gets the same install.
+ * Registers the VM's key as a server install of the team's owner: kind team-vm, bound to the team
+ * (its tokens name the team), grant read + mutate-own, and every entry point refuses it except
+ * the team VM ops (machine-installs.ts). Keyed by team, epoch and key, so a retried bind gets the
+ * same install.
  */
 const registerInstall = async (env: Env, a: { owner: string; team: string; epoch: number; vm: string; jwk: Jwk }): Promise<{ ok: true; id: string } | { ok: false; code: string }> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(a.owner)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<SubmitResult> }
@@ -43,7 +44,7 @@ const registerInstall = async (env: Env, a: { owner: string; team: string; epoch
   const frame = {
     t: "op",
     op: "install.register_server",
-    params: { public_jwk: a.jwk, kind: "daemon", name: "Team VM", device_name: a.vm.slice(0, 80), platform: "linux", op_classes: ["read", "mutate-own"], bound_team: a.team },
+    params: { public_jwk: a.jwk, kind: "team-vm", name: "Team VM", device_name: a.vm.slice(0, 80), platform: "linux", bound_team: a.team },
     idempotency_key: `team-vm-install:${a.team}:${a.epoch}:${a.jwk.x}`,
     origin: "user"
   }
@@ -91,18 +92,26 @@ const revokeStale = async (d: BindDeps, team: string, epoch: number) => {
  */
 export const runTeamVmBind = async (d: BindDeps, at: number = d.now()): Promise<{ bound?: string; error?: string }> => {
   const s = d.state()
-  const driver = bindEnabled(d.env) ? d.driver() : null
-  if (!driver || !s?.team || !s.vm || s.status !== "running") return {}
+  if (!bindEnabled(d.env) || !s?.team) return {}
+  // Earlier epochs' installs are revoked even while no VM runs (a deleted or replaced VM).
+  if (!s.vm || s.status !== "running") {
+    await revokeStale(d, s.team, s.epoch)
+    return {}
+  }
+  const driver = d.driver()
+  if (!driver) return {}
   const { team, epoch, vm } = s
+  // Earlier epochs' installs (a replaced or restored VM's key) lose their grant first; a failed revoke is retried.
+  await revokeStale(d, team, epoch)
   if (s.vm_install) {
     const rec = d.binds.installFor(epoch)
     if (rec && rec.install === s.vm_install && !rec.committed && d.binds.due(epoch, at)) await commit(d, driver, { team, epoch, vm, owner: rec.owner, install: rec.install })
-    await revokeStale(d, team, epoch)
     return {}
   }
   if (!d.binds.due(epoch, at)) return {}
   const fail = (code: string) => {
-    d.binds.failed(epoch, code, d.now())
+    // Replaces the pre-count below: one failed pass is one attempt.
+    d.binds.note(epoch, code, d.now())
     log("team vm bind refused", { team, epoch, vm, code })
     return { error: code }
   }
@@ -138,16 +147,18 @@ export const runTeamVmBind = async (d: BindDeps, at: number = d.now()): Promise<
     await revokeInstall(d.env, { owner, team, install: reg.id, why: "epoch moved during bind" })
     return { error: "team_vm.stale_epoch" }
   }
-  const r = d.submitSystem("team_vm.bind_install", { install: reg.id, epoch }, `bind_install:${epoch}:${reg.id}`)
+  const r = d.submitSystem("team_vm.bind_install", { install: reg.id, epoch, vm }, `bind_install:${epoch}:${reg.id}`)
   const reply = r.frames.find((f) => f.t === "result" || f.t === "reject")
-  if (!reply || reply.t !== "result") {
+  if (!reply) return fail("owner.unreachable")
+  if (reply.t !== "result") {
+    // An explicit refusal (another epoch or another install bound): this install never speaks for the VM.
+    // An unknown outcome is retried with the same key instead, so it reuses this live install.
     await revokeInstall(d.env, { owner, team, install: reg.id, why: "bind_install refused" })
-    return fail(reply && reply.t === "reject" ? reply.code : "owner.unreachable")
+    return fail(reply.t === "reject" ? reply.code : "owner.unreachable")
   }
   d.binds.recordInstall(epoch, reg.id, owner)
   log("team vm bound", { team, epoch, vm, install: reg.id })
   await commit(d, driver, { team, epoch, vm, owner, install: reg.id })
-  await revokeStale(d, team, epoch)
   return { bound: reg.id }
 }
 
@@ -178,7 +189,10 @@ export class BindRunner {
 
   /** The next retry while the running VM's epoch is unbound or its commit has not landed. */
   wakeAt(state: TeamVmState): number | null {
-    if (!bindEnabled(this.deps.env) || !state.vm || state.status !== "running") return null
+    if (!bindEnabled(this.deps.env)) return null
+    // A stale install whose revoke failed is retried even when no VM runs.
+    if (this.binds.staleInstalls(state.epoch).length > 0) return this.binds.nextRetry(state.epoch) ?? Date.now() + 60_000
+    if (!state.vm || state.status !== "running") return null
     if (state.vm_install && this.binds.installFor(state.epoch)?.committed !== false) return null
     return this.binds.nextRetry(state.epoch)
   }

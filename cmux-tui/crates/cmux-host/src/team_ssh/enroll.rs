@@ -70,10 +70,27 @@ fn read_json<T: for<'de> Deserialize<'de>>(paths: &Paths, file: &str) -> Option<
     serde_json::from_str(&text).ok()
 }
 
+/// The state directory must belong to this process's user and be writable
+/// by no one else, so no other user can swap the files root writes.
+fn private_dir(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        // SAFETY: geteuid has no preconditions.
+        let me = unsafe { libc::geteuid() };
+        if !meta.is_dir() || meta.uid() != me || meta.mode() & 0o022 != 0 {
+            return Err(format!("{} is not a private directory of this user", dir.display()));
+        }
+    }
+    Ok(())
+}
+
 fn write_json(paths: &Paths, file: &str, value: &impl Serialize) -> Result<(), String> {
     let path = paths.at(file);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        private_dir(dir)?;
     }
     let text = serde_json::to_vec(value).map_err(|e| e.to_string())?;
     write_atomic(&path, &text, 0o600).map_err(|e| format!("{file}: {e}"))

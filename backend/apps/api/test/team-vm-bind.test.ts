@@ -1,7 +1,9 @@
 import { env } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import { decodeJwt } from "jose"
+import type { Principal, ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
+import { teamVmDomain } from "../src/domains/team-vm.ts"
 import { bindMessage, checkProof, commitCommand, enrollCommand, NONCE_TTL_MS, parseProof, TeamVmBinds } from "../src/team-vm-bind.ts"
 import type { FakeGuestMode } from "../src/team-vm-fake-guest.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
@@ -64,6 +66,14 @@ describe("team VM bind commands and proofs", () => {
     expect(parseProof("not json")).toBeNull()
   })
 
+  it("team_vm.bind_install refuses a bind that names another VM of the epoch", () => {
+    const sys: Principal = { identity: "system:team_vm", kind: "system" }
+    const ctx = (now: number): ReduceContext => ({ principal: sys, now, tx: `tx${now}`, newId: (x) => `${x}_${now}` })
+    const s = { ...teamVmDomain.initial(), team: "team_t", vm: "vm-a", epoch: 1, status: "running" as const }
+    expect(teamVmDomain.reduce(s, "team_vm.bind_install", { install: "inst_00000000000000000001", epoch: 1, vm: "vm-b" }, ctx(1))).toMatchObject({ ok: false, code: "team_vm.stale_epoch" })
+    expect(teamVmDomain.reduce(s, "team_vm.bind_install", { install: "inst_00000000000000000001", epoch: 1, vm: "vm-a" }, ctx(2))).toMatchObject({ ok: true })
+  })
+
   it("a nonce is single use, bound to its epoch and VM, and expires", async () => {
     const stub = ns.get(ns.idFromName("team_00000000000000000990"))
     await runInDurableObject(stub, async (i) => {
@@ -116,7 +126,12 @@ describe("TeamVmDO binds its VM through the provider exec", { timeout: 60_000 },
     // The bound install is the journal writer; the grant never reaches execute (no SSH certificates).
     expect((await post("/v1/read", t.token!, { op: "team_vm.journal.high_water", params: { stream: "tasks" } })).body).toMatchObject({ value: { stream: "tasks" } })
     const cert = await op(t.token!, "team_vm.ssh_cert", { public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOvKqkQ2yW6t8mTq3xH2b9cT0v5e3dPpYk1uZzQwYk1u x", class: "agent" })
-    expect(cert.body).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
+    expect(JSON.stringify(cert.body)).toContain("auth.forbidden")
+    // A team-vm install is not its owner's client: no owner reads, no other team or user ops, no socket.
+    for (const [path, name] of [["/v1/read", "install.list"], ["/v1/read", "team.directory"], ["/v1/ops", "team_vm.ensure_awake"], ["/v1/ops", "user.ensure"]] as const) {
+      const r = path === "/v1/read" ? await post(path, t.token!, { op: name, params: {} }) : await op(t.token!, name, { reason: "x" })
+      expect(r.status, `${name}: ${JSON.stringify(r.body)}`).toBe(403)
+    }
   })
 
   for (const [mode, code] of [

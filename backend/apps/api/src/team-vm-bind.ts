@@ -141,6 +141,12 @@ export class TeamVmBinds {
     this.sql.exec(`INSERT OR REPLACE INTO team_vm_bind_attempt (epoch, attempts, retry_at, last_error) VALUES (?, ?, ?, ?)`, epoch, attempts, now + bindRetryMs(attempts), code)
   }
 
+  /** Records the outcome of the pass the pre-count already counted (no second attempt). */
+  note(epoch: number, code: string, now: number): void {
+    const attempts = this.sql.exec<{ attempts: number }>(`SELECT attempts FROM team_vm_bind_attempt WHERE epoch = ?`, epoch)[0]?.attempts ?? 1
+    this.sql.exec(`INSERT OR REPLACE INTO team_vm_bind_attempt (epoch, attempts, retry_at, last_error) VALUES (?, ?, ?, ?)`, epoch, attempts, now + bindRetryMs(attempts), code)
+  }
+
   lastError(epoch: number): string | null {
     return this.sql.exec<{ last_error: string | null }>(`SELECT last_error FROM team_vm_bind_attempt WHERE epoch = ?`, epoch)[0]?.last_error ?? null
   }

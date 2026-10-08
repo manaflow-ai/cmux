@@ -85,3 +85,16 @@ fn commit_lands_only_for_the_last_enroll_of_this_clone_and_its_env_origin() {
     assert_eq!(load_bound(&paths, "vm-abc"), Some(team_bound("vm-abc", 3)));
     assert_eq!(load_bound(&paths, "vm-fork"), None, "a fork does not inherit the binding");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_group_or_world_writable_state_dir_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_d, paths) = root();
+    let dir = paths.at("/var/lib/cmux");
+    fs::create_dir_all(&dir).expect("dir");
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).expect("chmod");
+    assert!(enroll(&paths, "vm-abc", "team_t", 3, "nonce_1").is_err());
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert!(enroll(&paths, "vm-abc", "team_t", 3, "nonce_1").is_ok());
+}
