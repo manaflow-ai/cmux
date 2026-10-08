@@ -37,14 +37,7 @@ input {
   color: inherit;
 }
 
-.page-menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-}
-
 .page-menu {
-  position: fixed;
   min-width: 180px;
   max-width: 280px;
   padding: 4px;
@@ -66,7 +59,8 @@ input {
   cursor: default;
 }
 
-.page-menu-item.active:not(:disabled) {
+.page-menu-item.active:not(:disabled),
+.page-menu-item[data-highlighted]:not(:disabled) {
   background: var(--page-selection);
 }
 

@@ -1,7 +1,9 @@
-// A small anchored menu for page context menus and header menus. It draws in the page (engine
-// neutral: WebKit, CEF and a plain browser), closes on a click outside (a transparent backdrop, no
-// document listeners) and on Escape, and takes focus so Up/Down/Return work. No Cmd/Ctrl chords.
-import { useState, type KeyboardEvent } from "react";
+// A point-anchored context menu for page surfaces. Base UI owns the menu
+// semantics, keyboard navigation, dismissal and focus restoration; this adapter
+// only supplies the pointer location and page-specific actions.
+import { useMemo, useRef } from "react";
+import { Menu as BaseMenu } from "@base-ui/react/menu";
+import { usePortalContainer } from "../../ui/UiProvider";
 
 export interface PageMenuItem {
   id: string;
@@ -17,60 +19,78 @@ export interface PageMenuProps {
   y: number;
   items: PageMenuItem[];
   onClose: () => void;
+  /** The row or button that opened the menu, restored on Escape or dismissal. */
+  returnFocus?: HTMLElement | null;
 }
 
-export function PageMenu({ x, y, items, onClose }: PageMenuProps) {
-  const enabled = items.filter((item) => !item.disabled);
-  const [active, setActive] = useState(0);
-  const run = (item: PageMenuItem | undefined) => {
-    if (!item || item.disabled) return;
+export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
+  const container = usePortalContainer();
+  const opener = useRef<HTMLElement | null>(returnFocus ?? null);
+  const anchor = useMemo(
+    () => ({
+      getBoundingClientRect: () => ({
+        x,
+        y,
+        left: x,
+        top: y,
+        right: x,
+        bottom: y,
+        width: 0,
+        height: 0,
+        toJSON: () => ({}),
+      }),
+    }),
+    [x, y],
+  );
+
+  return (
+    <BaseMenu.Root
+      open
+      modal={false}
+      loopFocus
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <BaseMenu.Portal container={container}>
+        <BaseMenu.Positioner
+          className="page-menu-positioner"
+          anchor={anchor}
+          positionMethod="fixed"
+          side="bottom"
+          align="start"
+          sideOffset={0}
+        >
+          <BaseMenu.Popup className="page-menu" finalFocus={() => opener.current}>
+            {items.map((item) => (
+              <PageMenuRow key={item.id} item={item} onClose={onClose} />
+            ))}
+          </BaseMenu.Popup>
+        </BaseMenu.Positioner>
+      </BaseMenu.Portal>
+    </BaseMenu.Root>
+  );
+}
+
+function PageMenuRow({ item, onClose }: { item: PageMenuItem; onClose: () => void }) {
+  const run = () => {
+    if (item.disabled) return;
     onClose();
     item.run();
   };
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.key === "Escape") onClose();
-    else if (event.key === "ArrowDown") setActive((index) => Math.min(enabled.length - 1, index + 1));
-    else if (event.key === "ArrowUp") setActive((index) => Math.max(0, index - 1));
-    else if (event.key === "Enter" || event.key === " ") run(enabled[active]);
-    else return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  // Keep the menu inside the viewport.
-  const left = Math.max(4, Math.min(x, window.innerWidth - 240));
-  const top = Math.max(4, Math.min(y, window.innerHeight - (items.length * 24 + 12)));
+
   return (
-    <div
-      className="page-menu-backdrop"
-      onPointerDown={onClose}
-      onContextMenu={(event) => (event.preventDefault(), onClose())}
-    >
-      <div
-        className="page-menu"
-        role="menu"
-        tabIndex={-1}
-        style={{ left, top }}
-        ref={(node) => node?.focus()}
-        onKeyDown={onKeyDown}
-        onPointerDown={(event) => event.stopPropagation()}
+    <div role="none">
+      {item.separatorBefore ? <hr className="page-menu-separator" /> : null}
+      <BaseMenu.Item
+        className={(state) =>
+          `page-menu-item${state.highlighted ? " active" : ""}${item.destructive ? " destructive" : ""}`
+        }
+        disabled={item.disabled}
+        onClick={run}
       >
-        {items.map((item) => (
-          <div key={item.id} role="none">
-            {item.separatorBefore && <hr className="page-menu-separator" />}
-            <button
-              type="button"
-              role="menuitem"
-              className={`page-menu-item${item.destructive ? " destructive" : ""}${enabled[active] === item ? " active" : ""}`}
-              disabled={item.disabled}
-              onPointerEnter={() => setActive(Math.max(0, enabled.indexOf(item)))}
-              onClick={() => run(item)}
-            >
-              {item.label}
-            </button>
-          </div>
-        ))}
-      </div>
+        {item.label}
+      </BaseMenu.Item>
     </div>
   );
 }
