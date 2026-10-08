@@ -139,17 +139,32 @@ const canonical = (groups: ReadonlyArray<number>): string => {
  * A device's published public IPv6 address in canonical form, or null. Only
  * one global unicast address (2000::/3) is accepted, never a prefix, zone or
  * IPv4 form, and not the shared transition ranges whose one address stands
- * for many hosts (Teredo 2001::/32, 6to4 2002::/16) or documentation
- * (2001:db8::/32): the rule opens a VM port to exactly one device.
+ * for many hosts (2001::/23 with Teredo, 6to4 2002::/16) or documentation
+ * (2001:db8::/32, 3fff::/20): the rule opens a VM port to exactly one device.
  */
 export const parseDeviceIpv6 = (text: string): string | null => {
   const groups = hextets(text.toLowerCase());
   if (groups === null) return null;
   const [first = 0, second = 0] = groups;
   if ((first & 0xe000) !== 0x2000) return null;
-  if (first === 0x2001 && (second === 0x0000 || second === 0x0db8)) return null;
+  // 2001::/23 (IETF protocol assignments: Teredo, ORCHID, AMT, benchmarking) and 2001:db8::/32 (documentation).
+  if (first === 0x2001 && (second < 0x0200 || second === 0x0db8)) return null;
   if (first === 0x2002) return null;
+  // 3fff::/20 (documentation, RFC 9637).
+  if (first === 0x3fff && second < 0x1000) return null;
   return canonical(groups);
+};
+
+/**
+ * True when `source` (the address a request came from) is IPv6 and `address`
+ * lies outside its /64. False for an IPv4 or unparsable source: the address
+ * cannot be checked against it. Anycast addresses cannot be detected at all.
+ */
+export const outsideSourceSlash64 = (address: string, source: string): boolean => {
+  const from = hextets(source.trim().toLowerCase());
+  const published = hextets(address);
+  if (from === null || published === null) return false;
+  return from.slice(0, 4).some((group, index) => group !== published[index]);
 };
 
 const expand = (selectors: ReadonlyArray<string>, wildcard: string, prefix: string, members: ReadonlyArray<string>, side: string) => {
@@ -169,6 +184,7 @@ const expand = (selectors: ReadonlyArray<string>, wildcard: string, prefix: stri
 
 export const compileAcl = (input: CompileInput): CompileResult => {
   const byKey = new Map<string, DesiredRule>();
+  const byAddressKey = new Map<string, DesiredRule>();
   for (const [index, rule] of input.document.rules.entries()) {
     const sources = expand(rule.src, "device:*", "dev_", input.deviceIds, `rules[${index}].src`);
     if (!sources.ok) return { ok: false, reason: "invalid", message: sources.message };
@@ -190,12 +206,13 @@ export const compileAcl = (input: CompileInput): CompileResult => {
         if (address !== undefined && specs.length > 0) {
           const cidr = `${address}/128`;
           const key = addressRuleKey(deviceId, vmId, cidr);
-          byKey.set(key, { key, deviceId, vmId, protocol: "udp", port: ADDRESS_RULE_PORT, cidr });
+          byAddressKey.set(key, { key, deviceId, vmId, protocol: "udp", port: ADDRESS_RULE_PORT, cidr });
         }
       }
     }
   }
-  const rules = [...byKey.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const byRuleKey = (a: DesiredRule, b: DesiredRule) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  const rules = [...byKey.values()].sort(byRuleKey);
   const perResource = new Map<string, number>();
   for (const rule of rules) {
     perResource.set(rule.deviceId, (perResource.get(rule.deviceId) ?? 0) + 1);
@@ -220,7 +237,19 @@ export const compileAcl = (input: CompileInput): CompileResult => {
       message: `This policy compiles to ${rules.length} firewall rules; the mesh limit is ${input.rulesPerMesh}`,
     };
   }
-  return { ok: true, rules };
+  // Address rules come last and only into the room the policy left: a device's published address never makes an
+  // admin's policy, an enroll or a VM join fail its budget. A rule that does not fit is left out (that device uses
+  // its tunnel to that VM). The VM carries the rule; the tunnel does not, so only the VM's count grows.
+  let total = rules.length;
+  const withAddresses = [...rules];
+  for (const rule of [...byAddressKey.values()].sort(byRuleKey)) {
+    const onVm = perResource.get(rule.vmId) ?? 0;
+    if (onVm >= input.rulesPerResource || total >= input.rulesPerMesh) continue;
+    perResource.set(rule.vmId, onVm + 1);
+    total += 1;
+    withAddresses.push(rule);
+  }
+  return { ok: true, rules: withAddresses.sort(byRuleKey) };
 };
 
 /** Splits current rules (by key) against desired ones: create these, then delete those. */

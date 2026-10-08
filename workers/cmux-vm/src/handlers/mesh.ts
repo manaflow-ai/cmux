@@ -8,7 +8,7 @@
  * rules are created from two SameMesh proofs and deleted only with an
  * OwnedMeshRule proof, new rules before old ones (DESIGN.md 4.3).
  */
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Duration, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
@@ -49,7 +49,7 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { compileAcl, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { compileAcl, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
@@ -295,8 +295,15 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
                   createdAt: at,
                 })
                 .pipe(
-                  // Unrecorded, the rule could never be deleted by the ACL: it is logged by mesh id for the operator.
-                  Effect.tapError(() => logEvent("mesh_rule_record_failed", { meshId: mesh.value, ruleKey: rule.key })),
+                  // Unrecorded, the rule could never be deleted by the ACL. A tunnel rule still goes with its tunnel and is
+                  // logged for the operator; an address rule names no tunnel, so it is deleted here at once.
+                  Effect.tapError(() =>
+                    rule.cidr === null
+                      ? logEvent("mesh_rule_record_failed", { meshId: mesh.value, ruleKey: rule.key })
+                      : upstream.discardCreatedRule(created).pipe(
+                          Effect.catchAll(() => logEvent("mesh_address_rule_discard_failed", { meshId: mesh.value, ruleKey: rule.key })),
+                        ),
+                  ),
                   Effect.catchAll(dependencyDown("mesh.recordRule")),
                 );
             }),
@@ -411,22 +418,31 @@ const closeDevice = <C, D>(
       Effect.catchIf((error) => error.status === 404, () => Effect.void),
       Effect.mapError(() => unavailable()),
     );
-    // Address rules name a cidr, not the tunnel, so the tunnel delete leaves them: delete them by their recorded ids.
+    // Address rules name a cidr, not the tunnel, so the tunnel delete leaves them: delete them by their recorded ids,
+    // as the mesh's writer, so a publish that is creating one finishes (and records it) first. The rules are listed
+    // before the device row is marked deleted (the proof needs a live device), and the row is marked inside the lock,
+    // so a publish that waits for the lock finds no live device afterwards. The tunnel is already gone above, so a
+    // revocation never waits for this lock to end access through the tunnel.
     const parsedMesh = parseMeshId(row.meshId);
     if (Option.isSome(parsedMesh)) {
       yield* name(parsedMesh.value, (mesh) =>
-        Effect.gen(function* () {
-          const addressRules = yield* ownedDeviceAddressRules(caller, mesh, proofs.owns, device).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-          yield* Effect.forEach(
-            addressRules,
-            (rule) =>
-              upstream.deleteRule(rule).pipe(
-                Effect.catchIf((error) => error.status === 404, () => Effect.void),
-                Effect.mapError(() => unavailable()),
-              ),
-            { concurrency: 8, discard: true },
-          );
-        }),
+        withMeshWriter(
+          tenantId,
+          mesh.value,
+          Effect.gen(function* () {
+            const addressRules = yield* ownedDeviceAddressRules(caller, mesh, proofs.owns, device).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
+            yield* store.markDeviceDeleted(tenantId, device.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markDeviceDeleted")));
+            yield* Effect.forEach(
+              addressRules,
+              (rule) =>
+                upstream.deleteRule(rule).pipe(
+                  Effect.catchIf((error) => error.status === 404, () => Effect.void),
+                  Effect.mapError(() => unavailable()),
+                ),
+              { concurrency: 8, discard: true },
+            );
+          }),
+        ),
       );
     }
     const at = yield* now;
@@ -1260,6 +1276,13 @@ export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", 
         if (payload.publicIpv6 !== null && address === null) {
           return yield* Effect.fail(new BadRequest({ message: "publicIpv6 must be one global unicast IPv6 address (no prefix, zone or IPv4 form), or null" }));
         }
+        // The server cannot prove the device owns the address, but a request that came over IPv6 must come from the
+        // published address's /64 (Cloudflare sets cf-connecting-ip to the client address).
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const source = request.headers["cf-connecting-ip"];
+        if (address !== null && source !== undefined && outsideSourceSlash64(address, source)) {
+          return yield* Effect.fail(new BadRequest({ message: "publicIpv6 must be in the /64 this request came from" }));
+        }
         return yield* withSignedDevice(
           path.deviceId,
           { purpose: "address", wgPublicKey: "", name: payload.publicIpv6 ?? "", signedAt: payload.signedAt, nonce: payload.nonce, signature: payload.signature },
@@ -1282,6 +1305,24 @@ const publishAddress = <C, D>(caller: Named<C, Principal>, device: Named<D, Devi
     const tenantId = caller.value.tenantId;
     const parsedMesh = parseMeshId(row.meshId);
     if (Option.isNone(parsedMesh)) return yield* Effect.fail(experimentOff());
+    const store = yield* MeshStore;
+    const config = yield* MeshConfig;
+    const stored = yield* store.getDeviceAddress(tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDeviceAddress")));
+    if (Option.isNone(stored)) return yield* Effect.fail(experimentOff());
+    // Unchanged: its rules were applied when it was set (a failed apply put the previous address back), and every
+    // later ACL, device or VM change reconciles them, so nothing to do and no lock to take.
+    if (stored.value.publicIpv6 === address) return new DeviceAddress({ deviceId: DeviceId_(device.value), publicIpv6: address });
+    // Each change reconciles the whole mesh under its writer lock: one device may change its address once per interval.
+    const sinceMs = (yield* Clock.currentTimeMillis) - (stored.value.at?.getTime() ?? 0);
+    if (stored.value.at !== null && sinceMs < config.budgets.addressChangeIntervalMs) {
+      return yield* Effect.fail(
+        new QuotaExceeded({
+          message: "This device changed its address too recently; retry later",
+          retryAfterSeconds: Math.max(1, Math.ceil((config.budgets.addressChangeIntervalMs - sinceMs) / 1000)),
+          budget: "address.perDevice",
+        }),
+      );
+    }
     // The device's signature allows it only itself; the mesh's own reconcile acts for the device's owner, as a revocation does.
     const owner: Principal = { ...caller.value, scopes: new Set<Scope>(["mesh:join", "mesh:read", "mesh:write"]), resourceAllowlist: null };
     return yield* name(owner, parsedMesh.value, (ownerCaller, mesh) =>
@@ -1289,7 +1330,6 @@ const publishAddress = <C, D>(caller: Named<C, Principal>, device: Named<D, Devi
         tenantId,
         mesh.value,
         Effect.gen(function* () {
-          const store = yield* MeshStore;
           const ownsMesh = yield* tenantOwnsMesh(ownerCaller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
           if (ownsMesh === null) return yield* Effect.fail(experimentOff());
           const previous = (yield* store.deviceAddresses(tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")))).get(device.value) ?? null;

@@ -423,6 +423,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
       .addError(QuotaExceeded)
+      .addError(Conflict)
       .annotateContext(describe("Remove a device and its tunnel", "mesh:join", `Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(

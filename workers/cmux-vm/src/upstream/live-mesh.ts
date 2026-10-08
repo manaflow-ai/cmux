@@ -14,7 +14,7 @@ import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { upstreamName } from "./naming.ts";
-import { type CreatedNetwork, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
+import { type CreatedNetwork, type CreatedRule, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
 
 const NetworkBody = Schema.Struct({ id: UpstreamId, cidr: Schema.optional(Schema.NullOr(Schema.String)) });
 
@@ -105,6 +105,7 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
     Effect.map(resolveEndpoint(send, info.endpointHost), (endpointHost): TunnelInfo => ({ ...info, endpointHost }));
   const networks = new WeakSet<CreatedNetwork>();
   const tunnels = new WeakSet<CreatedTunnel>();
+  const createdRules = new WeakSet<CreatedRule>();
 
   const deleteTunnelById = (operation: string, id: string) =>
     http.json(operation, "DELETE", `/v5/tunnels/${path(id)}`).pipe(Effect.asVoid);
@@ -203,9 +204,17 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
         })
         .pipe(
           Effect.flatMap(decodeAs(RuleBody, "createRule")),
-          Effect.map((body) => ({ upstreamRuleId: body.id })),
+          Effect.map((body) => {
+            const created: CreatedRule = Object.freeze({ upstreamRuleId: body.id });
+            createdRules.add(created);
+            return created;
+          }),
         ),
     deleteRule: (rule) => http.json("deleteRule", "DELETE", `/v5/firewall/rules/${path(ruleIdOf(rule))}`).pipe(Effect.asVoid),
+    discardCreatedRule: (created) =>
+      createdRules.has(created)
+        ? http.json("discardCreatedRule", "DELETE", `/v5/firewall/rules/${path(created.upstreamRuleId)}`).pipe(Effect.asVoid)
+        : Effect.fail(new UpstreamError({ operation: "discardCreatedRule", status: null })),
   };
 }
 

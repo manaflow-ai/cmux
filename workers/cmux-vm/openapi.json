@@ -4110,6 +4110,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
           "429": {
             "description": "QuotaExceeded",
             "content": {
@@ -6179,7 +6189,8 @@
               "firewallRule.perResource",
               "firewallRule.account",
               "aclApply.perMeshPerMinute",
-              "enrollmentCode.perMeshPerHour"
+              "enrollmentCode.perMeshPerHour",
+              "address.perDevice"
             ]
           },
           "_tag": {

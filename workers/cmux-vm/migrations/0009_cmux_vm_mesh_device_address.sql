@@ -13,17 +13,18 @@
 -- Until it is applied the schema gate answers 503 on every route but
 -- /healthz (src/db/schema-check.ts names cmux_vm.mesh_devices.public_ipv6).
 --
--- Rollback (in one transaction; deletes every published address, and the
--- Worker build that needs 0009 must be rolled back first or it answers 503):
+-- Rollback. First, under the build that has 0009, clear every published
+-- address (UPDATE ... SET public_ipv6 = NULL) and re-apply each affected
+-- mesh's ACL, so its address rules are deleted at the provider. If that is
+-- not possible, delete at the provider, by exact id, the upstream_rule_id of
+-- every cmux_vm.mesh_firewall_rules row whose rule_key contains ':from:',
+-- including rows with deleted_at set. Then roll back the Worker build that
+-- needs 0009 (it answers 503 without these columns), then in one transaction:
 --   ALTER TABLE cmux_vm.mesh_devices DROP COLUMN IF EXISTS public_ipv6, DROP COLUMN IF EXISTS public_ipv6_at;
 --   DELETE FROM cmux_vm.mesh_signed_requests WHERE purpose = 'address';
 --   ALTER TABLE cmux_vm.mesh_signed_requests DROP CONSTRAINT IF EXISTS mesh_signed_requests_purpose_check;
 --   ALTER TABLE cmux_vm.mesh_signed_requests ADD CONSTRAINT mesh_signed_requests_purpose_check
 --     CHECK (purpose IN ('enroll', 'rotate-key', 'peers', 'tunnel'));
--- Address rules already created at the provider stay until the next reconcile
--- of their mesh under the rolled-back build; that build does not know them as
--- address rules, so delete them by exact id from cmux_vm.mesh_firewall_rules
--- rows whose rule_key contains ':from:' first.
 
 -- The device's current global unicast IPv6 address, canonical text (the
 -- Worker parses and normalizes it; this CHECK only keeps the column to a
