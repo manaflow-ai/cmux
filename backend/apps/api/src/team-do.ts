@@ -16,6 +16,7 @@ import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
+import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers } from "./team-member-cleanup.ts"
 
@@ -296,9 +297,14 @@ export class TeamDO extends OwnerDO<TeamState> {
       sql: this.ctx.storage.sql,
       now: () => Date.now(),
       submitSystem: (op, params, key) => this.submitSystem(op, params, key),
-      running: this.sshRunning
+      running: this.sshRunning,
+      vmTaint: () => this.teamVm(entity).taintStatus(entity)
     }
   }
+
+  /** cx-q4f3: team_vm.taint.accept, team_vm.rebuild, team_vm.retired.delete (team-vm-taint-admin.ts). */
+  async vmAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return vmAdminExternal({ ...this.sshDeps(entity), teamVm: this.teamVm(entity) }, principal, frame) }
+  private teamVm = (team: string) => this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(team))
 
   /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
   private readonly sshRunning = new Set<string>()

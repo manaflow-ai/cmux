@@ -19,6 +19,18 @@ export const SSH_TRUST_FILE = `${SSH_DIR}/trust.json`;
 export const SSHD_DROP_IN = "/etc/ssh/sshd_config.d/10-cmux.conf";
 export const SSHD_PAM_FILE = "/etc/pam.d/sshd";
 /**
+ * sshd `AllowGroups`: the work user is in it from the bake, and the team VM's account reconciler
+ * (`cmux host team-ssh sync`, crate cmux-host team_ssh/accounts.rs) adds each team member's users.
+ */
+export const SSH_LOGIN_GROUP = "cmux-ssh";
+/**
+ * The team VM's agent users (`<name>-agents`, added by the account reconciler). sshd forces the restricted
+ * shell on them whatever the certificate says, so an agent principal never gets a shell even from a
+ * certificate without the force-command (the backend's agent certificates carry the same command).
+ */
+export const SSH_AGENTS_GROUP = "cmux-agents";
+export const SSH_AGENT_FORCE_COMMAND = `${CURRENT_BIN}/cmux team restricted-shell`;
+/**
  * `cmux host team-ssh` (crate cmux-host, module team_ssh): `principals` prints
  * the principals file's lines only while the last trust sync is at most 120 s
  * old (fail closed), and `session-open` records each certificate session so a
@@ -53,7 +65,7 @@ export function sshSyncUnit(): string {
 export const SSHD_PAM_LINE = `session required pam_exec.so quiet ${SSH_TRUST_CMD} session-open`;
 
 /** The baked drop-in. Ubuntu's sshd_config includes sshd_config.d/*.conf first, and the first value of a key wins. */
-export function sshdDropIn(workUser: string): string {
+export function sshdDropIn(_workUser: string): string {
   return [
     "# cmux: loopback sshd for the link `ssh` service; certificates from the bound CA only.",
     "ListenAddress 127.0.0.1",
@@ -70,13 +82,19 @@ export function sshdDropIn(workUser: string): string {
     "AuthorizedPrincipalsCommandUser nobody",
     `RevokedKeys ${SSH_KRL_FILE}`,
     "UsePAM yes",
-    `AllowUsers ${workUser}`,
+    `AllowGroups ${SSH_LOGIN_GROUP}`,
+    // Last: a Match block runs to the end of this file (sshd scopes it to the included file).
+    `Match Group ${SSH_AGENTS_GROUP}`,
+    `  ForceCommand ${SSH_AGENT_FORCE_COMMAND}`,
+    "  DisableForwarding yes",
+    "  PermitTTY no",
+    "  PermitUserRC no",
     "",
   ].join("\n");
 }
 
 /** Keys of `sshd -T` output that must have exactly this value. */
-function requiredValues(workUser: string): ReadonlyArray<[string, string]> {
+function requiredValues(_workUser: string): ReadonlyArray<[string, string]> {
   return [
     ["permitrootlogin", "no"],
     ["passwordauthentication", "no"],
@@ -89,7 +107,7 @@ function requiredValues(workUser: string): ReadonlyArray<[string, string]> {
     ["authorizedprincipalscommanduser", "nobody"],
     ["revokedkeys", SSH_KRL_FILE],
     ["usepam", "yes"],
-    ["allowusers", workUser],
+    ["allowgroups", SSH_LOGIN_GROUP],
   ];
 }
 
@@ -117,6 +135,8 @@ export function sshdPolicyProblems(effective: string, workUser: string): string[
     if (got === undefined) problems.push(`${key} is missing, want ${want}`);
     else if (got !== want) problems.push(`${key} is ${got}, want ${want}`);
   }
+  // AllowUsers would lock out the team users the reconciler adds to the login group.
+  if (values.has("allowusers")) problems.push(`allowusers is ${values.get("allowusers")?.join(" ")}, want none (AllowGroups ${SSH_LOGIN_GROUP} decides)`);
   const listen = values.get("listenaddress") ?? [];
   if (listen.length === 0) problems.push("listenaddress is missing");
   for (const address of listen) if (!LOOPBACK_LISTEN.test(address)) problems.push(`listenaddress ${address} is not loopback`);
@@ -155,6 +175,9 @@ export function sshdPamProblems(pam: string): string[] {
  */
 export function sshdBakeCommand(workUser: string): string {
   return [
+    `{ getent group ${SSH_LOGIN_GROUP} >/dev/null || groupadd --system ${SSH_LOGIN_GROUP}; }`,
+    `{ getent group ${SSH_AGENTS_GROUP} >/dev/null || groupadd --system ${SSH_AGENTS_GROUP}; }`,
+    `usermod --append --groups ${SSH_LOGIN_GROUP} ${sq(workUser)}`,
     `install -d -m 0755 ${SSH_DIR} ${SSH_PRINCIPALS_DIR}`,
     `install -m 0644 /dev/null ${SSH_CA_FILE}`,
     `install -m 0644 /dev/null ${SSH_PRINCIPALS_DIR}/${workUser}`,
@@ -233,4 +256,47 @@ export function sshdCertSmokeCommand(workUser: string): string {
     `printf '{"krl_version":2,"generation":1,"synced_at":%s}' "$(( $(date +%s) - 121 ))" > ${SSH_TRUST_FILE}`,
     `if ${ssh} ${id2} ${target} true 2>/dev/null; then echo "FAIL login with stale trust"; exit 1; fi; echo "PASS stale trust refuses"`,
   ].join("\n");
+}
+
+/**
+ * cron and at (cx-q4f3): a job they run is outside every session scope, so a certificate
+ * revocation would never end it. Only root and the work user may schedule; every team account
+ * (the S4 reconciler's `<name>` and `<name>-agents` users) is refused, because with an allow file
+ * present crontab and at refuse every user it does not list (a deny file is then ignored).
+ */
+export const CRON_ALLOW_FILE = "/etc/cron.allow";
+export const AT_ALLOW_FILE = "/etc/at.allow";
+
+/** Bake step: both allow files, then their contents for {@link cronAtAllowProblems}. */
+export function cronAtAllowCommand(workUser: string): string {
+  const list = `printf 'root\\n%s\\n' ${sq(workUser)}`;
+  return [
+    `${list} > ${CRON_ALLOW_FILE}`,
+    `${list} > ${AT_ALLOW_FILE}`,
+    `chown root:root ${CRON_ALLOW_FILE} ${AT_ALLOW_FILE}`,
+    `chmod 0644 ${CRON_ALLOW_FILE} ${AT_ALLOW_FILE}`,
+    `echo '--- ${CRON_ALLOW_FILE}'`,
+    `cat ${CRON_ALLOW_FILE}`,
+    `echo '--- ${AT_ALLOW_FILE}'`,
+    `cat ${AT_ALLOW_FILE}`,
+  ].join(" && ");
+}
+
+/** Problems in the bake output: each file must list exactly root and the work user. */
+export function cronAtAllowProblems(out: string, workUser: string): string[] {
+  const problems: string[] = [];
+  const want = new Set(["root", workUser]);
+  for (const file of [CRON_ALLOW_FILE, AT_ALLOW_FILE]) {
+    const start = out.indexOf(`--- ${file}\n`);
+    if (start < 0) {
+      problems.push(`${file} is missing`);
+      continue;
+    }
+    const rest = out.slice(start + `--- ${file}\n`.length);
+    const end = rest.indexOf("--- ");
+    const users = (end < 0 ? rest : rest.slice(0, end)).split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    for (const u of users) if (!want.has(u)) problems.push(`${file} allows ${u}`);
+    for (const u of want) if (!users.includes(u)) problems.push(`${file} does not allow ${u}`);
+  }
+  return problems;
 }

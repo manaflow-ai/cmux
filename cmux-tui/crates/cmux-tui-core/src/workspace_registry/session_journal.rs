@@ -979,7 +979,7 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
-    let actor = resource_record_actor(transaction, idempotency_key, with_current_state)?;
+    let actor = resource_record_actor(transaction, origin, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {
