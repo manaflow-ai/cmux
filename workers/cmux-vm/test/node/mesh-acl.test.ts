@@ -124,6 +124,22 @@ describe("device IPv6 address rules (transport.md 7, 13.6)", () => {
     expect(meshCap.rules).toHaveLength(3);
   });
 
+  it("keeps existing address rules when a new address competes for the last room on a VM", () => {
+    // D1's rule sorts first, but D2's already exists: D2 keeps its rule and D1 waits for room.
+    const existing = `${D2}>${V1}:udp:4101:from:${A2}/128`;
+    const result = compileAcl({
+      document: { rules: [{ src: ["device:*"], dst: [V1], allow: ["icmp"] }] },
+      deviceIds: [D1, D2],
+      vmIds: [V1, V2],
+      deviceIpv6: new Map([[D1, A1], [D2, A2]]),
+      existingAddressKeys: new Set([existing]),
+      rulesPerResource: 3,
+      rulesPerMesh: 500,
+    });
+    if (!result.ok) throw new Error("compile failed");
+    expect(result.rules.filter((rule) => rule.cidr !== null).map((rule) => rule.key)).toEqual([existing]);
+  });
+
   it("a policy over budget without any address still fails", () => {
     const result = withAddresses(new Map([[D1, A1]]), [{ src: ["device:*"], dst: [V1], allow: ["tcp:1", "tcp:2"] }], { rulesPerResource: 3, rulesPerMesh: 500 });
     expect(result).toMatchObject({ ok: false, reason: "perResource", resourceId: V1, count: 4 });

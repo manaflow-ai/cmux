@@ -239,3 +239,42 @@ describe("address change budget", () => {
     expect(cidrRules().map((rule) => rule.source["cidr"])).toEqual([`${ADDRESS_1}/128`]);
   });
 });
+
+describe("address rules: re-review findings", () => {
+  it("a device close whose address rule delete fails can be retried, and the retry deletes the rule", async () => {
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    h.mesh.failRuleDeletes(503);
+    expect((await call(`/v1/devices/${deviceId}`, mesh.creator, "DELETE")).status).toBe(503);
+    h.mesh.failRuleDeletes(null);
+    expect((await call(`/v1/devices/${deviceId}`, mesh.creator, "DELETE")).status).toBe(204);
+    expect(cidrRules()).toEqual([]);
+  });
+
+  it("publishing the same address again restores an address rule that is missing", async () => {
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    // The rule and its row are lost (an isolate died between storing the address and applying it).
+    for (const [id, rule] of h.mesh.rules) if (typeof rule.source["cidr"] === "string") h.mesh.rules.delete(id);
+    for (const row of h.mesh.store.rules) if (row.key.includes(":from:")) row.deletedAt = new Date();
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    expect(cidrRules().map((rule) => rule.source["cidr"])).toEqual([`${ADDRESS_1}/128`]);
+  });
+
+  it("a refused change keeps the time of the last applied change", async () => {
+    await h.dispose();
+    h = await makeHarness({ mesh: { budgets: { addressChangeIntervalMs: 60_000 } } });
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    h.mesh.failRuleCreates(500);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(503);
+    h.mesh.failRuleCreates(null);
+    // The failed first publish left no address, so the next one is the first change, not a 429.
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+  });
+});
