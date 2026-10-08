@@ -107,6 +107,13 @@ export class FeedDO extends OwnerDO<FeedState> {
    * poster scope must name it, feed-approvals.ts), or null. The Worker routes
    * integration.approval.get there after TeamDO confirms membership. Never binds a feed it does not serve.
    */
+  /** The team of the integration approve item `item` (same poster-scope check), or null (cx-3bi.16.12). */
+  async integrationItemTeam(entity: string, item: string): Promise<string | null> {
+    if (!this.isBound(entity)) return null
+    const found = this.bind(entity).currentState.items[item]
+    return found ? (approvalOf(found)?.team ?? null) : null
+  }
+
   async integrationApprovalTeam(entity: string, request: string): Promise<string | null> {
     if (!this.isBound(entity)) return null
     for (const item of Object.values(this.bind(entity).currentState.items)) {
