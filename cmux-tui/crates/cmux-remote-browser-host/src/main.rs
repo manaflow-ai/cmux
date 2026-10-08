@@ -16,7 +16,8 @@ fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     let i = args.iter().position(|a| a == "--probe")?;
     let usage = || {
         eprintln!(
-            "usage: --probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]"
+            "usage: --probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key] \
+             (stdin: the host's secret as the first line)"
         );
         Some(std::process::ExitCode::from(2))
     };

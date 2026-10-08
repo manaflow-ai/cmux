@@ -51,10 +51,7 @@ pub fn read_secret<R: std::io::BufRead>(input: &mut R) -> Option<String> {
 /// per-launch secret as its session token. A host without a secret admits
 /// nobody (there is no open mode). Checked before the welcome, so a refused
 /// viewer never opens the tab or sends input.
-pub fn authorize(
-    secret: Option<&str>,
-    hello: &Control,
-) -> Result<(), &'static str> {
+pub fn authorize(secret: Option<&str>, hello: &Control) -> Result<(), &'static str> {
     let Some(secret) = secret.filter(|secret| !secret.is_empty()) else {
         return Err("the host has no per-launch secret");
     };
@@ -83,9 +80,10 @@ pub enum Admission {
     Refused(String),
 }
 
-/// How long a viewer has to send its hello, in total (the host serves one
-/// viewer at a time, so a caller that trickles bytes must not hold it).
-pub const HELLO_DEADLINE: Duration = Duration::from_secs(10);
+/// How long a viewer has to send its hello, in total. The host admits one
+/// caller at a time, so a caller that sends nothing or trickles bytes must
+/// not hold it long; the app's viewer sends its hello at once.
+pub const HELLO_DEADLINE: Duration = Duration::from_secs(3);
 
 /// One viewer's admission on the rd stream carrier, before the host sends a
 /// welcome or opens a tab:

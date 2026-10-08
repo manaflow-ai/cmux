@@ -697,8 +697,19 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
     stdout.flush()?;
     drop(stdout);
     for conn in listener.incoming() {
-        let conn = conn?;
-        conn.set_nodelay(true)?;
+        // A failed accept or a peer that reset before setsockopt ends only
+        // that connection, never the listener.
+        let conn = match conn {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("serve: accept failed: {e}");
+                continue;
+            }
+        };
+        if let Err(e) = conn.set_nodelay(true) {
+            eprintln!("serve: connection dropped: {e}");
+            continue;
+        }
         match session(conn) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
             Err(e) => eprintln!("serve: session failed: {e}"),

@@ -145,9 +145,7 @@ fn an_http_request_is_closed_without_a_reply() {
 #[test]
 fn a_frame_before_the_hello_is_refused() {
     let (port, rx) = host(Some(SECRET), Duration::from_secs(5));
-    let mut bytes = frame(STREAM_DATAGRAM, b"early");
-    bytes.extend(hello(Some(SECRET)));
-    let mut client = connect(port, &bytes);
+    let mut client = connect(port, &frame(STREAM_DATAGRAM, b"early"));
     assert_eq!(outcome(&rx), Some(Outcome::Refused));
     assert!(refused(&replies(&mut client)));
 }
