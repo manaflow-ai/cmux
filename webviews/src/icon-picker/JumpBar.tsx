@@ -1,9 +1,8 @@
 // The category jump bar above the grid: one button per titled section (emoji groups, SF Symbol
 // categories). A click scrolls the grid to the section's header and makes its first cell active.
-// The bar is the shared Toolbar (src/ui): one tab stop, arrow keys move between its buttons,
-// Return and Space jump. The current section follows the scroll and is marked aria-current.
-import { useSyncExternalStore, type CSSProperties } from "react";
-import { Toolbar, ToolbarButton } from "../ui/Toolbar";
+// The bar is one tab stop (the current section's button, roving tabindex); Left/Right, Home and
+// End move between its buttons, Return and Space jump. The current section follows the scroll.
+import { useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
 import { sectionAt, type GridLayout } from "./gridModel";
 import type { JumpTarget } from "./store";
 import type { GridViewport } from "./VirtualGrid";
@@ -26,16 +25,37 @@ export function JumpBar<T>({
 }) {
   const view = useSyncExternalStore(viewport.subscribe, viewport.getSnapshot);
   const current = sectionAt(layout, view.top) ?? jumps[0]?.id;
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const buttons = [...(event.currentTarget.parentElement?.querySelectorAll("button") ?? [])];
+    const at = buttons.indexOf(event.currentTarget);
+    const next =
+      event.key === "ArrowRight"
+        ? at + 1
+        : event.key === "ArrowLeft"
+          ? at - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? buttons.length - 1
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus();
+  };
   return (
-    <Toolbar label={label} className="icon-jump-bar">
+    <div className="icon-jump-bar" role="toolbar" aria-label={label} aria-orientation="horizontal">
       {jumps.map((jump) => (
-        <ToolbarButton
+        <button
           key={jump.id}
-          label={jump.label}
+          type="button"
           className="icon-jump"
-          current={jump.id === current}
-          keepsFocus
-          onPress={() => onJump(jump.id)}
+          aria-label={jump.label}
+          title={jump.label}
+          aria-current={jump.id === current || undefined}
+          tabIndex={jump.id === current ? 0 : -1}
+          onMouseDown={(event) => event.preventDefault()}
+          onKeyDown={onKeyDown}
+          onClick={() => onJump(jump.id)}
         >
           {jump.glyph ? (
             <span className="icon-jump-glyph" aria-hidden>
@@ -48,8 +68,8 @@ export function JumpBar<T>({
               style={jump.symbol ? symbolStyle(jump.symbol) : undefined}
             />
           )}
-        </ToolbarButton>
+        </button>
       ))}
-    </Toolbar>
+    </div>
   );
 }
