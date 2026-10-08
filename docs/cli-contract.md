@@ -954,7 +954,7 @@ the expected text without connecting to a cmux socket.
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] [--wait] [--output] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] [--wait] [--output] -- <command...>`
 - `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] [--wait] [--output] -- <command...>`
-- `cmux vm exec --help` -> `Usage: cmux vm exec [--timeout <seconds>] <machine> -- <command...>`
+- `cmux vm exec --help` -> `cmux vm exec [--timeout <seconds>] <machine> -- <command...>`
 - `cmux vm exec --help` -> `intentional argv semantics`
 - `cmux vm exec --help` -> `cmux vm exec <machine> -- sh -c '<script>'`
 - `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <8g>] [--json]`

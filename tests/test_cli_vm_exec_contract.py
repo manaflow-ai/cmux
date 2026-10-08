@@ -14,6 +14,8 @@ import uuid
 
 from claude_teams_test_utils import resolve_cmux_cli
 
+SOCKET_PASSWORD = "cmux-vm-exec-contract-password"
+
 
 class ExecServer:
     def __init__(self) -> None:
@@ -52,21 +54,33 @@ class ExecServer:
                     continue
                 except OSError:
                     return
-                with connection:
-                    data = b""
-                    while b"\n" not in data:
-                        chunk = connection.recv(4096)
-                        if not chunk:
-                            return
-                        data += chunk
-                    request = json.loads(data.splitlines()[0].decode("utf-8"))
-                    self.requests.append(request)
-                    response = {
-                        "ok": True,
-                        "result": {"stdout": "ok\n", "stderr": "", "exit_code": 0},
-                        "id": request.get("id"),
-                    }
-                    connection.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                with connection, connection.makefile("rwb") as stream:
+                    for raw in stream:
+                        line = raw.rstrip(b"\r\n")
+                        if line.startswith(b"_cmux_capability_v1 "):
+                            parts = line.split(b" ", 2)
+                            if len(parts) != 3:
+                                stream.write(b"ERROR: malformed capability envelope\n")
+                                stream.flush()
+                                return
+                            line = parts[2]
+                        if line.startswith(b"auth "):
+                            if line != f"auth {SOCKET_PASSWORD}".encode("utf-8"):
+                                stream.write(b"ERROR\n")
+                                stream.flush()
+                                return
+                            stream.write(b"OK\n")
+                            stream.flush()
+                            continue
+                        request = json.loads(line.decode("utf-8"))
+                        self.requests.append(request)
+                        response = {
+                            "ok": True,
+                            "result": {"stdout": "ok\n", "stderr": "", "exit_code": 0},
+                            "id": request.get("id"),
+                        }
+                        stream.write((json.dumps(response) + "\n").encode("utf-8"))
+                        stream.flush()
 
 
 def run_exec(cli: str, server: ExecServer, command_argv: list[str]) -> subprocess.CompletedProcess[str]:
@@ -75,6 +89,7 @@ def run_exec(cli: str, server: ExecServer, command_argv: list[str]) -> subproces
         env.pop(key, None)
     env["CMUX_SOCKET_PATH"] = server.path
     env["CMUX_SOCKET"] = server.path
+    env["CMUX_SOCKET_PASSWORD"] = SOCKET_PASSWORD
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     return subprocess.run(
