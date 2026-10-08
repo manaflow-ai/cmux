@@ -1450,6 +1450,7 @@
 		1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		C12289000000000000000001 /* CmuxMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12289000000000000000002 /* CmuxMain.swift */; };
+		8E91B26A073B67564FAFBCA0 /* CmuxMainStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */; };
 		D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */; };
@@ -3194,6 +3195,7 @@
 		D10000000000000000A00018 /* SettingsAutomationBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */; };
 		D10000000000000000A0001A /* SettingsBrowserBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */; };
 		20F2B44223BBBA9A4ED185C4 /* SettingsComputersBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */; };
+		8A6F8FF7A90FFAD07DFF9F03 /* SettingsHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4252144220782379B2B347BE /* SettingsHostingView.swift */; };
 		D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */; };
 		D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
@@ -4093,6 +4095,8 @@
 		C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */; };
 		C0DE5A420000000000000001 /* TextBoxSubmitAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */; };
 		D79030000000000000000001 /* TextBoxSubmitSurfaceControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */; };
+		4BB120266A62B7D4CB1057A7 /* TextViewUndoRegistrationLifetime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */; };
+		38BD2C3E45CA7392B68D18AB /* TextViewUndoRegistrationLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */; };
 		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		F50030050000000000000001 /* TitlebarAccessoryContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */; };
 		F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */; };
@@ -5967,6 +5971,7 @@
 		C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXInstalledExtensionSidebarHostView.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
 		C12289000000000000000002 /* CmuxMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMain.swift; sourceTree = "<group>"; };
+		67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxMainStartupTests.swift"; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowConstrainFrameTests.swift; sourceTree = "<group>"; };
 		D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowFullScreenCapabilityTests.swift; sourceTree = "<group>"; };
@@ -7623,6 +7628,7 @@
 		D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutomationBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBrowserBehaviorUITests.swift; sourceTree = "<group>"; };
 		83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComputersBehaviorUITests.swift; sourceTree = "<group>"; };
+		4252144220782379B2B347BE /* SettingsHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsHostingView.swift; sourceTree = "<group>"; };
 		D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLazyLoadHelpers.swift; sourceTree = "<group>"; };
 		D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsNavigation+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
@@ -8514,6 +8520,8 @@
 		C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionTests.swift; sourceTree = "<group>"; };
 		C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitAvailability.swift; sourceTree = "<group>"; };
 		D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitSurfaceControlling.swift; sourceTree = "<group>"; };
+		11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextViewUndoRegistrationLifetime.swift; sourceTree = "<group>"; };
+		07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextViewUndoRegistrationLifetimeTests.swift"; sourceTree = "<group>"; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarAccessoryContainerView.swift; sourceTree = "<group>"; };
 		F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarAccessoryHostingView.swift; sourceTree = "<group>"; };
@@ -11993,6 +12001,8 @@
 				36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */,
 				6C858D764447A3E9A2C7EE35 /* CmuxSettingsFileStore+FontSections.swift */,
 				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
+				11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */,
+				4252144220782379B2B347BE /* SettingsHostingView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13524,6 +13534,8 @@
 				A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */,
 				F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */,
 				03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */,
+				67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */,
+				07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16036,6 +16048,7 @@
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */,
+				8A6F8FF7A90FFAD07DFF9F03 /* SettingsHostingView.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
@@ -16693,6 +16706,7 @@
 				C0DE7B350000000000000001 /* TextBoxSubmitActionSettings.swift in Sources */,
 				C0DE5A420000000000000001 /* TextBoxSubmitAvailability.swift in Sources */,
 				D79030000000000000000001 /* TextBoxSubmitSurfaceControlling.swift in Sources */,
+				4BB120266A62B7D4CB1057A7 /* TextViewUndoRegistrationLifetime.swift in Sources */,
 				F50030050000000000000001 /* TitlebarAccessoryContainerView.swift in Sources */,
 					F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */,
 					C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */,
@@ -17813,6 +17827,7 @@
 				E7E000000000000000000011 /* CmuxEventLogWriteSpy.swift in Sources */,
 				61B38C6FA51EAF011099A2EA /* CmuxEventSequenceStoreTests.swift in Sources */,
 				A11C00040000000000000001 /* CmuxHostedSystemSymbolImageTests.swift in Sources */,
+				8E91B26A073B67564FAFBCA0 /* CmuxMainStartupTests.swift in Sources */,
 				D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */,
 					D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */,
 				7EB4C5BC5C8431C1908D8659 /* CmuxMainWindowKeyViewLoopTests.swift in Sources */,
@@ -18518,6 +18533,7 @@
 				C0DE7B410000000000000001 /* TextBoxSubmitActionMemoryTests.swift in Sources */,
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,
 				C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */,
+				38BD2C3E45CA7392B68D18AB /* TextViewUndoRegistrationLifetimeTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				A10507000000000000000001 /* TitleUpdateAmplificationRegressionTests.swift in Sources */,
 				E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */,

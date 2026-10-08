@@ -7264,7 +7264,6 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.computerUseUXEnabled, featureFlags.isComputerUseUXEnabled)
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
-            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
@@ -15515,8 +15514,6 @@ struct SidebarFooterButtons: View {
             }
             if shows(.upgrade),
                SidebarFooterPresentationPolicy.isUpgradeVisible(
-                   featureFlagEnabled: accountFlow?.isProUpgradeAvailable
-                       ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
                    isProActive: accountFlow?.isProActive == true,
                    isProStatusKnown: isProStatusKnownForUpgrade
                ) {
@@ -15646,15 +15643,13 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
             )
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-                helpOptionButton(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                    action: .upgrade,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
-                    isExternalLink: false,
-                    trailingSystemImage: "sparkles"
-                )
-            }
+            helpOptionButton(
+                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                action: .upgrade,
+                accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
+                isExternalLink: false,
+                trailingSystemImage: "sparkles"
+            )
             helpOptionButton(
                 title: String(localized: "menu.app.settings", defaultValue: "Settings…"),
                 action: .settings,

@@ -1873,6 +1873,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Report Objective-C exceptions that reach NSApplication's
+                // reportException: hook with their reason and throw stack. The
+                // matching executor-corruption path reaches this hook before
+                // AppKit terminates the process. Some macOS 26+ drawing paths
+                // call the class-level _crashOnException: method directly and
+                // remain outside Sentry Cocoa 9.3.0's hook; a future SDK upgrade
+                // can cover those paths too.
+                options.enableUncaughtNSExceptionReporting = true
                 // Structured logs power the transport diagnostics bridge
                 // (TransportSentryReporter on the host diagnostic ring below).
                 options.enableLogs = true
@@ -14391,6 +14399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Installs the production responder guards plus the test window-routing override.
     static func installWindowResponderSwizzlesForTesting() {
+        TextViewUndoRegistrationLifetime.install()
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
         _ = didInstallApplicationSendEventSwizzle
@@ -14417,6 +14426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Installs event routing and stale SwiftUI proxy guards once during application setup.
     private func installWindowResponderSwizzles() {
+        TextViewUndoRegistrationLifetime.install()
         _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendActionSwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
