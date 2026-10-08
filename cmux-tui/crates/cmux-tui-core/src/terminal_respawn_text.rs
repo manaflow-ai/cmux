@@ -1,5 +1,6 @@
-//! The words a respawned terminal shows (cx-6so.49 L2): one dim line under
-//! the previous screen, before the new shell's first prompt.
+//! The words a respawned terminal (cx-6so.49 L2) or a reopened archived
+//! terminal (ARCHIVE-1) shows: one dim line under the previous screen,
+//! before the new shell's first prompt.
 //!
 //! The daemon's binary owns the localization catalog and installs the text
 //! of its resolved language with [`install`] before it opens the session;
@@ -15,12 +16,19 @@ pub struct TerminalRespawnText {
     /// The marker of a respawned terminal that ran a command which is not
     /// offered again; `{program}` is the command's program name.
     pub restored_command: &'static str,
+    /// The marker of a closed terminal tab that Reopen Closed started again.
+    pub reopened: &'static str,
+    /// The marker of a reopened tab whose close stopped a running program;
+    /// `{program}` is the program's name.
+    pub reopened_stopped: &'static str,
 }
 
 /// The English text, used until [`install`] runs.
 pub const ENGLISH: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} session restored (previous process ended) \u{2014}",
     restored_command: "\u{2014} session restored (previous process ended; it ran {program}) \u{2014}",
+    reopened: "\u{2014} tab reopened \u{2014}",
+    reopened_stopped: "\u{2014} tab reopened ({program} was stopped when the tab closed) \u{2014}",
 };
 
 static TEXT: OnceLock<&'static TerminalRespawnText> = OnceLock::new();
@@ -46,6 +54,18 @@ pub(crate) fn marker(program: Option<&str>) -> String {
     }
 }
 
+/// The marker line of a reopened archived terminal whose close stopped
+/// `stopped` (none: nothing ran). Control characters in the name are dropped.
+pub(crate) fn reopened_marker(stopped: Option<&str>) -> String {
+    let text = text();
+    match stopped.map(|program| program.chars().filter(|c| !c.is_control()).collect::<String>()) {
+        Some(program) if !program.is_empty() => {
+            text.reopened_stopped.replace("{program}", &program)
+        }
+        _ => text.reopened.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,5 +78,15 @@ mod tests {
             "\u{2014} session restored (previous process ended; it ran cat) \u{2014}"
         );
         assert_eq!(marker(Some("\u{7}")), ENGLISH.restored);
+    }
+
+    #[test]
+    fn the_reopened_marker_names_the_stopped_program() {
+        assert_eq!(reopened_marker(None), ENGLISH.reopened);
+        assert_eq!(
+            reopened_marker(Some("sle\u{1b}ep")),
+            "\u{2014} tab reopened (sleep was stopped when the tab closed) \u{2014}"
+        );
+        assert_eq!(reopened_marker(Some("\u{7}")), ENGLISH.reopened);
     }
 }

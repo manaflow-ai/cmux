@@ -43,7 +43,9 @@ mod tab_workspace_name;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) use terminal_archive::TerminalArchive;
 mod pending_terminals;
+pub(crate) mod terminal_archive;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
@@ -8239,6 +8241,8 @@ impl Mux {
                     Arc::downgrade(self),
                     Some(terminal_id),
                     cell_pixels,
+                    // Reopen Closed of an archived terminal (ARCHIVE-1).
+                    &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
                 ),
             };
             let surface = match spawned {
@@ -13900,10 +13904,22 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_workspace_with_spawn(name, TerminalSpawnOptions::new(None, Vec::new()), size)
+    }
+
+    /// `new_workspace` whose first terminal starts with `spawn` (directory,
+    /// environment, reserved terminal id; Reopen Closed of a workspace).
+    pub(crate) fn new_workspace_with_spawn(
+        self: &Arc<Self>,
+        name: Option<String>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let mut fields =
             Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
         Self::insert_optional_string(&mut fields, "name", name);
+        Self::insert_spawn_options(&mut fields, spawn);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::WorkspaceCreate,

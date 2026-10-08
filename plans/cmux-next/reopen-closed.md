@@ -480,6 +480,17 @@ touch it.
   keys, private browser profiles never recorded, window close as a `window` group.
 - S2 (daemon): `layout.bulk` op with every selector and verb, one group per call.
 - S3 (daemon): terminal provider (scrollback blob, env deny-list, agent session resume offer).
+- S3 archive on close, AS BUILT (cx-gzh.4.1): a close that stops a running terminal (the reaper
+  after Cmd-W, or a batch close with `end_terminals`) first stores its screen with scrollback
+  (bounded `cmux.vt-replay.v1`, the terminal's exit snapshot) and the basename of the program it
+  stops (`terminal_archive_stops`: the PTY's foreground job when it is not the shell, read from the
+  terminal's own child, never a process scan; never argv). Reopen starts a new shell in the
+  recorded cwd with the recorded env, seeded with that screen and one dim line "tab reopened
+  (<program> was stopped when the tab closed)". Env: an ALLOWLIST, not a deny-list: only TERM,
+  TERMINFO, COLORTERM, TERM_PROGRAM, TERM_PROGRAM_VERSION, CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and
+  CMUX_TAG, and any key containing TOKEN, KEY, SECRET, PASSWORD, AUTH, COOKIE or CREDENTIAL is
+  dropped even when allowlisted (`relaunch_store`, nxdog62). Inherited and user env is not kept.
+  Not yet: the blob budget (2 GB) and its eviction; agent resume offer on reopen (L2 has it).
 - S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on cmux-lawrence-2; `history.reopenClosed`
   with the alias; Reopen Closed… page; catalog presets of 5.3 on one shared path; app-local kinds
   (agent, page, viewer, local browser) push restore state and restore through the provider registry;

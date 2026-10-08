@@ -278,6 +278,9 @@ impl Mux {
         };
         self.finish_resource_close(CommittedResourceClose { commit: committed.resource, effects });
         self.notify_terminal_exit_waiters(ended_ids);
+        // ARCHIVE-1: keep each ended terminal's screen and running program
+        // before its host is asked to stop.
+        self.archive_terminal_runtimes(&ended_runtimes);
         for runtime in &ended_runtimes {
             self.purge_terminal_runtime_side_tables(runtime);
         }

@@ -22,8 +22,13 @@ use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 /// Leave the alternate screen, reset attributes, show the cursor, and turn
 /// off mouse reporting, bracketed paste and application cursor keys: a lost
 /// full-screen program left them for a shell that did not ask for them.
+/// `ESC 7` first: leaving the alternate screen (`?1049l`) restores the
+/// current screen's saved cursor, so on the primary screen it must be the
+/// cursor the replay just set, not an older one (the marker line otherwise
+/// overwrote a row of the previous screen). Each screen keeps its own saved
+/// cursor, so after a full-screen program the primary cursor still returns.
 const MODE_RESET: &[u8] =
-    b"\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>";
+    b"\x1b7\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>";
 /// Room the marker line and mode reset need in the seed.
 const MARKER_HEADROOM_BYTES: usize = 4 * 1024;
 
@@ -154,7 +159,7 @@ mod tests {
     fn the_seed_is_the_screen_then_one_dim_marker_line_within_the_bound() {
         let seed = respawn_seed(Some(b"old screen".to_vec()), "restored");
         let text = String::from_utf8(seed).unwrap_or_default();
-        assert!(text.starts_with("old screen\x1b[?1049l"), "{text:?}");
+        assert!(text.starts_with("old screen\x1b7\x1b[?1049l"), "{text:?}");
         assert!(text.ends_with("\r\n\x1b[2mrestored\x1b[0m\r\n"), "{text:?}");
 
         let alone = respawn_seed(None, "restored");

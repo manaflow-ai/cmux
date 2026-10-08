@@ -217,6 +217,14 @@ impl Mux {
         if self.control_clients.attach_observation(&[runtime_view]).0 {
             return Ok(ReapOutcome::Attached);
         }
+        // ARCHIVE-1: keep the screen and the running program before the
+        // close stops it. A terminal that is placed or kept again by the
+        // close below keeps running; its archive is replaced at its next stop.
+        if let Some(runtime) =
+            public_id.as_ref().and_then(|public_id| self.terminal_resource_surface(public_id))
+        {
+            self.archive_terminal_runtimes(&[runtime]);
+        }
         match self.close_terminal_guarded(
             terminal_id,
             None,
