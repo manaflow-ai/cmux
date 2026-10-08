@@ -140,10 +140,13 @@ The remaining work separates independent implementation from shared runtime depe
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
 remain explicitly unverified. The first exact archive at `1cfec927019d0735b1838bb5acbf1e2f91104b8b`
-reached the device archive and failed only on the now-fixed `DirectWriter` continuation inference. A
-fresh exact-head archive for `a7bff36e41fcb72b58087dd05fab9c0b6e4c276c` is queued as job
-`11f9299987232dacbae75a8b`; no compile or runtime evidence is claimed until it reaches a terminal state.
-The older exact fleet archives prove the iOS device and simulator targets compile:
+reached the device archive and failed only on the now-fixed `DirectWriter` continuation inference; the
+next SSH-focused archive at `5c12908b6fb7459f85477f8007ebf122a6561a8` completed both device and simulator
+targets. Job `f900b76613afdfd5d143380b` (`nxios-5c1-ssh-v1`) finished on `cmuxs-Mac-mini.local` with
+artifact digest `sha256:2616159e4636285cdade07d8f19ecadb3518230f6d4d4d9447cd4c927c2fc756`. Its device archive
+took 175.64 seconds and its simulator build took 42.16 seconds. This is compile/archive evidence only;
+it does not claim package tests, installation, or runtime behavior.
+The older exact fleet archives also prove the iOS device and simulator targets compile:
 the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
 `dd344fa661ac766511d5da0f02f70dfa7e10a42a`, artifact digest
 `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00` (the prior `f23162542f` archive
