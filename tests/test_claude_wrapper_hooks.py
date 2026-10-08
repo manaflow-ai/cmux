@@ -1067,6 +1067,22 @@ def test_standard_generated_settings_skip_node_validation(failures: list[str]) -
     )
 
 
+def test_opt_in_generated_settings_skip_node_validation(failures: list[str]) -> None:
+    standard = generated_claude_hook_settings().replace('"timeout":125', '"timeout":86400', 1)
+    code, _real_argv, stderr, settings_text, validations = run_generated_settings_case(standard)
+    expect(code == 0, f"opt-in settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        settings_text == standard,
+        "opt-in settings: Claude must receive the bundled CLI document byte for byte",
+        failures,
+    )
+    expect(
+        validations == 0,
+        f"opt-in settings: the exact bundled CLI document should skip Node validation, ran {validations}",
+        failures,
+    )
+
+
 def test_nonstandard_generated_settings_still_validated_by_node(failures: list[str]) -> None:
     standard = generated_claude_hook_settings()
     document = json.loads(standard)
@@ -3795,6 +3811,7 @@ def main() -> int:
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
     test_standard_generated_settings_skip_node_validation(failures)
+    test_opt_in_generated_settings_skip_node_validation(failures)
     test_nonstandard_generated_settings_still_validated_by_node(failures)
     test_speculative_hook_settings_are_discarded_on_passthrough(failures)
     test_managed_defaults_domain_matches_per_key_reads(failures)
