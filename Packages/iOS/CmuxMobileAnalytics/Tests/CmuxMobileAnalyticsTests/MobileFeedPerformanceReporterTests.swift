@@ -203,6 +203,33 @@ import Testing
         #expect(event.properties["item_count"] == .int(400))
     }
 
+    @Test func emptyIntervalsDoNotInflateTheNextActiveWindowDuration() async throws {
+        let uploader = RecordingAnalyticsUploader()
+        let consent = AnalyticsConsentProvider { true }
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: consent, anonymousID: "test")
+        let clock = Clock()
+        let reporter = MobileFeedPerformanceReporter(
+            emitter: emitter, consent: consent, cadence: .seconds(3_600), now: { clock.seconds }
+        )
+        reporter.setEnabled(true)
+        reporter.setVisible(true, itemCount: 400)
+        for seconds in [10.0, 20.0] {
+            clock.seconds = seconds
+            await reporter.flush()
+        }
+        #expect(await uploader.uploadedEvents.isEmpty)
+
+        reporter.setScrolling(true)
+        reporter.callback(at: 21, expectedInterval: 1 / 60)
+        reporter.callback(at: 21.016, expectedInterval: 1 / 60)
+        clock.seconds = 30
+        await reporter.flush()
+        let events = await uploader.uploadedEvents
+        #expect(events.count == 1)
+        #expect(events.first?.properties["window_ms"] == .int(10_000))
+        #expect(events.first?.properties["callback_count"] == .int(1))
+    }
+
     @Test func histogramHasFixedStorageAndRejectsNonfiniteValues() {
         var histogram = MobileFeedTimingHistogram()
         histogram.record(seconds: .nan)
