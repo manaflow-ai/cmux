@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { diffPageEntry } from "../src/gallery/format";
-import { browseItems, browseVariant } from "../src/gallery/shell/browseModel";
+import { browseFrameHref, browseItems, browseVariant } from "../src/gallery/shell/browseModel";
+import { DEFAULT_ENV } from "../src/gallery/env";
 import { loadEntries } from "../scripts/gallery/entries";
 
 const entry = (id: string, variants: Record<string, { files: [] }>, recommendedId?: string) =>
@@ -22,6 +23,7 @@ test("browse cards use the recorded recommendation and fall back to the first re
     ["pages.recommended", "chosen"],
     ["pages.fallback", "first"],
   ]);
+  expect(browseFrameHref(recommended, "chosen", DEFAULT_ENV)).toBe("frame.html?entry=pages.recommended&variant=chosen");
 });
 
 test("empty entries are omitted so the contact sheet never mounts a missing frame", () => {

@@ -3,9 +3,9 @@
 // than a second set of synthetic thumbnails, so a card is useful for both visual scanning and
 // opening the exact entry/variant that produced it.
 import { useState } from "react";
-import { frameQuery, type GalleryEnv } from "../env";
+import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
-import { browseItems } from "./browseModel";
+import { browseFrameHref, browseItems } from "./browseModel";
 import { Stage } from "./Stage";
 
 export function BrowseView({
@@ -111,7 +111,7 @@ function BrowseCard({
         >
           Open full view
         </a>
-        <a href={`frame.html?${frameQuery({ entry: entry.id, variant, tune }, env)}`} target="_blank" rel="noreferrer">
+        <a href={browseFrameHref(entry, variant, env, tune)} target="_blank" rel="noreferrer">
           Open frame
         </a>
       </footer>

@@ -1,4 +1,5 @@
 import type { GalleryEntry } from "../format";
+import { frameQuery, type GalleryEnv } from "../env";
 
 export type BrowseItem = {
   entry: GalleryEntry;
@@ -19,4 +20,9 @@ export function browseItems(entries: readonly GalleryEntry[]): BrowseItem[] {
     const variant = browseVariant(entry);
     return variant ? [{ entry, variant }] : [];
   });
+}
+
+/** A card's external frame link keeps the same env and tunables as its embedded stage. */
+export function browseFrameHref(entry: GalleryEntry, variant: string, env: GalleryEnv, tune = ""): string {
+  return `frame.html?${frameQuery({ entry: entry.id, variant, tune }, env)}`;
 }
