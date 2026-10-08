@@ -353,7 +353,7 @@ pub fn launch_terminal_host_adopting(
     let payload = launch.encode()?;
     let binary = match adoption.host_binary {
         Some(binary) => binary,
-        None => crate::platform::self_exe_for_spawn()
+        None => crate::host_exe::terminal_host_executable()
             .context("resolve cmux-tui terminal-host binary")?,
     };
     let (process, (mut stdin, mut stdout)) =

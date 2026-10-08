@@ -21,7 +21,9 @@ impl StandbyTerminalHost {
         // "<path> (deleted)" and exec fails, which broke every new tab/split
         // on a long-lived daemon. This also guarantees daemon and host can
         // never run skewed builds.
-        let binary = crate::platform::self_exe_for_spawn()
+        // On macOS: its content-addressed copy outside the app bundle
+        // (host_exe.rs, cx-0tgl LF).
+        let binary = crate::host_exe::terminal_host_executable()
             .context("resolve cmux-tui terminal-host binary")?;
         let mut command = Command::new(binary);
         command
