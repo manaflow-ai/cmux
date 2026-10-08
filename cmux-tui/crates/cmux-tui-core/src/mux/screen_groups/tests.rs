@@ -300,7 +300,19 @@ fn a_screen_closed_by_its_exit_right_after_create_still_reports_its_ids() {
         let workspace = mux.with_state(|state| state.workspaces[0].id);
         let exiting = Arc::downgrade(&mux);
         mux.set_screen_created_hook_for_test(move |surface| {
-            exiting.upgrade().unwrap().surface_exited(surface);
+            let mux = exiting.upgrade().unwrap();
+            let host = mux
+                .resource_terminal_host_identity(&mux.surface(surface).unwrap())
+                .unwrap()
+                .terminal_id;
+            let terminal =
+                mux.workspace_registry.lock().unwrap().terminal_resource_id(&host).unwrap().unwrap();
+            let exit = crate::terminal_host_protocol::TerminalExit {
+                outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+                exited_at_ms: 1,
+            };
+            assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+            mux.surface_exited(surface);
         });
         let (surface, screen) = mux
             .new_screen_with_spec(
