@@ -90,4 +90,29 @@ import Testing
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.convert(sidebar.profileBar.frame, from: sidebar.profileBar.superview) == frame)
     }
+
+    /// cx-5k3r ("spaces animation is jank"): a switch slides the current
+    /// space's chip from the old space to the new one, even though the
+    /// sidebar's layout pass reaches the bar before its refresh. Reduce
+    /// Motion snaps.
+    @Test(arguments: [false, true])
+    func aSwitchSlidesTheChipOnce(_ reduceMotion: Bool) throws {
+        Motion.reduceMotionOverride = reduceMotion
+        defer { Motion.reduceMotionOverride = nil }
+        let model = SidebarModel()
+        model.profiles = Self.profiles
+        model.activeProfileID = ProfileKey("default")
+        let sidebar = SidebarView(model: model)
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
+        sidebar.layoutSubtreeIfNeeded()
+        let bar = sidebar.profileBar
+        let before = bar.indicator.frame
+        model.activeProfileID = ProfileKey("p3")
+        sidebar.needsLayout = true
+        sidebar.layoutSubtreeIfNeeded()
+        let target = try #require(bar.indicatorRect)
+        #expect(bar.indicator.frame == target && target != before, "the chip ends on the new space: \(before) -> \(bar.indicator.frame)")
+        let slide = bar.indicator.layer?.animation(forKey: "position")
+        #expect((slide != nil) == !reduceMotion, "one slide unless Reduce Motion: \(String(describing: slide))")
+    }
 }

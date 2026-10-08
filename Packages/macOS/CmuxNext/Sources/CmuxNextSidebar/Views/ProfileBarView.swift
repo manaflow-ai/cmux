@@ -156,6 +156,9 @@ final class ProfileBarView: NSView {
     /// Moves the chip to the current space; a switch slides it (Reduce
     /// Motion and speed "off" snap, `Motion.set`).
     private func placeIndicator(animated: Bool) {
+        // A switch not yet shown (`refresh` slides it): a relayout first
+        // would snap the chip to the new space and leave nothing to slide.
+        if !animated, shownActive != nil, model.activeProfileID != shownActive, !indicator.isHidden { return }
         guard let rect = indicatorRect else {
             indicator.isHidden = true
             return

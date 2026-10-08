@@ -19,6 +19,8 @@ parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--app", help="the tagged app (default: the tag's DerivedData build)")
 parser.add_argument("--counts", default="1,3,8")
 parser.add_argument("--looks", default="", help="comma-separated look names (default: all)")
+parser.add_argument("--window-record", action="store_true",
+                    help="only record hover reveal and space switches with debug.window_record (every display frame)")
 parser.add_argument("--record", action="store_true", help="only record space switches (30 fps main display) and split frames")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -244,6 +246,35 @@ def record():
     finally:
         stop(app)
 
+
+def window_record():
+    """The hover reveal and two switches (default hover-only strip), every
+    display frame of the window, from the app itself (debug.window_record)."""
+    app = launch("dark", 240, None)
+    try:
+        set_space_count(3)
+    finally:
+        stop(app)
+    app = launch("dark", 240, None, always=False)
+    try:
+        frames = os.path.join(OUT, "window-record")
+        print("record:", rpc("debug.window_record", {"dir": frames, "seconds": 8}), flush=True)
+        time.sleep(0.8)  # test harness: frames before the hover
+        print("hover in:", rpc("debug.mouse", {"x": 100, "y": 300, "action": "hover"}), flush=True)
+        time.sleep(1.2)  # test harness: the reveal fade finishes on the recording
+        for action in ("space.next", "space.previous"):
+            print(action, cli("action", "run", action)[:80], flush=True)
+            time.sleep(1.6)  # test harness: the slide settles on the recording
+        print("hover out:", rpc("debug.mouse", {"x": 700, "y": 300, "action": "hover"}), flush=True)
+        time.sleep(2.0)  # test harness: the fade out, then the recording ends by itself
+        print("frames:", len([f for f in os.listdir(frames) if f.endswith(".jpg")]) if os.path.isdir(frames) else 0, flush=True)
+    finally:
+        stop(app)
+
+
+if opts.window_record:
+    window_record()
+    sys.exit(0)
 
 if opts.record:
     record()
