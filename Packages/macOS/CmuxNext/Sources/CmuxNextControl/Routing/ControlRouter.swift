@@ -243,8 +243,7 @@ public final class ControlRouter: Sendable {
     public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
         guard let method = method(named: request.method) else {
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
-            return .failure(ControlError(code: "method_not_found", message: ControlStrings.format("control.error.unknownMethod", "Unknown method %@", request.method),
-                                         data: ["method": .string(request.method)]))
+            return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
         var snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
@@ -266,6 +265,25 @@ public final class ControlRouter: Sendable {
         } catch {
             return .failure(ControlError(code: "internal_error", message: String(describing: error)))
         }
+    }
+
+    /// `method_not_found`. This app's own CLI only sends methods the app
+    /// has, so an unknown one most often comes from an older `cmux` (the
+    /// classic app's CLI, or a cmux-next CLI from an older build) that a
+    /// shell found first on `PATH`: with a bundled CLI the message says so
+    /// and names it (also as `app_cli_path`). The code stays the same.
+    static func methodNotFound(_ method: String, appCLIPath: String?) -> ControlError {
+        guard let cli = appCLIPath, !cli.isEmpty else {
+            return ControlError(code: "method_not_found",
+                                message: ControlStrings.format("control.error.unknownMethod", "Unknown method %@", method),
+                                data: ["method": .string(method)])
+        }
+        return ControlError(
+            code: "method_not_found",
+            message: ControlStrings.format("control.error.unknownMethodOlderCLI",
+                                           "Unknown method %1$@: this cmux CLI is older than this app (or belongs to another cmux app). Use this app's CLI: %2$@",
+                                           method, cli),
+            data: ["method": .string(method), "app_cli_path": .string(cli)])
     }
 
     static func run(_ method: ControlMethod, _ call: ControlCall, queue: MainActorWorkQueue) async throws -> JSONValue {

@@ -111,7 +111,8 @@ public struct DaemonLauncher: Sendable {
     /// The standard app launcher: bundled binary, session from the app's own
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
-    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) reaches every shell the daemon spawns.
+    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) reaches every shell the daemon spawns, and so does the bundled
+    /// `cmux` (`<Resources>/bin` first on `PATH`, `CMUX_BUNDLED_CLI_PATH`).
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],
@@ -131,8 +132,13 @@ public struct DaemonLauncher: Sendable {
                                           binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
+        // A terminal the daemon starts with no caller env (`cmux tab create
+        // terminal` from a shell) gets this environment: its `cmux` must be
+        // this app's CLI too. The daemon's shell integration keeps it first
+        // after the user's startup files with `<Resources>/cmux-cli-path`.
+        let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         return DaemonLauncher(configuration: configuration, environment: appEnvironment(
-            cache: .shared, base: processEnvironment, overrides: overrides))
+            cache: .shared, base: processEnvironment, overrides: overrides, cli: cli))
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -165,19 +171,22 @@ public struct DaemonLauncher: Sendable {
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
     /// this launch's capture, else the one remembered from the last launch,
     /// else the app's own), filtered, plus the app's identity keys and
-    /// `overrides`. It never waits for `$SHELL -l -i`, which takes 5-17 s
-    /// on some setups; the app's terminals do not depend on it, because
-    /// each carries its own login `env` (`TerminalEnvironment.shared`).
+    /// `overrides`, then `cli` (the bundled `cmux` first on `PATH`). It
+    /// never waits for `$SHELL -l -i`, which takes 5-17 s on some setups;
+    /// the app's terminals do not depend on it, because each carries its
+    /// own login `env` (`TerminalEnvironment.shared`).
     static func appEnvironment(
         cache: LoginEnvironmentCache,
         base: [String: String],
-        overrides: [String: String]
+        overrides: [String: String],
+        cli: BundledCLIEnvironment? = nil
     ) -> @Sendable () async -> [String: String] {
         {
             DaemonLaunchTimings.shared.mark("daemon.login_env_start")
             let login = await cache.immediate()
             DaemonLaunchTimings.shared.mark("daemon.login_env_end")
-            return LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+            let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+            return cli?.apply(to: environment) ?? environment
         }
     }
 
