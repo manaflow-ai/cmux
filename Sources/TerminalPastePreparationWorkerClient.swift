@@ -93,8 +93,17 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     ) async throws -> TerminalPastePreparationResult {
         try Task.checkCancellation()
         var didProbePlainText = false
-        if case .paste? = request.mode,
-           case .terminal? = request.destination,
+        // Native pastes and terminal-initiated reads both use the resident
+        // helper first. The helper applies the request mode's flavor policy;
+        // only native pastes may fall back to image/file preparation.
+        let canUsePlainTextWorker: Bool
+        switch (request.mode, request.destination) {
+        case (.paste?, .terminal?), (.plainText?, .terminal?):
+            canUsePlainTextWorker = true
+        default:
+            canUsePlainTextWorker = false
+        }
+        if canUsePlainTextWorker,
            let plainTextWorkerPool {
             let response = try await plainTextWorkerPool.request(JSONEncoder().encode(request))
             try Task.checkCancellation()
@@ -125,8 +134,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         // worker. A stalled/crashed provider must fail locally, not run twice.
         var status: Int32 = 73
         if !didProbePlainText,
-           case .paste? = request.mode,
-           case .terminal? = request.destination,
+           canUsePlainTextWorker,
            let plainTextExecutableURL {
             status = try await runWorker(
                 executable: plainTextExecutableURL,
