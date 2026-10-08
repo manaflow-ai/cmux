@@ -1,3 +1,4 @@
+#![cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
@@ -309,7 +310,6 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let (frame_tx, frame_rx) = mpsc::channel();
     let (attach_resize_started_tx, attach_resize_started_rx) = mpsc::channel();
     let (attach_resize_release_tx, attach_resize_release_rx) = mpsc::channel();
-
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
