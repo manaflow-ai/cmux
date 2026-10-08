@@ -146,3 +146,45 @@ fn a_link_peer_is_its_install_and_a_bare_remote_connection_is_remote() {
     let bare = mux.control_clients.register(ClientTransport::Remote, writer);
     assert_eq!(origin_gate::connection_actor(&mux, bare).wire(), "peer:remote");
 }
+
+/// A creation that makes a terminal reserves the workspace and terminal in
+/// its stored intent; the rows it commits are the caller's, never the daemon's.
+#[test]
+fn rows_a_creation_reserves_are_the_callers() {
+    let mux = mux("actor-reservation");
+    let plain = connect(&mux);
+    let params = json!({"machine": "current", "session": "current", "initial_content": "terminal"});
+    let created = send(&mux, &plain, &v2("workspace.create", params, Some("reserve-1"), None));
+    assert_eq!(created["ok"], true, "{created}");
+    let registry = mux.workspace_registry.lock().unwrap();
+    let sql = "SELECT idempotency_key, actor FROM resource_mutations WHERE actor != 'user:user_local'";
+    let mut statement = registry.connection.prepare(sql).unwrap();
+    let others = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(others.is_empty(), "rows of this creation with another actor: {others:?}");
+}
+
+#[test]
+fn a_replayed_close_keeps_the_first_receipt_actor() {
+    let mux = mux("actor-receipt-replay");
+    let plain = connect(&mux);
+    let app = verified_app(&mux, "token:30.1");
+    let created = send(&mux, &plain, &create("replay-create"));
+    let workspace = created["result"]["value"]["workspace_id"].clone();
+    let close = v2(
+        "workspace.close",
+        json!({"machine": "current", "session": "current", "workspace": workspace}),
+        Some("replay-close"),
+        None,
+    );
+    assert_eq!(send(&mux, &plain, &close)["ok"], true);
+    let replay = send(&mux, &app, &close);
+    assert_eq!(replay["ok"], true, "{replay}");
+    let registry = mux.workspace_registry.lock().unwrap();
+    let sql = "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = 'replay-close'";
+    let actor = registry.connection.query_row(sql, [], |row| row.get::<_, String>(0));
+    assert_eq!(actor.ok().as_deref(), Some("user:user_local"));
+}
