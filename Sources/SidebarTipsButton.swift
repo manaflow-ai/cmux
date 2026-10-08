@@ -30,6 +30,7 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var isPopoverPresented = false
     @State private var isInteracting = false
+    @State private var presentationID = UUID()
     @State private var windowNumber: Int?
 
     private let schedule = SidebarTipsSchedule()
@@ -41,6 +42,7 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
     }
 
     private struct DismissalRequest: Equatable {
+        let presentationID: UUID
         let isPresented: Bool
         let isInteracting: Bool
         let tipID: String
@@ -99,7 +101,7 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
         .task(id: AutomaticOpportunity(windowNumber: windowNumber, isActive: controlActiveState == .key)) {
             await offerAutomaticTip()
         }
-        .task(id: DismissalRequest(isPresented: isPopoverPresented, isInteracting: isInteracting, tipID: currentTipID)) {
+        .task(id: DismissalRequest(presentationID: presentationID, isPresented: isPopoverPresented, isInteracting: isInteracting, tipID: currentTipID)) {
             guard isPopoverPresented, !isInteracting, !NSWorkspace.shared.isVoiceOverEnabled else { return }
             do {
                 // This is the intended reading deadline, owned and cancelled by SwiftUI.
@@ -151,6 +153,8 @@ private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Durat
         lastOpenedDay = next.lastOpenedDay ?? ""
         lastOpenedAt = next.lastOpenedAt?.timeIntervalSince1970 ?? 0
         isInteracting = false
+        // A transient popover may close and reopen within the same view update.
+        presentationID = UUID()
         isPopoverPresented = true
     }
 }
