@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextBrowser
+import CmuxNextSettings
 
 /// `debug.cookie_prompt` (DEBUG builds): drives the cookie import card
 /// through its service, the same methods the card's buttons call.
@@ -10,14 +11,15 @@ import CmuxNextBrowser
 /// `answer` (`choice`: import, not_now, never), `reset` (a fresh Mac).
 @MainActor
 enum DebugCookiePrompt {
-    static func run(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
-        guard let services else { return .null }
+    static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let prompt = services.onboarding.cookiePrompt
         switch params["action"]?.stringValue ?? "state" {
         case "show":
             guard let entry = target(params["tab"]?.stringValue, services) else { return .object(["error": .string("no browser tab on screen")]) }
-            let browsers = await withCheckedContinuation { continuation in prompt.findBrowsers { continuation.resume(returning: $0) } }
-            prompt.show(on: entry.chrome, browsers: browsers)
+            // Shown once the installed browsers are known (at once after the first search).
+            prompt.findBrowsers { [weak prompt, weak entry] found in
+                if let entry { prompt?.show(on: entry.chrome, browsers: found) }
+            }
         case "answer":
             let choices: [String: BrowserCookieImportChoice] = ["import": .importCookies, "not_now": .notNow, "never": .never]
             guard let choice = params["choice"]?.stringValue.flatMap({ choices[$0] }) else { return .object(["error": .string("choice: import, not_now or never")]) }
@@ -40,10 +42,10 @@ enum DebugCookiePrompt {
         return .object([
             "never_show": .bool(prompt.state.neverShow),
             "imported": .bool(prompt.state.imported),
-            "snoozed_until": prompt.state.snoozedUntil.map { .string(ISO8601DateFormatter().string(from: $0)) } ?? .null,
+            "snoozed_until": prompt.state.snoozedUntil.map { JSONValue.string(ISO8601DateFormatter().string(from: $0)) } ?? .null,
             "shown_this_launch": .bool(prompt.shownThisLaunch),
             "shown_on": .array(shownOn.map(JSONValue.string)),
-            "browsers": prompt.browsers.map { .array($0.map { .string($0.browser.displayName) }) } ?? .null,
+            "browsers": prompt.browsers.map { found in JSONValue.array(found.map { JSONValue.string($0.browser.displayName) }) } ?? .null,
         ])
     }
 }

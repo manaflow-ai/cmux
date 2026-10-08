@@ -139,7 +139,7 @@ struct InstalledCookieBrowser {
         }
         let rank = { (browser: ImportBrowser) in leading.firstIndex(of: browser) ?? leading.count }
         return candidates.sorted { rank($0) < rank($1) }.compactMap { browser in
-            browser.bundleIDs.lazy.compactMap(locate).first.map { (browser, $0) }
+            browser.bundleIDs.compactMap(locate).first.map { (browser: browser, app: $0) }
         }
     }
 }

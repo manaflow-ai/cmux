@@ -57,7 +57,7 @@ struct CookieImportPromptTests {
         let installed: Set<String> = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac",
                                       "org.torproject.torbrowser"]
         let found = InstalledCookieBrowser.locate { installed.contains($0) ? URL(fileURLWithPath: "/Applications/\($0).app") : nil }
-        #expect(Array(found.map(\.browser).prefix(4)) == [.chrome, .edge, .firefox, .safari])
+        #expect(Array(found.map { $0.browser }.prefix(4)) == [.chrome, .edge, .firefox, .safari])
         #expect(!found.contains { $0.browser.refusesSessionData }, "Tor's cookies stay in Tor")
         #expect(InstalledCookieBrowser.locate { _ in nil }.isEmpty, "no browser, no card")
     }

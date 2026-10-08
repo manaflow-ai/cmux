@@ -36,7 +36,7 @@ extension BrowserChromeView {
     /// shown. Child-window (Chromium) pages draw above the chrome; the card
     /// is one of their occlusion rects, so it shows over them too.
     public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
-        currentCookieImportCard.map(remove)
+        if let shown = currentCookieImportCard { remove(shown) }
         let card = BrowserCookieImportCard(offer: offer)
         card.onChoice = { [weak self, weak card] choice in
             if let card { self?.remove(card) }
@@ -56,7 +56,7 @@ extension BrowserChromeView {
 
     /// Closes the offer, if one is shown.
     public func hideCookieImportOffer() {
-        currentCookieImportCard.map(remove)
+        if let shown = currentCookieImportCard { remove(shown) }
     }
 
     /// Whether an offer is on screen (tests, diagnostics).
