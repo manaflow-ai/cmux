@@ -22580,6 +22580,34 @@
         }
       }
     },
+    "mobile.settings.handoffTerminalSizing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Hand Off Terminal Sizing When Inactive"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "非アクティブ時にターミナルサイズを引き継ぐ"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Terminalgröße bei Inaktivität übergeben"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Transférer le dimensionnement du terminal en cas d’inactivité"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تسليم تحجيم الطرفية عند عدم النشاط"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ceder el dimensionamiento del terminal cuando está inactivo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "非使用中時交接終端機大小"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "不活跃时移交终端大小"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "비활성 상태일 때 터미널 크기 넘기기"}}
+      }
+    },
+    "mobile.settings.handoffTerminalSizing.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Let the Mac choose the terminal size while this app is in the background."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このアプリがバックグラウンドにある間は、Macにターミナルサイズを任せます。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Mac wählt die Terminalgröße, während diese App im Hintergrund ist."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Laisser le Mac choisir la taille du terminal lorsque l’app est en arrière-plan."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "السماح لجهاز Mac باختيار حجم الطرفية عندما يكون هذا التطبيق في الخلفية."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dejar que el Mac elija el tamaño del terminal mientras esta app está en segundo plano."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此 App 在背景執行時，讓 Mac 選擇終端機大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此 App 在后台运行时，让 Mac 选择终端大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 앱이 백그라운드에 있을 때 Mac이 터미널 크기를 선택하도록 합니다."}}
+      }
+    },
     "mobile.ios106PairingUpdate.releaseLabel": {
       "extractionState": "manual",
       "localizations": {

@@ -58,6 +58,11 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     /// screens. The default uses the settled visible-height grid for
     /// alternate-screen apps.
     var useLegacyTerminalSizing: Bool = false
+    /// When enabled, backgrounding releases this phone's viewport so the Mac
+    /// can take the terminal grid. The default preserves the viewport lease
+    /// across a background/foreground transition to keep the host policy and
+    /// rendered grid stable.
+    var handoffTerminalSizingWhenInactive: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     /// SSH terminals: show the Files chip regardless of paths on screen; it
@@ -163,6 +168,9 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIViewController`.
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
+        context.coordinator.setHandoffTerminalSizingWhenInactive(
+            handoffTerminalSizingWhenInactive
+        )
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.terminalWorkPopulation = terminalWorkPopulation
@@ -317,6 +325,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         /// will never be emitted again.
         var outputStartReady = false
         var terminalPresentationIsActive: Bool
+        var handoffTerminalSizingWhenInactive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var outputStartViewportTimeouts = 0
         var outputStartMinimumViewportReportID: UInt64?
@@ -393,6 +402,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             terminalPresentationIsActive: Bool = true,
+            handoffTerminalSizingWhenInactive: Bool = false,
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
@@ -412,6 +422,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             self.surfaceID = surfaceID
             self.store = store
             self.terminalPresentationIsActive = terminalPresentationIsActive
+            self.handoffTerminalSizingWhenInactive = handoffTerminalSizingWhenInactive
             self.artifactFilesEnabled = artifactFilesEnabled
             self.terminalFolderTapEnabled = terminalFolderTapEnabled
             self.artifactChipGate = TerminalArtifactChipFeatureGate(
@@ -1243,8 +1254,19 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
                 outputConsumerRecoveryAlertPending = outputConsumerRestartBlocked
-                stopMountedTasks(releaseViewport: true)
+                stopMountedTasks(releaseViewport: handoffTerminalSizingWhenInactive)
             }
+        }
+
+        /// Updates the persisted handoff choice while keeping the current
+        /// inactive surface consistent. Enabling handoff while the terminal is
+        /// already backgrounded releases the lease immediately; disabling it
+        /// preserves any lease until the next foreground mount.
+        func setHandoffTerminalSizingWhenInactive(_ enabled: Bool) {
+            guard handoffTerminalSizingWhenInactive != enabled else { return }
+            handoffTerminalSizingWhenInactive = enabled
+            guard enabled, !terminalPresentationIsActive else { return }
+            stopMountedTasks(releaseViewport: true)
         }
 
         func detach() {

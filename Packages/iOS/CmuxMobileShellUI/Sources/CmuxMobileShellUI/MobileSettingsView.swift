@@ -307,6 +307,22 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
+                    Toggle(isOn: $displaySettings.handoffTerminalSizingWhenInactive) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.handoffTerminalSizing",
+                                defaultValue: "Hand Off Terminal Sizing When Inactive"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.handoffTerminalSizing.description",
+                                defaultValue: "Let the Mac choose the terminal size while this app is in the background."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsHandoffTerminalSizingToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {

@@ -58,6 +58,7 @@ struct TerminalSurfaceMountOwnershipTests {
             workspaceID: workspace.id.rawValue,
             surfaceID: surfaceID,
             store: store,
+            handoffTerminalSizingWhenInactive: true,
             artifactFilesEnabled: false,
             terminalFolderTapEnabled: false,
             terminalFilesChipEnabled: false,
@@ -150,9 +151,69 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         #expect(remounted)
 
-        // Backgrounding must keep the sticky viewport lease and its
-        // generation-fenced Mac report so resume cannot flash the wrong grid.
+        // Presentation ownership releases the sticky viewport lease only when
+        // the explicit handoff preference is enabled.
         coordinator.setTerminalPresentationActive(false)
+        #expect(!store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
+    }
+
+    @MainActor
+    @Test("backgrounding preserves the viewport lease by default")
+    func backgroundingPreservesViewportLeaseByDefault() async throws {
+        let store = MobileShellComposite.preview()
+        let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
+        let terminal = try #require(workspace.terminals.first)
+        let surfaceID = terminal.id.rawValue
+        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+            workspaceID: workspace.id.rawValue,
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
+            terminalFilesChipEnabled: false,
+            sessionArtifactCountEnabled: false,
+            visibleArtifactCount: 0,
+            onArtifactFilesRequested: { _ in },
+            onArtifactPathTapped: { _ in },
+            onVisibleArtifactCountChanged: { _ in },
+            onArtifactGalleryRefreshSignal: { _ in }
+        )
+        let surfaceView = GhosttySurfaceView(
+            runtime: try GhosttyRuntime.shared(),
+            delegate: coordinator
+        )
+        surfaceView.stopDisplayLink()
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        coordinator.attach(surfaceView: surfaceView)
+        defer {
+            surfaceView.removeFromSuperview()
+            coordinator.detach()
+            surfaceView.prepareForDismantle()
+            window.isHidden = true
+        }
+        surfaceView.frame = host.view.bounds
+        host.view.addSubview(surfaceView)
+        coordinator.ghosttySurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(
+                columns: 72,
+                rows: 61,
+                pixelWidth: 1_296,
+                pixelHeight: 2_135
+            ),
+            reportID: 1
+        )
+        #expect(await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        })
+
+        coordinator.setTerminalPresentationActive(false)
+
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
