@@ -167,6 +167,8 @@ export type SettingsOps = {
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
   "cmux.app.action.run": [{ action: string; args?: Record<string, unknown>; target?: string }, unknown];
+  /** Native: write text to the pasteboard (react-pages.md 1.3). */
+  "cmux.app.clipboard.write": [{ text: string }, unknown];
 };
 
 export type SettingsOpName = keyof SettingsOps;

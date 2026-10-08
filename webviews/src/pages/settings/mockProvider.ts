@@ -68,6 +68,8 @@ export class MockSettingsProvider {
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
   revision = 1;
+  /** What `cmux.app.clipboard.write` last wrote. */
+  clipboard: string | null = null;
   diagnostics: Diagnostic[];
   readonly domains: Domains | null;
   private readonly chatFolders: ListRow["folders"];
@@ -136,6 +138,10 @@ export class MockSettingsProvider {
         return { added };
       },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
+      "cmux.app.clipboard.write": (params) => {
+        this.clipboard = String(params.text);
+        return {};
+      },
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
         if (
@@ -166,6 +172,7 @@ export class MockSettingsProvider {
       "cmux.settings.folders.add",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
+      "cmux.app.clipboard.write",
     ]);
     for (const [op, handler] of Object.entries(ops)) {
       session.register(op, (params) => {
