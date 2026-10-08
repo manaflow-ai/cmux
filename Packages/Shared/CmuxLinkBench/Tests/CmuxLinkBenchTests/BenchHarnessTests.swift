@@ -127,6 +127,13 @@ struct BenchHarnessTests {
         )
         let roundTrip = try BenchResultManifest.decode(manifest.encoded())
         #expect(roundTrip == manifest)
+        let provenance = BenchReportProvenance(
+            sourceGitSHA: "0123456789abcdef", devTag: "nxd3", buildNumber: "42", runID: "run-1"
+        )
+        let provenanceRoundTrip = try JSONDecoder().decode(
+            BenchReportProvenance.self, from: JSONEncoder().encode(provenance)
+        )
+        #expect(provenanceRoundTrip == provenance)
         #expect(throws: BenchSplitError.self) {
             try BenchResultManifest(
                 name: "bad", sourceCommit: "abc", recordedAt: "now", description: "bad",

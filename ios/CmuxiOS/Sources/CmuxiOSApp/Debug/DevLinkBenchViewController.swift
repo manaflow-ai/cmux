@@ -28,19 +28,45 @@ final class DevLinkBenchViewController: UIViewController {
     private let quickSwitch = UISwitch()
     private let runButton = UIButton(type: .system)
     private var runTask: Task<Void, Never>?
+    private var reportPersistenceError: String?
     /// The completed report as UTF-8 JSON, for DEV capture or tests.
     private(set) var reportData: Data?
     /// Called after a report is encoded. The default factory writes a cache
     /// artifact; callers can replace it with a test or upload sink.
     var onReport: ((Data) -> Void)?
+    /// Called before a new run starts so the default sink can remove stale
+    /// artifacts left by an earlier run.
+    var onRunStart: (() -> Void)?
 
     static func make() -> DevLinkBenchViewController {
         let controller = DevLinkBenchViewController()
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("cmux-gallery", isDirectory: true)
+        controller.onRunStart = {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: nil
+            ) else { return }
+            for file in files where
+                (file.lastPathComponent == "link-bench.json" || file.lastPathComponent.hasPrefix("link-bench-")) &&
+                file.pathExtension == "json"
+            {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
         controller.onReport = { data in
-            let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("cmux-gallery", isDirectory: true)
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.write(to: directory.appendingPathComponent("link-bench.json"), options: .atomic)
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let report = try JSONDecoder().decode(BenchReport.self, from: data)
+                guard let runID = report.provenance?.runID, !runID.isEmpty else {
+                    throw BenchSplitError.server("benchmark report has no build provenance")
+                }
+                let safeID = runID.replacingOccurrences(
+                    of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
+                )
+                try data.write(to: directory.appendingPathComponent("link-bench-\(safeID).json"), options: .atomic)
+            } catch {
+                controller.reportPersistenceError = error.localizedDescription
+            }
         }
         return controller
     }
@@ -143,6 +169,8 @@ final class DevLinkBenchViewController: UIViewController {
         }
 
         runButton.isEnabled = false
+        reportData = nil
+        onRunStart?()
         resultView.text = ""
         statusLabel.text = "Connecting to \(descriptor.address):\(descriptor.port)…"
         let runner = self.runner
@@ -159,9 +187,14 @@ final class DevLinkBenchViewController: UIViewController {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 self.reportData = data
+                self.reportPersistenceError = nil
                 self.onReport?(data)
                 self.resultView.text = String(decoding: data, as: UTF8.self)
-                self.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
+                if let error = self.reportPersistenceError {
+                    self.statusLabel.text = "Could not save report: \(error)"
+                } else {
+                    self.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
+                }
                 self.runTask = nil
                 self.runButton.isEnabled = true
             } catch is CancellationError {
@@ -180,7 +213,31 @@ final class DevLinkBenchViewController: UIViewController {
         let client = try BenchSplitClient(descriptor: descriptor, deviceIdentity: identity)
         var spec = BenchSpec(rig: .v3, quick: quick)
         spec.bulkRecordBytes = descriptor.bulkRecordBytes
-        return try await client.run(spec: spec, progress: progress)
+        let info = Bundle.main.infoDictionary ?? [:]
+        func bundleString(_ key: String) -> String? {
+            guard let value = info[key] as? String, !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+            return value
+        }
+        func sourceSHA(_ value: String?) -> String? {
+            guard let value, (7...40).contains(value.count),
+                  value.unicodeScalars.allSatisfy({ scalar in
+                      (48...57).contains(scalar.value) || (65...70).contains(scalar.value) ||
+                      (97...102).contains(scalar.value)
+                  }) else { return nil }
+            return value
+        }
+        guard let sourceGitSHA = sourceSHA(bundleString("CMUXGitSHA")),
+              let devTag = bundleString("CMUXDevTag"),
+              let buildNumber = bundleString("CFBundleVersion") else {
+            throw BenchSplitError.server("app bundle has no exact build provenance")
+        }
+        return try await client.run(
+            spec: spec,
+            provenance: BenchReportProvenance(
+                sourceGitSHA: sourceGitSHA, devTag: devTag, buildNumber: buildNumber
+            ),
+            progress: progress
+        )
     }
 }
 #endif

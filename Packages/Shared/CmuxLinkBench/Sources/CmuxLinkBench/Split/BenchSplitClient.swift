@@ -24,6 +24,7 @@ public struct BenchSplitClient: Sendable {
     /// incomparable partial result.
     public func run(
         spec: BenchSpec,
+        provenance: BenchReportProvenance? = nil,
         progress: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> BenchReport {
         let requested = spec.workloads ?? Set(BenchWorkload.splitSupported)
@@ -43,6 +44,8 @@ public struct BenchSplitClient: Sendable {
         let runner = BenchRunner(spec: splitSpec) {
             try await BenchSplitFixture.connect(descriptor: descriptor, deviceIdentity: identity)
         }
-        return await runner.run(progress: progress)
+        var report = await runner.run(progress: progress)
+        report.provenance = provenance
+        return report
     }
 }
