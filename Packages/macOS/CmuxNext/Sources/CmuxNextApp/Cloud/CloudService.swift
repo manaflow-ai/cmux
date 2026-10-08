@@ -17,6 +17,9 @@ final class CloudService {
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
+    /// credential relay; registered at sign-in, revoked at sign-out.
+    @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -40,6 +43,14 @@ final class CloudService {
             configuration: configuration,
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
+        )
+        installIdentity = MacInstallIdentity(
+            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
+                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.apiBaseURL.host ?? "unknown")",
+                           team: CodeSigningTeam.current()),
+            transport: InstallHTTPTransport(baseURL: configuration.apiBaseURL),
+            deviceName: Self.deviceName,
+            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         if let binary {
@@ -94,6 +105,7 @@ final class CloudService {
             await auth.awaitRestored()
             for await signedIn in Observations({ self.auth.isSignedIn }) {
                 if signedIn {
+                    await self.installSignedIn()
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     await self.refresh()
@@ -256,6 +268,21 @@ final class CloudService {
     func signOut() async {
         dropAllMachines()
         if let hub { await hub.revoke() }
+        // Revoke the install while the Stack session still exists.
+        await installIdentity.signOut()
         await auth.signOut()
+    }
+
+    /// Registers (or reuses) this Mac's install for the signed-in user and
+    /// mints one token. A failure is logged: the relay mints again when it
+    /// needs a token, and the hub path does not depend on it.
+    private func installSignedIn() async {
+        guard let stackUser = auth.user?.id else { return }
+        let auth = auth
+        do {
+            try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+        } catch {
+            logger.error("install registration failed: \(String(describing: error), privacy: .public)")
+        }
     }
 }

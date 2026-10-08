@@ -8,8 +8,16 @@ import Testing
 /// session afterwards, and revokes the install at sign-out. A development
 /// build keeps its key and records in 0600 files (no Keychain prompt per
 /// rebuild); a signed build keeps the key in the Secure Enclave.
+/// One install.register call, as the fake owner saw it.
+private struct Registration: Sendable, Equatable {
+    var kind: String?
+    var platform: String?
+    var opClasses: [String]?
+    var keyX: String?
+}
+
 private actor FakeOwner: InstallAuthTransport {
-    var registered: [[String: Any]] = []
+    var registered: [Registration] = []
     var revoked: [String] = []
     var mints = 0
     var sessionCalls = 0
@@ -35,7 +43,9 @@ private actor FakeOwner: InstallAuthTransport {
                 revoked.append(params["install"] as? String ?? "")
                 return try reply(["ok": true, "value": ["id": params["install"] ?? ""]])
             default:
-                registered.append(params)
+                registered.append(Registration(kind: params["kind"] as? String, platform: params["platform"] as? String,
+                                               opClasses: params["op_classes"] as? [String],
+                                               keyX: (params["public_jwk"] as? [String: String])?["x"]))
                 return try reply(["ok": true, "value": ["id": "inst_\(registered.count)"]])
             }
         case "/v1/auth/challenge":
@@ -69,9 +79,9 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
         try await mac.signedIn(stackUser: "stack_1", session: { "session" })
         let registered = await owner.registered
         #expect(registered.count == 1)
-        #expect(registered.first?["kind"] as? String == "mac")
-        #expect(registered.first?["platform"] as? String == "macos")
-        #expect(registered.first?["op_classes"] as? [String] == ["read", "mutate-own", "mutate-shared", "cloud-link"])
+        #expect(registered.first?.kind == "mac")
+        #expect(registered.first?.platform == "macos")
+        #expect(registered.first?.opClasses == ["read", "mutate-own", "mutate-shared", "cloud-link"])
         #expect(await owner.mints == 1)
         #expect(try await mac.installToken().hasPrefix("eyJ"))
     }
@@ -97,7 +107,7 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await mac.installToken() }
         // The next sign-in registers a new install with a new key.
         try await mac.signedIn(stackUser: "stack_1", session: { "session" })
-        let keys = await owner.registered.map { ($0["public_jwk"] as? [String: String])?["x"] }
+        let keys = await owner.registered.map(\.keyX)
         #expect(keys.count == 2 && keys[0] != keys[1])
     }
 
