@@ -140,7 +140,7 @@ struct AgentFeedRow: View, Equatable {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             avatar
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 authorLine
                 if let quoted = model.presentation.quotedUserMessage {
                     quotedMessage(quoted)
@@ -345,7 +345,7 @@ struct AgentFeedRow: View, Equatable {
     /// the user's own words, secondary gray for the agent's.
     private func bubbleQuote(_ message: String, lineLimit: Int, sender: BubbleSender) -> some View {
         let tint: Color = sender == .user ? .accentColor : .secondary
-        return bubbleSide(
+        return HStack(spacing: 0) {
             bubbleContentPadding(
                 AgentFeedMarkdownText(
                     markdown: message,
@@ -357,12 +357,13 @@ struct AgentFeedRow: View, Equatable {
                 sender: sender,
                 vertical: 7
             )
+            .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(
                 AgentFeedBubbleShape(tailEdge: sender.tailEdge)
                     .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-            ),
-            sender: sender
-        )
+            )
+        }
+        .padding(.horizontal, 4)
     }
 
     private func barQuote(_ message: String) -> some View {
@@ -412,7 +413,6 @@ struct AgentFeedRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .disabled(isReplyPending || model.item.userReply != nil)
-        .padding(.top, 2)
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
     }
 
