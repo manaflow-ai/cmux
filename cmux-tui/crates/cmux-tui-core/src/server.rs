@@ -177,6 +177,8 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_inspect;
+pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -1009,6 +1011,9 @@ enum Command {
         terminal_id: String,
         url: String,
     },
+    /// The Chief memory inspector's read-only API, for the owner's trusted
+    /// connection, forwarded to the brain host (`chief-inspect-v1`).
+    ChiefInspect(chief_inspect::Params),
     UrlOpenClaim {
         request_id: String,
     },
@@ -10526,6 +10531,9 @@ fn handle_request_with_cancellation(
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
+    if let Command::ChiefInspect(params) = cmd {
+        return chief_inspect::start(mux, client, id, params, writer);
+    }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }
@@ -10799,7 +10807,8 @@ fn create_surface_with_receipt(
         "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
     );
     let mutation =
-        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?;
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?
+            .by(origin_gate::connection_actor(mux, client));
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
@@ -10997,12 +11006,18 @@ fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
 
-fn workspace_mutation(request: &MutationRequest) -> anyhow::Result<WorkspaceMutation> {
-    match (&request.mutation_id, &request.origin) {
-        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone()),
-        (None, None) => Ok(WorkspaceMutation::local("legacy-control")),
+/// The mutation `client` asks for, caused by the client's connection actor.
+fn workspace_mutation(
+    mux: &Mux,
+    client: u64,
+    request: &MutationRequest,
+) -> anyhow::Result<WorkspaceMutation> {
+    let mutation = match (&request.mutation_id, &request.origin) {
+        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone())?,
+        (None, None) => WorkspaceMutation::local("legacy-control"),
         _ => anyhow::bail!("origin and mutation_id must be provided together"),
-    }
+    };
+    Ok(mutation.by(origin_gate::connection_actor(mux, client)))
 }
 
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
@@ -12687,6 +12702,9 @@ fn handle_command_with_cancellation(
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
         }
+        Command::ChiefInspect(_) => {
+            anyhow::bail!("chief-inspect requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -13107,7 +13125,7 @@ fn handle_command_with_cancellation(
             projection,
             mutation,
         } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let commit = mux.put_frontend_projection(
                 &workspace_mutation,
                 &frontend,
@@ -13424,7 +13442,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::CloseTerminal { terminal_id, terminal_incarnation, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.close_terminal_with_mutation(
                 &terminal_id,
                 terminal_incarnation.as_deref(),
@@ -13606,7 +13624,7 @@ fn handle_command_with_cancellation(
             {
                 anyhow::bail!("workspace key must be a lowercase UUID");
             }
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let placement = mux.create_empty_workspace_with_mutation(
                 name,
                 key,
@@ -13665,7 +13683,7 @@ fn handle_command_with_cancellation(
             // A per-terminal environment rides the receipted path, which is
             // the only one that carries a spawn reservation.
             if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
-                let workspace_mutation = workspace_mutation(&mutation)?;
+                let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
                 // A keyed retry whose workspace has closed since replays by key.
                 let (workspace, key) = match (resolved, key) {
                     (Ok((workspace, key)), _) => (Some(workspace), key),
@@ -14002,7 +14020,7 @@ fn handle_command_with_cancellation(
             Ok(terminal_resources::terminal_resources(mux, surfaces))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.move_terminal_with_mutation(
                 &terminal_id,
                 &workspace_key,
@@ -14251,7 +14269,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.move_workspace_with_mutation(
                 workspace,
                 key.as_deref(),
@@ -14282,7 +14300,7 @@ fn handle_command_with_cancellation(
             marked_unread,
             mutation,
         } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let update = crate::workspace_registry::WorkspacePresentationUpdate {
                 group: None,
                 color,
@@ -14518,7 +14536,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.move_workspace_to_group(
                 workspace,
                 key.as_deref(),
@@ -14613,7 +14631,15 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
-            close_tabs_command::run(mux, &surfaces, end_terminals, transaction, reason, &mutation)
+            close_tabs_command::run(
+                mux,
+                client,
+                &surfaces,
+                end_terminals,
+                transaction,
+                reason,
+                &mutation,
+            )
         }
         // With `end_terminals` the result shapes stay those of the plain
         // closes; the ended terminals show in the terminal and resource streams.
@@ -14634,7 +14660,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = if end_terminals {
                 mux.close_workspace_ending_terminals(
                     workspace,
@@ -14697,7 +14723,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::RenameWorkspace { workspace, key, name, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
+            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
             let result = mux.rename_workspace_with_mutation(
                 workspace,
                 key.as_deref(),

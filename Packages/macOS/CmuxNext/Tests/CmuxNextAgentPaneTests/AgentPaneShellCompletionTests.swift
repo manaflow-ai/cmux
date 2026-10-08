@@ -118,6 +118,23 @@ import Testing
         #expect(candidates.compactMap { $0["value"] as? String } == ["alpha.txt"])
     }
 
+    /// cx-wfhg: the shell can exit, and be reaped, before its stdout reaches EOF (a background
+    /// job from a profile still holds the pipe; under load the reaper simply wins the race). The
+    /// reply must still come when the pipe closes, not at the deadline.
+    @Test func aShellThatExitsBeforeItsOutputEndsStillAnswers() async throws {
+        let fixture = try ShellCompletionFixture(shell: "bash")
+        defer { fixture.remove() }
+        let bin = fixture.cwd
+        let bash = bin + "/bash"
+        // The background child writes only after its parent shell exited and was reaped.
+        let script = "#!/bin/sh\n(while kill -0 $$ 2>/dev/null; do :; done; /bin/sleep 0.5; printf '\\0echo\\n\\0') &\nexit 0\n"
+        try Data(script.utf8).write(to: URL(fileURLWithPath: bash))
+        #expect(chmod(bash, 0o755) == 0)
+        let completion = AgentPaneShellCompletion(shell: bash, environment: fixture.environment, home: bin, timeout: .seconds(20))
+        let result = try await completion.complete("ech", cwd: bin)
+        #expect(values(result) == ["echo"])
+    }
+
     /// cx-6so.47: a completion that passes the deadline answers as a timeout, never as "Could
     /// not start" (the shell did start). The fake `bash` sleeps past a short deadline.
     @Test func aCompletionPastTheDeadlineAnswersATimeout() async throws {

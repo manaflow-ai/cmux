@@ -16,6 +16,8 @@
 //! - [`manifest`]: signed channel manifest verification (server.md 4.2).
 //! - [`catalog`]: the `server.*` operations as static data (server.md 13).
 //! - [`reexec`]: the one re-exec into a newer staged `cmux` (decision SV-R2).
+//! - [`install_key`]: a Cloud machine's ES256 install key (the caller
+//!   passes the random source).
 //! - [`role`]: the role trait and lifecycle events `cmux host run`
 //!   supervises (lane 1 vm-image.md 6.3).
 //! - [`role_spec`] and [`role_proc`]: process roles from `server.json`
@@ -24,6 +26,7 @@
 pub mod access;
 pub mod catalog;
 pub mod health;
+pub mod install_key;
 pub mod layout;
 pub mod manifest;
 pub mod pairing;

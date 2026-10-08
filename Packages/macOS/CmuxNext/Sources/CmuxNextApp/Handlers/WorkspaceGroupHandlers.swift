@@ -85,12 +85,38 @@ enum WorkspaceGroupHandlers {
             // (Close All Workspaces in Group is the verb that closes them).
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
+        registry.bind("workspaceGroup.copyID", run: { invocation in context.copy(try context.group(invocation).id.rawValue) })
         registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
 
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
             let group = try context.group(invocation)
             try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
+        })
+        // The group icon: the shared icon string, same rule as workspace and tab icons.
+        registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
+            // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu)
+            // the shared icon picker opens and its pick takes the same path.
+            let group = try context.group(invocation)
+            let history = IconHistory.workspaceGroup(context), id = group.id.rawValue
+            if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
+                guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
+                return try history.change(id, from: group.icon, to: icon, origin: invocation.origin)
+            }
+            guard let anchor = context.services.iconPicker.anchor(group: group.id.rawValue) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
+            }
+            context.services.iconPicker.pick(current: group.icon, target: "workspaceGroup:\(id)", at: anchor) { result in
+                switch result {
+                case .set(let icon) where WorkspaceIconValue.isValid(icon): try? history.change(id, from: group.icon, to: icon, origin: .user)
+                case .clear: try? history.change(id, from: group.icon, to: nil, origin: .user)
+                case .set, .cancel: break
+                }
+            }
+        })
+        registry.bind("workspaceGroup.clearIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
+            let group = try context.group(invocation)
+            try IconHistory.workspaceGroup(context).change(group.id.rawValue, from: group.icon, to: nil, origin: invocation.origin)
         })
         registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
