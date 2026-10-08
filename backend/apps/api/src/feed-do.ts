@@ -75,6 +75,32 @@ export class FeedDO extends OwnerDO<FeedState> {
     return res
   }
 
+  /**
+   * A delivery from the feed owner's own UserDO (stream `user:<feed user>`) carries that user, so
+   * its security notices (text confirmation level, presence keys) post to this feed. Any other
+   * source stays a bare system principal, which may run only the internal ops.
+   */
+  protected override systemPrincipal(entity: string, source: string): Principal {
+    const base = super.systemPrincipal(entity, source)
+    return source === `user:${entity}` ? { ...base, user: entity } : base
+  }
+
+  /**
+   * G8: a team's ConnectionDO posts an approve request for an op that waits for this user's
+   * decision. Server code only (DO RPC); the principal is `system:connections:<team>` with this
+   * feed's user, the item's poster kind is integration, and the person's answer goes back to that
+   * ConnectionDO through the outbox (feed-approvals.ts). Idempotent by `key`.
+   */
+  async integrationApproval(entity: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<{ ok: true; item: string } | { ok: false; message: string }> {
+    const principal: Principal = { identity: `system:connections:${team}`, kind: "system", user: entity }
+    const params = { type: "request", kind: "approve", title: "Approve an action by an agent", prompt, priority: "high", expires_in_ms: expiresInMs, poster: { kind: "integration", label: "Integrations" } }
+    const res = await this.submit(entity, principal, { t: "op", op: "feed.post", params, idempotency_key: key, origin: "script" })
+    const result = res.frames.find((f) => f.t === "result")
+    if (result && result.t === "result") return { ok: true, item: (result.value as { item: { id: string } }).item.id }
+    const rej = res.frames.find((f) => f.t === "reject")
+    return { ok: false, message: rej && rej.t === "reject" ? rej.message : "the feed did not take the request" }
+  }
+
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */
   protected override bind(entity: string) {
     const engine = super.bind(entity)

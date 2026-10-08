@@ -81,7 +81,16 @@ struct AppEnvironment: Sendable {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
-        })
+        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration))
+    }
+
+    /// The bundled `cmux` for this app's terminals: `<Resources>/bin`, and
+    /// the `cmux-cli-path` layers when this app (not the daemon) integrates
+    /// the shell, since they wrap the integration the app writes.
+    nonisolated static func bundledCLI(appResources: String?, resolvesShellIntegration: Bool) -> BundledCLIEnvironment? {
+        guard let appResources, !appResources.isEmpty else { return nil }
+        return BundledCLIEnvironment(binDirectory: appResources + "/bin",
+                                     pathIntegration: resolvesShellIntegration ? appResources + "/cmux-cli-path" : nil)
     }
 
     /// Maps the config's raw settings; Ghostty's defaults when no config loaded.

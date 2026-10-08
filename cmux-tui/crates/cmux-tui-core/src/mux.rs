@@ -271,13 +271,13 @@ impl<T> SignaledMutex<T> {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
             let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
         }
     }
@@ -2975,7 +2975,7 @@ impl Mux {
 
     pub(crate) fn from_workspace_registry(
         session: String,
-        mut surface_options: SurfaceOptions,
+        surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
@@ -3013,7 +3013,6 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
-        surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
@@ -6250,7 +6249,7 @@ impl Mux {
         let commit_from = Instant::now();
         let remaining = deadline.saturating_duration_since(Instant::now());
         let commits = if remaining.is_zero() {
-            Err(anyhow::anyhow!("session journal commit deadline expired"))
+            Err(crate::JournalContention::COMMIT_DEADLINE.into())
         } else {
             registry.append_journal_ingress_events_with_deadline(
                 events,
@@ -12339,7 +12338,6 @@ impl Mux {
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
-        options.browser_session_name = self.session.clone();
     }
 
     /// The latest machine-level model spend readout, or `None` when the

@@ -871,6 +871,7 @@ mod unix {
     mod clipboard_read;
     mod control_responses;
     mod exited_drain;
+    mod host_accept;
     mod host_parser;
     mod host_scope;
     mod host_signals;
@@ -4871,6 +4872,7 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        let mut backoff = host_accept::AcceptBackoff::new();
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -4891,18 +4893,10 @@ mod unix {
                 break;
             }
             match listener.accept() {
-                Ok((stream, _)) => {
-                    // Accepted sockets inherit O_NONBLOCK from the listener
-                    // on macOS. Client protocol threads use blocking framed
-                    // reads, so normalize the accepted descriptor here.
-                    stream.set_nonblocking(false)?;
-                    let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
-                        move || {
-                            let _ = serve_client(host, stream);
-                        },
-                    )?;
-                }
+                Ok((stream, _)) => match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     // Block until an attachment arrives or the accept waker
                     // reports a lifecycle change (terminal exit, last client
@@ -4929,15 +4923,24 @@ mod unix {
                     if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error.into());
+                            backoff.after_error(&shared, &error);
                         }
+                    } else {
+                        // The listener drained without error: a later error
+                        // starts a new streak.
+                        backoff.reset();
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
+                Err(error) => backoff.after_error(&shared, &error),
             }
         }
         thread::sleep(Duration::from_millis(20));

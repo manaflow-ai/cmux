@@ -68,6 +68,8 @@
 				Info.plist,
 				InfoPlist.xcstrings,
 				bin,
+				cmux-cli-path,
+				cmux-cli-path/zsh/.zshenv,
 				cmux.entitlements,
 				coderouter-cli.json,
 				feed-tui,

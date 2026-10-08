@@ -27,6 +27,7 @@ use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::insert_resource_mutation;
 use super::session_journal::append_resource_journal_record;
 use super::{
     TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry, canonical_json, read_terminal,
@@ -170,11 +171,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [next_resource.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, 'terminal-respawned', ?3, ?4, ?5)",
-            params![&mutation.origin, &mutation.id, &fingerprint, &result_json, sqlite_resource],
+        insert_resource_mutation(
+            &tx,
+            &mutation,
+            "terminal-respawned",
+            &fingerprint,
+            &result_json,
+            sqlite_resource,
         )?;
         let changes = json!([{
             "kind": "upsert",

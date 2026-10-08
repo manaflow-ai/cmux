@@ -1,6 +1,10 @@
 import CommonCrypto
 public import Foundation
 
+// CMUX_NO_PASSWORD_IMPORT (set only by the cx-f58x notary test build,
+// nightly.yml input notary_test_without_password_import) compiles out the
+// browser password readers. Default builds include them.
+#if !CMUX_NO_PASSWORD_IMPORT
 /// Firefox's saved-password encryption (NSS, `key4.db`): the master key in
 /// `nssPrivate.a11` and the check value in `metaData` ("password-check")
 /// are sealed with PBES2 (PBKDF2-HMAC-SHA256 + AES-256-CBC) or, in older
@@ -236,3 +240,4 @@ public struct FirefoxPasswordCrypto: Sendable {
         return output
     }
 }
+#endif
