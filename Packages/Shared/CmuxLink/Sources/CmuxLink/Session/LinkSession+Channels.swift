@@ -157,7 +157,8 @@ extension LinkSession {
         let base = record.sendBudgetOverride ?? record.descriptor.budgetBytes
         guard record.descriptor.reliability == .reliableOrdered,
               record.sendPriority == .render,
-              record.descriptor.priority == .render || record.sendBudgetOverride != nil
+              record.descriptor.priority == .render || record.sendBudgetOverride != nil,
+              base == ChannelDescriptor.defaultBudget(for: .render)
         else { return base }
         return configuration.renderCreditBudget(for: rtt, base: base)
     }

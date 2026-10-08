@@ -283,7 +283,8 @@ extension LinkSession {
             guard let record = channels[id],
                   record.descriptor.reliability == .reliableOrdered,
                   record.sendPriority == .render,
-                  record.descriptor.priority == .render || record.sendBudgetOverride != nil
+                  record.descriptor.priority == .render || record.sendBudgetOverride != nil,
+                  (record.sendBudgetOverride ?? record.descriptor.budgetBytes) == ChannelDescriptor.defaultBudget(for: .render)
             else { continue }
             let waiters = Array(record.creditWaiters.values)
             channels[id]?.creditWaiters.removeAll()
