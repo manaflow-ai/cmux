@@ -131,6 +131,15 @@ struct GhosttyDECCKMArrowKeyTests {
         ))
     }
 
+    @Test(arguments: [115, 119] as [UInt16])
+    func terminalHomeEndPredicateAcceptsFnNavigationKeys(keyCode: UInt16) {
+        #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+            keyCode: keyCode,
+            firstResponderIsTerminal: true,
+            flags: [.numericPad, .function]
+        ))
+    }
+
     @Test
     func terminalArrowPredicateRequiresTerminalContext() {
         #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
