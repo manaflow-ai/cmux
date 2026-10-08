@@ -26,9 +26,9 @@ the raw host files are not mounted in this checkout.
 
 | host receipt subset | started / completed | admission wait p50 / p90 / max (s) | host run p50 / p90 (s) | telemetry and contention |
 | --- | ---: | ---: | ---: | --- |
-| AWS relay A | 159 / 159 | 13.5 / 365.4 / 978.3 | 205.2 / 218.2 | 58 contended, 95 refused, no compile telemetry |
-| AWS relay B | 86 / 85 | 0.8 / 3.4 / 1,077.5 | 646.2 / 1,014.5 | compile telemetry 22 rows, 16 contended |
-| AWS relay C | 89 / 88 | 0.8 / 3.7 / 297.3 | 322.2 / 835.3 | compile telemetry 26 rows, 19 contended |
+| AWS relay 7 | 159 / 159 | 13.5 / 365.4 / 978.3 | 205.2 / 218.2 | 58 contended, 95 refused, no compile telemetry |
+| AWS relay 8 | 86 / 85 | 0.8 / 3.4 / 1,077.5 | 646.2 / 1,014.5 | compile telemetry 22 rows, 16 contended |
+| AWS relay 9 | 89 / 88 | 0.8 / 3.7 / 297.3 | 322.2 / 835.3 | compile telemetry 26 rows, 19 contended |
 | local mini control | 3,287 / 3,283 | 0.9 / 167 / 1,037 | 344.3 / 716.3 | compile telemetry 752 rows, 280 contended |
 
 For the telemetry subsets, nested compile fetch was 35.6/61.8 seconds on
