@@ -327,17 +327,19 @@ impl Mux {
             // A host loss is logged once, with the signals its host recorded
             // (cx-6so.49); best effort, after the exit latch.
             #[cfg(unix)]
-            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            if let Some(root) = root
-                && let Some(cause) = crate::terminal_loss_log::record_host_loss(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                )
-                && let Some(public_id) = public_terminal_id.as_ref()
             {
-                self.record_terminal_loss_cause(public_id.as_str(), cause);
+                let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+                if let Some(root) = root
+                    && let Some(cause) = crate::terminal_loss_log::record_host_loss(
+                        &root.join(format!("{terminal_id}.json")),
+                        terminal_id,
+                        incarnation,
+                        end,
+                    )
+                    && let Some(public_id) = public_terminal_id.as_ref()
+                {
+                    self.record_terminal_loss_cause(public_id.as_str(), cause);
+                }
             }
             // cx-6so.49 L2: a placed terminal whose shell was lost with its
             // host gets a new shell under the same id (it decides and marks
