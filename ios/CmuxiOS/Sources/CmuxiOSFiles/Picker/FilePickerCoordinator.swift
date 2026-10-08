@@ -81,6 +81,13 @@ public final class FilePickerCoordinator: NSObject {
         presenter.present(picker, animated: true)
     }
 
+    /// Discards a staged picker result that cannot be uploaded (for example,
+    /// when the composer has no selected host). The composer calls this on
+    /// its early refusal path so every picker result has one owner.
+    public func discard(_ file: StagedFile) {
+        stager.discard(file)
+    }
+
     private func presentCameraDenied(from presenter: UIViewController) {
         let alert = UIAlertController(
             title: String(localized: "files.camera.denied.title", defaultValue: "Camera Access Is Off", bundle: .module),

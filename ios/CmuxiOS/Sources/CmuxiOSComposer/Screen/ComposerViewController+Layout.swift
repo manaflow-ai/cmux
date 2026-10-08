@@ -99,7 +99,7 @@ extension ComposerViewController {
         outcomeView.onOpen = { [weak self] in self?.openOutcome() }
         suggestions.onPick = { [weak self] id in self?.pickSuggestion(id) }
         attachmentStrip.onRemove = { [weak self] id in self?.removeAttachment(id) }
-        picker.onPicked = { [weak self] picked in self?.upload(picked) }
+        picker?.onPicked = { [weak self] picked in self?.upload(picked) }
     }
 
     override var keyCommands: [UIKeyCommand]? {

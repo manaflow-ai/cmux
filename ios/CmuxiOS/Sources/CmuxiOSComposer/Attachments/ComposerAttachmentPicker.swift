@@ -1,73 +1,71 @@
-import CmuxiOSComposerCore
-import CmuxiOSFeatureKit
-@preconcurrency import PhotosUI
+import CmuxiOSFiles
+import CmuxiOSFilesCore
 import UIKit
-import UniformTypeIdentifiers
 
-/// Picks photos (PHPicker, no library permission needed) or files (document
-/// picker), copies each into a temporary file the app owns, and hands it to
-/// the uploader (lane C4). One picker session at a time.
+/// Adapts C4's native pickers for the task composer.
+///
+/// `FilePickerCoordinator` stages provider URLs into app-owned files and uses
+/// the same `FileStager` as `FileSendCoordinator`. Composer never retains a
+/// PhotosUI or document-provider URL, which keeps the upload lifetime valid
+/// after the picker has been dismissed and makes cancellation cleanup shared
+/// with terminal and inbox uploads.
 @MainActor
-final class ComposerAttachmentPicker: NSObject, PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
-    /// A local copy ready to upload.
+final class ComposerAttachmentPicker {
+    /// A staged file ready to hand to C4's upload coordinator.
     struct Picked: Sendable {
-        var url: URL
-        var name: String
-        var mime: String
+        let url: URL
+        let name: String
+        let mime: String
+        let byteCount: Int64
+
+        init(_ file: StagedFile) {
+            url = file.url
+            name = file.name
+            mime = file.mime
+            byteCount = file.byteCount
+        }
     }
 
     var onPicked: ((Picked) -> Void)?
+    private let coordinator: FilePickerCoordinator
+    private typealias Present = @MainActor (UIViewController, @escaping FilePickerCoordinator.Completion) -> Void
+
+    /// Uses a standalone C4 stager for injected upload seams (tests and
+    /// previews). The real app passes `FilesFeature.picker`, which shares its
+    /// stager with `FileSendCoordinator`.
+    init(coordinator: FilePickerCoordinator = FilePickerCoordinator()) {
+        self.coordinator = coordinator
+    }
 
     func presentPhotos(from presenter: UIViewController) {
-        var configuration = PHPickerConfiguration()
-        configuration.filter = .images
-        configuration.selectionLimit = 10
-        configuration.preferredAssetRepresentationMode = .compatible
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        presenter.present(picker, animated: true)
+        present(using: coordinator.presentPhotos, from: presenter)
+    }
+
+    func presentCamera(from presenter: UIViewController) {
+        present(using: coordinator.presentCamera, from: presenter)
     }
 
     func presentFiles(from presenter: UIViewController) {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
-        picker.allowsMultipleSelection = true
-        picker.delegate = self
-        presenter.present(picker, animated: true)
+        present(using: coordinator.presentDocuments, from: presenter)
     }
 
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        for result in results {
-            let provider = result.itemProvider
-            let type = provider.registeredContentTypes.first { $0.conforms(to: .image) } ?? .image
-            let suggested = provider.suggestedName
-            _ = provider.loadFileRepresentation(for: type) { [weak self] url, _, _ in
-                // The provider deletes `url` when this returns: copy now, off the main thread.
-                guard let url, let copy = Self.copyToTemporary(url, suggested: suggested) else { return }
-                let picked = Picked(url: copy, name: copy.lastPathComponent, mime: type.preferredMIMEType ?? "image/jpeg")
-                Task { @MainActor [weak self] in self?.onPicked?(picked) }
+    func discard(_ picked: Picked) {
+        coordinator.discard(StagedFile(url: picked.url, name: picked.name, mime: picked.mime,
+                                       byteCount: picked.byteCount))
+    }
+
+    private func present(using present: @escaping Present,
+                         from presenter: UIViewController) {
+        present(presenter) { [weak self, coordinator] files in
+            guard let self else {
+                files.forEach { coordinator.discard($0) }
+                return
             }
+            emit(files)
         }
     }
 
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        for url in urls {
-            let type = UTType(filenameExtension: url.pathExtension) ?? .data
-            onPicked?(Picked(url: url, name: url.lastPathComponent, mime: type.preferredMIMEType ?? "application/octet-stream"))
-        }
-    }
-
-    private nonisolated static func copyToTemporary(_ url: URL, suggested: String?) -> URL? {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("composer-attachments", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let ext = url.pathExtension.isEmpty ? "" : "." + url.pathExtension
-        let base = suggested.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingPathExtension().lastPathComponent
-        let target = directory.appendingPathComponent(UUID().uuidString.prefix(8) + "-" + base + ext)
-        do {
-            try FileManager.default.copyItem(at: url, to: target)
-            return target
-        } catch {
-            return nil
-        }
+    private func emit(_ files: [StagedFile]) {
+        files.forEach { onPicked?(Picked($0)) }
     }
 }

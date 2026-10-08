@@ -240,8 +240,37 @@ cancellation before and after opening the stream.
 
 The model exposes `cancelAll()` and cancels jobs again during teardown; its
 task body does not hold the model strongly while waiting on an upload stream.
-The native PhotosUI/document picker still needs to instantiate this model and
-own temporary-file cleanup. `ComposerAttachmentUploading` remains an injected
-seam until D1 supplies the real `FileSendCoordinator` adapter, so this core-only
-slice does not enable a UI button. Focused tests cover identity normalization,
+The native picker now uses C4's stager directly; bounded batch intake remains
+available as a follow-up presentation layer. `ComposerAttachmentUploading` is
+now backed by the real `FileSendCoordinator` when the shared FilesFeature is
+composed. Focused tests cover identity normalization,
 count/size limits, atomic batches, cancellation, retry and fail-closed IDs.
+
+### 8.2 Native picker and C4 coordinator integration (2026-10-07)
+
+The attachment UI consumes C4's `FilePickerCoordinator` rather than maintaining
+a second PhotosUI/document-picker implementation. Photos, camera, and
+documents are staged into app-owned copies before the composer sees them; this
+keeps provider URLs out of the upload lifetime and gives all file entry points
+the same HEIC and temporary-file policy. The composer adapter converts each
+staged file into C4's `StagedFile` upload seam and returns the final
+`ComposerAttachment` update to the session.
+
+`FilesFeature` supplies the adapter backed by `FileSendCoordinator`. A completed
+transfer preserves the Mac's owner-shaped `up_` reference and remote path, so
+the composer only stores a validated upload id in its draft while C4 owns the
+inbox file. The adapter observes cancellation and forwards it to the transfer
+list; a failed stream keeps the staged copy for retry and removes it when the
+row is cancelled or finishes. The Compose tab receives the same
+account-scoped `FilesFeature` instance as terminal and SFTP surfaces, so
+background transfer lifecycle and journals remain shared.
+
+The UI-independent `ComposerAttachmentUploadModel` remains available for a
+future bounded batch intake and retry presentation; this slice keeps the
+existing session attachment rows as the single UI owner while C4 is enabled.
+
+The UI remains disabled when no real files feature is composed (mock and
+offline shells), and picker callbacks never expose provider URLs or Mac paths
+to `ComposerSession`. Focused tests cover the coordinator's attachment
+completion metadata and cancellation; Swift parsing and package checks are the
+validation for UIKit picker code because native XCTest remains host-blocked.

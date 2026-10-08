@@ -23,7 +23,7 @@ final class ComposerViewController: UIViewController, UITextViewDelegate {
     let footnote = UILabel()
     let mockLabel = UILabel()
     let dictation = DictationController()
-    let picker = ComposerAttachmentPicker()
+    let picker: ComposerAttachmentPicker?
     /// The prompt before dictation started; transcriptions append to it.
     var dictationPrefix = ""
     var activeTrigger: PromptTrigger?
@@ -33,6 +33,7 @@ final class ComposerViewController: UIViewController, UITextViewDelegate {
     init(feature: ComposerFeature, target: ComposerTarget?, presentation: ComposerPresentation) {
         self.feature = feature
         self.presentation = presentation
+        picker = feature.attachmentPicker
         session = feature.makeSession(target: target)
         super.init(nibName: nil, bundle: nil)
         title = presentation == .tab ? ComposerText.title : ComposerText.newTask
@@ -64,6 +65,8 @@ final class ComposerViewController: UIViewController, UITextViewDelegate {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         dictation.stop()
+        uploads.values.forEach { $0.cancel() }
+        uploads.removeAll()
         session.stop()
     }
 
@@ -79,7 +82,7 @@ final class ComposerViewController: UIViewController, UITextViewDelegate {
         // this only lands on a target switch, a cleared draft after a start, or a restore.
         if let draft, draft.prompt != promptView.text, !dictation.isRunning { promptView.setPrompt(draft.prompt) }
         attachmentStrip.show(draft?.attachments ?? [])
-        attachButton.isHidden = feature.uploader == nil
+        attachButton.isHidden = feature.uploader == nil || picker == nil
         attachButton.menu = attachMenu()
         let blocker = session.blocker
         let canSend = blocker == nil

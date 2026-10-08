@@ -32,6 +32,7 @@ enum ComposerText {
     static var drafts: String { String(localized: "composer.drafts", defaultValue: "Drafts", bundle: .module) }
     static var attach: String { String(localized: "composer.attach", defaultValue: "Attach", bundle: .module) }
     static var photos: String { String(localized: "composer.attach.photos", defaultValue: "Photos", bundle: .module) }
+    static var camera: String { String(localized: "composer.attach.camera", defaultValue: "Camera", bundle: .module) }
     static var files: String { String(localized: "composer.attach.files", defaultValue: "Files", bundle: .module) }
     static var removeAttachment: String { String(localized: "composer.attach.remove", defaultValue: "Remove", bundle: .module) }
     static var uploading: String { String(localized: "composer.attach.uploading", defaultValue: "Uploading", bundle: .module) }

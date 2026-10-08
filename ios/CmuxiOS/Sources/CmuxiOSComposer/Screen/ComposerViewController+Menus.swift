@@ -79,15 +79,19 @@ extension ComposerViewController {
     }
 
     func attachMenu() -> UIMenu? {
-        guard feature.uploader != nil else { return nil }
+        guard feature.uploader != nil, let picker else { return nil }
         return UIMenu(children: [
             UIAction(title: ComposerText.photos, image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in
                 guard let self else { return }
-                self.picker.presentPhotos(from: self)
+                picker.presentPhotos(from: self)
+            },
+            UIAction(title: ComposerText.camera, image: UIImage(systemName: "camera")) { [weak self] _ in
+                guard let self else { return }
+                picker.presentCamera(from: self)
             },
             UIAction(title: ComposerText.files, image: UIImage(systemName: "folder")) { [weak self] _ in
                 guard let self else { return }
-                self.picker.presentFiles(from: self)
+                picker.presentFiles(from: self)
             },
         ])
     }

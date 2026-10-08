@@ -1,5 +1,6 @@
 public import CmuxiOSComposerCore
 public import CmuxiOSFeatureKit
+import CmuxiOSFiles
 public import UIKit
 
 /// Lane C8's entry point: the Compose tab, the composer sheet the floating
@@ -18,6 +19,7 @@ public final class ComposerFeature {
     let makePicker: PickerFactory
     let openWorkspace: WorkspaceOpener
     let uploader: (any ComposerAttachmentUploading)?
+    let attachmentPicker: ComposerAttachmentPicker?
     let files: any ComposerFileSuggesting
     let isMock: Bool
     let store: ComposerDraftStore
@@ -25,12 +27,15 @@ public final class ComposerFeature {
     let templates: PromptTemplateLibrary
 
     public init(sink: any TaskComposerSink, makePicker: @escaping PickerFactory, openWorkspace: @escaping WorkspaceOpener,
-                uploader: (any ComposerAttachmentUploading)? = nil, files: any ComposerFileSuggesting = NoFileSuggestions(),
+                uploader: (any ComposerAttachmentUploading)? = nil, c4Files: FilesFeature? = nil,
+                files: any ComposerFileSuggesting = NoFileSuggestions(),
                 isMock: Bool = false, defaults: UserDefaults = .standard) {
         self.sink = sink
         self.makePicker = makePicker
         self.openWorkspace = openWorkspace
-        self.uploader = uploader
+        self.uploader = uploader ?? c4Files.map { C4ComposerAttachmentUploader(sender: $0.sender) }
+        attachmentPicker = c4Files.map { ComposerAttachmentPicker(coordinator: $0.picker) }
+            ?? (uploader == nil ? nil : ComposerAttachmentPicker())
         self.files = files
         self.isMock = isMock
         store = ComposerDraftStore(defaults: defaults)

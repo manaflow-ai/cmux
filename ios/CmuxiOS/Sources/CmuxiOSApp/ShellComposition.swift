@@ -28,7 +28,7 @@ enum ShellComposition {
         let sources = container.featureSources(for: account)
         // Lane C4: built with the seams so background transfer handling runs
         // for the whole signed-in session.
-        _ = container.filesFeature(for: sources)
+        let files = container.filesFeature(for: sources)
         let settings = ShellSettingsModel(
             account: ShellAccount(displayName: account.displayName, email: account.email),
             about: ShellAbout.current(),
@@ -90,7 +90,7 @@ enum ShellComposition {
         workspaces.viewers = WorkspaceViewersAdapter(feature: container.viewersFeature(for: sources, real: workspacesAreReal))
         // Lane E4: the composer bar over host terminals (drafts per terminal,
         // uploads through C4); the More menu's toggle writes the C11 setting.
-        let terminalComposer = TerminalComposerFeature(store: container.terminalCompose, files: container.filesFeature(for: sources))
+        let terminalComposer = TerminalComposerFeature(store: container.terminalCompose, files: files)
         workspaces.terminalComposer = { target in terminalComposer.provider(host: target.hostID, terminal: target.terminalID) }
         workspaces.onComposerToggle = { [weak container] enabled in
             container?.terminalPreferences.update { $0.composerEnabled = enabled }
@@ -106,6 +106,7 @@ enum ShellComposition {
                 guard let shell = shellBox.controller as? ShellRootController, shell.select(.workspaces) else { return }
                 workspaces.open(hostID: hostID, workspaceID: workspaceID)
             },
+            c4Files: files,
             isMock: sources.resolved[.composer] != .real)
         // Lane C12: the Cloud tab over the team's machines.
         let cloud = CloudFeature(source: sources.cloud, isMock: sources.resolved[.cloud] != .real)

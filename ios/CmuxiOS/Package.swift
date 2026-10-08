@@ -710,7 +710,7 @@ let package = Package(
         // dictation and the attachment strip.
         .target(
             name: "CmuxiOSComposer",
-            dependencies: ["CmuxiOSComposerCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            dependencies: ["CmuxiOSComposerCore", "CmuxiOSFeatureKit", "CmuxiOSDesign", "CmuxiOSFiles", "CmuxiOSFilesCore"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

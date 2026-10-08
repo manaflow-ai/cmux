@@ -5,8 +5,11 @@ import UIKit
 extension ComposerViewController {
     /// Uploads a picked file to the target Mac through C4 and tracks it in the draft.
     func upload(_ picked: ComposerAttachmentPicker.Picked) {
-        guard let uploader = feature.uploader, let host = session.draft?.target.hostID else { return }
-        let size = (try? picked.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        guard let uploader = feature.uploader, let host = session.draft?.target.hostID else {
+            picker?.discard(picked)
+            return
+        }
+        let size = picked.byteCount
         let placeholder = ComposerAttachment(id: TransferID(), name: picked.name, mime: picked.mime, byteCount: size)
         session.upsertAttachment(placeholder)
         let id = placeholder.id
