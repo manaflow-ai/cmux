@@ -157,6 +157,25 @@ struct SurfaceResumeAgentHookDowngradeTests {
         #expect(workspace.surfaceResumeBinding(panelId: panelID) == userBinding)
     }
 
+    @Test
+    func ompUnavailableLaunchCaptureIsNotDurableResumeEvidence() {
+        let cli = CMUXCLI(args: [])
+        let unresolvedRefresh = AgentLaunchCommand(
+            launcher: "omp",
+            arguments: [],
+            workingDirectory: "/tmp/omp-project",
+            environment: ["PATH": "/usr/bin:/bin"],
+            source: "environment"
+        )
+
+        #expect(
+            !cli.agentHookSessionHasDurableResumeEvidence(
+                kind: "omp",
+                launchCommand: unresolvedRefresh
+            )
+        )
+    }
+
     // MARK: - Predicate
 
     @Test

@@ -141,6 +141,71 @@ import Testing
         #expect(invocation.arguments.contains("-lc") == false)
     }
 
+    @Test func structuredOmpRestoreKeepsCompiledBinaryExecutablePath() throws {
+        try assertOmpRestoreKeepsExecutablePath("/Applications/omp/bin/omp")
+    }
+
+    @Test func structuredOmpRestoreKeepsShebangShimExecutablePath() throws {
+        try assertOmpRestoreKeepsExecutablePath("/Users/test/.bun/bin/omp")
+    }
+
+    @Test
+    func structuredOmpRestoreRejectsUnresolvedLaunchCapture() {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "omp",
+                arguments: [],
+                workingDirectory: "/tmp/omp-project",
+                environment: ["PATH": "/usr/bin:/bin"],
+                source: "environment"
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        #expect(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ) == nil
+        )
+    }
+
+    private func assertOmpRestoreKeepsExecutablePath(_ executable: String) throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "omp",
+                executablePath: executable,
+                arguments: [executable, "--model", "gpt-5.6-sol"],
+                workingDirectory: "/tmp/omp-project",
+                environment: ["PATH": "/usr/bin:/bin"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [executable, "--session", sessionID, "--model", "gpt-5.6-sol"])
+    }
+
     @Test func structuredSubrouterCodexRestoreUsesExplicitSrResumeCommand() throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
