@@ -24,6 +24,9 @@ const feedStub = (user: string) => ns("FEED_DO").get(ns("FEED_DO").idFromName(us
 /** A registered mac install of `x` (UserDO holds its grant, so an approved run can re-resolve it). */
 const macInstall = async (x: ReturnType<typeof person>): Promise<Principal> => {
   await ensureUser(x)
+  // The personal team (the Worker's user.ensure does this): the answer-time membership check reads it.
+  const team = ns("TEAM_DO").get(ns("TEAM_DO").idFromName(x.team)) as unknown as Stub
+  expect(reply(await team.submit(x.team, x.p, { t: "op", op: "team.ensure_personal", params: {}, idempotency_key: `ensure-personal:${x.user}`, origin: "cli" })).t).toBe("result")
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
   const r = reply(await userStub(x.user).submit(x.user, x.p, { t: "op", op: "install.register", params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" }, idempotency_key: crypto.randomUUID(), origin: "user" }))

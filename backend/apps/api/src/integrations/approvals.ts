@@ -11,6 +11,9 @@ import type { Principal } from "@cmux/ownership"
  * state, events, the feed item or the projection. The feed item shows the op, the target and a
  * short summary; the approval view reads the rest with the user's session
  * (`integration.approval.get`). Rows leave 30 days after they end.
+ *
+ * CloudDO keeps the same table for Cloud money and destructive requests from an install
+ * (cloud-approvals.ts, cx-wb5.65); its rows name the bucket `cloud` instead of a connection.
  */
 export const RISKY_CLASSES: ReadonlySet<string> = new Set(["send-external", "money", "destructive"])
 export const APPROVAL_TTL_MS = 24 * 3_600_000
