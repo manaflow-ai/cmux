@@ -59,9 +59,15 @@ class Secure(Page):
         self.page("self-signed page")
 
 
+REQUESTS = []
+
+
 class Basic(Page):
     def do_GET(self):
         want = "Basic " + base64.b64encode(f"ada:{PASSWORD}".encode()).decode()
+        REQUESTS.append({"t": round(time.time(), 2), "path": self.path,
+                         "auth": "none" if not self.headers.get("Authorization") else
+                                 ("right" if self.headers.get("Authorization") == want else "wrong")})
         if self.headers.get("Authorization") == want:
             self.page("signed in as ada")
             return
@@ -172,8 +178,10 @@ def run(theme):
         snap(f"signin-sheet-{tag}")
         rpc("debug.dialog", {"id": dialog["id"], "press": "sign-in"})
         time.sleep(4)
-        if auth_dialog():
-            failures.append(f"{theme}: the sign-in sheet came back after a correct password")
+        again = auth_dialog()
+        notes.append({"theme": theme, "after_sign_in": rpc("debug.dialog"), "requests": list(REQUESTS)})
+        if again:
+            failures.append(f"{theme}: the sign-in sheet came back after a correct password: {json.dumps(again)[:400]}")
         snap(f"signed-in-{tag}")
     finally:
         rpc("action.run", {"action": "quitEndSessions"})
