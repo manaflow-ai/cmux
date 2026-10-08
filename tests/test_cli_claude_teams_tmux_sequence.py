@@ -43,6 +43,7 @@ class FakeCmuxState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.requests: list[str] = []
+        self.split_calls = 0
         self.equalize_calls: list[dict[str, object]] = []
         self.selected_workspaces: list[str] = []
         self.created_workspaces: list[dict[str, object]] = []
@@ -183,6 +184,7 @@ class FakeCmuxState:
                     ]
                 }
             if method == "surface.split":
+                self.split_calls += 1
                 self.panes.append(
                     {
                         "id": NEW_PANE_ID,
@@ -308,6 +310,9 @@ def main() -> int:
         tmux_socket_log = tmp / "tmux-socket.log"
         tmux_value_log = tmp / "tmux-value.log"
         identity_log = tmp / "identity.log"
+        stripped_identity_log = tmp / "stripped-identity.log"
+        stripped_split_log = tmp / "stripped-split.log"
+        guarded_split_log = tmp / "guarded-split.log"
         window_target_log = tmp / "window-target.log"
         split_pane_log = tmp / "split-pane.log"
         pane_list_log = tmp / "pane-list.log"
@@ -325,6 +330,14 @@ window_target="$(tmux display-message -t "${TMUX_PANE}" -p '#{session_name}:#{wi
 printf '%s\\n' "$window_target" > "$FAKE_WINDOW_TARGET_LOG"
 split_pane="$(tmux split-window -t "${TMUX_PANE}" -h -l 70% -P -F '#{pane_id}')"
 printf '%s\\n' "$split_pane" > "$FAKE_SPLIT_PANE_LOG"
+identity_socket="${TMUX%%,*}"
+env -u TMUX tmux -S "$identity_socket" display-message -p $'#{socket_path}\\t#{pid}' > "$FAKE_STRIPPED_IDENTITY_LOG"
+TAB="$(printf '\\t')"
+STRIP_FMT="#{pane_id}${TAB}#{socket_path}${TAB}#{pid}"
+stripped_split="$(env -u TMUX tmux -S "$identity_socket" split-window -t "${TMUX_PANE}" -h -l 60% -d -P -F "$STRIP_FMT")"
+printf '%s\\n' "$stripped_split" > "$FAKE_STRIPPED_SPLIT_LOG"
+guarded="$(env -u TMUX tmux -S "$identity_socket" if-shell "test -n '$identity_socket'" "split-window -t ${TMUX_PANE} -h -d -P -F '$STRIP_FMT'" "display-message -p GUARD_FAIL")"
+printf '%s\\n' "$guarded" > "$FAKE_GUARDED_SPLIT_LOG"
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
@@ -344,6 +357,9 @@ tmux kill-session -t "$window_target"
         env["FAKE_SOCKET_LOG"] = str(tmux_socket_log)
         env["FAKE_TMUX_VALUE_LOG"] = str(tmux_value_log)
         env["FAKE_IDENTITY_LOG"] = str(identity_log)
+        env["FAKE_STRIPPED_IDENTITY_LOG"] = str(stripped_identity_log)
+        env["FAKE_STRIPPED_SPLIT_LOG"] = str(stripped_split_log)
+        env["FAKE_GUARDED_SPLIT_LOG"] = str(guarded_split_log)
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
         env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
@@ -404,6 +420,30 @@ tmux kill-session -t "$window_target"
             print(f"FAIL: expected server identity {expected_identity!r}, got {identity!r}")
             return 1
 
+        # OMC sends -S-bound commands with TMUX stripped from the environment
+        # (dist/cli/tmux-utils.js tmuxEnv), so both the ambient and the
+        # -S/stripTmux paths must resolve the same server identity.
+        stripped_identity = read_text(stripped_identity_log)
+        if stripped_identity != expected_identity:
+            print(f"FAIL: expected stripped-environment identity {expected_identity!r}, got {stripped_identity!r}")
+            return 1
+
+        stripped_split = read_text(stripped_split_log)
+        expected_stripped_split = (
+            f"%{new_pane_token}\t{expected_socket_path}\t{os.getpid()}"
+        )
+        if stripped_split != expected_stripped_split:
+            print(f"FAIL: expected stripped split record {expected_stripped_split!r}, got {stripped_split!r}")
+            return 1
+
+        # OMC >= 5.6 wraps pane creation in if-shell with the server-identity
+        # guard; the guarded branch must produce the same three-field record
+        # with socket_path resolving from the invocation's -S endpoint.
+        guarded_split = read_text(guarded_split_log)
+        if guarded_split != expected_stripped_split:
+            print(f"FAIL: expected guarded split record {expected_stripped_split!r}, got {guarded_split!r}")
+            return 1
+
         window_target = read_text(window_target_log)
         if window_target != "cmux:1":
             print(f"FAIL: expected tmux window target 'cmux:1', got {window_target!r}")
@@ -415,7 +455,9 @@ tmux kill-session -t "$window_target"
             return 1
 
         pane_lines = pane_list_log.read_text(encoding="utf-8").splitlines()
-        expected_panes = [f"%{initial_pane_token}", f"%{new_pane_token}"]
+        # The second split-window runs under the stripped-/-S probe and adds
+        # one more teammate pane with the same fake-server identity.
+        expected_panes = [f"%{initial_pane_token}"] + [f"%{new_pane_token}"] * 3
         if pane_lines != expected_panes:
             print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
             return 1
@@ -431,7 +473,9 @@ tmux kill-session -t "$window_target"
             "workspace_id": INITIAL_WORKSPACE_ID,
             "orientation": "vertical",
         }
-        if state.equalize_calls != [expected_equalize_call] * 2:
+        # All three split-windows (plain + stripped + guarded) equalize, plus
+        # the main-vertical selection.
+        if state.equalize_calls != [expected_equalize_call] * 4:
             print(
                 "FAIL: expected split-window and main-vertical selection to "
                 f"equalize the teammate column, got {state.equalize_calls!r}"
@@ -467,6 +511,10 @@ tmux kill-session -t "$window_target"
         if "surface.send_text" in state.requests:
             print("FAIL: split-window treated '-l 70%' like shell text and called surface.send_text")
             print(f"requests={state.requests!r}")
+            return 1
+
+        if state.split_calls != 3:
+            print(f"FAIL: expected exactly 3 split-window calls (plain + stripped + guarded), got {state.split_calls}")
             return 1
 
     print("PASS: cmux claude-teams supports Claude's tmux teammate flow")
