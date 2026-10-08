@@ -341,6 +341,10 @@ impl Presentation for ShimPresentation {
         }
     }
 
+    fn surface_refresh(&mut self, _surface: u32) -> bool {
+        false
+    }
+
     fn load_url(&mut self, browser: i32, url: &str) -> bool {
         let url = cstr(url);
         // SAFETY: `url` outlives the call; UI thread.

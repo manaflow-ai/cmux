@@ -36,6 +36,9 @@ pub trait Presentation {
     fn surface_capture(&mut self, surface: u32) -> bool;
     /// Closes popup surface `surface`; the fork then reports it hidden.
     fn surface_close(&mut self, surface: u32);
+    /// Asks popup surface `surface`'s running capture for one full frame
+    /// now (`cmux_rp_surface_refresh`, API 21).
+    fn surface_refresh(&mut self, surface: u32) -> bool;
     /// Loads `url` in the tab's main frame (`rb.navigate`).
     fn load_url(&mut self, browser: i32, url: &str) -> bool;
     /// Back, forward, reload or stop (`rb.history`).
@@ -53,6 +56,12 @@ pub enum SurfaceOut {
     AddStream { surface: u32, stream: u16, width: u32, height: u32 },
     /// Stop encoding `stream` and give its held frame back.
     RemoveStream { stream: u16 },
+}
+
+/// The rb surface kind of a fork surface kind (`CMUX_RP_SURFACE_*` in
+/// cef_cmux.h). `None`: the host leaves the surface alone.
+pub fn fork_surface_kind(kind: i32) -> Option<SurfaceKind> {
+    Some(if kind == 1 { SurfaceKind::PagePopup } else { SurfaceKind::Bubble })
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -662,6 +671,11 @@ impl HostTab {
             height,
         }));
         out
+    }
+
+    /// A viewer joined on a new pump while popup surfaces are shown.
+    pub fn rejoin_surfaces(&mut self, _p: &mut dyn Presentation) -> Vec<SurfaceOut> {
+        Vec::new()
     }
 
     /// The stream that carries `surface`, once it is shown.
