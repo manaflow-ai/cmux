@@ -6,7 +6,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
-import { projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { usePopoverTrigger } from "./popoverTrigger";
@@ -80,11 +80,15 @@ export function ComposerContext({
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
   }, [summary, sessions, selectedComputer, projectChoices]);
+  const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
+  // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
   const currentFolder =
     started && movedTo
       ? movedTo
-      : summary?.cwd && computerId(summary) === selectedComputer
-        ? normalizeCwd(summary.cwd)
+      : summaryFolder
+        ? isAgentHome(summaryFolder)
+          ? undefined
+          : normalizeCwd(summaryFolder)
         : projectChoices
           ? undefined
           : folders[0]?.id;
@@ -96,7 +100,7 @@ export function ComposerContext({
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {!readOnly && selectedComputer === "local" && projectChoices ? (
+        {readOnly && !moves && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
@@ -235,7 +239,8 @@ function availableFolders(summary: Summary | undefined, sessions: Session[], com
   const folders: Location[] = [];
   const add = (cwd?: string) => {
     const id = normalizeCwd(cwd);
-    if (!id || seen.has(id)) return;
+    // A private agent-home folder is never offered by its id.
+    if (!id || seen.has(id) || isAgentHome(id)) return;
     seen.add(id);
     folders.push({ id, label: projectLabel(id), detail: id });
   };
