@@ -49,6 +49,8 @@ pub(crate) mod personal_state_store;
 mod prelude;
 pub(crate) mod room_delete;
 #[cfg(test)]
+mod room_delete_amendment_tests;
+#[cfg(test)]
 mod room_delete_tests;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
