@@ -154,8 +154,72 @@
    the page color, so the card looks as before. Reduce Transparency makes the card opaque. */
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
+  overflow: visible;
+  border-radius: 18px;
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
+}
+/* Unified composer surface: context is part of the input card, so project, machine, and
+   branch read as one scope line instead of a second floating tray. */
+.acpmux-composer-context {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 0;
+  border-top: 1px solid var(--acpmux-composer-edge);
+  border-radius: 0 0 18px 18px;
+  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
+  box-shadow: none;
+}
+.acpmux-composer-context > .acpmux-location-leading {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0;
+  gap: 2px;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
+.acpmux-composer-context > .acpmux-location-picker {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-composer-context > .acpmux-location-picker:last-child {
+  margin-left: auto;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker {
+  position: relative;
+  margin-left: 3px;
+  padding-left: 4px;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 1px;
+  height: 10px;
+  background: var(--acpmux-composer-edge);
+}
+.acpmux-location-button,
+.acpmux-location-readonly {
+  max-width: 190px;
+  border-radius: 7px;
+}
+.acpmux-composer-context .acpmux-location-label {
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
+  .acpmux-location-button,
+  .acpmux-location-readonly { max-width: 145px; padding-inline: 4px; }
+  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker { padding-left: 2px; }
 }
