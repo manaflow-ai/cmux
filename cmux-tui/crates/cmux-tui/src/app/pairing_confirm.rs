@@ -72,4 +72,34 @@ mod tests {
             Ok(cmux_tui_core::PairingDecision::Approved { .. })
         ));
     }
+
+    #[test]
+    fn an_attached_tui_offers_no_approve_it_cannot_perform() {
+        // Only the TUI that runs the daemon (or the verified app) may approve
+        // a pairing (cx-ehrq). An attached TUI must not show an Approve that
+        // always fails, and `y` must not try it.
+        let mux = Mux::new("pairing-remote-deny-only-test", SurfaceOptions::default());
+        let (challenge, _decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(crate::session::test_remote_session_without_provider_authority());
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(!screen.contains("Approve y"), "an attached TUI drew Approve");
+        let dialog = app.pairing_dialog.as_ref().expect("dialog shown");
+        assert_eq!(dialog.approve.width, 0, "the Approve hit area must be empty");
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id),
+            "y on an attached TUI must leave the dialog for a human surface"
+        );
+    }
 }
