@@ -324,9 +324,11 @@ without issuing a second command and refuses a missing or mismatched reservation
 `SSHTmuxLifecycleOwnerAdapter.reconcilePending` closes the safe recovery step after an executor
 loses its SSH result. It requires the same idempotency key and canonical mutation fingerprint,
 accepts only a caller-supplied `SSHTmuxLifecycleExecution` from an explicit host readback, and
-commits the applied record before returning a replay receipt. It returns an existing applied record
-without overwriting it, and a missing reservation is refused. The adapter never infers success from
-the original command error or executes tmux during reconciliation.
+atomically replaces the pending record before returning a replay receipt. It returns an existing
+applied record without overwriting it, and a missing or concurrently unresolved reservation is
+refused. The adapter never infers success from the original command error or executes tmux during
+reconciliation. Durable stores implement the compare-and-replace as one transaction, just like
+the original reservation.
 
 ### On-demand history page contract (2026-10-08)
 

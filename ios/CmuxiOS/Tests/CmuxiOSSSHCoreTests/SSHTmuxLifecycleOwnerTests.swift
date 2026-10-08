@@ -8,6 +8,7 @@ import Testing
 
     private actor Store: SSHTmuxLifecycleRecordStore {
         var records: [String: SSHTmuxLifecycleRecord] = [:]
+        var refuseNextReplacement = false
 
         func record(for idempotencyKey: String) async throws -> SSHTmuxLifecycleRecord? {
             records[idempotencyKey]
@@ -19,11 +20,23 @@ import Testing
             return nil
         }
 
+        func replace(_ replacement: SSHTmuxLifecycleRecord,
+                     ifCurrent expected: SSHTmuxLifecycleRecord) async throws -> Bool {
+            if refuseNextReplacement {
+                refuseNextReplacement = false
+                return false
+            }
+            guard records[expected.idempotencyKey] == expected else { return false }
+            records[expected.idempotencyKey] = replacement
+            return true
+        }
+
         func put(_ record: SSHTmuxLifecycleRecord) async throws {
             records[record.idempotencyKey] = record
         }
 
         func phase(for key: String) -> SSHTmuxLifecycleRecord.Phase? { records[key]?.phase }
+        func refuseOneReplacement() { refuseNextReplacement = true }
     }
 
     private actor Executor: SSHTmuxLifecycleExecutor {
@@ -163,6 +176,27 @@ import Testing
         #expect(throws: SSHTmuxLifecycleOwnerError.noPendingRecord) {
             try await owner.reconcilePending(mutation(), idempotencyKey: "rename-missing", readback: execution)
         }
+    }
+
+    @Test func concurrentReadbackResolutionFailsClosedUntilThePendingRecordIsOwned() async throws {
+        let store = Store()
+        let execution = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-1"))
+        let readback = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-2"))
+        let executor = Executor(result: execution)
+        await executor.failNext()
+        let owner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: executor)
+
+        #expect(throws: SSHTmuxLifecycleOwnerError.malformedRecord) {
+            try await owner.submit(mutation(), idempotencyKey: "rename-reconcile-race")
+        }
+        await store.refuseOneReplacement()
+        #expect(throws: SSHTmuxLifecycleOwnerError.indeterminate) {
+            try await owner.reconcilePending(mutation(), idempotencyKey: "rename-reconcile-race", readback: readback)
+        }
+        #expect(await store.phase(for: "rename-reconcile-race") == .pending)
+        let resolved = try await owner.reconcilePending(mutation(), idempotencyKey: "rename-reconcile-race", readback: readback)
+        #expect(resolved.replayed)
+        #expect(await store.phase(for: "rename-reconcile-race") == .applied)
     }
 
     @Test func atomicReservationPreventsTwoOwnersExecutingTheSameKey() async throws {

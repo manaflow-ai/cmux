@@ -104,7 +104,15 @@ public actor SSHTmuxLifecycleOwnerAdapter: SSHTmuxLifecycleMutating {
                                                        value: readback.value, revision: readback.revision) else {
                 throw SSHTmuxLifecycleOwnerError.malformedRecord
             }
-            try await store.put(applied)
+            guard try await store.replace(applied, ifCurrent: existing) else {
+                guard let current = try await store.record(for: idempotencyKey) else {
+                    throw SSHTmuxLifecycleOwnerError.noPendingRecord
+                }
+                if current.phase == .applied {
+                    return try replay(current, mutation: mutation, idempotencyKey: idempotencyKey)
+                }
+                throw SSHTmuxLifecycleOwnerError.indeterminate
+            }
             return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: mutation,
                                            value: readback.value, revision: readback.revision, replayed: true)
         }

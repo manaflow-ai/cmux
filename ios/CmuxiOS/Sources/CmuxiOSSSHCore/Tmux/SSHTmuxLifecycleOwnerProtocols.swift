@@ -15,6 +15,12 @@ public protocol SSHTmuxLifecycleRecordStore: Sendable {
     /// check-and-insert one durable transaction; an actor-local check followed
     /// by `put` is insufficient when two host processes share the ledger.
     func reserve(_ record: SSHTmuxLifecycleRecord) async throws -> SSHTmuxLifecycleRecord?
+    /// Atomically replaces `expected` with `replacement` when the key still
+    /// points at that exact pending record. Returns false when another owner
+    /// has already resolved or removed it; callers must then read the current
+    /// record and fail closed if it is not an applied receipt.
+    func replace(_ replacement: SSHTmuxLifecycleRecord,
+                 ifCurrent expected: SSHTmuxLifecycleRecord) async throws -> Bool
     func put(_ record: SSHTmuxLifecycleRecord) async throws
 }
 
