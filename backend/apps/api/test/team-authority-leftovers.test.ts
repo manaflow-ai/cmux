@@ -24,7 +24,7 @@ const ctx = (p: Principal): ReduceContext => ({ principal: p, now: 5_000 + txn, 
 const domain = makeUserDomain("test")
 const base = { user: { id: USER, stack_user_id: "s", email: null, display_name: "Ann", personal_team: TEAM }, installs: {}, grants: {} } as unknown as UserState
 const jwk = (n: number) => ({ kty: "EC", crv: "P-256", x: String(n).padStart(43, "x"), y: "y".repeat(43) })
-const vmParams = (n: number) => ({ public_jwk: jwk(n), kind: "vm", name: "Cloud VM", device_name: "m", platform: "linux", bound_team: LEFT, bound_machine: `cm_${String(n).padStart(20, "0")}` })
+const vmParams = (n: number) => ({ public_jwk: jwk(n), kind: "vm", name: "Cloud VM", device_name: "m", platform: "linux", bound_team: LEFT, bound_machine: `vm_${String(n).padStart(20, "0")}` })
 const must = <T,>(r: { ok: boolean; state?: T; value?: any; message?: string }) => {
   if (!r.ok) throw new Error(r.message)
   return r as { ok: true; state: T; value: any }
@@ -58,14 +58,20 @@ describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
     const call = (path: string, body: unknown) => worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) })
     const ensured = (await (await call("/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })).json()) as any
     const team = ensured.value.personal_team as string
-    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => {
-      instance.signInRules = async () => {
-        throw new Error("TeamDO down")
-      }
-    })
-    const res = await call("/v1/read", { op: "install.list", params: {} })
-    expect(res.status).toBe(503)
-    expect(await res.json()).toMatchObject({ code: "owner.unreachable", retryable: true })
+    // TeamDO's RPC fails for this one team (RPC dispatches through the class, so the prototype is patched and restored).
+    const proto = await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => Object.getPrototypeOf(instance))
+    const real = proto.signInRules
+    proto.signInRules = async function (this: unknown, entity: string, ...rest: Array<unknown>) {
+      if (entity === team) throw new Error("TeamDO down")
+      return real.call(this, entity, ...rest)
+    }
+    try {
+      const res = await call("/v1/read", { op: "install.list", params: {} })
+      expect(res.status).toBe(503)
+      expect(await res.json()).toMatchObject({ code: "owner.unreachable", retryable: true })
+    } finally {
+      proto.signInRules = real
+    }
   })
 
   it("confirms a KRL notice team by team and asks again only the teams still missing", async () => {
