@@ -1544,16 +1544,9 @@ jobs:
 
       - name: Prove the password-import readers are compiled out (cx-f58x notary test)
         if: needs.decide.outputs.notary_test == 'true'
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          # The readers' type names (Swift reflection metadata) and the key4.db
-          # table only the Firefox reader names. Chromium's own engine has none.
-          if hits="$(grep -r -a -l --exclude='*.json' -e nssPrivate -e ChromiumLoginDataReader -e FirefoxPasswordCrypto "$app")"; then
-            printf 'the notary test build still carries the password readers:\n%s\n' "$hits" >&2
-            exit 1
-          fi
-          echo "password-import readers absent from $app"
+        # Code-only markers (type descriptors, the key4.db table name); source
+        # file names a flagged build keeps do not count (run 37831735167).
+        run: python3 scripts/cmux-next/check-no-password-readers.py build-universal/Build/Products/Release/cmux.app/Contents/MacOS
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound
