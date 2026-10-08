@@ -229,10 +229,10 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
             AnalyticsWireContract.maxRequestBytes,
             max(1, maxRequestBytes)
         )
-        let interval = max(0, batchingInterval)
+        let interval = batchingInterval.isFinite ? max(0, batchingInterval) : 0
         let retries = max(0, maxRetries)
-        let baseDelay = max(0, retryBaseDelay)
-        let maximumDelay = max(baseDelay, retryMaxDelay)
+        let baseDelay = retryBaseDelay.isFinite ? max(0, retryBaseDelay) : 0
+        let maximumDelay = retryMaxDelay.isFinite ? max(baseDelay, retryMaxDelay) : baseDelay
         let (wakeStream, wakeContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
