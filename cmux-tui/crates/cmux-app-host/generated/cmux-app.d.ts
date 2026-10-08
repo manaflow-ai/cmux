@@ -122,13 +122,13 @@ declare namespace Cmux {
   type HomeReactionKind = unknown
   type HomeSha256 = string
   type HomeTextRun = { start: number; length: number; mention?: Cmux.ParticipantId; link?: string }
-  type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string> }
+  type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string>; orphaned?: { at: number; former_owner: Cmux.UserId } }
   type HostId = string
   type HostKind = "device" | "server"
   type InputModifier = "shift" | "control" | "alt" | "meta"
   type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId; sso_team?: Cmux.TeamId; bound_machine?: string; capabilities?: Array<Cmux.ServerCapability> }
   type InstallId = string
-  type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+  type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
   type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
   type InviteId = string
   type JournalAppendResult = { producer_id: string; sequence: string; event_id: string }
@@ -774,6 +774,10 @@ interface CmuxGlobal {
     snooze: CmuxOp<{ id?: string; minutes?: number }, unknown>
   }
   integration: {
+    approval: {
+      /** `integration.approval.get` (read, scope `integration:read`): Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
+      get: CmuxOp<{ request: string }, { request: string; op: string; connection: string; target: string; summary: string; params: string; digest: string; state: "pending" | "done" | "denied" | "expired"; created_at: unknown; expires_at: unknown }>
+    }
     /** `integration.complete` (mutation, scope `integration:write`): Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
     complete: CmuxOp<{ state: string; code?: string; installation_id?: string; setup_action?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.Connection>>
     /** `integration.connect` (mutation, scope `integration:write`): Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it. */

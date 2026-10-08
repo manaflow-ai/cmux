@@ -3594,6 +3594,28 @@
               "name": "string"
             }
           }
+        },
+        "orphaned": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "former_owner": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -3745,7 +3767,8 @@
         "cli",
         "daemon",
         "web",
-        "vm"
+        "vm",
+        "team-vm"
       ]
     },
     "IntegrationProvider": {
@@ -34400,6 +34423,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -36194,7 +36233,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36625,7 +36665,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36685,7 +36726,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36956,7 +36998,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -37211,7 +37254,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -37445,7 +37489,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -48851,6 +48896,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -49754,6 +49815,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [

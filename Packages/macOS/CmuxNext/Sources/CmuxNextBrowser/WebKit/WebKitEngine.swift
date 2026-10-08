@@ -39,6 +39,14 @@ public final class WebKitEngine: BrowserEngine {
     /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
     var rateReshowClock: any Clock<Duration> = ContinuousClock()
+    /// HTTP sign-ins the user chose to remember (Keychain; tests inject memory).
+    var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
+
+    /// The remembered-sign-in rules for a profile's tabs.
+    func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
+        BrowserHTTPSignInMemory(store: httpCredentials, offTheRecord: profileStore.isOffTheRecord(profile))
+    }
+
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
     /// Browser passkey authorization (one per app; tests inject a fake).

@@ -4,10 +4,11 @@ use flate2::bufread::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{BufRead, BufReader, Read, Result as IoResult};
+use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
@@ -75,14 +76,12 @@ impl JournalSensitivity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalProducer {
     pub kind: String,
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalAuthority {
     pub principal_id: String,
     pub lease_id: String,
@@ -97,8 +96,11 @@ pub struct JournalSubject {
     pub id: String,
 }
 
+/// Decoding tolerates unknown fields: a sealed segment written by a newer
+/// daemon must stay readable (P8 landing 2c); so do `JournalProducer` and
+/// `JournalAuthority` (stored only). Limits: `JournalSubject` stays strict (it
+/// is also `JournalIngress` wire input) and a new enum variant still breaks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SessionJournalRecord {
     pub sequence: u64,
     pub event_id: String,
@@ -417,6 +419,8 @@ pub(crate) struct JournalAppend<'a> {
     pub(crate) content: Option<&'a [u8]>,
     pub(crate) resource_revision: Option<u64>,
     pub(crate) previous_resource_revision: Option<u64>,
+    /// [`crate::Actor::wire`] of the caller; stored beside the record JSON.
+    pub(crate) actor: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -466,6 +470,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            content BLOB,
            resource_revision INTEGER UNIQUE,
            previous_resource_revision INTEGER,
+           actor TEXT,
            CHECK(
              (resource_revision IS NULL AND previous_resource_revision IS NULL)
              OR (
@@ -752,6 +757,7 @@ pub(crate) fn migrate_resource_events_to_session_journal(
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
     }
@@ -921,6 +927,7 @@ pub(crate) fn append_resource_effect_journal_record(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: ledger_actor(transaction, idempotency_key)?.as_deref(),
         },
     )?;
     Ok(())
@@ -972,6 +979,7 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
+    let actor = resource_record_actor(transaction, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {
@@ -992,6 +1000,7 @@ fn append_resource_journal_record_at(
             content: None,
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
+            actor: actor.as_deref(),
         },
     )?;
     Ok(())
@@ -1023,8 +1032,9 @@ pub(crate) fn append_journal_record(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
-           sensitivity, payload_json, content, resource_revision, previous_resource_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+           sensitivity, payload_json, content, resource_revision, previous_resource_revision, actor
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                  ?19)",
         params![
             append.event_id,
             i64::from(append.schema_version),
@@ -1058,6 +1068,7 @@ pub(crate) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
+            append.actor,
         ],
     )?;
     let sequence = transaction.last_insert_rowid();
@@ -1608,28 +1619,6 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         );
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
-}
-
-struct DigestReader<R> {
-    inner: R,
-    hasher: Sha256,
-    bytes_read: usize,
-}
-impl<R: Read> DigestReader<R> {
-    fn new(inner: R) -> Self {
-        Self { inner, hasher: Sha256::new(), bytes_read: 0 }
-    }
-    fn finish(self) -> (R, usize, sha2::digest::Output<Sha256>) {
-        (self.inner, self.bytes_read, self.hasher.finalize())
-    }
-}
-impl<R: Read> Read for DigestReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-        let n = self.inner.read(buf)?;
-        self.bytes_read = self.bytes_read.saturating_add(n);
-        self.hasher.update(&buf[..n]);
-        Ok(n)
-    }
 }
 
 fn archived_records_after(
@@ -2188,3 +2177,13 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 
 #[cfg(test)]
 mod tests;
+
+mod actors;
+mod digest_reader;
+use digest_reader::DigestReader;
+#[cfg(test)]
+mod actor_tests;
+
+#[cfg(test)]
+pub(crate) use actors::journal_actor;
+pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};

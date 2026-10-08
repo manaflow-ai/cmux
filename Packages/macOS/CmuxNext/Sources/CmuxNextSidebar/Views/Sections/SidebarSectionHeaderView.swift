@@ -11,7 +11,9 @@ final class SidebarSectionHeaderView: NSView {
     private let name = NSTextField(labelWithString: "")
     let chevron = NSImageView()
     private var collapsed = false
+    /// Set by the hover owner (`PointerHover`, cx-3wu5).
     var isHovered = false { didSet { if isHovered != oldValue { updateChevron() } } }
+    private var pointerHover: PointerHover?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -21,6 +23,7 @@ final class SidebarSectionHeaderView: NSView {
         [name, chevron].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
     @available(*, unavailable)
@@ -78,14 +81,6 @@ final class SidebarSectionHeaderView: NSView {
         needsDisplay = true
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
     /// A click toggles on release; a drag moves the section (R77).
     override func mouseDown(with event: NSEvent) {
         pressLocation = event.locationInWindow
