@@ -64,6 +64,24 @@ where
     Ok(())
 }
 
+/// The WebSocket token: `--ws-token`, else `server.ws_token`. A headless
+/// daemon with a WebSocket listener needs one (fail closed): it has no TUI
+/// to approve a pairing, and only a human surface may approve one (cx-ehrq).
+pub(crate) fn ws_token(
+    args: &Args,
+    ws_addr: &Option<String>,
+    configured: &Option<String>,
+) -> anyhow::Result<Option<String>> {
+    let token = args.ws_token.clone().or_else(|| configured.clone());
+    let token = token.filter(|token| !token.trim().is_empty());
+    if args.headless && ws_addr.is_some() && token.is_none() {
+        anyhow::bail!(
+            "--headless --ws needs --ws-token (or server.ws_token): a headless daemon has no TUI to approve a pairing"
+        );
+    }
+    Ok(token)
+}
+
 /// Wakes `run_headless`. Callers set their flag first; the wait re-checks
 /// every flag under this lock, so no wake is lost.
 static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
@@ -74,4 +92,29 @@ pub(crate) fn wake_headless() {
     let mut generation = lock.lock().unwrap();
     *generation = generation.wrapping_add(1);
     wake.notify_all();
+}
+
+#[cfg(test)]
+mod tests {
+    fn args(argv: &[&str]) -> crate::Args {
+        crate::parse_args(argv.iter().map(|arg| (*arg).to_string()))
+    }
+
+    #[test]
+    fn a_headless_websocket_listener_needs_a_token() {
+        let ws = Some("127.0.0.1:0".to_string());
+        let headless = args(&["--headless", "--ws", "127.0.0.1:0"]);
+        assert!(super::ws_token(&headless, &ws, &None).is_err());
+        assert!(super::ws_token(&headless, &ws, &Some(" ".into())).is_err());
+        assert_eq!(
+            super::ws_token(&headless, &ws, &Some("t".into())).unwrap().as_deref(),
+            Some("t")
+        );
+        let flagged = args(&["--headless", "--ws", "127.0.0.1:0", "--ws-token", "f"]);
+        assert_eq!(super::ws_token(&flagged, &ws, &None).unwrap().as_deref(), Some("f"));
+        // The TUI that runs the daemon approves pairings itself.
+        let interactive = args(&["--ws", "127.0.0.1:0"]);
+        assert_eq!(super::ws_token(&interactive, &ws, &None).unwrap(), None);
+        assert_eq!(super::ws_token(&headless, &None, &None).unwrap(), None);
+    }
 }
