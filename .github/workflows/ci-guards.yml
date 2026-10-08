@@ -168,7 +168,9 @@ jobs:
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: python3 tests/test_ci_reverse_test_impact.py
+        run: |
+          python3 tests/test_ci_reverse_test_impact.py
+          python3 tests/test_reverse_test_impact_route.py
 
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
