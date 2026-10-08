@@ -34,6 +34,26 @@ struct CloudWelcomeTests {
         #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: nil, appVersion: "0.65.1", cloudAvailable: true, cloudEnabled: true))
     }
 
+    @Test("automatic presentation is suppressed for development and test launches")
+    func suppressesDevelopmentAndTestLaunches() {
+        let arguments: [(Bool, Bool, Bool)] = [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ]
+        for (isDebugBuild, isRunningUnderXCTest, isUITestMode) in arguments {
+            #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(
+                seenVersion: nil,
+                appVersion: "0.65.1",
+                cloudAvailable: true,
+                cloudEnabled: false,
+                isDebugBuild: isDebugBuild,
+                isRunningUnderXCTest: isRunningUnderXCTest,
+                isUITestMode: isUITestMode
+            ))
+        }
+    }
+
     @Test("the one prominent button is the next step for this account")
     func nextStepFollowsSignInAndPlan() {
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: false, isPlanKnown: false, isPro: false) == .signIn)
@@ -49,11 +69,11 @@ struct CloudWelcomeTests {
         #expect(Set(CloudWelcomeSlide.all.map(\.id)).count == CloudWelcomeSlide.all.count)
     }
 
-    @Test("the multiplayer feature keeps a bundled clip")
-    func multiplayerClipIsBundled() {
-        let multiplayer = CloudWelcomeSlide.all.first { $0.id == "team" }
-        #expect(multiplayer != nil)
-        #expect(multiplayer.flatMap(CloudWelcomeMediaCarousel.bundledMediaURL) != nil)
+    @Test("every welcome feature resolves a bundled clip")
+    func everyFeatureClipIsBundled() {
+        for slide in CloudWelcomeSlide.all {
+            #expect(CloudWelcomeMediaCarousel.bundledMediaURL(slide) != nil, "Missing bundled clip for \(slide.id)")
+        }
     }
 
     @Test("short clips dwell long enough to read before autoplay advances")

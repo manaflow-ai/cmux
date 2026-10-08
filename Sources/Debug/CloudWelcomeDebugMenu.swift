@@ -7,7 +7,10 @@ extension cmuxApp {
     @ViewBuilder
     var cloudWelcomeDebugMenuItems: some View {
         Button(String(localized: "debug.menu.showCloudWelcome", defaultValue: "Show Cloud Welcome…")) {
-            AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow)
+            AppDelegate.shared?.cloudWelcomeWindowController.present(
+                over: NSApp.mainWindow,
+                sliderShowsFeatureList: false
+            )
         }
         Button(String(localized: "debug.menu.showCloudWelcomeList", defaultValue: "Show Cloud Welcome (List)…")) {
             AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, sliderShowsFeatureList: true)

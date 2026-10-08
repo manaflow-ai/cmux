@@ -451,7 +451,7 @@ struct CloudWelcomeMediaCarousel: View {
 
     /// A movie's first play ended (the looper wrapped around): next slide.
     private func clipFinished() {
-        guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1 else { return }
+        guard autoplays, !reduceMotion, !playback.isPaused, !movieFailed, slides.count > 1 else { return }
         guard Self.shouldAdvanceAfterMovie(elapsed: playback.elapsed(at: Date())) else { return }
         show((index + 1) % slides.count)
     }
@@ -468,12 +468,19 @@ struct CloudWelcomeMediaCarousel: View {
         playback.startInitialSlideIfNeeded()
         let isMovie = Self.isMovie(mediaURL(currentSlide))
         guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, (!isMovie || movieFailed) else { return }
+        let slideID = currentSlide.id
+        let slideIndex = index
         let remaining = duration - playback.elapsed(at: Date())
         if remaining > 0 {
-            do { try await ContinuousClock().sleep(for: .seconds(remaining)) } catch { return }
+            await playback.waitForAdvance(after: remaining)
         }
-        // A pause or a new slide can land just as the wait ends.
-        guard !Task.isCancelled, !playback.isPaused else { return }
+        // A pause, a new slide or a stale failed-movie callback can land just as
+        // the timer ends. Only the task that scheduled this slide may advance it.
+        guard !Task.isCancelled,
+              !playback.isPaused,
+              index == slideIndex,
+              currentSlide.id == slideID
+        else { return }
         show((index + 1) % slides.count)
     }
 
@@ -493,16 +500,13 @@ struct CloudWelcomeMediaCarousel: View {
         if url.pathExtension.lowercased() == "gif" {
             duration = await Self.gifDuration(url) ?? Self.fallbackDuration
         } else {
-            do {
-                let seconds = try await AVURLAsset(url: url).load(.duration).seconds
-                if seconds.isFinite, seconds > 0.5 {
-                    duration = seconds
-                } else {
-                    durationLoadFailed = true
-                }
-            } catch {
+            guard let seconds = await Self.movieDuration(url) else {
+                guard !Task.isCancelled else { return }
                 durationLoadFailed = true
+                return
             }
+            guard !Task.isCancelled else { return }
+            duration = seconds
         }
     }
 
@@ -526,6 +530,17 @@ struct CloudWelcomeMediaCarousel: View {
             total += delay < 0.011 ? 0.1 : delay
         }
         return total > 0 ? total : nil
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    nonisolated private static func movieDuration(_ url: URL) async -> Double? {
+        guard let seconds = try? await AVURLAsset(url: url).load(.duration).seconds,
+              seconds.isFinite,
+              seconds > 0.5
+        else { return nil }
+        return seconds
     }
 
     /// The pill's (or the list rail's) fill, drawn by Core Animation. The fill
@@ -720,13 +735,57 @@ extension CloudWelcomeMediaCarousel {
         private(set) var movieFailed = false
         private var pausedElapsed: Double?
         private var startedAt: Date?
+        private var advanceTimer: DispatchSourceTimer?
+        private var advanceContinuation: AsyncStream<Void>.Continuation?
+        private var advanceGeneration = 0
 
         init() {
             (loopCompletions, loopContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         }
 
         deinit {
+            advanceTimer?.cancel()
             loopContinuation.finish()
+        }
+
+        /// Waits for a cancellable one-shot presentation deadline. A dispatch
+        /// timer is used instead of task sleep so changing slides tears down the
+        /// deadline immediately and does not leave a sleeping UI task behind.
+        func waitForAdvance(after seconds: Double) async {
+            cancelAdvanceTimer()
+            let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+            advanceContinuation = continuation
+            advanceGeneration += 1
+            let generation = advanceGeneration
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + max(0, seconds))
+            timer.setEventHandler { [weak self] in
+                // The source is on the main queue, matching Playback's actor.
+                MainActor.assumeIsolated {
+                    guard let self, self.advanceGeneration == generation else { return }
+                    self.advanceTimer?.cancel()
+                    self.advanceTimer = nil
+                    self.advanceContinuation = nil
+                    continuation.yield()
+                    continuation.finish()
+                }
+            }
+            advanceTimer = timer
+            timer.resume()
+
+            await withTaskCancellationHandler(operation: {
+                for await _ in events { }
+            }, onCancel: { [weak self] in
+                Task { @MainActor in self?.cancelAdvanceTimer() }
+            })
+        }
+
+        private func cancelAdvanceTimer() {
+            advanceGeneration += 1
+            advanceTimer?.cancel()
+            advanceTimer = nil
+            advanceContinuation?.finish()
+            advanceContinuation = nil
         }
 
         func attach(_ player: AVPlayer) {

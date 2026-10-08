@@ -24,9 +24,13 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         seenVersion: String?,
         appVersion: String,
         cloudAvailable: Bool,
-        cloudEnabled: Bool
+        cloudEnabled: Bool,
+        isDebugBuild: Bool = false,
+        isRunningUnderXCTest: Bool = false,
+        isUITestMode: Bool = false
     ) -> Bool {
-        appVersion == campaignVersion
+        guard !isDebugBuild, !isRunningUnderXCTest, !isUITestMode else { return false }
+        return appVersion == campaignVersion
             && seenVersion != campaignVersion
             && cloudAvailable
             && !cloudEnabled
