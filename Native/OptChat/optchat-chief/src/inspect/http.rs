@@ -322,17 +322,20 @@ impl Shared {
 
     fn host_ok(&self, req: &Request) -> bool {
         let port = self.port;
-        req.header("host").is_some_and(|h| {
-            h == format!("127.0.0.1:{port}")
-                || h == format!("localhost:{port}")
-                || h == format!("[::1]:{port}")
-        })
+        req.header("host")
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|h| {
+                h == format!("127.0.0.1:{port}")
+                    || h == format!("localhost:{port}")
+                    || h == format!("[::1]:{port}")
+            })
     }
 
     /// No `Origin` (a navigation or a same-origin GET) or exactly this
-    /// server's own loopback origin. A foreign or `null` Origin is a web page
-    /// reading the inspector (cross-site, or a DNS-rebound name on another
-    /// port), refused even when the request carries the token or a session.
+    /// server's own loopback origin. A foreign or `null` Origin is another web
+    /// page reading the inspector (including a page on another loopback port,
+    /// which gets the SameSite cookie); it is refused even with the token or
+    /// a session. DNS rebinding is stopped earlier, by [`Shared::host_ok`].
     fn origin_ok(&self, req: &Request) -> bool {
         let port = self.port;
         let mut origins = req
@@ -349,6 +352,25 @@ impl Shared {
                     || origin == format!("http://[::1]:{port}")
             }
             (Some(_), Some(_)) => false,
+        }
+    }
+
+    /// Fetch Metadata: a request a browser marks `same-site` or `cross-site`
+    /// comes from another page (a no-cors `<script>` or `<img>` on another
+    /// loopback port sends no Origin but does send the SameSite cookie), so
+    /// it is refused, except a top-level navigation to the page itself.
+    /// A missing header (URLSession, curl, old engines) is allowed.
+    fn fetch_site_ok(&self, req: &Request) -> bool {
+        let site = req
+            .header("sec-fetch-site")
+            .map(|v| v.trim().to_ascii_lowercase());
+        match site.as_deref() {
+            None | Some("same-origin" | "none") => true,
+            Some(_) => {
+                req.header("sec-fetch-mode")
+                    .is_some_and(|mode| mode.trim().eq_ignore_ascii_case("navigate"))
+                    && matches!(req.path.as_str(), "/" | "/index.html")
+            }
         }
     }
 
@@ -431,6 +453,9 @@ fn route(shared: &Shared, req: &Request) -> Reply {
     }
     if !shared.origin_ok(req) {
         return text(403, "the Origin is not this loopback server");
+    }
+    if !shared.fetch_site_ok(req) {
+        return text(403, "the request comes from another site");
     }
     if req.method != "GET" && req.method != "HEAD" {
         let mut r = text(405, "the inspector is read-only: GET only");

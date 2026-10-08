@@ -31,9 +31,24 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
 
 /// Runs `cmux host <rest>` and returns its exit code.
 pub(crate) fn run(rest: &[String]) -> i32 {
-    let exe = std::env::current_exe().ok().map(|p| p.display().to_string());
-    let self_argv = exe.map(|exe| vec![exe, "host".to_owned()]).unwrap_or_default();
+    let argv0 = std::env::args_os().next();
+    let self_argv = self_argv_for(argv0.as_deref(), std::env::current_exe().ok());
     i32::from(cmux_host::cli::run(rest, self_argv))
+}
+
+/// How the supervisor runs `cmux host …` again (its `rekey` job). The verb
+/// exists only on the `cmux` surface, which argv[0]'s name selects, so an
+/// absolute argv[0] named `cmux` (the image's `cmux` link into the store)
+/// wins over the resolved executable, whose name is `cmux-tui` there.
+fn self_argv_for(argv0: Option<&std::ffi::OsStr>, exe: Option<std::path::PathBuf>) -> Vec<String> {
+    let named_cmux = argv0.filter(|a| {
+        std::path::Path::new(a).is_absolute() && Surface::for_program(Some(a)) == Surface::Cmux
+    });
+    let program = match named_cmux {
+        Some(a) => Some(std::path::PathBuf::from(a)),
+        None => exe,
+    };
+    program.map(|p| vec![p.display().to_string(), "host".to_owned()]).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -48,6 +63,19 @@ mod tests {
         assert!(!applies(&args(&["workspace", "list"]), Surface::Cmux));
         assert!(!applies(&[], Surface::Cmux));
         assert_eq!(run(&args(&["--help"])), 0);
+        // The store link named `cmux` keeps the surface; the resolved
+        // executable (`cmux-tui`) would lose the `host` verb.
+        let exe = Some(std::path::PathBuf::from("/opt/cmux/store/abc/bin/cmux-tui"));
+        let link = std::ffi::OsStr::new("/opt/cmux/current/bin/cmux");
+        assert_eq!(
+            self_argv_for(Some(link), exe.clone()),
+            args(&["/opt/cmux/current/bin/cmux", "host"])
+        );
+        assert_eq!(
+            self_argv_for(Some(std::ffi::OsStr::new("cmux")), exe),
+            args(&["/opt/cmux/store/abc/bin/cmux-tui", "host"])
+        );
+        assert_eq!(self_argv_for(None, None), Vec::<String>::new());
         assert_eq!(run(&args(&["bogus"])), 2);
     }
 }

@@ -383,6 +383,38 @@ fn a_foreign_origin_is_refused_even_with_the_token() {
         200,
         "no Origin"
     );
+    // HEAD gets the same rule; two Origin headers are refused.
+    let foreign = format!("{bearer}Origin: https://evil.example\r\n");
+    assert_eq!(
+        get(addr, "HEAD", "/api/status", &host, &foreign).status,
+        403
+    );
+    let two =
+        format!("{bearer}Origin: http://127.0.0.1:{port}\r\nOrigin: https://evil.example\r\n");
+    assert_eq!(get(addr, "GET", "/api/status", &host, &two).status, 403);
+    // The localhost Host with the localhost origin is served.
+    let localhost = format!("localhost:{port}");
+    let own = format!("{bearer}Origin: http://localhost:{port}\r\n");
+    assert_eq!(
+        get(addr, "GET", "/api/status", &localhost, &own).status,
+        200
+    );
+    // A page on another loopback port sends no Origin on a no-cors request
+    // but its browser marks it same-site: refused, also with the token.
+    for site in ["same-site", "cross-site"] {
+        let extra = format!("{bearer}Sec-Fetch-Site: {site}\r\nSec-Fetch-Mode: no-cors\r\n");
+        assert_eq!(
+            get(addr, "GET", "/api/status", &host, &extra).status,
+            403,
+            "{site}"
+        );
+    }
+    let same = format!("{bearer}Sec-Fetch-Site: same-origin\r\nSec-Fetch-Mode: cors\r\n");
+    assert_eq!(get(addr, "GET", "/api/status", &host, &same).status, 200);
+    // A top-level navigation to the page is not refused for its site (it
+    // still needs a ticket or a session).
+    let nav = "Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\n";
+    assert_eq!(get(addr, "GET", "/", &host, nav).status, 401);
 }
 
 /// Every endpoint, called on a quiet memory, leaves the database as it was.

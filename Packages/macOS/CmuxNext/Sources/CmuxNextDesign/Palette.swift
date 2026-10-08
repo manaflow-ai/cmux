@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxTheme
 
 /// Chrome colors, all derived from the terminal theme (`ThemeTokens`).
 ///
@@ -45,6 +46,9 @@ public struct Palette {
     /// A translucent scrim of the surface background for text over the
     /// window's backdrop (``ThemeTokens/legibilityScrim``).
     public static var legibilityScrim: NSColor { color(\.legibilityScrim, dynamic: PaletteDynamic.legibilityScrim) }
+    /// The scrim's alpha: the most a translucent band over the window's
+    /// backdrop may cover (the Home header's top fade peaks there).
+    public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
