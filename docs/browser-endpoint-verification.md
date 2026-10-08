@@ -2,9 +2,10 @@
 
 Google Endpoint Verification cannot be enabled by changing cmux's current
 WebKit identity. The shipped embedded browser is a `WKWebView` product, while
-Endpoint Verification's supported desktop flow requires Chrome, the Endpoint
-Verification extension, and its companion helper. This note records the
-boundary and the smallest implementation scope that could satisfy the request.
+the managed-Mac flow covered here uses Chrome and the Endpoint Verification
+extension and may also require its companion helper, depending on platform and
+policy. This note records the boundary and the smallest implementation scope
+that could satisfy the request.
 
 ## Decision
 
@@ -35,10 +36,11 @@ not be presented as a workaround for device trust.
 ## Google’s supported contract
 
 Google's [Endpoint Verification setup guide](https://support.google.com/a/users/answer/9018161?hl=en)
-states that the desktop setup uses Chrome, the Endpoint Verification extension,
-and a helper app. It also says that the extension may install on Chromium-based
-browsers but is supported only on Chrome. The setup then requires opening Chrome
-and signing in with the managed Google Account before the device synchronizes.
+states that the desktop setup uses Chrome and the Endpoint Verification
+extension, and may require a helper app depending on the platform and policy.
+It also says that the extension may install on Chromium-based browsers but is
+supported only on Chrome. The setup then requires opening Chrome and signing in
+with the managed Google Account before the device synchronizes.
 
 Google's [Context-Aware Access platform table](https://knowledge.workspace.google.com/admin/security/protect-your-business-with-context-aware-access)
 lists device-policy access for desktop Chrome together with the Chrome Endpoint
@@ -79,7 +81,8 @@ work treats `cef`/`chromium` as an explicit engine and refuses an explicit
 request when CEF is unavailable. Its [browser design note](https://github.com/manaflow-ai/cmux/blob/03b660fdf079ebdcf120dae15f4ae142b812ed3b/plans/cmux-next/browser.md)
 also calls out the remaining CEF distribution, helper, profile, and live
 managed-device validation work. That branch is not the shipped release path;
-it is a useful implementation seam, not evidence that #18606 already works.
+it is a useful implementation seam, not evidence that Endpoint Verification
+already works.
 
 ## Explicit non-goals
 
