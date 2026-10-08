@@ -123,18 +123,24 @@ public struct SidebarBackdropSettingsSnapshot {
     }
 
     /// The tint colour with its opacity baked in, honouring the per-scheme
-    /// overrides.
-    private var resolvedTintColor: NSColor {
-        let resolvedHex: String
+    /// overrides. Light mode swaps the stock dark tint for the light default;
+    /// a chosen colour, or a chosen opacity, still wins.
+    var resolvedTintColor: NSColor {
+        var resolvedHex = tintHex
+        var opacity = tintOpacity
         if colorScheme == .dark, let tintHexDark {
             resolvedHex = tintHexDark
         } else if colorScheme == .light, let tintHexLight {
             resolvedHex = tintHexLight
-        } else {
-            resolvedHex = tintHex
+        } else if colorScheme == .light {
+            let stock = WindowChromeSidebarTintDefaults()
+            if tintHex.caseInsensitiveCompare(stock.hex) == .orderedSame {
+                resolvedHex = WindowChromeSidebarTintDefaults.light.hex
+                if tintOpacity == stock.opacity { opacity = WindowChromeSidebarTintDefaults.light.opacity }
+            }
         }
         return (NSColor(hex: resolvedHex) ?? NSColor(hex: tintHex) ?? .black)
-            .withAlphaComponent(tintOpacity)
+            .withAlphaComponent(opacity)
     }
 
     /// Stable identity for AppKit mutations.

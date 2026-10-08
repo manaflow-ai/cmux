@@ -234,6 +234,30 @@ import Testing
         #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
     }
 
+    /// The stock tint is a dark glass, so light mode swaps it for the light
+    /// default; dark keeps it, and a chosen colour or opacity still wins.
+    @Test func stockSidebarTintIsAppearanceAware() {
+        func tint(_ scheme: ColorScheme, hex: String = WindowChromeSidebarTintDefaults().hex,
+                  opacity: Double = WindowChromeSidebarTintDefaults().opacity) -> (String, Double) {
+            let color = SidebarBackdropSettingsSnapshot(
+                materialRawValue: WindowChromeSidebarMaterialOption.hudWindow.rawValue,
+                blendModeRawValue: "behindWindow", stateRawValue: "active",
+                tintHex: hex, tintHexLight: nil, tintHexDark: nil, tintOpacity: opacity,
+                cornerRadius: 0, blurOpacity: 1, colorScheme: scheme,
+                compositorGlass: true, compositorBlurRadius: 12
+            ).resolvedTintColor
+            return (color.hexString(), Double(color.alphaComponent))
+        }
+        func expect(_ actual: (String, Double), _ hex: String, _ alpha: Double) {
+            #expect(actual.0 == hex)
+            #expect(abs(actual.1 - alpha) < 0.001)
+        }
+        expect(tint(.dark), "#393939", 0.72)
+        expect(tint(.light), "#F2F2F2", 0.72)
+        expect(tint(.light, hex: "#FF0000"), "#FF0000", 0.72)
+        expect(tint(.light, opacity: 0.4), "#F2F2F2", 0.4)
+    }
+
     private func makeSettings(
         unifySurfaceBackdrops: Bool,
         sidebarBlendMode: String,
