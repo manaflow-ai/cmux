@@ -328,22 +328,18 @@
 
 /* The category jump bar: one row of small buttons, scrolled sideways when the categories do not
    fit (about 30 SF Symbol categories). The current section reads like the selected tab. */
-.icon-jump-bar {
+.ui-toolbar.icon-jump-bar {
   display: flex;
   gap: 2px;
   padding: 0 8px 6px;
   overflow-x: auto;
-  scrollbar-width: none;
   flex: none;
 }
 
-.icon-jump-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.icon-jump {
+.ui-toolbar-button.icon-jump {
   flex: none;
   width: 26px;
+  min-width: 0;
   height: 26px;
   display: grid;
   place-items: center;
@@ -354,7 +350,7 @@
   padding: 0;
 }
 
-.icon-jump:hover {
+.ui-toolbar-button.icon-jump:hover {
   background: var(--page-hover);
 }
 
