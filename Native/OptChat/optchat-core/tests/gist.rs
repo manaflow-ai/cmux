@@ -390,6 +390,11 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         }
     }
     let work = memory.pump(&store);
+    for w in &work {
+        if let Work::Free { node, text } = w {
+            store.nodes.borrow_mut().insert(*node, text.clone());
+        }
+    }
     let merge = work
         .iter()
         .find_map(|w| match w {
@@ -416,7 +421,7 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         )
     );
     let long = "y".repeat(600);
-    let SizeCheck::Retry(retry) = size_check(&[long.clone()]) else { panic!() };
+    let SizeCheck::Retry(retry) = size_check(std::slice::from_ref(&long)) else { panic!() };
     assert_eq!(
         retry,
         format!(
