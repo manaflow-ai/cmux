@@ -434,6 +434,7 @@ fi
 if ! python3 - "$WORKFLOW_FILE" <<'PY'
 import re
 import sys
+from pathlib import Path
 
 workflow = open(sys.argv[1], encoding="utf-8").read()
 
