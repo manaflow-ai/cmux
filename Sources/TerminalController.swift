@@ -36,6 +36,8 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    /// Posted on the main thread by a browser panel when its main frame commits a new document.
+    static let browserMainFrameDidCommit = Notification.Name("cmux.browserMainFrameDidCommit")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
     static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
@@ -481,6 +483,7 @@ class TerminalController {
         )
     )
     private var browserDownloadObserver: NSObjectProtocol?
+    private var browserMainFrameCommitObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(
         surfaceIds: [UUID],
@@ -724,6 +727,20 @@ class TerminalController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
+            }
+        }
+        browserMainFrameCommitObserver = NotificationCenter.default.addObserver(
+            forName: .browserMainFrameDidCommit,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let surfaceId = note.userInfo?["surfaceId"] as? UUID else { return }
+            // The panel posts from its main-thread commit callback and this
+            // observer is on the main queue, so the block runs before the post
+            // returns. Drop the old page's frame and refs here, not in a
+            // deferred task, so no command can use them against the new page.
+            MainActor.assumeIsolated {
+                self?.v2BrowserDocumentState.mainFrameDidCommit(surfaceID: surfaceId)
             }
         }
     }
@@ -9906,40 +9923,55 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const frame = document.querySelector(\(selectorLiteral));
-              if (!frame) return { ok: false, error: 'not_found' };
-              if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
-              try {
-                const sameOrigin = !!frame.contentDocument;
-                if (!sameOrigin) return { ok: false, error: 'cross_origin' };
-              } catch (_) {
-                return { ok: false, error: 'cross_origin' };
-              }
-              return { ok: true };
-            })()
-            """
-            switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
+            switch v2BrowserProbeFrame(ctx, selector: selector) {
+            case .scriptFailed(let message):
                 return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                if let dict = value as? [String: Any],
-                   let ok = dict["ok"] as? Bool,
-                   ok {
-                    v2MainSync {
-                        v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId)
-                    }
-                    return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
+            case .sameOriginFrame:
+                v2MainSync {
+                    v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId)
                 }
-                if let dict = value as? [String: Any],
-                   let errorText = dict["error"] as? String,
-                   errorText == "cross_origin" {
-                    return .err(code: "not_supported", message: "Cross-origin iframe control is not supported", data: ["selector": selector])
-                }
+                return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
+            case .crossOrigin:
+                return .err(code: "not_supported", message: "Cross-origin iframe control is not supported", data: ["selector": selector])
+            case .notFound:
                 return .err(code: "not_found", message: "Frame not found", data: ["selector": selector])
             }
+        }
+    }
+
+    private enum V2BrowserFrameProbe {
+        case sameOriginFrame
+        case crossOrigin
+        case notFound
+        case scriptFailed(String)
+    }
+
+    /// Checks that `selector` names a same-origin frame in the document commands currently run in.
+    private nonisolated func v2BrowserProbeFrame(_ ctx: V2BrowserPanelContext, selector: String) -> V2BrowserFrameProbe {
+        let selectorLiteral = v2JSONLiteral(selector)
+        let script = """
+        (() => {
+          const frame = document.querySelector(\(selectorLiteral));
+          if (!frame) return { ok: false, error: 'not_found' };
+          if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
+          try {
+            const sameOrigin = !!frame.contentDocument;
+            if (!sameOrigin) return { ok: false, error: 'cross_origin' };
+          } catch (_) {
+            return { ok: false, error: 'cross_origin' };
+          }
+          return { ok: true };
+        })()
+        """
+        switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
+        case .failure(let message):
+            return .scriptFailed(message)
+        case .success(let value):
+            let dict = value as? [String: Any]
+            if dict?["ok"] as? Bool == true {
+                return .sameOriginFrame
+            }
+            return dict?["error"] as? String == "cross_origin" ? .crossOrigin : .notFound
         }
     }
 
@@ -11358,12 +11390,18 @@ class TerminalController {
             let result = BrowserStateLoadTransaction().run(
                 hasNavigation: targetURL != nil,
                 restoreFrameSelection: {
+                    // The loaded page replaces whatever frame was selected. The saved
+                    // selector is applied only if it still names a same-origin frame
+                    // there; otherwise commands stay in the main frame.
                     v2MainSync {
-                        if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
-                            v2BrowserDocumentState.selectFrame(frameSelector, surfaceID: ctx.surfaceId)
-                        } else {
-                            v2BrowserDocumentState.selectMainFrame(surfaceID: ctx.surfaceId)
-                        }
+                        v2BrowserDocumentState.selectMainFrame(surfaceID: ctx.surfaceId)
+                    }
+                    guard let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty,
+                          case .sameOriginFrame = v2BrowserProbeFrame(ctx, selector: frameSelector) else {
+                        return
+                    }
+                    v2MainSync {
+                        v2BrowserDocumentState.selectFrame(frameSelector, surfaceID: ctx.surfaceId)
                     }
                 },
                 installCookies: {
@@ -16719,6 +16757,9 @@ class TerminalController {
     deinit {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)
+        }
+        if let browserMainFrameCommitObserver {
+            NotificationCenter.default.removeObserver(browserMainFrameCommitObserver)
         }
         // No stop() here: the controller is an app-lifetime singleton, so
         // deinit never runs; listener teardown is applicationWillTerminate's

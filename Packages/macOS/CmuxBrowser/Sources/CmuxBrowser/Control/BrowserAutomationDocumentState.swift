@@ -7,7 +7,9 @@ public import Foundation
 /// `find` commands (`@e1`, `@e2`, ...) each stand for a CSS selector. A
 /// selector only means something in the document it was resolved in, so the
 /// owner reports every main-frame commit through
-/// ``mainFrameDidCommit(surfaceID:)``.
+/// ``mainFrameDidCommit(surfaceID:)`` and that surface starts over: commands
+/// run in the main frame and its old refs no longer resolve, rather than
+/// being replayed against the next page.
 ///
 /// The type is a value: the app's browser controller owns one instance and
 /// serializes access to it.
@@ -77,9 +79,15 @@ public struct BrowserAutomationDocumentState: Sendable {
         return entry.selector
     }
 
-    /// Records that a surface's main frame committed a new document.
+    /// Drops a surface's selected frame and element refs because its main frame committed a new document.
+    ///
+    /// Reload, back, forward, a followed link and a script-driven navigation
+    /// all commit, so each returns the surface to the main frame and makes its
+    /// outstanding refs unresolvable. A same-document change (a fragment or
+    /// `history.pushState`) does not commit and keeps both.
     /// - Parameter surfaceID: The browser surface whose top-level document was replaced.
     public mutating func mainFrameDidCommit(surfaceID: UUID) {
+        removeSurface(surfaceID)
     }
 
     /// Forgets the selected frame and every element ref of a closed surface.

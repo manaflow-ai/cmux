@@ -10,11 +10,13 @@ public enum BrowserStateLoadTransactionResult: Equatable {
 
 /// Keeps browser state restoration ordered around the asynchronous WebKit load.
 /// Cookies must be present before the request starts, and page storage belongs
-/// to the document that actually committed the requested URL.
+/// to the document that actually committed the requested URL. The saved frame
+/// selection names a frame of that document, so it comes last and only when
+/// everything before it succeeded.
 public struct BrowserStateLoadTransaction: Sendable {
     public init() {}
 
-    /// Restores cookies before navigation and page storage after its commit.
+    /// Restores cookies before navigation, then page storage and frame selection after its commit.
     public func run(
         hasNavigation: Bool,
         restoreFrameSelection: () -> Void,
@@ -22,7 +24,6 @@ public struct BrowserStateLoadTransaction: Sendable {
         navigateAndWait: () -> BrowserAutomationNavigationOutcome?,
         applyStorage: () -> Bool
     ) -> BrowserStateLoadTransactionResult {
-        restoreFrameSelection()
         guard installCookies() else { return .cookieWriteFailed }
 
         if hasNavigation {
@@ -35,6 +36,7 @@ public struct BrowserStateLoadTransaction: Sendable {
         }
 
         guard applyStorage() else { return .storageWriteFailed }
+        restoreFrameSelection()
         return .loaded
     }
 }
