@@ -303,8 +303,9 @@ floor="$(tr -d '[:space:]' < "$ROOT_DIR/.xcode-version")"
 floor="${floor%%.*}"
 while read -r macos version _; do
   case "$macos" in ''|'#'*) continue ;; esac
-  [[ "${version%%.*}" == "$floor" ]] \
-    || fail "scripts/ci/xcode-pins.txt pins Xcode $version for macOS $macos, outside the .xcode-version major $floor"
+  pin_major="${version%%.*}"
+  [[ "$pin_major" =~ ^[0-9]+$ && "$floor" =~ ^[0-9]+$ && "$pin_major" -ge "$floor" ]] \
+    || fail "scripts/ci/xcode-pins.txt pins Xcode $version for macOS $macos, below the .xcode-version floor $floor"
 done < "$ROOT_DIR/scripts/ci/xcode-pins.txt"
 
 echo "PASS: CI Xcode selection, pool pins, and the .xcode-version floor"

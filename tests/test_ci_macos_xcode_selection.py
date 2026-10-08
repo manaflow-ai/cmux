@@ -19,7 +19,8 @@ refuses anything below the .xcode-version major. This guard keeps jobs on it:
 2. No macOS job chooses an Xcode itself (DEVELOPER_DIR into GITHUB_ENV,
    xcode-select --switch, a literal CMUX_CI_XCODE_APP path) outside EXEMPT.
 3. Only the SDK 15 Ghostty CLI helper step lifts the pool pin and the floor.
-4. Every pool pin has the .xcode-version major, and check-pbxproj.sh knows it.
+4. Every pool pin is at least the .xcode-version floor, and check-pbxproj.sh
+   knows the floor.
 """
 
 from __future__ import annotations
@@ -203,12 +204,12 @@ def check_repository() -> list[str]:
         if fields[0] in pins:
             errors.append(f"scripts/ci/xcode-pins.txt pins macOS {fields[0]} twice")
         pins[fields[0]] = fields[1]
-        if fields[1].split(".")[0] != floor:
+        if floor.isdigit() and int(fields[1].split(".")[0]) < int(floor):
             errors.append(
                 f"scripts/ci/xcode-pins.txt pins Xcode {fields[1]} for macOS {fields[0]}, "
-                f"outside the .xcode-version major {floor}"
+                f"below the .xcode-version floor {floor}"
             )
-    for pool in ("15", "26"):
+    for pool in ("15", "26", "27"):
         if pool not in pins:
             errors.append(f"scripts/ci/xcode-pins.txt has no pin for the macOS {pool} pool CI runs on")
     if not re.search(rf"^\s*{floor}\)\s+EXPECTED_OBJECT_VERSION=", (ROOT / "scripts/check-pbxproj.sh").read_text(), re.M):
