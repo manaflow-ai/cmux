@@ -215,6 +215,65 @@ fn previous_expanded_section<'a>(row: &Row, rows: &'a [Row]) -> Option<&'a Row> 
     (!previous.is_collapsed).then_some(previous)
 }
 
+/// The top-level index of `row` in its section, if it has one (a loose
+/// workspace or group header: its own; a grouped workspace: its group's).
+fn top_level_index(row: &Row) -> Option<i32> {
+    match &row.key {
+        RowKey::Workspace { .. } if row.group.is_some() => row.parent_index,
+        RowKey::Workspace { .. } | RowKey::Group { .. } => Some(row.sibling_index),
+        _ => None,
+    }
+}
+
+/// The slot after the last top-level node of `section` in `rows`.
+fn end_index(section: &SectionId, rows: &[Row]) -> i32 {
+    rows.iter()
+        .filter(|row| &row.section == section)
+        .filter_map(top_level_index)
+        .max()
+        .map_or(0, |index| index + 1)
+}
+
+/// A content row (not a section header or an empty-section placeholder).
+fn is_content(row: &Row) -> bool {
+    !matches!(row.key, RowKey::Section { .. } | RowKey::EmptySection { .. })
+}
+
+/// The other name of a slot at a headerless section boundary.
+///
+/// Where one section's last row is followed directly by the next section's
+/// first row, with no section header between them (the one-list sidebar,
+/// `sidebar.groupByComputer` off), the gap between the two rows is one gap
+/// on screen and opens at the same place under either name: the end of the
+/// section above or index 0 of the section below. Returns the other name of
+/// `target` when it is one of those two, else None.
+fn boundary_alias(target: &Target, rows: &[Row]) -> Option<Target> {
+    let Target::Position { section, group: None, index } = target else { return None };
+    let first = rows.iter().position(|row| &row.section == section)?;
+    let last = rows.iter().rposition(|row| &row.section == section)?;
+    if *index == 0 && is_content(&rows[first]) && first > 0 {
+        let above = &rows[first - 1];
+        if above.section != *section && is_content(above) {
+            return Some(Target::Position {
+                section: above.section.clone(),
+                group: None,
+                index: end_index(&above.section, rows),
+            });
+        }
+    }
+    if *index == end_index(section, rows) && is_content(&rows[last]) {
+        let below = rows.get(last + 1)?;
+        if below.section != *section && is_content(below) {
+            return Some(Target::Position {
+                section: below.section.clone(),
+                group: None,
+                index: 0,
+            });
+        }
+    }
+    None
+}
+
 fn workspace_target(
     row: &Row,
     fraction: f64,
@@ -321,6 +380,21 @@ fn group_target(
 ) -> Option<Target> {
     let (section_index, _) = locate_group(group, sections)?;
     let home = sections[section_index].id.clone();
+    if row.section != home && !matches!(row.key, RowKey::Section { .. }) {
+        // The top of the first row of the section right below the group's,
+        // with no header between them, is the end of the group's section.
+        let first = rows.iter().find(|candidate| candidate.section == row.section)?;
+        if first != row || fraction >= 0.5 {
+            return None;
+        }
+        let index = top_level_index(row)?;
+        let alias = boundary_alias(
+            &Target::Position { section: row.section.clone(), group: None, index },
+            rows,
+        )?;
+        return matches!(&alias, Target::Position { section, .. } if *section == home)
+            .then_some(alias);
+    }
     let index = match &row.key {
         RowKey::Workspace { .. } if row.group.is_some() => {
             let block_group = row.group.as_ref()?;
@@ -514,12 +588,21 @@ pub fn resolve(request: &Request) -> Option<Target> {
                 request.group_exit_fraction,
                 request.section_top_fraction,
             )?;
-            let target = if request.ungrouped_first {
-                leading_ungrouped(target, ids, &request.sections)
-            } else {
-                target
+            let remap = |target: Target| {
+                if request.ungrouped_first {
+                    leading_ungrouped(target, ids, &request.sections)
+                } else {
+                    target
+                }
             };
-            return is_valid(&target, ids, &request.sections).then_some(target);
+            // A gap at a headerless section boundary has two names; take the
+            // one the dragged workspaces can go to.
+            let alias = boundary_alias(&target, &request.rows);
+            return [Some(target), alias]
+                .into_iter()
+                .flatten()
+                .map(remap)
+                .find(|target| is_valid(target, ids, &request.sections));
         }
         Payload::Group { id } => group_target(
             id,
@@ -564,6 +647,16 @@ pub fn resolve_tab_drop(request: &TabRequest) -> Option<TabDrop> {
         request.group_exit_fraction,
         request.section_top_fraction,
     )?;
+    // A gap at a headerless section boundary has two names; take the one on
+    // the tab's machine.
+    let target = match (&target, boundary_alias(&target, &request.rows)) {
+        (Target::Position { section: SectionId::Machine { id }, .. }, Some(alias))
+            if !machine_ok(Some(id.as_str())) =>
+        {
+            alias
+        }
+        _ => target,
+    };
     match target {
         Target::Position { section: SectionId::Machine { id: machine }, group, index }
             if machine_ok(Some(machine.as_str())) =>
