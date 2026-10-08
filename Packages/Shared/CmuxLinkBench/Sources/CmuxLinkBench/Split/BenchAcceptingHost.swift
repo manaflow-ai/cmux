@@ -98,7 +98,7 @@ public struct BenchAcceptingHost: Sendable {
 /// A lifecycle-aware fan-in for the one or more accepting carriers used by
 /// ``BenchSplitServer`` or a host integration. `incoming` is consumed by one
 /// `LinkHost`, exactly as in `MobileHostAssembly`.
-public final class BenchAcceptingAcceptor: LinkAcceptor, @unchecked Sendable {
+public final class BenchAcceptingAcceptor: LinkAcceptor {
     public let incoming: AsyncStream<any LinkTransport>
     private let startImpl: @Sendable () async -> Void
     private let stopImpl: @Sendable () async -> Void
