@@ -9681,9 +9681,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func makeRemoteTmuxPanePanel(
         id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
-        allowsRemoteClipboardWrites: Bool = false
+        allowsRemoteClipboardWrites: Bool? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
+        let allowsRemoteClipboardWrites = allowsRemoteClipboardWrites
+            ?? sshClipboardMachineIdentity.map {
+                sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: $0)
+            }
+            ?? false
         let surface = TerminalSurface(
             id: panelID, tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,

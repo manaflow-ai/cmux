@@ -56,7 +56,7 @@ extension GhosttyNSView {
 
         for dock in DockSplitStore.liveStores {
             for panel in dock.panels.values.compactMap({ $0 as? TerminalPanel })
-            where ownership.machine(for: panel.id) ?? panel.transferredSurfaceMachine == machine {
+            where dock.machineOwningSurface(panel.id) == machine {
                 panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }
         }

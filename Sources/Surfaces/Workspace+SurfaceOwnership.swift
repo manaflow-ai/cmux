@@ -5,6 +5,40 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension Workspace {
+    /// The configured cmux-tui SSH identity for this workspace, when present.
+    var configuredSSHClipboardMachine: SurfaceMachineID? {
+        guard let configuration = remoteConfiguration,
+              configuration.transport == .ssh else { return nil }
+        return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+    }
+
+    /// The SSH identity for a plain `ssh-tmux` mirror, when this workspace is
+    /// backed by one. Plain mirrors do not have a ``remoteConfiguration``;
+    /// derive the same endpoint digest from the mirror host that the trust menu
+    /// and newly-created manual panes use.
+    var remoteTmuxSSHClipboardMachine: SurfaceMachineID? {
+        guard let host = remoteTmuxSessionMirror?.host,
+              host.transport == .ssh else { return nil }
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: host.destination,
+            port: host.port,
+            identityFile: host.identityFile,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+    }
+
+    /// The SSH machine identity used by manual-mirror surfaces in this workspace.
+    var sshClipboardMachineIdentity: SurfaceMachineID? {
+        configuredSSHClipboardMachine ?? remoteTmuxSSHClipboardMachine
+    }
+
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy {
         SurfaceOwnershipPolicy(cloudMachine: cloudVMBinding.map { SurfaceMachineID(rawValue: $0.vmID) } ?? cloudVMID.map(SurfaceMachineID.cloud))
     }
@@ -41,17 +75,12 @@ extension Workspace {
             if let machine = ownership.machine(for: containerID) {
                 return machine
             }
-            if let configuration = remoteConfiguration,
-               configuration.transport == .ssh {
-                return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
-            }
+            if let machine = sshClipboardMachineIdentity { return machine }
         }
 
         guard let panel = panels[panelID] else { return nil }
-        if let configuration = remoteConfiguration,
-           configuration.transport == .ssh,
-           panel.surface.ioMode == .manualMirror {
-            return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+        if panel.surface.ioMode == .manualMirror {
+            return sshClipboardMachineIdentity
         }
         if let resource = (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.cloudResource {
             return resource.machine
