@@ -74,7 +74,9 @@ import Testing
         card.layoutSubtreeIfNeeded()
         #expect(card.surface.frame == card.bounds)
         #expect(card.surface.material == OverlayMaterial.select(liquidGlassAvailable: OverlayMaterial.liquidGlassAvailable, reduceTransparency: false))
-        #expect(card.surface.isDescendant(of: card) && card.tryButton.isDescendant(of: card.surface), "the lines sit on the glass")
+        let surfaceIndex = card.subviews.firstIndex(of: card.surface) ?? .max
+        let linesIndex = card.subviews.firstIndex { card.tryButton.isDescendant(of: $0) } ?? -1
+        #expect(linesIndex > surfaceIndex, "the lines sit above the glass")
         reduce.override = true
         #expect(card.surface.material == .opaque)
         #expect(card.shownText.first == "Did you know?", "the lines survive the material change")
