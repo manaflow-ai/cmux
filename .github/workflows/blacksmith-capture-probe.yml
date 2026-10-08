@@ -1,0 +1,257 @@
+name: Blacksmith native capture probe
+
+# Disposable experiment for native cmux-next capture feasibility. This is
+# intentionally workflow_dispatch-only and never leases fleet or AWS hosts.
+on:
+  workflow_dispatch: {}
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/blacksmith-capture-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe-and-capture:
+    name: ${{ format('blacksmith-{0}vcpu-macos-26', matrix.cpu) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cpu: 6
+            key: 6vcpu
+          - cpu: 12
+            key: 12vcpu
+    runs-on: ${{ format('blacksmith-{0}vcpu-macos-26', matrix.cpu) }}
+    timeout-minutes: 45
+    env:
+      OUT: ${{ github.workspace }}/cmux-blacksmith-capture-${{ matrix.key }}
+      CAPTURE_TAG: blacksmith-probe-${{ matrix.key }}-${{ github.run_id }}
+    steps:
+      - name: Check out the exact probe ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Record Xcode and runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          {
+            printf 'runner_label=%s\n' '${{ format('blacksmith-{0}vcpu-macos-26', matrix.cpu) }}'
+            printf 'runner_name=%s\n' "$RUNNER_NAME"
+            printf 'os=%s\n' "$(sw_vers -productVersion)"
+            printf 'arch=%s\n' "$(uname -m)"
+            printf 'xcode_select=%s\n' "$(xcode-select -p)"
+            xcodebuild -version
+          } | tee "$OUT/host.txt"
+
+      - name: Probe GUI session and capture desktop plus AppKit window
+        id: gui-probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          chmod 0777 "$OUT"
+          start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          uid="$(id -u)"
+          gui_user="$(stat -f '%Su' /dev/console)"
+          if [[ -z "$gui_user" || "$gui_user" == root || "$gui_user" == loginwindow ]]; then
+            echo "No logged-in GUI user: $gui_user" | tee "$OUT/gui-error.txt"
+            exit 1
+          fi
+          gui_uid="$(id -u "$gui_user")"
+          {
+            printf 'action_user=%s\naction_uid=%s\nconsole_user=%s\nconsole_uid=%s\n' \
+              "$(id -un)" "$uid" "$gui_user" "$gui_uid"
+          } | tee "$OUT/session-users.txt"
+          launchctl print "gui/$uid" >"$OUT/launchctl-gui-action-user.txt" 2>&1
+          launchctl print "gui/$gui_uid" >"$OUT/launchctl-gui-console-user.txt" 2>&1
+
+          cat >"$RUNNER_TEMP/cg-session.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+          guard let value = CGSessionCopyCurrentDictionary(),
+                let dictionary = value as? [String: Any] else {
+              fputs("CGSessionCopyCurrentDictionary returned nil\n", stderr)
+              exit(1)
+          }
+          for (key, value) in dictionary.sorted(by: { $0.key < $1.key }) {
+              print("\(key)=\(value)")
+          }
+          SWIFT
+          sudo -n launchctl asuser "$gui_uid" sudo -n -H -u "$gui_user" \
+            /usr/bin/xcrun swift "$RUNNER_TEMP/cg-session.swift" | tee "$OUT/cg-session.txt"
+
+          capture_start="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          sudo -n launchctl asuser "$gui_uid" sudo -n -H -u "$gui_user" \
+            /usr/sbin/screencapture -x -t png "$OUT/desktop.png"
+          capture_end="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          test -s "$OUT/desktop.png"
+          /usr/bin/sips -g pixelWidth -g pixelHeight "$OUT/desktop.png" | tee "$OUT/desktop-dimensions.txt"
+
+          cat >"$RUNNER_TEMP/gui-window.swift" <<'SWIFT'
+          import AppKit
+          import Foundation
+          let app = NSApplication.shared
+          app.setActivationPolicy(.regular)
+          let window = NSWindow(
+              contentRect: NSRect(x: 0, y: 0, width: 720, height: 240),
+              styleMask: [.titled, .closable],
+              backing: .buffered,
+              defer: false
+          )
+          window.title = "cmux Blacksmith GUI probe"
+          window.contentView = NSTextField(labelWithString:
+              "AppKit window probe: \(ProcessInfo.processInfo.environment[\"RUNNER_NAME\"] ?? \"unknown\")")
+          window.center()
+          window.makeKeyAndOrderFront(nil)
+          app.activate(ignoringOtherApps: true)
+          FileHandle.standardOutput.write(Data("WINDOW_ID=\(window.windowNumber)\\n".utf8))
+          DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+              window.orderOut(nil)
+              app.stop(nil)
+          }
+          app.run()
+          SWIFT
+          : >"$OUT/window.log"
+          # Compile and launch the AppKit probe in the console user's GUI bootstrap.
+          /usr/bin/xcrun swiftc "$RUNNER_TEMP/gui-window.swift" -o "$RUNNER_TEMP/gui-window"
+          # The GUI process inherits this descriptor; the directory is intentionally writable.
+          # shellcheck disable=SC2024
+          sudo -n launchctl asuser "$gui_uid" sudo -n -H -u "$gui_user" \
+            env RUNNER_NAME="$RUNNER_NAME" "$RUNNER_TEMP/gui-window" >"$OUT/window.log" 2>&1 &
+          app_pid=$!
+          window_id=""
+          for _ in $(seq 1 60); do
+            window_id="$(sed -n 's/^WINDOW_ID=//p' "$OUT/window.log" | tail -n 1 || true)"
+            if [[ "$window_id" =~ ^[0-9]+$ ]]; then
+              break
+            fi
+            if ! ps -p "$app_pid" >/dev/null 2>&1; then
+              cat "$OUT/window.log"
+              exit 1
+            fi
+            sleep 0.25
+          done
+          [[ "$window_id" =~ ^[0-9]+$ ]] || { cat "$OUT/window.log"; wait "$app_pid" || true; exit 1; }
+          printf 'window_id=%s\napp_pid=%s\n' "$window_id" "$app_pid" | tee "$OUT/window-metadata.txt"
+          window_capture_start="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          sudo -n launchctl asuser "$gui_uid" sudo -n -H -u "$gui_user" \
+            /usr/sbin/screencapture -x -o -l "$window_id" "$OUT/appkit-window.png"
+          window_capture_end="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          test -s "$OUT/appkit-window.png"
+          /usr/bin/sips -g pixelWidth -g pixelHeight "$OUT/appkit-window.png" | tee "$OUT/window-dimensions.txt"
+          wait "$app_pid" || true
+          end_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          python3 - "$start_ns" "$capture_start" "$capture_end" "$window_capture_start" "$window_capture_end" "$end_ns" >"$OUT/timings.txt" <<'PY'
+          import sys
+          start, desktop_start, desktop_end, window_start, window_end, end = map(int, sys.argv[1:])
+          def seconds(a, b):
+              return f"{(b-a)/1_000_000_000:.3f}"
+          print(f"gui_setup_to_desktop_start_s={seconds(start, desktop_start)}")
+          print(f"desktop_capture_s={seconds(desktop_start, desktop_end)}")
+          print(f"appkit_capture_s={seconds(window_start, window_end)}")
+          print(f"probe_total_s={seconds(start, end)}")
+          PY
+
+      - name: Verify captured PNGs contain pixels
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >"$RUNNER_TEMP/verify-png.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+          import ImageIO
+          guard CommandLine.arguments.count > 1 else { exit(2) }
+          for argument in CommandLine.arguments.dropFirst() {
+              let url = URL(fileURLWithPath: argument)
+              guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                    let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                  fputs("failed to decode \(argument)\n", stderr); exit(1)
+              }
+              let width = image.width
+              let height = image.height
+              var pixels = [UInt8](repeating: 0, count: width * height * 4)
+              let colorSpace = CGColorSpaceCreateDeviceRGB()
+              let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+              guard let context = CGContext(data: &pixels, width: width, height: height,
+                                             bitsPerComponent: 8, bytesPerRow: width * 4,
+                                             space: colorSpace, bitmapInfo: bitmapInfo) else { exit(1) }
+              context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+              var minLuma = 255
+              var maxLuma = 0
+              var nonzero = 0
+              for offset in stride(from: 0, to: pixels.count, by: 4) {
+                  let r = Int(pixels[offset]), g = Int(pixels[offset + 1]), b = Int(pixels[offset + 2])
+                  let luma = (299 * r + 587 * g + 114 * b) / 1000
+                  minLuma = min(minLuma, luma); maxLuma = max(maxLuma, luma)
+                  if luma > 0 { nonzero += 1 }
+              }
+              print("\(argument) width=\(width) height=\(height) min_luma=\(minLuma) max_luma=\(maxLuma) nonzero_pixels=\(nonzero)")
+              guard width > 0, height > 0, maxLuma > minLuma, nonzero > 0 else {
+                  fputs("blank image: \(argument)\n", stderr); exit(1)
+              }
+          }
+          SWIFT
+          /usr/bin/xcrun swift "$RUNNER_TEMP/verify-png.swift" "$OUT/desktop.png" "$OUT/appkit-window.png" | tee "$OUT/png-verification.txt"
+
+      - name: Build and launch tagged DEV cmux-next app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+          ./scripts/install-rust-ci.sh
+          scripts/cmux-next/pin-cmux-tui.sh fetch
+          scripts/cmux-next/build-web-bundles.sh
+          export CMUX_SKIP_CMUX_TUI_CLIENT=1
+          export CMUX_DEV_BACKEND_MODE=local
+          ./scripts/reload.sh --tag "$CAPTURE_TAG" --launch 2>&1 | tee "$OUT/tagged-build.log"
+          app="$(sed -n 's/^  \([^ ].*cmux DEV .*\.app\)$/\1/p' "$OUT/tagged-build.log" | tail -n 1 || true)"
+          printf 'tagged_app=%s\n' "$app" | tee "$OUT/cmux-launch.log"
+          test -n "$app" && test -d "$app"
+          gui_user="$(stat -f '%Su' /dev/console)"
+          gui_uid="$(id -u "$gui_user")"
+          cat >"$RUNNER_TEMP/list-cmux-windows.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+          for window in windows {
+              guard let owner = window[kCGWindowOwnerName as String] as? String,
+                    owner.localizedCaseInsensitiveContains("cmux"),
+                    let number = window[kCGWindowNumber as String] as? Int else { continue }
+              print("WINDOW_ID=\(number) OWNER=\(owner) TITLE=\(window[kCGWindowName as String] as? String ?? "")")
+          }
+          SWIFT
+          window_id=""
+          for _ in $(seq 1 60); do
+            window_id="$(sudo -n launchctl asuser "$gui_uid" sudo -n -H -u "$gui_user" \
+              /usr/bin/xcrun swift "$RUNNER_TEMP/list-cmux-windows.swift" 2>/dev/null | \
+              sed -n 's/^WINDOW_ID=\([0-9][0-9]*\).*/\1/p' | head -n 1 || true)"
+            if [[ "$window_id" =~ ^[0-9]+$ ]]; then break; fi
+            sleep 0.5
+          done
+          if [[ ! "$window_id" =~ ^[0-9]+$ ]]; then
+            echo 'cmux launch did not expose a window id on this Blacksmith session' | tee "$OUT/cmux-capture-result.txt"
+            exit 1
+          fi
+          printf 'cmux_window_id=%s\n' "$window_id" | tee "$OUT/cmux-window-metadata.txt"
+          sudo -n launchctl asuser "$gui_uid" sudo -n -H -u "$gui_user" \
+            /usr/sbin/screencapture -x -o -l "$window_id" "$OUT/cmux-window.png"
+          /usr/bin/xcrun swift "$RUNNER_TEMP/verify-png.swift" "$OUT/cmux-window.png" | tee "$OUT/cmux-png-verification.txt"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          osascript -e "tell application id \"$bundle_id\" to quit" || true
+          echo "cmux tagged build and window capture passed" | tee "$OUT/cmux-capture-result.txt"
+
+      - name: Upload Blacksmith capture receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: blacksmith-capture-${{ matrix.key }}
+          path: ${{ github.workspace }}/cmux-blacksmith-capture-${{ matrix.key }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
