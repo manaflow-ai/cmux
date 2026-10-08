@@ -40,8 +40,9 @@ fn actor_of(mux: &crate::Mux, key: &str) -> Option<String> {
 fn a_record_keeps_its_actor_through_seal_and_reopen() {
     let root = temp_root("seal");
     {
-        let mux = crate::Mux::open_persistent("journal-actor", crate::SurfaceOptions::default(), &root)
-            .unwrap();
+        let mux =
+            crate::Mux::open_persistent("journal-actor", crate::SurfaceOptions::default(), &root)
+                .unwrap();
         create(&mux, "journal-actor-1");
         assert_eq!(actor_of(&mux, "journal-actor-1").as_deref(), Some("user:user_local"));
         let checkpoint = mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
@@ -51,8 +52,8 @@ fn a_record_keeps_its_actor_through_seal_and_reopen() {
         assert_eq!(actor_of(&mux, "journal-actor-1").as_deref(), Some("user:user_local"));
         mux.shutdown();
     }
-    let mux =
-        crate::Mux::open_persistent("journal-actor", crate::SurfaceOptions::default(), &root).unwrap();
+    let mux = crate::Mux::open_persistent("journal-actor", crate::SurfaceOptions::default(), &root)
+        .unwrap();
     assert_eq!(actor_of(&mux, "journal-actor-1").as_deref(), Some("user:user_local"));
     mux.shutdown();
     let _ = fs::remove_dir_all(root);

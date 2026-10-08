@@ -31,7 +31,10 @@ pub(crate) fn ledger_actor(
 /// that sealed it. `None`: no actor was stored (legacy) or no such record.
 /// Read by tests until the wire carries the actor (`journal-actor-v1`).
 #[cfg_attr(not(test), expect(dead_code, reason = "journal-actor-v1 reads it later"))]
-pub(crate) fn journal_actor(connection: &Connection, sequence: u64) -> anyhow::Result<Option<String>> {
+pub(crate) fn journal_actor(
+    connection: &Connection,
+    sequence: u64,
+) -> anyhow::Result<Option<String>> {
     let sequence = i64::try_from(sequence)?;
     let live = connection
         .query_row("SELECT actor FROM session_journal WHERE sequence = ?1", [sequence], |row| {
