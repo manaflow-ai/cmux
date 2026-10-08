@@ -12,6 +12,8 @@ struct CloudTreeResizeMenu {
         if !action.resizeDiskOptionsGiB.isEmpty {
             let diskMenu = NSMenu(); diskMenu.autoenablesItems = false
             let currentDiskMb = machine.resourceReservation?.diskMb ?? machine.stats?.diskTotalMb
+            let currentCPUs = machine.resourceReservation?.vcpus ?? machine.stats?.cpus
+            let currentMemoryMb = machine.resourceReservation?.memoryMb ?? machine.stats?.memoryTotalMb
             for gib in action.resizeDiskOptionsGiB {
                 let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeDisk(id, gib) }
