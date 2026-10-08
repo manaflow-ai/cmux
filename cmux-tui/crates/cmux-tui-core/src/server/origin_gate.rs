@@ -98,10 +98,7 @@ fn check_pairing_accept(
 ) -> Result<(), ResourceError> {
     let accept = envelope.operation == ResourceOperation::PairingRequestResolve
         && envelope.params.get("decision").and_then(Value::as_str) == Some("accept");
-    if !accept
-        || !mux.control_clients.is_unix(client)
-        || matches!(actor, Actor::Frontend { .. })
-    {
+    if !accept || !mux.control_clients.is_unix(client) || matches!(actor, Actor::Frontend { .. }) {
         return Ok(());
     }
     let derived = {

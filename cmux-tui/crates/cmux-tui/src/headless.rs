@@ -106,7 +106,10 @@ mod tests {
         let headless = args(&["--headless", "--ws", "127.0.0.1:0"]);
         assert!(super::ws_token(&headless, &ws, &None).is_err());
         assert!(super::ws_token(&headless, &ws, &Some(" ".into())).is_err());
-        assert_eq!(super::ws_token(&headless, &ws, &Some("t".into())).unwrap().as_deref(), Some("t"));
+        assert_eq!(
+            super::ws_token(&headless, &ws, &Some("t".into())).unwrap().as_deref(),
+            Some("t")
+        );
         let flagged = args(&["--headless", "--ws", "127.0.0.1:0", "--ws-token", "f"]);
         assert_eq!(super::ws_token(&flagged, &ws, &None).unwrap().as_deref(), Some("f"));
         // The TUI that runs the daemon approves pairings itself.
