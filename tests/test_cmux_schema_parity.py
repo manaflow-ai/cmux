@@ -74,6 +74,9 @@ NOT_IN_CMUX_JSON = frozenset({
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",
     "devices.sidebar.hiddenMacIDs",
+    # Feed blocking is a local runtime preference read from UserDefaults so
+    # it follows the same per-Mac persistence as the Beta Features toggle.
+    "feed.blockingQuestions",
     "mobile.iOSPairingHost.displayName",
     "mobile.iOSPairingHost.enabled",
     "mobile.iOSPairingHost.port",

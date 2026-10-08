@@ -177,7 +177,7 @@ def generated_claude_hook_settings() -> str:
             queued("pre-tool-use"),
         ],
         "PostToolUse": [queued("push-notification", matcher="PushNotification")],
-        "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
+        "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 86400)],
     }
     return json.dumps(
         {"preferredNotifChannel": "notifications_disabled", "hooks": hooks},
