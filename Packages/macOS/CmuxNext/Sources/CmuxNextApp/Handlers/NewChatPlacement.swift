@@ -86,8 +86,7 @@ extension NewChatPlacement {
             let (tab, pane) = found
             TabMoves.toNewDockColumn(tab, anchor: pane, edge: .left, role: .agentChat, services: services) { moved in
                 guard let controller else { return }
-                controller.pendingDock.removeAll()
-                controller.apply(controller.snapshot())
+                controller.dockFinished(key)
                 guard moved, let content = controller.workspace else { return }
                 focusWhenShown(key, in: content, services: services)
             }
@@ -108,5 +107,13 @@ extension NewChatPlacement {
             if let pane = pane() { PaneHandlers.focus(pane, in: content) }
             return nil
         })
+    }
+}
+
+extension PaneController {
+    /// Chat `key` reached its dock (or the move failed): the strip may list it again.
+    func dockFinished(_ key: String) {
+        pendingDock.removeAll()
+        apply(snapshot())
     }
 }

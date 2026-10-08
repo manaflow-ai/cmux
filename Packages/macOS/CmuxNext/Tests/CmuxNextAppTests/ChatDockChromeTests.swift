@@ -44,4 +44,12 @@ import Testing
         #expect(!hides("solo", [column("c9", ["solo"])]))
         #expect(!hides("gone", columns))
     }
+
+    /// Cursor review (#18223): a chat alone in the strip beside the chat dock
+    /// (a New Tab page that became a chat) is not the screen's lone chat: it
+    /// docks nothing, so it keeps its strip.
+    @Test func aLoneChatBesideTheChatDockKeepsItsStrip() {
+        let columns = [column("c0", ["docked"], dock: chatDock), column("c1", ["chat"])]
+        #expect(!hides("chat", columns, lone: true))
+    }
 }
