@@ -39,12 +39,21 @@ evidence remain open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
 WireGuard-over-WebRTC, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
+The current implementation head is `da1d07e41d320b8c083aa5a493f220b3c46897bf`, which
+supersedes the baseline above. B5's split V1/V2 signaling adapters are now landed in
+`CmuxLinkBench`: descriptors carry pinned WebRTC and WireGuard host keys, one retained
+`SignalRouter` consumes either B1 control-plane signaling or an in-memory endpoint, and
+`BenchSplitClient` runs the shared workload set against V1 or V2. Hosted package execution
+at this head (`65a3315778434ba00f434fbe`, 10 tests) passed. This closes the implementation
+gate for D2 device manifests; Cloudflare TURN deployment, real signaling credentials, and
+device/WAN/power measurements remain open.
+
 The remaining work separates independent implementation from shared runtime dependencies:
 
 | Workstream | Depends on | First deliverable | Verification gate |
 | --- | --- | --- | --- |
 | Hosted verification and D3 | current committed iOS/Mac tree; shared dev backend capacity; Mac provenance stamping | exact-head archives, native package/UI tests, same-tag pair, receipt gate | terminal, feed, onboarding, media and composer runtime evidence |
-| D2 carrier measurement | B2/B3/B4; F2 direct split path and screen; implemented F3/F7/F8 seams | B5 V1/V2 signaling adapters, then tagged device manifests | real latency/throughput/roam results with manifests; power results require an authorized device run |
+| D2 carrier measurement | B2/B3/B4; F2 direct split path and screen; implemented F3/F7/F8 seams | tagged device manifests through the landed B5 V1/V2 signaling adapters | real latency/throughput/roam results with manifests; power results require an authorized device run |
 | C8 task attachments | landed C4 picker/uploader and C8 shell integration | native tests and PhotosUI/camera/document upload, cancellation and dispatch verification | tagged pair; no further picker seam is missing |
 | C12 VM host | A0/A3 vectors, C12 connect-info and one-shot token contract | Rust link session and services, VM underlay, HostDO admission and token verifier | end-to-end VM terminal/files attach before enabling `cloudWorkspaces` |
 | C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata, partial pane composition and lifecycle wire contract | complete multi-pane renderer/parser-state parity; owner-backed lifecycle adapter | hosted tests and live SSH verification |
@@ -159,7 +168,16 @@ compiled both the iOS device archive and simulator at
 `sha256:ce5afff5ab742f9a94f4dc71655f0f64a383ce55579de45592ff2c6fceb54999`.
 This is compile/archive evidence only. The receipt validator additionally requires
 the installed iOS bundle and tagged Mac `Info.plist` to carry the same source SHA and
-tag, so Mac provenance stamping remains a prerequisite to a passing paired receipt.
+tag; the older `nxios-0d3` archive predates the Mac provenance fix.
+The latest exact-head pair at `da1d07e41d320b8c083aa5a493f220b3c46897bf` used the same tag
+`nxd1e`: Mac job `b7ab41d7a5746dae59695eb3` produced artifact
+`sha256:7efba6cd47798a2e21a7d0a843d0f09fc98f133f2749c833a6ec301973f2c862`, and iOS job
+`9a2b95bb14796f3d81cfca7e` produced artifact
+`sha256:23f37546882eb6e5264891a9c48949398b161edc6bd1b611332d29b8c7c3e652`. The Mac bundle
+contains `CMUXGitSHA=da1d07e41d` and `CMUXDevTag=nxd1e`; the iOS simulator and device archive
+contain the full source SHA and the same tag. Both targets compiled successfully. This remains
+archive/provenance evidence only: no install, authenticated RPC, simulator UI, real-phone,
+WAN, or power run was performed.
 The older exact fleet archives also prove the iOS device and simulator targets compile:
 the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
 `dd344fa661ac766511d5da0f02f70dfa7e10a42a`, artifact digest
@@ -186,8 +204,9 @@ The local bakeoff records a DEV-only loopback decision. F2's first split slice n
 `cmux-link-bench serve`/`client` path and the shared `BenchSplitClient` library: it exchanges a
 pinned descriptor, runs the shared connect/echo/flood/bulk workloads through `LinkSession`, and
 writes the regular report plus a checked manifest. The iOS DEV Link bench screen is implemented and
-provenance-safe; only the B5 signaling adapters for V1/V2 remain open, so no device JSON has been
-captured. The V3 direct roam measurement
+provenance-safe; B5's V1/V2 signaling adapters now land behind the same split fixture, so the next
+executable gate is a device manifest with real HostDO signaling and TURN credentials. No device
+JSON has been captured yet. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
 before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 blocked-send

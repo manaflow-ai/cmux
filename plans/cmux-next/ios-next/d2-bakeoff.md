@@ -14,12 +14,19 @@ current DEV path policy only. F2 now has a real direct split service and client 
 `BenchSplitClient` runs the shared connect/echo/flood/bulk workloads over `LinkSession` from iOS or
 another client process. The CLI `client` command writes the normal `cmux-link-bench/1` report plus a
 `cmux-link-bench-manifest/1` entry. The iOS DEV Link bench screen is implemented and provenance-safe;
-only the V1/V2 signaling adapters remain open, so no `bakeoff/device/` result set is claimed until
-those app integrations land. The
+the V1/V2 signaling adapters are now landed, so no `bakeoff/device/` result set is claimed until
+real HostDO signaling and TURN credentials are exercised. The
 device pass bars in section 6 therefore remain release gates. V3's loopback `roam` row is also
 synthetic: the direct carrier has no TURN alternate, so forcing `.turn` after a direct TCP drop does
 not model a reachable path. Treat that row as unsupported until the rig has two real direct
 endpoints (or omit it from carrier comparisons).
+
+The B5 signaling adapter gate is now closed at `da1d07e41d320b8c083aa5a493f220b3c46897bf`.
+`BenchSignalingAdapters` retains one `SignalRouter` for the V1 and V2 sessions, accepts the real
+control-plane channel or an in-memory test endpoint, validates pinned WebRTC/WireGuard host keys,
+and constructs the corresponding `LinkCarrier`. The hosted `CmuxLinkBench` suite passed 10 tests
+at this head (`65a3315778434ba00f434fbe`). This makes device-manifest capture executable; it does
+not claim that Cloudflare TURN, HostDO signaling, WAN paths, or phone power measurements have run.
 
 ## 1. Decision
 
