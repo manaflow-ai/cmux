@@ -329,19 +329,50 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func swiftUIWorkspaceAccessibilityActivationIgnoresModifierFlags() throws {
-        let repoRoot = SwiftTestingAssertions.sourceURL()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repoRoot.appendingPathComponent("Sources/ContentView.swift"),
-            encoding: .utf8
+    func hostedSwiftUIWorkspaceRowAccessibilityPressSelectsWorkspace() async throws {
+        let tabManager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace()
+        let identifier = "sidebarWorkspace.\(workspace.id.uuidString)"
+        let row = Text("Workspace")
+            .frame(width: 240, height: 32)
+            .modifier(SidebarRowAccessibilityModifier(
+                isEditing: false,
+                accessibilityIdentifier: identifier,
+                label: "Workspace",
+                hint: "Select workspace",
+                moveUpLabel: "Move Up",
+                moveDownLabel: "Move Down",
+                onMoveUp: {},
+                onMoveDown: {},
+                onActivate: { tabManager.selectWorkspace(workspace) }
+            ))
+            .environment(\.accessibilityEnabled, true)
+        let host = NSHostingView(rootView: row)
+        host.frame = NSRect(x: 0, y: 0, width: 240, height: 32)
+        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host) != nil
+        }
+        try #require(published, "Hosted SwiftUI workspace row must be reachable by its identifier")
+        let element = try #require(
+            CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
         )
 
-        #expect(source.contains("onActivate: { updateSelection(modifiers: []) }"))
-        #expect(source.contains(
-            "private func updateSelection(modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags)"
-        ))
+        let modern = NSSelectorFromString("accessibilityPerformPress")
+        let legacy = NSSelectorFromString("accessibilityPerformAction:")
+        if element.responds(to: modern) {
+            _ = element.perform(modern)
+        } else {
+            try #require(element.responds(to: legacy), "Workspace row must expose AXPress")
+            _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
+        }
+
+        #expect(tabManager.selectedTabId == workspace.id)
     }
 
     @Test(arguments: [false, true], [
