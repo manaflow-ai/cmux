@@ -328,6 +328,22 @@ struct SidebarAppKitRowCellTests {
         #expect(tabManager.selectedTabId == nil)
     }
 
+    @Test
+    func swiftUIWorkspaceAccessibilityActivationIgnoresModifierFlags() throws {
+        let repoRoot = SwiftTestingAssertions.sourceURL()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repoRoot.appendingPathComponent("Sources/ContentView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("onActivate: { updateSelection(modifiers: []) }"))
+        #expect(source.contains(
+            "private func updateSelection(modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags)"
+        ))
+    }
+
     @Test(arguments: [false, true], [
         ("**Pi finished.**", "Pi finished."),
         ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),

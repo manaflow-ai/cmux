@@ -16668,7 +16668,7 @@ struct TabItemView: View, Equatable {
             moveDownLabel: moveDownActionText,
             onMoveUp: { moveBy(-1) },
             onMoveDown: { moveBy(1) },
-            onActivate: { updateSelection() }
+            onActivate: { updateSelection(modifiers: []) }
         ))
         .contextMenu {
             TabItemWorkspaceContextMenuContent(row: self)
@@ -16822,8 +16822,8 @@ struct TabItemView: View, Equatable {
         actions.moveBy(delta)
     }
 
-    private func updateSelection() {
-        actions.select(NSEvent.modifierFlags)
+    private func updateSelection(modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
+        actions.select(modifiers)
     }
 
     private var pullRequestForegroundColor: Color {
