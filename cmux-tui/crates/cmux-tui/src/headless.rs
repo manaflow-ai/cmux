@@ -68,7 +68,7 @@ where
 /// daemon with a WebSocket listener needs one (fail closed): it has no TUI
 /// to approve a pairing, and only a human surface may approve one (cx-ehrq).
 pub(crate) fn ws_token(
-    args: &crate::Args,
+    args: &Args,
     ws_addr: &Option<String>,
     configured: &Option<String>,
 ) -> anyhow::Result<Option<String>> {
