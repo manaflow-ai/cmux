@@ -40,6 +40,15 @@ import Testing
         #expect(tab.end?.reason == .other)
     }
 
+    /// cx-0tgl LA: a host loss names its recorded cause (the signal's sender,
+    /// or the host's crash).
+    @Test func aHostLossCarriesItsCause() throws {
+        let lost = try tab(
+            #"{"surface":4,"dead":true,"end":{"kind":"host_lost","reason":"dead_before_adoption","cause":"SIGTERM from pid 9 (bash, parent 1 launchd)"}}"#
+        )
+        #expect(lost.end?.cause == "SIGTERM from pid 9 (bash, parent 1 launchd)")
+    }
+
     @Test func olderDaemonsOmitTheFields() throws {
         let tab = try tab(#"{"surface":4,"dead":true}"#)
         #expect(tab.terminalState == nil)

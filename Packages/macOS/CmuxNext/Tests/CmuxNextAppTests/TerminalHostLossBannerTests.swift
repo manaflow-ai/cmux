@@ -43,6 +43,16 @@ import Testing
         #expect(TerminalStatusBanner.text(for: .connected, hostLoss: .hostEnded, strings: missing) == nil)
     }
 
+    /// cx-0tgl LA: the banner names who ended the host, so an external
+    /// killer is visible at once; a process end shows no cause.
+    @Test func theBannerNamesTheRecordedCause() {
+        let cause = "SIGTERM from pid 9 (bash, parent 1 launchd)"
+        #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, cause: cause, strings: missing)
+                == "Terminal lost: its host process ended · \(cause)")
+        #expect(TerminalStatusBanner.text(for: .exited, cause: cause, strings: missing) == "Process exited")
+        #expect(TerminalStatusBanner.text(for: .connected, hostLoss: .hostEnded, cause: cause, strings: missing) == nil)
+    }
+
     @Test func theJapaneseTableIsRead() {
         let japanese = ModuleResourceBundle.terminal.localization("ja")
         #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, strings: japanese)

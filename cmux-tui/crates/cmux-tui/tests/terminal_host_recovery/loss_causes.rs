@@ -84,6 +84,17 @@ fn host_loss_names_the_sender_of_each_recorded_signal() {
         cause.contains(&format!("SIGTERM from pid {sender_pid} ({name}")),
         "the cause does not name the sender: {cause}"
     );
+    // The dead tab carries the same cause, for the app's banner.
+    let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
+    let tab = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["name"] == "sender")
+        .and_then(first_tab)
+        .unwrap_or_else(|| panic!("the dead tab is gone: {tree}"));
+    assert_eq!(tab["end"]["kind"], "host_lost", "{tab}");
+    assert_eq!(tab["end"]["cause"], cause, "{tab}");
 }
 
 #[test]
