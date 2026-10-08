@@ -12043,6 +12043,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     @discardableResult
     func toggleSplitZoom(panelId: UUID) -> Bool {
+        if let location = remoteTmuxControlPane(surfaceID: panelId) {
+            return location.requestTogglePaneZoom()
+        }
+        // Keyboard and palette actions identify the outer window container;
+        // resolve its active inner pane rather than zooming the wrapper.
+        if isRemoteTmuxControlContainer(panelId) {
+            return activeRemoteTmuxControlPane(containerPanelID: panelId)?
+                .requestTogglePaneZoom() ?? false
+        }
+        guard !isRemoteTmuxMirror else { return false }
         let wasSplitZoomed = bonsplitController.isSplitZoomed
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }

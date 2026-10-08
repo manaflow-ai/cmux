@@ -175,6 +175,17 @@ extension RemoteTmuxWindowMirror {
         return accepted
     }
 
+    /// Toggles zoom on tmux itself. The next authoritative visible layout
+    /// supplies the expanded terminal grid; local Bonsplit zoom would only
+    /// enlarge the host around the pane's unchanged remote dimensions.
+    @discardableResult
+    func requestTogglePaneZoom(_ tmuxPaneID: Int) -> Bool {
+        guard !isTornDown,
+              panelsByPaneId[tmuxPaneID] != nil,
+              connection?.connectionState == .connected else { return false }
+        return sendControlCommand("resize-pane -Z -t @\(windowId).%\(tmuxPaneID)")
+    }
+
     /// Resizes the addressed tmux pane by `amountCells` relative to one of its
     /// borders. Tmux's next layout publication remains the sole source of applied
     /// geometry.
