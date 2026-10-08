@@ -7,8 +7,9 @@
 //! machine behind `tailscale serve` have no channel that could hand them a
 //! new token at each launch. `_acpmux/web_token_rotate` (unix socket only;
 //! `acpmux web --rotate-token`) replaces it at once: the listener checks the
-//! new token from the next handshake on, and every connection that used the
-//! old one as its only credential (Web, Peer) is closed.
+//! new token from the next handshake on, and every Web and Peer connection
+//! (which presented the old one) is closed. LocalApp connections stay: they
+//! also proved this launch's LocalApp token.
 
 use super::*;
 
@@ -20,23 +21,33 @@ impl WebToken {
         Self(tokio::sync::watch::channel(initial).0)
     }
 
-    /// The token a handshake must present now.
-    pub fn current(&self) -> String {
-        self.0.borrow().clone()
-    }
-
     /// Sets the token the listener serves (at bind, or after a rotation).
     pub fn set(&self, token: String) {
         self.0.send_replace(token);
     }
 
-    /// Resolves when the token changes after this call.
-    pub fn changed(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+    /// Sets the token only when no listener set one yet (the daemon sets it
+    /// before its unix socket serves, so a rotation is never overwritten).
+    pub fn set_if_unset(&self, token: String) {
+        self.0.send_if_modified(|current| {
+            let unset = current.is_empty();
+            if unset {
+                *current = token;
+            }
+            unset
+        });
+    }
+
+    /// The token a handshake must present now, and a future that resolves
+    /// when it changes after that read. One receiver does both, so no
+    /// rotation can fall between them.
+    pub fn watch(&self) -> (String, impl std::future::Future<Output = ()> + Send + 'static) {
         let mut rx = self.0.subscribe();
-        async move {
+        let token = rx.borrow_and_update().clone();
+        (token, async move {
             // An error means the hub is gone; the connection ends with it.
             let _ = rx.changed().await;
-        }
+        })
     }
 }
 

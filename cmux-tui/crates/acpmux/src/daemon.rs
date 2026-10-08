@@ -201,6 +201,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    // The listener's token is on the hub before the unix socket serves, so a
+    // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
+    let ws_listener = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        hub.web_token.set(token.clone());
+        (l, token)
+    });
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -236,8 +244,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
-        // `needs_token` above gave the saved listener a token.
-        let token = token.unwrap_or_else(random_token);
         let auth = crate::server::WsAuth { local_app, peer };
         tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
     });

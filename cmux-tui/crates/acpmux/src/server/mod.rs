@@ -254,8 +254,9 @@ pub async fn serve_ws_with(
     };
     let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
     // Each handshake checks the token current at that moment: a rotation
-    // (`hub/web_token.rs`) applies from the next one on.
-    hub.web_token.set(token);
+    // (`hub/web_token.rs`) applies from the next one on. The daemon set it
+    // already; a caller that did not (tests) gets `token`.
+    hub.web_token.set_if_unset(token);
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -266,10 +267,9 @@ pub async fn serve_ws_with(
         };
         tune_ws_socket(&stream);
         let hub = hub.clone();
-        let token = hub.web_token.current();
-        // Subscribed before the handshake, so a rotation during it still
-        // closes a connection that presented the old token.
-        let rotated = hub.web_token.changed();
+        // Read and subscribed before the handshake, so a rotation during it
+        // still closes a connection that presented the old token.
+        let (token, rotated) = hub.web_token.watch();
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
@@ -409,20 +409,24 @@ pub async fn serve_ws_with(
                 // Say so with a Close frame.
                 let _ = sink.close().await;
             });
-            if matches!(origin, Origin::Web | Origin::Peer) {
-                // The dashboard token is this connection's only credential:
-                // a rotation ends it. LocalApp also proved this launch's
-                // LocalApp token, so it stays.
-                tokio::select! {
-                    () = serve_connection_with(hub, in_rx, out_tx, origin) => {}
-                    () = rotated => {
-                        tracing::info!("closed a {origin:?} connection: the web token rotated");
-                        let _ = stop.send(());
-                    }
-                }
-            } else {
-                serve_connection_with(hub, in_rx, out_tx, origin).await;
+            // A rotation ends a Web or Peer connection, which presented the
+            // dashboard token. Ending its read half closes `in_rx`, so
+            // `serve_connection_with` returns through its own cleanup
+            // (detach counts, fan-out task) before the writer sends Close.
+            // LocalApp also proved this launch's LocalApp token, so it stays.
+            let watcher = matches!(origin, Origin::Web | Origin::Peer).then(|| {
+                let read_half = reader.abort_handle();
+                tokio::spawn(async move {
+                    rotated.await;
+                    tracing::info!("closing a {origin:?} connection: the web token rotated");
+                    read_half.abort();
+                })
+            });
+            serve_connection_with(hub, in_rx, out_tx, origin).await;
+            if let Some(watcher) = watcher {
+                watcher.abort();
             }
+            let _ = stop.send(());
             // Its read half may wait on a silent client; the close is ours.
             reader.abort();
         });
