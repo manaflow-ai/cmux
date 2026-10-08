@@ -3767,7 +3767,8 @@
         "cli",
         "daemon",
         "web",
-        "vm"
+        "vm",
+        "team-vm"
       ]
     },
     "IntegrationProvider": {
@@ -36232,7 +36233,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36663,7 +36665,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36723,7 +36726,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36994,7 +36998,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -37249,7 +37254,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -37483,7 +37489,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {

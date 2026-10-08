@@ -5,8 +5,11 @@
 //!   prints nothing unless trust is fresh.
 //! - `session-open [--root DIR]`: pam_exec hook (open_session records the
 //!   certificate session, close_session removes it). Exit 1 refuses the
-//!   session, so a certificate session is never left unrecorded.
-//! - `reap [--root DIR]`: one reaper pass.
+//!   session, so a certificate session is never left unrecorded, and a
+//!   session with no logind session (nothing would scope its processes) is
+//!   refused.
+//! - `reap [--root DIR]`: one reaper pass (revoked sessions, then the team
+//!   users' lingering and user managers).
 
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -36,7 +39,7 @@ fn split_root(args: &[String]) -> Result<(Paths, Vec<String>), String> {
 
 fn usage(msg: &str) -> u8 {
     eprintln!(
-        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap [--root DIR]"
+        "cmux host team-ssh: {msg}\nusage: cmux host team-ssh apply|principals <user>|session-open|reap|sync [--once] [--root DIR]"
     );
     2
 }
@@ -58,9 +61,22 @@ pub fn run(args: &[String]) -> u8 {
             0
         }
         ["session-open"] => session_verb(&paths),
+        ["sync"] => sync_verb(&paths, false),
+        ["sync", "--once"] => sync_verb(&paths, true),
         ["reap"] => reap_verb(&paths),
         _ => usage("unknown arguments"),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn sync_verb(paths: &Paths, once: bool) -> u8 {
+    super::sync::run(paths, once)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sync_verb(_paths: &Paths, _once: bool) -> u8 {
+    eprintln!("cmux host team-ssh sync: Linux only");
+    4
 }
 
 fn apply_verb(paths: &Paths) -> u8 {
@@ -90,29 +106,38 @@ fn apply_verb(paths: &Paths) -> u8 {
             "krl_version": applied.state.krl_version,
             "generation": applied.state.generation,
             "krl_changed": applied.krl_changed,
-            "ended": reaped.0,
-            "errors": reaped.1,
+            "ended": reaped.ended,
+            "linger_off": reaped.linger_off,
+            "managers_stopped": reaped.managers_stopped,
+            "errors": reaped.errors,
         })
     );
-    if reaped.1.is_empty() { 0 } else { 1 }
+    if reaped.errors.is_empty() { 0 } else { 1 }
 }
 
 #[cfg(target_os = "linux")]
-fn reap_pass(paths: &Paths) -> (Vec<u32>, Vec<String>) {
+fn reap_pass(paths: &Paths) -> super::sessions::Reaped {
     let host = super::linux_host::LinuxHost::new(paths.at(super::SESSIONS_DIR));
-    let out = super::sessions::reap(paths, &host);
-    (out.ended, out.errors)
+    super::sessions::reap(paths, &host)
 }
 
 #[cfg(not(target_os = "linux"))]
-fn reap_pass(_paths: &Paths) -> (Vec<u32>, Vec<String>) {
-    (Vec::new(), Vec::new())
+fn reap_pass(_paths: &Paths) -> super::sessions::Reaped {
+    super::sessions::Reaped::default()
 }
 
 fn reap_verb(paths: &Paths) -> u8 {
-    let (ended, errors) = reap_pass(paths);
-    println!("{}", serde_json::json!({ "ended": ended, "errors": errors }));
-    if errors.is_empty() { 0 } else { 1 }
+    let reaped = reap_pass(paths);
+    println!(
+        "{}",
+        serde_json::json!({
+            "ended": reaped.ended,
+            "linger_off": reaped.linger_off,
+            "managers_stopped": reaped.managers_stopped,
+            "errors": reaped.errors,
+        })
+    );
+    if reaped.errors.is_empty() { 0 } else { 1 }
 }
 
 #[cfg(target_os = "linux")]
@@ -151,6 +176,19 @@ fn session_verb(paths: &Paths) -> u8 {
     }
     let user = var("PAM_USER").unwrap_or_default();
     let record = SessionRecord::new(parent, start, &user, &certs, var("XDG_SESSION_ID"));
+    // Only a logind session scopes every process of the session, so only
+    // then can a revocation end them all (pam_systemd is `optional` and
+    // opens none when sshd already runs inside a session).
+    let Some(id) = record.logind_session.as_deref() else {
+        eprintln!("cmux host team-ssh session-open: no logind session (pam_systemd), refused");
+        return 1;
+    };
+    if host.session_leader(id) != Some(parent) {
+        eprintln!(
+            "cmux host team-ssh session-open: logind session {id} is not led by sshd {parent}, refused"
+        );
+        return 1;
+    }
     match save(paths, &record) {
         Ok(()) => 0,
         Err(e) => {

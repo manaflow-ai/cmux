@@ -41,6 +41,7 @@ mod mirror_tests;
 mod open_tokens;
 #[cfg(unix)]
 mod provider;
+#[cfg(unix)]
 mod relay;
 #[cfg(unix)]
 mod routing;
