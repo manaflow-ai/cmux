@@ -15,21 +15,42 @@ import Testing
 /// A configured `sidebarSelectionColorHex` still wins as a solid fill.
 @Suite
 struct SidebarGlassSelectionTests {
-    @Test(arguments: [(ColorScheme.light, CGFloat(0)), (.dark, CGFloat(1))])
-    func solidFillSelectionIsNeutralTranslucentGlass(scheme: ColorScheme, expectedWhite: CGFloat) throws {
+    @Test
+    func darkSolidFillSelectionIsNeutralTranslucentGlass() throws {
         let color = try #require(sidebarSelectedWorkspaceBackgroundNSColor(
-            for: scheme,
+            for: .dark,
             sidebarSelectionColorHex: nil,
             activeTabIndicatorStyle: .solidFill
         ).usingColorSpace(.sRGB))
-        let glass = try #require(SidebarGlassSelection.fill(for: scheme).usingColorSpace(.sRGB))
+        let glass = try #require(SidebarGlassSelection.fill(for: .dark).usingColorSpace(.sRGB))
 
         #expect(color.hexString(includeAlpha: true) == glass.hexString(includeAlpha: true))
-        #expect(abs(color.redComponent - expectedWhite) < 0.001)
-        #expect(abs(color.greenComponent - expectedWhite) < 0.001)
-        #expect(abs(color.blueComponent - expectedWhite) < 0.001)
+        #expect(abs(color.redComponent - 1) < 0.001)
+        #expect(abs(color.greenComponent - 1) < 0.001)
+        #expect(abs(color.blueComponent - 1) < 0.001)
         #expect(color.alphaComponent > 0)
         #expect(color.alphaComponent < 0.5, "Glass selection is translucent")
+    }
+
+    /// Light mode on the stock tint is Aside's light look: a near-white pill
+    /// (white at 90%) with a dark hairline. A chosen tint keeps the neutral
+    /// translucent patch (black, under half opacity).
+    @Test
+    func lightSelectionIsAsidePillOnTheStockTintAndGlassOtherwise() throws {
+        let suite = "SidebarGlassSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let pill = try #require(SidebarGlassSelection.fill(for: .light, defaults: defaults).usingColorSpace(.sRGB))
+        #expect(pill.redComponent > 0.999 && pill.greenComponent > 0.999 && pill.blueComponent > 0.999)
+        #expect(abs(pill.alphaComponent - 0.9) < 0.001)
+        let hairline = try #require(SidebarGlassSelection.edge(for: .light, defaults: defaults).usingColorSpace(.sRGB))
+        #expect(hairline.redComponent < 0.001 && abs(hairline.alphaComponent - 0.25) < 0.001)
+
+        defaults.set("#FF0000", forKey: "sidebarTintHex")
+        let glass = try #require(SidebarGlassSelection.fill(for: .light, defaults: defaults).usingColorSpace(.sRGB))
+        #expect(glass.redComponent < 0.001 && glass.greenComponent < 0.001 && glass.blueComponent < 0.001)
+        #expect(glass.alphaComponent > 0 && glass.alphaComponent < 0.5, "Glass selection is translucent")
     }
 
     @Test(arguments: [ColorScheme.light, .dark])
