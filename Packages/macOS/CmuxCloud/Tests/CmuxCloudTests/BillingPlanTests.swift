@@ -37,7 +37,7 @@ struct BillingPlanTests {
     @Test("explicit team lookup sends and validates the team scope")
     func explicitTeamScope() async throws {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
-        BillingPlanURLProtocol.response = #"{"authenticated":true,"teamId":"team-b","teamPlanId":"pro","teamBillingManagement":"stripe"}"#
+        BillingPlanURLProtocol.response = #"{"authenticated":true,"isPro":true,"teamId":"team-b","teamPlanId":"free","teamBillingManagement":"none"}"#
         sessionConfiguration.protocolClasses = [BillingPlanURLProtocol.self]
         let client = BillingPlanClient(session: URLSession(configuration: sessionConfiguration))
 
@@ -49,7 +49,7 @@ struct BillingPlanTests {
         )
 
         #expect(details.isPro)
-        #expect(details.canManageBilling)
+        #expect(!details.canManageBilling)
         #expect(BillingPlanURLProtocol.lastRequest?.url?.query == "teamId=team-b")
     }
 
@@ -67,6 +67,22 @@ struct BillingPlanTests {
                 teamID: "team-b"
             )
         }
+    }
+
+    @Test("personal lookup ignores the route's implicit team fallback")
+    func personalScopeDoesNotAdoptImplicitTeam() async throws {
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        BillingPlanURLProtocol.response = #"{"authenticated":true,"isPro":false,"planId":"free","teamPlanId":"pro","teamBillingManagement":"stripe"}"#
+        sessionConfiguration.protocolClasses = [BillingPlanURLProtocol.self]
+        let client = BillingPlanClient(session: URLSession(configuration: sessionConfiguration))
+
+        let details = try await client.fetch(
+            from: URL(string: "https://cmux.example/api/billing/plan")!,
+            accessToken: "access"
+        )
+
+        #expect(!details.isPro)
+        #expect(!details.canManageBilling)
     }
 }
 

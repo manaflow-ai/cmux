@@ -125,10 +125,20 @@ async function explicitTeamPlanResponse(
   if (!access.ok) {
     return jsonResponse({ error: access.error }, teamBillingAccessStatus(access.error));
   }
+  const personalStatus = await resolveProPlanStatus(user);
   const teamStatus = await teamPlanStatusForTeam(access.team);
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
+    // Explicit team reads carry the personal answer as well. Installed clients
+    // combine it with the requested team's answer so a personal Pro grant is
+    // never hidden by a free team.
+    planId: personalStatus.isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    subscriptionPlanId: personalStatus.planId,
+    isPro: personalStatus.isPro,
+    billingManagement: personalStatus.billingManagement,
+    billingSource: personalStatus.billingSource,
+    manageUrl: personalStatus.manageUrl,
     teamId: access.team.id,
     teamPlanId: teamStatus.planId,
     teamBillingManagement: teamStatus.billingManagement,

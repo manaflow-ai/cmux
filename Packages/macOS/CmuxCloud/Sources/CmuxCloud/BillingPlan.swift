@@ -109,7 +109,8 @@ public struct BillingPlanClient: Sendable {
         guard decoded.authenticated == true else {
             throw URLError(.userAuthenticationRequired)
         }
-        // The server's no-argument route may choose a paid team as a fallback.
+        // The no-team response's personal fields are authoritative for the
+        // personal scope; its team fields describe a legacy fallback only.
         // Explicit requests must prove that the response is for that team.
         guard decoded.teamID == teamID else {
             throw URLError(.cannotParseResponse)
@@ -118,11 +119,12 @@ public struct BillingPlanClient: Sendable {
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
         let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
-        let isPro = decoded.isPro == true
+        let isPersonalPro = decoded.isPro == true
             || paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
-            || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
+        let isTeamPro = paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
+        let isPro = isPersonalPro || (teamID != nil && isTeamPro)
         let canManageBilling = decoded.billingManagement == "stripe"
-            || decoded.teamBillingManagement == "stripe"
+            || (teamID != nil && decoded.teamBillingManagement == "stripe")
         return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling)
     }
 

@@ -100,7 +100,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Cloud scope and persisted machine preferences follow confirmed authority.
     var confirmedTeamID: String? {
         _ = teamObservationRevision
-        return coordinator.resolvedTeamID
+        // Stack can expose the account's synthetic personal team using the
+        // account id. The billing endpoint treats that as personal scope.
+        guard let teamID = coordinator.resolvedTeamID,
+              teamID != coordinator.currentUser?.id else { return nil }
+        return teamID
     }
 
     var isWorkingOnAuth: Bool {
