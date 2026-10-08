@@ -1,8 +1,7 @@
 use super::*;
 
 fn tabs(mux: &Mux, pane: PaneId) -> Vec<SurfaceId> {
-    mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.tabs.clone()))
-        .unwrap_or_default()
+    mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.tabs.clone())).unwrap_or_default()
 }
 
 fn pane_of(mux: &Mux, surface: SurfaceId) -> PaneId {
@@ -36,8 +35,7 @@ fn cmux_next_tab_to_split_is_atomic_undoable_and_durable() {
     // A pane's only tab cannot be split out of it.
     let lone = mux.new_workspace(None, None).unwrap().id;
     assert!(
-        mux.move_tab_to_split(lone, pane_of(&mux, lone), TabDropEdge::Right, None, None)
-            .is_err()
+        mux.move_tab_to_split(lone, pane_of(&mux, lone), TabDropEdge::Right, None, None).is_err()
     );
 
     let events = mux.subscribe();
@@ -62,11 +60,9 @@ fn cmux_next_tab_to_split_is_atomic_undoable_and_durable() {
     assert!(mux.with_state(|state| !state.panes.contains_key(&outcome.pane)));
 
     // Redo the drag: the split and the moved tab are durable topology.
-    let outcome =
-        mux.move_tab_to_split(second, origin, TabDropEdge::Bottom, None, None).unwrap();
+    let outcome = mux.move_tab_to_split(second, origin, TabDropEdge::Bottom, None, None).unwrap();
     let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&second].clone());
-    let pane_id =
-        mux.with_state(|state| state.resource_indexes.pane_ids[&outcome.pane].clone());
+    let pane_id = mux.with_state(|state| state.resource_indexes.pane_ids[&outcome.pane].clone());
     let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
     let durable_tab = topology.tabs.iter().find(|tab| tab.public_id == tab_id).unwrap();
     assert_eq!(durable_tab.pane_id, pane_id);
@@ -128,10 +124,7 @@ fn cmux_next_only_tab_splits_its_own_pane_with_a_respawned_terminal() {
     assert_ne!(fresh[0], lone);
     assert_eq!(screen_panes(&mux, origin), vec![origin, outcome.pane]);
     // The moved tab keeps its terminal; the fresh tab is a new one.
-    assert_eq!(
-        mux.surface(lone).unwrap().terminal_public_id().map(ToString::to_string),
-        terminal
-    );
+    assert_eq!(mux.surface(lone).unwrap().terminal_public_id().map(ToString::to_string), terminal);
     assert_ne!(
         mux.surface(fresh[0]).unwrap().terminal_public_id().map(ToString::to_string),
         terminal
@@ -184,8 +177,7 @@ fn cmux_next_tab_to_column_and_cross_pane_moves() {
     assert!(mux.move_tab_to_column(second, origin, None, Some(3.0), None, None).is_err());
 
     // A cross-pane move on one screen is undoable too.
-    let (moved, undoable) =
-        mux.move_tab_with_undo(second, column.pane, 1, Some("drag-2".into()));
+    let (moved, undoable) = mux.move_tab_with_undo(second, column.pane, 1, Some("drag-2".into()));
     assert!(moved && undoable);
     assert_eq!(tabs(&mux, column.pane), vec![third, second]);
     mux.undo_layout(origin, None, false).unwrap();
@@ -221,8 +213,7 @@ fn cmux_next_tab_to_new_workspace_places_it_in_a_group() {
     )
     .unwrap();
     assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None, None).is_err());
-    let workspace =
-        mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0), None).unwrap();
+    let workspace = mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0), None).unwrap();
     let (order, key) = mux.with_state(|state| {
         (
             state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),
