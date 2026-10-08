@@ -454,10 +454,11 @@ final class BrowserReplTabAttachment {
     }
 
     /// Called by the panel when a pane starts or stops showing this tab. A
-    /// shown tab leaves the render window at once, so the pane is never blank.
+    /// shown tab leaves the render window once its portal hierarchy is ready,
+    /// so a logical visibility update cannot restore it into a hidden pane.
     func paneVisibilityDidChange(visible: Bool) {
         guard visible else { return }
-        releaseRenderHost()
+        keepRendering()
     }
 
     /// Refreshes the pane's mirror after a driver call may have changed the
