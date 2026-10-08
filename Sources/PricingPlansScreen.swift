@@ -49,6 +49,34 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
+        // Exchange the native auth session for an isolated WebKit data store
+        // before opening pricing. Falling straight through to the system
+        // browser loses the cmux session and sends signed-in users to sign-in.
+        Task { @MainActor in
+            await presentAuthenticatedPricing(url: url)
+        }
+    }
+
+    @MainActor
+    private static func presentAuthenticatedPricing(url: URL) async {
+        guard let auth = AppDelegate.shared?.auth else {
+            presentAppPricingWebWithoutSession(url: url)
+            return
+        }
+
+        var outcome = await auth.browserAppSession.request(destinationURL: url)
+        if outcome.shouldRetry {
+            outcome = await auth.browserAppSession.request(destinationURL: url)
+        }
+        if case let .navigation(navigation) = outcome,
+           presentBrowserSplit(navigation: navigation) {
+            return
+        }
+        presentAppPricingWebWithoutSession(url: url)
+    }
+
+    @MainActor
+    private static func presentAppPricingWebWithoutSession(url: URL) {
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -128,6 +156,25 @@ enum ProUpgradePresenter {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    @MainActor
+    private static func presentBrowserSplit(navigation: BrowserAppSessionNavigation) -> Bool {
+        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        return workspace.newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            initialRequest: navigation.request,
+            focus: true,
+            allowsExternalBrowserFallback: false,
+            chromeVisibility: .hidden,
+            transparentBackground: true,
+            initialDividerPosition: 0.58,
+            websiteDataStore: navigation.websiteDataStore
+        ) != nil
     }
 
     @MainActor
