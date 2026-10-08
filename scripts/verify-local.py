@@ -219,6 +219,9 @@ def execute(repo, item, timeout):
                 result["status"] = "passed" if code == 0 else "failed"
                 if code < 0 or code in (130, 143):
                     result["status"] = "interrupted"
+                if _CANCEL_REQUESTED.is_set():
+                    result["status"] = "interrupted"
+                    result["cancelled"] = True
                 result["exit_code"] = code
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
                 stop_process(proc)
@@ -437,9 +440,11 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
         else:
             for item in items:
                 print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
-            pool = ThreadPoolExecutor(max_workers=min(jobs, len(items)))
-            futures = [pool.submit(run_item, item) for item in items]
+            pool = None
+            futures = []
             try:
+                pool = ThreadPoolExecutor(max_workers=min(jobs, len(items)))
+                futures = [pool.submit(run_item, item) for item in items]
                 results = [future.result() for future in futures]
             except KeyboardInterrupt:
                 _CANCEL_REQUESTED.set()
@@ -450,7 +455,8 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                 # and future cancellation. Take one more snapshot before
                 # waiting for every worker to settle.
                 stop_active_processes()
-                pool.shutdown(wait=True, cancel_futures=True)
+                if pool is not None:
+                    pool.shutdown(wait=True, cancel_futures=True)
                 interrupted = ({"status": "interrupted", "executed": False,
                                 "exit_code": None, "output_sha256": None, "tests": None,
                                 "cancelled": True, "elapsed_seconds": 0})

@@ -6,7 +6,6 @@ import io
 import json
 import os
 from pathlib import Path
-import select
 import signal
 import shutil
 import subprocess
@@ -174,8 +173,13 @@ class PreflightTests(unittest.TestCase):
 
     def test_parallel_interrupt_settles_all_child_checks(self):
         with repo_fixture() as repo:
-            for name in ("lint-xcstrings.py", "localization_catalog.py"):
-                (repo / "scripts" / name).write_text("import time; time.sleep(10)\n")
+            for name, marker in (("lint-xcstrings.py", "xcstrings.ready"),
+                                 ("localization_catalog.py", "localization.ready")):
+                (repo / "scripts" / name).write_text(
+                    "from pathlib import Path\n"
+                    f"Path({str(repo / marker)!r}).touch()\n"
+                    "import time; time.sleep(10)\n"
+                )
             child = subprocess.Popen(
                 ["python3", str(repo / "scripts/verify-local.py"), "--repo", str(repo),
                  "--only", "xcstrings", "--only", "localization", "--jobs", "2"],
@@ -183,20 +187,10 @@ class PreflightTests(unittest.TestCase):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
             try:
-                ready = bytearray()
                 deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    readable, _, _ = select.select(
-                        [child.stdout], [], [], max(0, deadline - time.monotonic())
-                    )
-                    if not readable:
-                        break
-                    line = child.stdout.readline()
-                    if not line:
-                        break
-                    ready.extend(line.encode())
-                    if b"RUN xcstrings" in ready and b"RUN localization" in ready:
-                        break
+                while time.monotonic() < deadline and not all(
+                        (repo / marker).exists() for marker in ("xcstrings.ready", "localization.ready")):
+                    time.sleep(0.01)
                 os.killpg(child.pid, signal.SIGINT)
                 output, errors = child.communicate(timeout=5)
             finally:
@@ -204,7 +198,7 @@ class PreflightTests(unittest.TestCase):
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait()
             self.assertNotEqual(child.returncode, 0)
-            combined = ready.decode() + output + errors
+            combined = output + errors
             self.assertIn("INTERRUPTED xcstrings", combined)
             self.assertIn("INTERRUPTED localization", combined)
 
