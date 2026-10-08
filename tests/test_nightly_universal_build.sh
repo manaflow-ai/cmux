@@ -492,6 +492,7 @@ notarize_timeout = re.search(
 assert notarize_timeout, "missing notarization step"
 assert "timeout-minutes: 50" in notarize_timeout.group(1)
 assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
+assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
 assert "CMUX_NOTARY_WAIT_TIMEOUT" not in notarize_timeout.group(1)
 
 fast_package = step("Package signed fast dogfood DMG")
@@ -511,6 +512,8 @@ assert "resolve-notarization-recovery.py" in resume
 assert "--extract-app" in resume
 assert "scripts/ci/resume-nightly-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
+assert "verify_computer_use_helper" in resume_script
+assert "standalone_helper" in resume_script
 assert "notarytool submit" not in resume_script
 assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
 assert "SYSPOLICY_TOOL" in resume_script

@@ -2041,6 +2041,7 @@ jobs:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}
+          CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |

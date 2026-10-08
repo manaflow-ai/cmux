@@ -51,18 +51,6 @@ SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 source "$ROOT_DIR/scripts/ci/lib/notarization-ticket.sh"
 # shellcheck source=lib/notary-auth.sh
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
-# Gatekeeper learns about a fresh notarization ticket from Apple's CDN, which
-# lags the notarytool "Accepted" status: usually by a minute or two, but
-# nightly run 34208928547 (2026-09-08) was still rejected 4m50s after
-# "Accepted" and failed on the previous five-minute budget. A stapled, valid
-# helper can therefore assess as "Unnotarized Developer ID" for a while. Poll
-# until it is accepted or the budget runs out. The default budget is twenty
-# minutes (80 x 15s): a good ticket leaves the loop on its first acceptance,
-# so a larger budget only lengthens how long a genuinely rejected helper takes
-# to fail, whereas a short budget fails good releases whenever the CDN lags.
-# Both knobs stay env-configurable; the calling job's timeout must cover them.
-GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
-GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
 DEFER_GATEKEEPER_ASSESSMENT="${CMUX_DEFER_GATEKEEPER_ASSESSMENT:-false}"
 
 case "$DEFER_GATEKEEPER_ASSESSMENT" in
@@ -73,24 +61,8 @@ case "$DEFER_GATEKEEPER_ASSESSMENT" in
     ;;
 esac
 
-assess_with_gatekeeper() {
-  local target="$1" attempt=1
-  while :; do
-    if "$SPCTL_TOOL" -a -vv --ignore-cache --no-cache --type execute "$target"; then
-      return 0
-    fi
-    if [ "$attempt" -eq 1 ]; then
-      echo "Gatekeeper propagation budget: $GATEKEEPER_ASSESS_ATTEMPTS attempts x ${GATEKEEPER_ASSESS_DELAY_SECONDS}s (about $((GATEKEEPER_ASSESS_ATTEMPTS * GATEKEEPER_ASSESS_DELAY_SECONDS / 60)) minutes)"
-    fi
-    if [ "$attempt" -ge "$GATEKEEPER_ASSESS_ATTEMPTS" ]; then
-      echo "Gatekeeper still rejects $target after $attempt attempts" >&2
-      return 3
-    fi
-    echo "Gatekeeper rejected $target (attempt $attempt/$GATEKEEPER_ASSESS_ATTEMPTS); ticket may not have propagated yet, retrying in ${GATEKEEPER_ASSESS_DELAY_SECONDS}s"
-    attempt=$((attempt + 1))
-    sleep "$GATEKEEPER_ASSESS_DELAY_SECONDS"
-  done
-}
+# shellcheck source=lib/gatekeeper-assessment.sh
+source "$ROOT_DIR/scripts/ci/lib/gatekeeper-assessment.sh"
 SIGN_BUNDLE_TOOL="${CMUX_SIGN_BUNDLE_TOOL:-$ROOT_DIR/scripts/sign-cmux-bundle.sh}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-$ROOT_DIR/cmux-helper.entitlements}"
 HELPER_PATH="$APP_PATH/Contents/Library/cmux Computer Use.app"
