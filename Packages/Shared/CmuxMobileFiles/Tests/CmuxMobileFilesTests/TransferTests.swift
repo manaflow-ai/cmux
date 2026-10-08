@@ -84,7 +84,7 @@ struct TransferTests {
     }
 
     @Test func aLostSessionResumesTheDownloadFromThePartFile() async throws {
-        let w = try await FilesWorld(chunkBytes: 16 * 1024)
+        let w = try await FilesWorld(conditions: NetworkConditions(bytesPerSecond: 512_000), chunkBytes: 16 * 1024)
         defer { Task { await w.shutdown() } }
         let data = FilesWorld.bytes(700_000, seed: 9)
         try data.write(to: w.workspace.appendingPathComponent("dump.bin"))
@@ -104,7 +104,7 @@ struct TransferTests {
     }
 
     @Test func aDownloadRestartsWhenTheMacFileChangedBetweenRuns() async throws {
-        let w = try await FilesWorld(chunkBytes: 16 * 1024)
+        let w = try await FilesWorld(conditions: NetworkConditions(bytesPerSecond: 512_000), chunkBytes: 16 * 1024)
         defer { Task { await w.shutdown() } }
         let remote = w.workspace.appendingPathComponent("notes.md")
         try FilesWorld.bytes(500_000, seed: 1).write(to: remote)
