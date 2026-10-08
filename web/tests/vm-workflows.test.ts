@@ -5584,8 +5584,26 @@ describe("VM Effect workflows", () => {
     // would fail the resume reservation before the rollback path under test
     // ever runs.
     await sql`
-      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'pro', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
+      insert into cloud_vms (
+        user_id,
+        billing_team_id,
+        billing_plan_id,
+        provider,
+        provider_vm_id,
+        image_id,
+        status,
+        provider_metadata
+      )
+      values (
+        'user-workflow-resume-fail',
+        'team-workflow-resume-fail',
+        'pro',
+        'freestyle',
+        'provider-vm-resume-fail',
+        'snapshot-test',
+        'paused',
+        '{"cmuxResourceReservation":{"vcpus":4,"memoryMb":8192,"diskMb":32768}}'::jsonb
+      )
     `;
 
     const resumeError = new VmProviderOperationError({

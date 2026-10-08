@@ -67,6 +67,7 @@ function harness(options: { vm?: CloudVmRow; apply?: (plan: NetworkRulePlan) => 
     }),
   } as unknown as VmRepositoryShape;
   const providers = {
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
     create: (_provider: string, createOptions: { networkRules?: NetworkRulePlan }) => Effect.sync(() => {
       created.push(createOptions);
       return { provider: "freestyle" as const, providerVmId: "vm-net", status: "running" as const, image: "snapshot-test", createdAt: NOW.getTime() };
