@@ -10,8 +10,12 @@ public final class CmuxToastView: NSView {
     public let closeButton = CmuxToastButton(style: .close, title: CmuxToastStrings.dismiss, target: nil, action: nil)
     var onAction: (() -> Void)?
     var onClose: (() -> Void)?
+    /// The pointer came onto or left the toast, or the toast moved or went
+    /// under a still pointer (`PointerHover`, cx-3wu5).
     var onHover: ((Bool) -> Void)?
-    private var tracking: NSTrackingArea?
+    private var pointerHover: PointerHover?
+    /// Whether the pointer is on the toast now (as of the last refresh).
+    public var isHovered: Bool { pointerHover?.isHovering ?? false }
 
     public init(toast: CmuxToast) {
         self.toast = toast
@@ -22,6 +26,7 @@ public final class CmuxToastView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(toast.message)
         setAccessibilityIdentifier("cmux.toast.\(toast.id)")
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.onHover?(hovering) }
     }
 
     @available(*, unavailable)
@@ -76,15 +81,4 @@ public final class CmuxToastView: NSView {
 
     @objc private func runAction() { onAction?() }
     @objc private func close() { onClose?() }
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    public override func mouseEntered(with event: NSEvent) { onHover?(true) }
-    public override func mouseExited(with event: NSEvent) { onHover?(false) }
 }

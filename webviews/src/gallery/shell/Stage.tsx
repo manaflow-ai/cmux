@@ -20,6 +20,14 @@ import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
+import {
+  readScrollPosition,
+  restoreScrollPosition,
+  restoreScrollPositionUnlessMoved,
+  SCROLL_KEYS,
+  scrollStateAfterEvent,
+  scrollTargetFor,
+} from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
 
@@ -143,7 +151,8 @@ export function Stage({
     // The surface lays out at the real size of its pane in that window; one transform scales the
     // finished surface, so its aspect ratio, text and spacing stay as the user sees them.
     frame = entryPaneSize(env.window, env.layout, env.density, metrics);
-    scale = thumbnail ? THUMBNAIL_WIDTH / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
+    const thumbnailWidth = Math.min(THUMBNAIL_WIDTH, available.width);
+    scale = thumbnail ? thumbnailWidth / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   } else {
     // The pane's width; the interface scale zooms the page inside it, as pageZoom does.
     frame = {
@@ -179,6 +188,94 @@ export function Stage({
   }, [display.query, display.run, frameHeight, frameWidth, query, run, scale]);
   const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
     if (!iframe) return;
+    const scrollTarget = scrollTargetFor(iframe);
+    let baseline = readScrollPosition(scrollTarget);
+    let restored = false;
+    let userMoved = false;
+    let intentPending = false;
+    let pointerIntent = false;
+    let intentFrame = 0;
+    const intentTarget: EventTarget = scrollTarget ?? window;
+    const parentWindow = iframe.ownerDocument.defaultView;
+    const frameWindow = iframe.contentWindow;
+    const uniqueEventTargets = (targets: (EventTarget | null)[]): EventTarget[] =>
+      Array.from(new Set(targets.filter((target): target is EventTarget => target !== null)));
+    const intentSources = uniqueEventTargets([intentTarget, frameWindow]);
+    const keyboardSources = uniqueEventTargets([parentWindow, frameWindow]);
+    const expireTransientIntent = () => {
+      if (pointerIntent) return;
+      intentPending = false;
+    };
+    const scheduleTransientIntentExpiry = () => {
+      if (intentFrame) cancelAnimationFrame(intentFrame);
+      intentFrame = requestAnimationFrame(() => {
+        intentFrame = 0;
+        expireTransientIntent();
+      });
+    };
+    const markTransientIntent = () => {
+      intentPending = true;
+      scheduleTransientIntentExpiry();
+    };
+    const markPointerIntent = (event: Event) => {
+      if ((event as PointerEvent).buttons > 0) {
+        pointerIntent = true;
+        intentPending = true;
+      }
+    };
+    const clearPointerIntent = () => {
+      pointerIntent = false;
+      if (!userMoved) intentPending = false;
+    };
+    const markKeyboardIntent = (event: Event) => {
+      if (SCROLL_KEYS.has((event as KeyboardEvent).key)) markTransientIntent();
+    };
+    const addIntentListener = (
+      sources: EventTarget[],
+      type: string,
+      listener: EventListener,
+      options?: AddEventListenerOptions | boolean,
+    ) => {
+      for (const source of sources) source.addEventListener(type, listener, options);
+    };
+    const removeIntentListener = (
+      sources: EventTarget[],
+      type: string,
+      listener: EventListener,
+      options?: EventListenerOptions | boolean,
+    ) => {
+      for (const source of sources) source.removeEventListener(type, listener, options);
+    };
+    addIntentListener(intentSources, "wheel", markTransientIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "touchmove", markTransientIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "pointermove", markPointerIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "pointerup", clearPointerIntent, { passive: true, capture: true });
+    addIntentListener(intentSources, "pointercancel", clearPointerIntent, { passive: true, capture: true });
+    addIntentListener(keyboardSources, "keydown", markKeyboardIntent, true);
+    const onScroll = () => {
+      const result = scrollStateAfterEvent(scrollTarget, iframe, baseline, userMoved, intentPending);
+      baseline = result.baseline;
+      userMoved = result.userMoved;
+      intentPending = result.intentPending;
+      if (result.restore) restoreScrollPosition(scrollTarget, baseline);
+    };
+    intentTarget.addEventListener("scroll", onScroll, { passive: true });
+    const removeIntentListeners = () => {
+      if (intentFrame) cancelAnimationFrame(intentFrame);
+      removeIntentListener(intentSources, "wheel", markTransientIntent, true);
+      removeIntentListener(intentSources, "touchmove", markTransientIntent, true);
+      removeIntentListener(intentSources, "pointermove", markPointerIntent, true);
+      removeIntentListener(intentSources, "pointerup", clearPointerIntent, true);
+      removeIntentListener(intentSources, "pointercancel", clearPointerIntent, true);
+      removeIntentListener(keyboardSources, "keydown", markKeyboardIntent, true);
+      intentTarget.removeEventListener("scroll", onScroll);
+    };
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      restoreScrollPositionUnlessMoved(scrollTarget, baseline, userMoved);
+      removeIntentListeners();
+    };
     const receive = (event: MessageEvent) => {
       const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
       const query = iframe.dataset.galleryQuery;
@@ -186,6 +283,7 @@ export function Stage({
       if (event.source !== iframe.contentWindow || !query || !Number.isFinite(run)) return;
       if (data?.type === "cmux-gallery-play") setReport(data.report);
       if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
+        restore();
         const pending = pendingRef.current;
         if (!pending || pending.query !== query || pending.run !== run) return;
         const token = ++promotion.current;
@@ -202,6 +300,7 @@ export function Stage({
     addEventListener("message", receive);
     return () => {
       removeEventListener("message", receive);
+      removeIntentListeners();
       promotion.current += 1;
     };
   }, []);

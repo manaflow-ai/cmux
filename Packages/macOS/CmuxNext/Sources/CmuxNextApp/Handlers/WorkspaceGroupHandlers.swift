@@ -132,6 +132,8 @@ enum WorkspaceGroupHandlers {
         Task {
             var spawn = WorkspaceSpawn()
             spawn.opensNewTabPage = newTabPage
+            // Placed into the group below, not at the new-workspace slot.
+            spawn.placesBySetting = false
             guard let key = try? await windows.createWorkspace(spawn, into: target), let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
