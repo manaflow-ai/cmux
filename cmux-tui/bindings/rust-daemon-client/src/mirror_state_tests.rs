@@ -167,9 +167,9 @@ fn malformed_state_changes_leave_the_mirror_unchanged() {
         // A missing field.
         group(json!({"id": PLAY, "room_id": "default", "color": null, "collapsed": false,
                      "index": 0})),
-        // An unknown field.
+        // An unknown field (`pinned` is known since workspace-group-pin-v1).
         group(json!({"id": PLAY, "room_id": "default", "name": "x", "color": null,
-                     "collapsed": false, "index": 0, "pinned": true})),
+                     "collapsed": false, "index": 0, "not_a_group_field": true})),
         // A placement whose workspace does not match its id.
         json!({"kind": "state_upsert", "sequence": 0, "resource": "workspace_placement",
                "id": ALPHA_PLACEMENT, "value": {"workspace": {"session_id": REGISTRY,
@@ -181,6 +181,19 @@ fn malformed_state_changes_leave_the_mirror_unchanged() {
         assert!(matches!(error, MirrorError::InvalidState { .. }), "{case}: {error:?}");
         assert_eq!(mirror, before);
     }
+}
+
+/// `pinned` (workspace-group-pin-v1) is a known group field: an upsert
+/// that carries it applies.
+#[test]
+fn a_group_upsert_with_pinned_applies() {
+    let mut mirror = Mirror::default();
+    mirror.apply(events(GROUP_SNAPSHOT).remove(0)).unwrap();
+    let pinned = json!({"kind": "state_upsert", "sequence": 0, "resource": "workspace_group",
+                        "id": PLAY, "value": {"id": PLAY, "room_id": "default", "name": "x",
+                        "color": null, "collapsed": false, "index": 0, "pinned": true}});
+    let changes = apply_state(&mut mirror, pinned);
+    assert_eq!(changes, [MirrorChange::WorkspaceGroup(Change::Updated(PLAY.into()))]);
 }
 
 #[test]

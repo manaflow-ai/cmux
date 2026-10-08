@@ -147,7 +147,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
             .value("harness")
             .map(str::to_owned)
             .or_else(|| env("MUX_HARNESS"))
-            .unwrap_or_else(|| "claude-sr".into()),
+            .unwrap_or_else(|| crate::host::DEFAULT_HARNESS.into()),
         policy: flags
             .value("policy")
             .map(str::to_owned)

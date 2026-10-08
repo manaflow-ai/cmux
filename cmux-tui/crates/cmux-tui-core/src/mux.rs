@@ -52,6 +52,7 @@ mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
+mod terminal_respawn;
 mod terminal_work;
 mod topology_result;
 
@@ -2720,6 +2721,7 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -3171,6 +3173,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             activity: Default::default(),
@@ -3959,6 +3962,9 @@ impl Mux {
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
         self.clear_pending_terminal(terminal_id);
+        if self.terminal_is_respawning(terminal_id) {
+            return Ok(());
+        }
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -6685,6 +6691,8 @@ impl Mux {
         } else {
             format!("cmux-hook-sequence:{sequence}")
         };
+        let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
