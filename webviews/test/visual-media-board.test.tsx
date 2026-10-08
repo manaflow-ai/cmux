@@ -54,12 +54,20 @@ test("filters report the visible media and expose pressed state", async () => {
   };
 
   expect(count()).toBe("6 previews · 3 motion");
-  expect(buttons().find((button) => button.textContent === "All")?.getAttribute("aria-pressed")).toBe("true");
+  expect(
+    buttons()
+      .find((button) => button.textContent === "All")
+      ?.getAttribute("aria-pressed"),
+  ).toBe("true");
 
   await choose("Static");
   expect(count()).toBe("3 previews · 0 motion");
   expect(container.querySelectorAll(".cmux-gallery-media-card")).toHaveLength(3);
-  expect(buttons().find((button) => button.textContent === "Static")?.getAttribute("aria-pressed")).toBe("true");
+  expect(
+    buttons()
+      .find((button) => button.textContent === "Static")
+      ?.getAttribute("aria-pressed"),
+  ).toBe("true");
 
   await choose("Motion");
   expect(count()).toBe("3 previews · 3 motion");
@@ -72,10 +80,23 @@ test("fit controls expose the selected crop mode", async () => {
     root = createRoot(container);
     root.render(<VisualMediaBoard />);
   });
-  const fitButtons = () => [...container.querySelectorAll<HTMLButtonElement>(".cmux-gallery-media-filter button")].filter(
-    (button) => button.textContent === "cover" || button.textContent === "contain",
+  const fitButtons = () =>
+    [...container.querySelectorAll<HTMLButtonElement>(".cmux-gallery-media-filter button")].filter(
+      (button) => button.textContent === "cover" || button.textContent === "contain",
+    );
+  expect(
+    fitButtons()
+      .find((button) => button.textContent === "cover")
+      ?.getAttribute("aria-pressed"),
+  ).toBe("true");
+  await act(async () =>
+    fitButtons()
+      .find((button) => button.textContent === "contain")!
+      .click(),
   );
-  expect(fitButtons().find((button) => button.textContent === "cover")?.getAttribute("aria-pressed")).toBe("true");
-  await act(async () => fitButtons().find((button) => button.textContent === "contain")!.click());
-  expect(fitButtons().find((button) => button.textContent === "contain")?.getAttribute("aria-pressed")).toBe("true");
+  expect(
+    fitButtons()
+      .find((button) => button.textContent === "contain")
+      ?.getAttribute("aria-pressed"),
+  ).toBe("true");
 });
