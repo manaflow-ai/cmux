@@ -1242,7 +1242,6 @@ async fn connect_target(
 /// the TCP-level tunnel this proxy fronts forwarded it verbatim, so
 /// dev-server host allowlists keep working identically.
 fn copy_request(
-    shared: &ProxyShared,
     parts: &http::request::Parts,
     body: hyper::body::Incoming,
 ) -> Result<hyper::Request<hyper::body::Incoming>, String> {
@@ -1269,17 +1268,19 @@ fn copy_request(
             .iter()
             .flat_map(|value| value.as_bytes().split(|byte| *byte == b';'))
             .map(<[u8]>::trim_ascii)
-            .filter(|item| !item.is_empty() && !item.starts_with(CAPABILITY_COOKIE_PREFIX.as_bytes()))
+            .filter(|item| {
+                !item.is_empty() && !item.starts_with(CAPABILITY_COOKIE_PREFIX.as_bytes())
+            })
             .collect::<Vec<_>>();
         if !kept.is_empty()
             && let Ok(cookie) = hyper::header::HeaderValue::from_bytes(&kept.join(&b"; "[..]))
         {
             headers.insert(hyper::header::COOKIE, cookie);
         }
-        if let Some(referer) = parts.headers.get(hyper::header::REFERER) {
-            if let Some(cleaned) = referer_without_capability(referer) {
-                headers.insert(hyper::header::REFERER, cleaned);
-            }
+        if let Some(referer) = parts.headers.get(hyper::header::REFERER)
+            && let Some(cleaned) = referer_without_capability(referer)
+        {
+            headers.insert(hyper::header::REFERER, cleaned);
         }
     }
     builder.body(body).map_err(|error| format!("could not rebuild the proxied request: {error}"))
@@ -1290,7 +1291,8 @@ fn copy_request(
 fn referer_without_capability(
     referer: &hyper::header::HeaderValue,
 ) -> Option<hyper::header::HeaderValue> {
-    let names_capability = |query: &str| query.split('&').any(|item| capability_query_item(item).is_some());
+    let names_capability =
+        |query: &str| query.split('&').any(|item| capability_query_item(item).is_some());
     let Ok(text) = referer.to_str() else { return Some(referer.clone()) };
     let Ok(mut url) = url::Url::parse(text) else {
         return (!names_capability(text.split_once('?').map_or("", |(_, query)| query)))
@@ -1324,7 +1326,7 @@ async fn forward_plain(
     };
     let skip_inject = header_is_one(request.headers(), NO_INJECT_HEADER);
     let (parts, body) = request.into_parts();
-    let outbound = match copy_request(&shared, &parts, body) {
+    let outbound = match copy_request(&parts, body) {
         Ok(outbound) => outbound,
         Err(message) => return text_response(502, &message),
     };
@@ -1387,7 +1389,7 @@ async fn forward_upgrade(
     let Some(server_upgrade) = parts.extensions.remove::<hyper::upgrade::OnUpgrade>() else {
         return text_response(502, "upgrade requested without an upgradable connection");
     };
-    let outbound = match copy_request(&shared, &parts, body) {
+    let outbound = match copy_request(&parts, body) {
         Ok(outbound) => outbound,
         Err(message) => return text_response(502, &message),
     };
@@ -2434,8 +2436,14 @@ Host: rebind.example
         let (proxy, capability) = open_proxy_credentials(&registry, target).await;
         let response = raw_exchange(
             proxy,
-            &get_request("/", "rebind.test", &format!("{CAPABILITY_HEADER}: {capability}
-")),
+            &get_request(
+                "/",
+                "rebind.test",
+                &format!(
+                    "{CAPABILITY_HEADER}: {capability}
+"
+                ),
+            ),
         )
         .await;
         assert!(response.starts_with("HTTP/1.1 403"), "{response}");
@@ -2486,9 +2494,11 @@ Host: rebind.example
 
         // A percent-encoded name is the same parameter.
         let wrong = "0".repeat(capability.len());
-        let response =
-            raw_exchange(proxy, &get_request(&format!("/?%5F_chatmux_capability={wrong}"), &host, ""))
-                .await;
+        let response = raw_exchange(
+            proxy,
+            &get_request(&format!("/?%5F_chatmux_capability={wrong}"), &host, ""),
+        )
+        .await;
         assert!(response.starts_with("HTTP/1.1 401"), "{response}");
         let response = raw_exchange(
             proxy,
