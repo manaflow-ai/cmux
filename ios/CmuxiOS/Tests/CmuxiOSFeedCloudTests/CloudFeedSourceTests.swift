@@ -70,6 +70,29 @@ import Testing
         #expect(try await receipt == .committed(key: key, revision: 2))
     }
 
+    @Test func duplicateKeyCallersShareOneOwnerOperationAndReceipt() async throws {
+        let socket = FakeFeedConnection()
+        let (source, _) = makeSource([socket])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = socket.outbound.makeAsyncIterator()
+        socket.push(OwnerJSON.welcome)
+        socket.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+
+        let key = IntentKey(rawValue: "idem_shared")
+        let first = Task { try await source.perform(.read(itemIDs: ["fi_1"]), key: key) }
+        _ = try #require(await nextFrame(&sent, t: "op"))
+        let second = Task { try await source.perform(.read(itemIDs: ["fi_1"]), key: key) }
+        while await source.waitingContinuationCount < 2 { await Task.yield() }
+
+        socket.push(["t": "request-settled", "tx": "t", "idempotency_key": key.rawValue,
+                     "stream": "feed:usr_1", "sequence": 2, "ok": true])
+        let expected = IntentReceipt.committed(key: key, revision: 2)
+        #expect(try await first.value == expected)
+        #expect(try await second.value == expected)
+        #expect(socket.sentFrameCount("op") == 1)
+    }
+
     @Test func rejectThenSettleIsARefusalWithTheCode() async throws {
         let socket = FakeFeedConnection()
         let (source, _) = makeSource([socket])

@@ -42,7 +42,10 @@ public actor CloudFeedSource: FeedSource {
     private var awaitingSnapshot = false
     /// Sent and not settled, in send order.
     private var unsettled: [(key: String, frame: String)] = []
-    private var waiting: [String: CheckedContinuation<IntentReceipt, any Error>] = [:]
+    /// Callers waiting for each unsettled key. A banner tap and the feed tab
+    /// can race with the same stable idempotency key; they must share one
+    /// owner operation and all receive the one receipt.
+    private var waiting: [String: [CheckedContinuation<IntentReceipt, any Error>]] = [:]
     private var rejects: [String: String] = [:]
 
     public init(
@@ -87,7 +90,14 @@ public actor CloudFeedSource: FeedSource {
             throw FeatureSourceError.unsupported(intent.op)
         }
         return try await withCheckedThrowingContinuation { continuation in
-            waiting[key.rawValue] = continuation
+            if waiting[key.rawValue] != nil {
+                // The key is the operation's idempotency boundary. Do not
+                // enqueue another frame; fan the eventual receipt out to the
+                // racing caller instead.
+                waiting[key.rawValue, default: []].append(continuation)
+                return
+            }
+            waiting[key.rawValue] = [continuation]
             unsettled.append((key.rawValue, text))
             outbox?.yield(text)
         }
@@ -95,6 +105,8 @@ public actor CloudFeedSource: FeedSource {
 
     /// Screens currently subscribed (tests).
     var subscriberCount: Int { subscribers.count }
+    /// Number of callers waiting on unsettled keys (tests).
+    var waitingContinuationCount: Int { waiting.values.reduce(0) { $0 + $1.count } }
 
     // MARK: - Connection
 
@@ -240,7 +252,8 @@ public actor CloudFeedSource: FeedSource {
     private func settle(_ key: String, _ receipt: IntentReceipt) {
         rejects[key] = nil
         unsettled.removeAll { $0.key == key }
-        waiting.removeValue(forKey: key)?.resume(returning: receipt)
+        let continuations = waiting.removeValue(forKey: key) ?? []
+        for continuation in continuations { continuation.resume(returning: receipt) }
     }
 
     private func setConnection(_ next: SourceConnection) {

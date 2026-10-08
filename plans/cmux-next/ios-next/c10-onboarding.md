@@ -161,13 +161,16 @@ Now on the notifications primer is not prompted by push registration at the next
 
 Mocked until other lanes land: pairing (B6; `MockDeviceRegistry` trusts the discovered MacBook Pro),
 the QR scanner (B6 owns the camera scanner; the onboarding scanner sheet is a viewfinder placeholder
-with a sample code in DEBUG), SSH host save (C9 real `HostsStore`), Mac install link target.
+with a sample code in DEBUG), and the Mac install link target. SSH host save uses C9's real
+`HostsStore`; `SSHShortcutEntry` accepts pasted `user@[IPv6]:port` endpoints, strips the brackets
+before persistence, and rejects malformed bracket or port suffixes.
 
 ## 8. Verification
 
 - `CmuxiOSOnboardingCoreTests`: transitions, applicability, skip and back rules, resume normalization,
   sign-out return, replay, persistence round trip, launch policy, pairing phase, the hint delay on an
-  injected clock. Run with `swift test` on macOS through a scratch package that links the same sources.
+  injected clock, and SSH shortcut parsing for bracketed IPv6. Run with `swift test` on macOS through
+  a scratch package that links the same sources.
 - `CmuxiOSApp` compiles for `arm64-apple-ios17.0-simulator` with SwiftPM.
 - Tagged build `nxc10` through `ios/scripts/reload-cloud.sh`: BLOCKED on 2026-10-06. The same-tag Mac
   leg failed on the dev backend VM (`cmux-dev-backend-1` SSH timeout); with

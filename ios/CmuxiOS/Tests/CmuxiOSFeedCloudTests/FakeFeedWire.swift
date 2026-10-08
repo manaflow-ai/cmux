@@ -10,6 +10,7 @@ final class FakeFeedConnection: FeedWireConnection, @unchecked Sendable {
     private let outboundContinuation: AsyncStream<[String: Any]>.Continuation
     private let lock = NSLock()
     private var iterator: AsyncThrowingStream<Data, any Error>.AsyncIterator
+    private(set) var sentFrames: [[String: Any]] = []
 
     init() {
         (inbound, inboundContinuation) = AsyncThrowingStream.makeStream(of: Data.self)
@@ -33,7 +34,14 @@ final class FakeFeedConnection: FeedWireConnection, @unchecked Sendable {
 
     func send(_ text: String) async throws {
         let frame = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
+        lock.withLock { sentFrames.append(frame) }
         outboundContinuation.yield(frame)
+    }
+
+    func sentFrameCount(_ type: String) -> Int {
+        lock.withLock { sentFrames.reduce(into: 0) { count, frame in
+            if frame["t"] as? String == type { count += 1 }
+        } }
     }
 
     func close() {

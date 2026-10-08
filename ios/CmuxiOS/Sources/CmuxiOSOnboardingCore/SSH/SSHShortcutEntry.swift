@@ -24,7 +24,25 @@ public struct SSHShortcutEntry: Hashable, Sendable {
             if user.isEmpty { user = String(address[..<at]) }
             address = String(address[address.index(after: at)...])
         }
-        if !address.hasPrefix("["), let colon = address.lastIndex(of: ":"), address.filter({ $0 == ":" }).count == 1 {
+        if address.hasPrefix("[") {
+            // SSH users commonly paste IPv6 endpoints in URI form. Keep the
+            // brackets out of HostEndpoint.address and preserve an embedded
+            // port instead of handing `[addr]:port` to the SSH connector as
+            // a literal hostname.
+            guard let closing = address.firstIndex(of: "]") else { return nil }
+            let innerStart = address.index(after: address.startIndex)
+            guard closing > innerStart else { return nil }
+            let inner = String(address[innerStart..<closing])
+            guard !inner.contains(where: { $0 == "[" || $0 == "]" }) else { return nil }
+            let suffix = String(address[address.index(after: closing)...])
+            if !suffix.isEmpty {
+                guard suffix.first == ":" else { return nil }
+                let embeddedPort = String(suffix.dropFirst())
+                guard !embeddedPort.isEmpty else { return nil }
+                if portText.isEmpty { portText = embeddedPort }
+            }
+            address = inner
+        } else if let colon = address.lastIndex(of: ":"), address.filter({ $0 == ":" }).count == 1 {
             if portText.isEmpty { portText = String(address[address.index(after: colon)...]) }
             address = String(address[..<colon])
         }

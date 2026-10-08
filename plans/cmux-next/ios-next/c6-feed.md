@@ -1,6 +1,6 @@
 # C6 `feed`: the Feed tab on iPhone
 
-Status: design, 2026-10-06. Branch `feat-cmux-next-ios-c6-feed` off `feat-cmux-next-ios`. Binding:
+Status: implemented (device verification pending), 2026-10-08. Branch `feat-cmux-next-ios-c6-feed` off `feat-cmux-next-ios`. Binding:
 PLAN.md (this directory), a1-shell.md (seams, 1.14 parity), feed.md (item model 3.1, kinds 3.4,
 lifecycle 3.6, read and seen 3.7, ops 6, push 7.3), OWNERSHIP-PRINCIPLES.md.
 
@@ -76,6 +76,16 @@ only to open requests, open requests are never archived.
 Ops go out as `op` frames with origin `user`; answers use the kind's answer schema (feed.md 3.4). The
 DEV mock/real switch picks it: `AppContainer.realFactories.feed` is filled when the API origin and
 install identity exist, else the seam stays on the mock and DEV shows "not registered".
+
+### 4.1 Reliability hardening (2026-10-08)
+
+`CloudFeedSource` treats an idempotency key as one local operation as well as one owner operation.
+Concurrent callers that reuse a stable key (for example a lock-screen action racing the Feed tab)
+share the single outbound `op` frame and all receive its one settled receipt. This prevents duplicate
+frames and avoids orphaning the first caller's continuation. `CmuxiOSFeedCloudTests` covers the
+fan-out and asserts that one key produces one owner operation; reconnect resend and decided-key
+settlement remain covered by the existing source tests. Device and real-network verification remain
+the D3 gate below.
 
 ## 5. Screen
 
