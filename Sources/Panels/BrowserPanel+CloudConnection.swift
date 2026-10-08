@@ -48,7 +48,10 @@ extension BrowserPanel {
     func installManagedSSHLoopbackProtection(for url: URL, generation: UUID, scriptGeneration: Int) async throws {
         guard let port = url.port, port > 0, port <= Int(UInt16.max),
               let store = WKContentRuleListStore.default() else {
-            throw CloudMachineLink.LinkError.spawnFailed("The SSH browser protection rule could not be prepared.")
+            throw CloudMachineLink.LinkError.spawnFailed(String(
+                localized: "cloud.portAccess.loopbackProtectionRule.prepareFailed",
+                defaultValue: "The SSH browser protection rule could not be prepared."
+            ))
         }
         let schemes = ["http", "https", "ws", "wss"]
         let blockedHosts = [
@@ -75,7 +78,10 @@ extension BrowserPanel {
         }
         let encodedRules = try JSONSerialization.data(withJSONObject: rules)
         guard let ruleJSON = String(data: encodedRules, encoding: .utf8) else {
-            throw CloudMachineLink.LinkError.spawnFailed("The SSH browser protection rule could not be encoded.")
+            throw CloudMachineLink.LinkError.spawnFailed(String(
+                localized: "cloud.portAccess.loopbackProtectionRule.encodeFailed",
+                defaultValue: "The SSH browser protection rule could not be encoded."
+            ))
         }
         // The rule store is persistent. A stable per-port identifier lets a
         // replacement update the same entry instead of accumulating one UUID
@@ -92,7 +98,12 @@ extension BrowserPanel {
             store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: ruleJSON) { rule, error in
                 if let error { continuation.resume(throwing: error) }
                 else if let rule { continuation.resume(returning: rule) }
-                else { continuation.resume(throwing: CloudMachineLink.LinkError.spawnFailed("The SSH browser protection rule could not be compiled.")) }
+                else {
+                    continuation.resume(throwing: CloudMachineLink.LinkError.spawnFailed(String(
+                        localized: "cloud.portAccess.loopbackProtectionRule.compileFailed",
+                        defaultValue: "The SSH browser protection rule could not be compiled."
+                    )))
+                }
             }
         }
         guard cloudLoopbackProtectionGeneration == generation,
