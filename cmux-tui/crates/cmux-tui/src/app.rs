@@ -19735,8 +19735,15 @@ impl App {
     fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         match key.code {
             // Approval is explicit: the Enter that ends a command line typed
-            // while the dialog appeared must not admit a browser.
-            KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
+            // while the dialog appeared must not admit a browser, and neither
+            // may a shell chord such as Ctrl+Y (yank) or Alt+Y.
+            KeyCode::Char('y') | KeyCode::Char('Y')
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER) =>
+            {
+                self.resolve_pairing(true)
+            }
             KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
             _ => {}
         }
@@ -39994,14 +40001,21 @@ mod tests {
             app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
         app.render_action(&mut terminal, action).unwrap();
 
-        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
-            .unwrap();
-        assert_eq!(
-            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
-            Some(challenge.id),
-            "Enter closed the pairing dialog"
-        );
-        assert!(decision.try_recv().is_err(), "Enter approved a pairing request");
+        for (code, modifiers) in [
+            (KeyCode::Enter, KeyModifiers::NONE),
+            (KeyCode::Char(' '), KeyModifiers::NONE),
+            (KeyCode::Char('y'), KeyModifiers::CONTROL),
+            (KeyCode::Char('y'), KeyModifiers::ALT),
+            (KeyCode::Char('y'), KeyModifiers::SUPER),
+        ] {
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(code, modifiers)))).unwrap();
+            assert_eq!(
+                app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+                Some(challenge.id),
+                "{code:?} {modifiers:?} closed the pairing dialog"
+            );
+            assert!(decision.try_recv().is_err(), "{code:?} {modifiers:?} approved a pairing request");
+        }
 
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('y'),

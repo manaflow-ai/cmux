@@ -2387,6 +2387,12 @@ fn run_server(
             "{BIN}: WebSocket control at ws://{}",
             server.local_addr()
         );
+        if args.ws_insecure_bind && args.ws_access.hosts.is_empty() {
+            crate::client_log::stderr_log!(
+                "startup",
+                "{BIN}: WebSocket clients may connect by IP address or loopback name only; add --ws-allow-host <name> for each host name they use"
+            );
+        }
         // A forwarded page must never reach the daemon's own control port.
         loopback_forward_policy.deny_port(server.local_addr().port());
     }

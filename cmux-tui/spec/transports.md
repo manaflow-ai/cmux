@@ -287,7 +287,7 @@ The preamble is not a protocol command, has no `id`, and receives no success res
 
 The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
-Before any frame, every handshake passes the localhost listener rule, and no flag turns it off. `Host` must be a loopback name, a name added with `--ws-allow-host`, or (only on a non-loopback bind) an IP address literal; a DNS-rebound name is refused with 403. `Origin` must be absent (a native client), one of the listener's own loopback origins, or one added with `--ws-allow-origin`; `null` is always refused. The token or pairing step runs after this rule. A browser challenge identifies only its TCP peer, which is normally loopback.
+Before any frame, every handshake passes the localhost listener rule, and no flag turns it off. `Host` must be a loopback name, a name added with `--ws-allow-host`, or (only on a non-loopback bind) an IP address literal; a DNS-rebound name is refused with 403. `Origin` must be absent (a native client), one of the listener's own origins (`http://` plus a loopback name or a `--ws-allow-host` name, on the listener's port), or one added with `--ws-allow-origin`; `null` is always refused. The token or pairing step runs after this rule. A browser challenge identifies only its TCP peer, which is normally loopback. Known gap: the approval prompt does not yet show the client's Origin and path.
 
 ### Bind Security
 
