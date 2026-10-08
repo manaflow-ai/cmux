@@ -1010,6 +1010,39 @@ function requireMeasuredMachineFitsPlan(
   );
 }
 
+/**
+ * Check an idempotent existing row against the caller's current plan. Legacy
+ * rows are measured before access and their provider-confirmed reservation is
+ * persisted so a successful retry also repairs the shared-pool claim.
+ */
+function requireExistingMachineFitsPlan(
+  planId: string,
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  existing: CloudVmRow,
+): Effect.Effect<CloudVmRow, VmWorkflowError> {
+  if (!isPaidVmPlan(planId)) return Effect.succeed(existing);
+  if (hasVmResourceReservationMetadata(existing.providerMetadata)) {
+    return requireMachineFitsPlan(planId, existing.providerMetadata).pipe(Effect.as(existing));
+  }
+  return requireMeasuredMachineFitsPlan(planId, providers, existing, existing.providerVmId ?? "").pipe(
+    Effect.flatMap((reservation) => {
+      if (!repo.setResourceReservation) return Effect.succeed(existing);
+      return repo.setResourceReservation({ id: existing.id, reservation }).pipe(
+        Effect.map((persisted) => persisted
+          ? {
+            ...existing,
+            providerMetadata: {
+              ...(existing.providerMetadata ?? {}),
+              [VM_RESOURCE_RESERVATION_METADATA_KEY]: reservation,
+            },
+          }
+          : existing),
+      );
+    }),
+  );
+}
+
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
   return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
 }
@@ -1189,7 +1222,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
         );
       }
-      return vmEntryFromRow(existing);
+      const entitled = yield* requireExistingMachineFitsPlan(input.billingPlanId, repo, providers, existing);
+      return vmEntryFromRow(entitled);
     }
 
     const networkRules = yield* recordCreateNetworkPolicy(repo, providers, input, create.vm.id);
@@ -1628,25 +1662,7 @@ function finishBaseCreate(
       // is handed back. The provider-deleted check above intentionally runs
       // first so a missing oversized machine can be replaced at the caller's
       // current default shape.
-      if (isPaidVmPlan(input.billingPlanId)) {
-        if (hasVmResourceReservationMetadata(existing.providerMetadata)) {
-          yield* requireMachineFitsPlan(input.billingPlanId, existing.providerMetadata);
-        } else {
-          const measured = yield* requireMeasuredMachineFitsPlan(input.billingPlanId, providers, existing, existing.providerVmId);
-          if (repo.setResourceReservation) {
-            const persisted = yield* repo.setResourceReservation({ id: existing.id, reservation: measured });
-            if (persisted) {
-              existing = {
-                ...existing,
-                providerMetadata: {
-                  ...existing.providerMetadata,
-                  [VM_RESOURCE_RESERVATION_METADATA_KEY]: measured,
-                },
-              };
-            }
-          }
-        }
-      }
+      existing = yield* requireExistingMachineFitsPlan(input.billingPlanId, repo, providers, existing);
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
     }
 
