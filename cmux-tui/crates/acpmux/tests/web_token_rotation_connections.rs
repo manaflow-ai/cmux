@@ -139,7 +139,8 @@ async fn connect(d: &Daemon, headers: &[(&str, &str)], local: Option<&str>) -> (
         json!({"protocolVersion": 1, "clientInfo": {"name": "test"}, "_meta": {"acpmux": meta}}),
     )
     .await;
-    let origin = init["result"]["_meta"]["acpmux"]["origin"].as_str().unwrap_or("absent").to_owned();
+    let origin =
+        init["result"]["_meta"]["acpmux"]["origin"].as_str().unwrap_or("absent").to_owned();
     (ws, origin)
 }
 
