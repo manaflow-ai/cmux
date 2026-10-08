@@ -251,9 +251,15 @@ describe("composer dictation", () => {
       await pane.send({ state: "listening", text: "ship it" });
       await pane.send({ state: "idle", text: "ship it" });
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-      expect(pane.posted.at(-1)).toMatchObject({ method: "chat.send", params: { text: "ship it" } });
-      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
+      // The send clears the prompt, and the host then persists the empty draft (chat.writeDraft).
+      expect(pane.methods()).toEqual(["chat.send"]);
+      expect(pane.posted.find((message) => message.method === "chat.send")).toMatchObject({
+        params: { text: "ship it" },
+      });
+      expect(pane.prompt().value).toBe("");
     } finally {
+      // Layout is pane-global: a failed assertion above must not leave auto-send on for later tests.
+      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
       await pane.unmount();
     }
   });
@@ -370,8 +376,8 @@ describe("composer dictation", () => {
       await pane.send({ state: "idle", text: "first message" });
       expect(pane.methods()).not.toContain("chat.send");
       expect(pane.prompt().value).toBe("typing new");
-      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
     } finally {
+      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
       await pane.unmount();
     }
   });

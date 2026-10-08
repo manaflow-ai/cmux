@@ -57,8 +57,11 @@ final class PageWKWebView: WKWebView {
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); super.rightMouseDown(with: event) }
 
+    /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
+    var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        Self.keepDesktopItems(in: menu)
+        if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         super.willOpenMenu(menu, with: event)
     }
 
