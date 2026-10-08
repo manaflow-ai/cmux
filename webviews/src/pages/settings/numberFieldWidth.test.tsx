@@ -10,7 +10,7 @@ const { changeValue, renderPage, rowElement } = await import("./testing");
 
 test("an unset number field is as wide as its default label, in the longest language too", async () => {
   for (const locale of ["en", "it", "ja"]) {
-    const page = await renderPage({ path: "/settings/terminal", locale });
+    const page = await renderPage({ path: "/settings/appearance", locale });
     const row = rowElement(page.container, "terminal.fontSize");
     const field = row.querySelector<HTMLInputElement>("input.number")!;
     const sizer = field.parentElement!;
@@ -22,7 +22,7 @@ test("an unset number field is as wide as its default label, in the longest lang
 });
 
 test("a typed value sizes the field instead of the label", async () => {
-  const page = await renderPage({ path: "/settings/terminal" });
+  const page = await renderPage({ path: "/settings/appearance" });
   const field = rowElement(page.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;
   await changeValue(field, "14");
   expect(field.parentElement!.dataset.value).toBe("14");

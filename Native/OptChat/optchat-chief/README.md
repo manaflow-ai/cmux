@@ -20,9 +20,11 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   acpmux session of the Chief's harness, named `optchat-<home id>-<first
   id>`, and each summary is one too (see [Harnesses and cache
   layout](#harnesses-and-cache-layout)); no Messages API is called. The
-  harness is one setting (`OPTCHAT_CHIEF_HARNESS`): claude-sr by default
-  (acpmux's own Claude Code ACP adapter, `claude_stdio`, launched through
-  the team subrouter's account pool), codex, or any acpmux harness.
+  harness is one setting (`OPTCHAT_CHIEF_HARNESS`). By default it is
+  acpmux's own Claude Code adapter (`claude_stdio`): `claude-cr` when acpmux
+  has a configured CodeRouter route (`coderouterClaudeRoute`), else `claude`,
+  the user's own login. claude-sr (the subrouter pool) only when set; codex
+  or any acpmux harness also work.
   Claude Code's Task/Agent subagents are denied (their steps would be
   logged as the Chief's); `chief agents` starts agents instead. So are
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
@@ -75,7 +77,9 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 - `spawn` waits for settle, renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
-  `optchat-sub-<home id>-a<N>`, in `optchat/subagent/`, with the required preset
+  `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
+  home; a directory that does not exist on the host is reported and
+  `optchat/subagent/` is used, which is also the default), with the required preset
   `optchat-sub-<home id>`. Tags: `mux.parent=optchat-chief:<home id>`,
   `optchat.spawn=s<N>`, `optchat.subagent=a<N>`; never `cmux.chief`. It answers
   the ids at once (ids are unique per home, kept in host.json).
@@ -96,6 +100,21 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
   `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+- A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
+  always-on brain on a server) makes each workspace in its OWN session
+  daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
+  `create-terminal` in the subagent's directory, `new-conversation-tab` with
+  `agent_session {host: install:<id>, host_name, session, harness}`). The
+  subagent runs on that machine, so its workspace belongs to that machine's
+  session (data-model.md 1.2); an app shows it while connected to that
+  session, and an app on another machine shows the chat tab as running on
+  that host until it can attach to that host's acpmux.
+- The spawn answer says, per subagent, the workspace it got and where it
+  lives (`workspace "a1 · task" in the cmux app on this Mac`), or `no cmux
+  workspace (<why>)`: no app socket, workspaces turned off, or the open
+  failed. The Chief is told to repeat only that. Before 2026-10-06 the answer
+  always said "each in its own cmux workspace", and a headless brain without
+  an app socket told the user about workspaces that did not exist.
 - When ALL of one spawn's subagents finished a turn, their reports (each one's
   last reply) reach the chat as ONE `user` message, `[a1] report\n\n[a2] report`.
   It is queued like a human message: it starts a turn when the Chief is idle,
@@ -251,8 +270,8 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
-| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-sr` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
-| `MUX_HARNESS` | `claude-sr` | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
+| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-cr` when acpmux has a configured CodeRouter route, else `claude` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
+| `MUX_HARNESS` | `claude` (acpmux resolves it through `defaults.claude.prefer`) | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
 | `MUX_POLICY` | `approve-all` | acpmux: permission policy of each turn session |
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
@@ -864,7 +883,16 @@ the turn wins until it ends.
 - Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
   codex those need an approval too.
 
-`remote.autoApprove` (per Chief, `optchat/settings.json`, default false; the
+**Default (Lawrence, 2026-10-06: "i dont want stuff to require my
+approval since it is annoying"): `remote.autoApprove` is true.** A turn from
+the owner's own paired device then runs with the normal policy
+(`MUX_POLICY`, approve-all), and nothing it spawns gets the ask floor. The
+gate itself is unchanged: only the owner's own paired installs wake the
+Chief; another account, a forged or missing origin, and a group message
+without a mention never do. The approvals, the spawn floor and the approval
+trace above are what `remote.autoApprove` false turns back on (from the Mac).
+
+`remote.autoApprove` (per Chief, `optchat/settings.json`, default true; the
 Chief settings sidebar shows it later; `optchat-chief settings set
 remote.autoApprove true|false` today) runs remote-origin turns with
 `MUX_POLICY` instead. The host owns the value: it reads the file at start and
@@ -880,10 +908,17 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   allowlist entry and no parameter: the device still uses only the relay's
   existing conversation commands (`message.send` with text parts), whose gate
   refuses command-bearing params and non-text parts. A device message reaches
-  a turn as the user's words, and that turn runs with policy `ask`: no local
-  effect happens without an approval the user sees in the Chief chat, with
-  the command or input shown. Only the owner's own person reaches a turn at
-  all; a second account never does.
+  a turn as the user's words. By default that turn runs with the normal
+  policy, like a message typed on the Mac; with `remote.autoApprove` false
+  it runs with policy `ask`: no local effect happens without an approval the
+  user sees in the Chief chat, with the command or input shown. Only the
+  owner's own person reaches a turn at all; a second account never does.
+- Accepted risk (the default): a stolen or compromised paired phone can run
+  local commands on the Mac through the Chief, with no approval, until its
+  pairing is revoked. Revoke it in cmux Settings > Server > Devices (the
+  relay refuses its new streams at once on `host.revoke`). Turning
+  `remote.autoApprove` off on the Mac puts approvals back, which stops a
+  prompt injection but not the phone's holder (next item).
 - Residual risk: the paired device approves its own requests. Any person
   the gate admits answers the approvals, and that includes the device that
   started the turn. So `ask` stops a prompt injection (content the turn
@@ -896,8 +931,8 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   files. The host refuses to turn it on during remote-origin work, but any
   local process of the user, and any approve-all local turn, can write
   `optchat/settings.json` directly (the host reads it at its next start).
-  With it on, remote-origin turns are as powerful as local ones; it is off
-  by default.
+  With it on (the default), remote-origin turns are as powerful as local
+  ones.
 - Residual risk: an approval is full authority for the shown call. An
   approved command can start a background process that outlives the turn,
   or start an acpmux session directly with another policy (outside `chief
@@ -920,13 +955,40 @@ spawned from an `ask` turn asks too, and its shell call waits for a person).
 
 ## Deviations from the spec
 
-- **acpmux engine: cache breakpoints in the view (section 8).** On a Claude
-  harness the view's first piece is the system prompt (Claude Code's
-  breakpoint) and one marker sits at the last mark: two of the spec's three
-  breakpoints (50k and 100k; 80k is lost to Claude Code's own three). On
-  codex there are no breakpoints, only automatic prefix caching, routed by
-  the Chief's stable `prompt_cache_key` on the cmux codex fork (upstream's
-  per-thread key defeats it across turns; see Harnesses and cache layout).
+Taelin's updated recipe (gist 3c190e0, 2026-10-08) is followed for the view
+(due from the pair's last message, the 128 KB -> 64 KB sawtooth, the view
+saved at every message and never rebuilt), the compaction view (16-32 KB),
+the compaction order (8 message nodes ahead, a ready queue), the one system
+prompt for turns and compactions, the task texts with the 512-dash ruler,
+the Too long retry, the 4-line cache blocks and single-flight. The replay
+test `optchat-core/tests/cache_replay.rs` pins the cache rate: turns 99.3%,
+compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
+
+- **Claude Code compactor tools.** Compactions send the turns' system text,
+  but a compactor session keeps `--tools ""` and deny-all (isolation), so
+  on the Claude Code route its tool prefix differs from the turns' and it
+  does not read the turns' entry; compactions still read each other's.
+  The native engine with the API compactor sends the same system and tools
+  (tool_choice none).
+- **Kinds.** The log keeps `talk` for the agent's replies (the spec renames
+  it after the agent) and logs a subagent's report as a `user` message
+  starting "[id] " (the spec's `work`): old nodes say `talk:` forever, and
+  an older binary refuses an unknown kind. The prompt names both.
+- **System prompt.** No paragraph on computers (no device tools), no
+  `zoom("Name")`; the mid-turn line says a message interrupts at once.
+- **view.json** is the `memory/checkpoint` state row of the SQLite store,
+  written after every message.
+- **Single-flight** waits for the writer's reply, not its first streamed
+  byte (a compaction reply is one line).
+- **Model.** The compactor stays Claude Sonnet 5.5 at medium effort (spec:
+  Haiku at xhigh): untested here.
+- **Long messages.** A message over 200,000 characters is still logged
+  whole and cut in its compaction call only (STEP_MESSAGE), not split.
+- **Failed compactions** are retried after the fixed 10 s wait (and at the
+  next pump), not only at the next message.
+- **acpmux engine: cache marker.** Claude Code places 3 of the 4
+  breakpoints, so a turn adds one, on the last whole 4-line block; codex
+  has only automatic prefix caching (see Harnesses and cache layout).
 - **Messages during a turn (section 7, MASTER).** The spec delivers them at
   the next tool boundary; here a human message interrupts at once (see the
   top of this file), and MASTER's line says so. On the acpmux engine the
@@ -935,10 +997,6 @@ spawned from an `ask` turn asks too, and its shell call waits for a person).
   engine at the next turn. The brain-host contract has no user cancel, so
   neither engine can cancel a turn or the compactor wait on request; a turn
   past its limit is stopped.
-- **Memory line (MASTER).** The spec says "You keep no memory between
-  turns"; here MASTER says the chat is the memory, kept across turns, and
-  that zoom and date reach any past message, so the Chief zooms instead of
-  telling the user an earlier turn is gone.
 - **cmux routing.** Every turn, the native bash tool, the acpmux daemon the
   host starts and each child's preset carry `CMUX_TUI_SOCKET` and
   `CMUX_MUX_SOCKET` set to the app's daemon (`CMUX_APP_DAEMON_SOCKET`, else
@@ -1088,7 +1146,9 @@ manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts 
 
 `deploy/brain/install.sh` installs three user LaunchAgents
 (`ai.manaflow.chief-brain.{daemon,acpmux,host}`) under `~/.cmux/brains/chief` with
-pinned binaries; `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+pinned binaries (optchat-chief, cmux-tui, acpmux and the Rust `cmux` CLI, all from one
+build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux` calls run);
+`deploy/brain/rollback.sh` removes them and keeps the memory and key.
 
 ## Tests
 

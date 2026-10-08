@@ -22,6 +22,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
+TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
 GODFILES = ROOT / "scripts/cmux-next/check-no-godfiles.sh"
 JOB = "checks"
 
@@ -116,12 +118,44 @@ class ChecksJobStructure(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(path, push_paths)
 
+    def test_the_app_ffi_pin_is_checked_on_linux_on_every_run(self):
+        # swift test (macOS) carried this check. A newer push replaces a waiting
+        # swift test and a busy mini refuses its runner, so of 30 tip runs
+        # (2026-10-07 00:20Z to 01:05Z) none reached the step. The checks job
+        # runs on Linux for every push and pull request.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("ubuntu", document["jobs"][JOB]["runs-on"])
+        _, checks, _ = self.split()
+        pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
+        self.assertEqual(len(pin), 1, [step["name"] for step in checks])
+        self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
+        script_tests = next(step for step in checks if step.get("id") == "script-tests")
+        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+        # Only there: the macOS swift test job no longer carries a copy.
+        everywhere = [(job, step.get("name")) for job, spec in document["jobs"].items()
+                      for step in spec.get("steps", []) if "check-app-ffi-pin.sh" in str(step.get("run", ""))]
+        self.assertEqual(everywhere, [(JOB, "Check the app FFI pin")])
+
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
         godfile_runs = [step["run"] for step in checks if "check-no-godfiles.sh" in step["run"]]
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class ReferencedFilesExist(unittest.TestCase):
+    """Every test a checks step runs, and every test or workflow a path filter names, exists.
+    The bundle removal (ce0b9e76a9b) deleted tests/test_cmux_next_regenerate_bundles_workflow.py
+    and its workflow, but the Companion workflows step still ran the test, so every pull
+    request's checks went red (run 37646119996)."""
+
+    def test_named_tests_and_workflows_exist(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        named = set(re.findall(r"(?:python3|bash) (tests/[A-Za-z0-9_./-]+\.(?:py|sh))", text))
+        named |= set(re.findall(r"^\s+- ((?:tests|\.github/workflows)/[A-Za-z0-9_./-]+\.(?:py|sh|yml))$", text, re.M))
+        missing = sorted(path for path in named if not (ROOT / path).exists())
+        self.assertEqual(missing, [])
 
 
 class GodfileScopes(unittest.TestCase):
@@ -186,6 +220,30 @@ class GodfileScopes(unittest.TestCase):
         self.assertIn("Wide.swift", result.stdout)
         self.assertIn("long.rs", result.stdout)
 
+    def test_file_scope_measures_only_the_named_rust_files(self):
+        # safe-push passes the files a merge changed (a whole scan takes about
+        # a minute on the laptop and holds the push queue).
+        result = self.run_check("--only", "rust", "--file", "cmux-tui/crates/fixture/src/at_budget.rs")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("long.rs", result.stdout)
+        result = self.run_check("--only", "rust", "--file", "cmux-tui/crates/fixture/src/long.rs")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("long.rs has 1001 lines, 0 fns (limit 1000 lines, 60 fns", result.stdout)
+        self.assertNotIn("many_fns.rs", result.stdout)
+        self.assertNotIn("is gone", result.stdout)
+
+    def test_file_scope_sums_a_swift_type_over_its_module(self):
+        # A type spans every extension in its module, so an extension file
+        # alone still reports the whole type; an unnamed long file is skipped.
+        result = self.run_check("--only", "swift", "--file", "Packages/macOS/CmuxNext/Sources/Fixture/HugeMore.swift")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("type Fixture/Huge spans 1001 lines", result.stdout)
+        self.assertNotIn("Wide.swift", result.stdout)
+
+    def test_file_scope_cannot_rewrite_the_baseline(self):
+        result = self.run_check("--update-baseline", "--file", "cmux-tui/crates/fixture/src/long.rs")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
     def test_scope_cannot_rewrite_the_baseline(self):
         # A scoped baseline rewrite would drop the other half's entries.
         result = self.run_check("--update-baseline", "--only", "rust")
@@ -197,6 +255,126 @@ class GodfileScopes(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
+class GodfilePullRequestScope(unittest.TestCase):
+    """`--base REF` fails only on what this change grew: a god file already on the base never blocks
+    an unrelated pull request (acpmux profiles.rs and requests.rs did, 2026-10-07)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.package = self.repo / "Packages/macOS/CmuxNext"
+        (self.package / "Sources/Fixture").mkdir(parents=True)
+        (self.package / "Tests").mkdir()
+        # Over budget on the base, and in no baseline: a 401-line Swift file, a 1001-line type, a
+        # 1001-line Rust file. Plus a Rust file exactly at its budget.
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 401)
+        body = "".join(f"    let field{i} = {i}\n" for i in range(997))
+        (self.package / "Sources/Fixture/Huge.swift").write_text("struct Huge {\n" + body + "}\n")
+        self.rust = self.repo / "cmux-tui/crates/fixture/src"
+        self.rust.mkdir(parents=True)
+        (self.rust / "long.rs").write_text("// x\n" * 1001)
+        (self.rust / "at_budget.rs").write_text("// x\n" * 1000)
+        self.git("init", "-q", "-b", "base")
+        self.commit("base")
+        self.git("tag", "fixture-base")
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message, "--allow-empty")
+
+    def run_check(self, *args: str) -> subprocess.CompletedProcess:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
+                              capture_output=True, text=True, env=env, timeout=120)
+
+    def both(self, *args: str) -> tuple[subprocess.CompletedProcess, subprocess.CompletedProcess]:
+        return self.run_check("--only", "swift", *args), self.run_check("--only", "rust", *args)
+
+    def test_without_a_base_the_base_reds_still_fail(self):
+        swift, rust = self.both()
+        self.assertEqual((swift.returncode, rust.returncode), (1, 1), swift.stdout + rust.stdout)
+
+    def test_an_unrelated_change_passes_over_base_reds(self):
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
+        self.commit("unrelated")
+        for result in self.both("--base", "fixture-base"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("over budget on the base", result.stdout)
+
+    def test_a_merge_commit_s_first_parent_is_a_base(self):
+        self.git("checkout", "-q", "-b", "lane")
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        self.commit("lane work")
+        self.git("checkout", "-q", "base")
+        self.git("merge", "-q", "--no-ff", "-m", "merge", "lane")
+        for result in self.both("--base", "HEAD^1"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_growing_an_over_budget_file_fails(self):
+        (self.rust / "long.rs").write_text("// x\n" * 1002)
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 402)
+        self.commit("grow")
+        swift, rust = self.both("--base", "fixture-base")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("long.rs has 1002 lines", rust.stdout)
+        self.assertEqual(swift.returncode, 1, swift.stdout)
+        self.assertIn("Wide.swift has 402 lines", swift.stdout)
+
+    def test_growing_an_over_budget_type_in_another_file_fails(self):
+        (self.package / "Sources/Fixture/HugeMore.swift").write_text("extension Huge {\n    func more() {}\n}\n")
+        self.commit("grow the type")
+        swift, _ = self.both("--base", "fixture-base")
+        self.assertEqual(swift.returncode, 1, swift.stdout)
+        self.assertIn("type Fixture/Huge spans 1002 lines", swift.stdout)
+
+    def test_pushing_a_file_past_its_budget_or_adding_one_fails(self):
+        (self.rust / "at_budget.rs").write_text("// x\n" * 1001)
+        (self.rust / "new.rs").write_text("fn f() {}\n" * 61)
+        self.commit("past budget")
+        _, rust = self.both("--base", "fixture-base")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("at_budget.rs has 1001 lines", rust.stdout)
+        self.assertIn("new.rs has 61 lines, 61 fns", rust.stdout)
+        self.assertNotIn("long.rs has", rust.stdout)
+
+    def test_shrinking_never_fails(self):
+        (self.rust / "long.rs").write_text("// x\n" * 1000)
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 300)
+        self.commit("shrink")
+        for result in self.both("--base", "fixture-base"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_unknown_base_runs_the_full_check(self):
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        self.commit("unrelated")
+        _, rust = self.both("--base", "no-such-ref")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("checking every file", rust.stdout + rust.stderr)
+
+    def test_ci_scopes_pull_requests_to_their_own_growth(self):
+        job = steps()
+        runs = [step["run"] for step in job if "check-no-godfiles.sh" in step.get("run", "")]
+        self.assertEqual(len(runs), 2)
+        for run in runs:
+            self.assertIn("--base HEAD^1", run)
+            self.assertIn("pull_request", run)
+        checkout = next(step for step in job if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)
+        tui = yaml.safe_load((ROOT / ".github/workflows/cmux-tui.yml").read_text(encoding="utf-8"))
+        lint = tui["jobs"]["lint"]["steps"]
+        rust = next(step for step in lint if "check-no-godfiles.sh" in step.get("run", ""))
+        # The exact commit's merge base with feat-cmux-next, from the compare API, fetched alone.
+        self.assertIn("compare/feat-cmux-next...", rust["run"])
+        self.assertIn("merge_base_commit.sha", rust["run"])
+        self.assertIn('--base "$merge_base"', rust["run"])
+
+
 class PathRoutingStructure(unittest.TestCase):
     def test_path_route_gates_each_mac_job_on_its_tier(self):
         """tests/test_cmux_next_route.py covers which paths reach which tier."""
@@ -204,7 +382,8 @@ class PathRoutingStructure(unittest.TestCase):
         route = jobs["path_route"]
         for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
             self.assertIn(output, route["outputs"])
-        self.assertIn("scripts/ci/cmux_next_route.py", route["steps"][-1]["run"])
+        route_step = next(step for step in route["steps"] if step.get("id") == "route")
+        self.assertIn("scripts/ci/cmux_next_route.py", route_step["run"])
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
@@ -230,21 +409,20 @@ class PathRoutingStructure(unittest.TestCase):
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
 
-    def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
+    def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
+        """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
+        token" failed on every stale PR; it is removed, not widened. A stale generated file
+        fails generated-files with the commands that regenerate it."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        autofix = jobs["generated-autofix"]
-        self.assertIn("head.repo.full_name == github.repository", autofix["if"])
-        self.assertNotIn("vars.", str(autofix["runs-on"]))
-        run = autofix["steps"][-1]["run"]
-        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
-        self.assertIn('"$current" != "$HEAD_SHA"', run)
-        self.assertNotIn("--force", run)
-        # Never a bot push to a protected branch.
-        self.assertIn("github.event.pull_request.head.ref != 'main'", autofix["if"])
-        # The regenerated files are copied onto the head, not patched against
-        # the merge commit, whose context the head may not have.
-        self.assertNotIn("git apply \"$patch\"", run)
-        self.assertIn("git add", run)
+        self.assertNotIn("generated-autofix", jobs)
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("Mint the autofix token", text)
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
+        self.assertIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
+        self.assertIn("exit 1", fail["run"])
+        self.assertNotIn("autofix", fail["run"])
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -271,12 +449,52 @@ class PathRoutingStructure(unittest.TestCase):
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
+        # Main's promote-nightly-next refuses a head whose push run has no successful
+        # "cmux-next Release compile (Xcode 26)" job. Requested after the Linux checks alone, it
+        # ran about 10 minutes before that job finished and refused every head from 00:12Z to
+        # 15:00Z on 2026-10-07 (run 37638104609). The request waits for that job and nothing
+        # else, so an unrelated red never holds the promotion.
         self.assertEqual(nightly["needs"], "release-compile")
+        self.assertEqual(jobs["release-compile"]["name"], "cmux-next Release compile (Xcode 26)")
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
         self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        self.assertNotIn("needs.checks", nightly["if"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
+
+    def test_every_green_feat_push_promotes_without_a_debounce(self):
+        """nightly-next rolls forward to every green head. Promotions are never dropped by a
+        time window; nightly.yml's own concurrency group coalesces them: the running build
+        finishes and only the newest pending one runs next."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = "\n".join(step.get("run", "") for step in jobs["request-nightly-next"]["steps"])
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh", run)
+        # Behavior (requests only a green commit with a published tree) is covered by
+        # scripts/cmux-next/tests/request-nightly-next.test.sh.
+        script = (WORKFLOW.parents[2] / "scripts/cmux-next/request-nightly-next.sh").read_text(encoding="utf-8")
+        self.assertIn("-f promote_nightly_next_sha=", script)
+        self.assertNotIn("promote_nightly_next_debounce=true", script)
+        nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
+        group = nightly["concurrency"]["group"]
+        self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
+        self.assertIs(nightly["concurrency"]["cancel-in-progress"], False)
+
+    def test_batch_dispatch_runs_every_dispatch_gated_job(self):
+        # scripts/ci/next_batch.py validates a stack of pull requests by
+        # dispatching this workflow on a next-batch/* branch. Every job that
+        # dispatch gates to feat-cmux-next must also run there, or the batch
+        # would pass with its macOS tiers skipped.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gated = {name: job for name, job in jobs.items()
+                 if "refs/heads/feat-cmux-next" in str(job.get("if", ""))
+                 and "workflow_dispatch" in str(job.get("if", ""))}
+        self.assertGreaterEqual(len(gated), 6)
+        for name, job in gated.items():
+            with self.subTest(job=name):
+                self.assertIn("startsWith(github.ref, 'refs/heads/next-batch/')", job["if"])
+        # Nightly promotion and the dogfood artifact stay feat-cmux-next pushes only.
+        self.assertNotIn("next-batch", jobs["request-nightly-next"]["if"])
 
     def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
         for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
@@ -458,7 +676,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "same-tree-cmux-tui", "swift-test"])
+                                           "request-nightly-next", "swift-test"])
 
 
 
@@ -466,39 +684,108 @@ class SupersededCommitIsNotRed(unittest.TestCase):
     """A superseded commit's cmux-next run skips the jobs that need its tree.
 
     Queued cmux-tui artifacts runs of an older branch head are superseded by
-    design, so that commit's same-tree cmux-tui is never published. The gate
-    job runs `pin-cmux-tui.sh wait` on a Linux runner (no macOS runner waits
-    for a tree) and reports superseded=true; every job that fetches the tree
-    then ends skipped, not failed. A real publish failure fails the gate.
+    design, so that commit's same-tree cmux-tui is never published. Path
+    routing's probe (pin-cmux-tui.sh probe, covered by
+    scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh) reports
+    tree_state=superseded, and every job that fetches the tree runs only on
+    tree_state=ready: skipped, not failed. A tree that nothing will publish is
+    red in same-tree-cmux-tui.
     """
-
-    GATE = "same-tree-cmux-tui"
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
-    def test_the_gate_waits_for_the_tree_and_reports_superseded(self):
-        gate = self.jobs().get(self.GATE)
-        self.assertIsNotNone(gate, f"no {self.GATE} job")
-        self.assertEqual(gate.get("outputs", {}).get("superseded"), "${{ steps.wait.outputs.superseded }}")
-        runs = [step for step in gate["steps"] if "pin-cmux-tui.sh wait" in step.get("run", "")]
-        self.assertEqual(len(runs), 1)
-        self.assertEqual(runs[0].get("id"), "wait")
-        self.assertIn("ubuntu", gate["runs-on"])
-        self.assertNotIn("macos", gate["runs-on"])
-
-    def test_every_tree_fetching_job_skips_a_superseded_commit(self):
+    def test_every_tree_fetching_job_runs_only_on_a_ready_tree(self):
         fetching = {
             name: job for name, job in self.jobs().items()
             if any("pin-cmux-tui.sh fetch" in step.get("run", "") for step in job.get("steps", []))
         }
-        self.assertTrue(fetching)
+        self.assertEqual(sorted(fetching), sorted(TREE_JOBS))
         for name, job in fetching.items():
             with self.subTest(job=name):
-                self.assertIn(self.GATE, job["needs"])
                 condition = " ".join(job["if"].split())
-                self.assertIn(f"needs.{self.GATE}.result == 'success'", condition)
-                self.assertIn(f"needs.{self.GATE}.outputs.superseded != 'true'", condition)
+                self.assertIn("needs.path_route.outputs.tree_state == 'ready'", condition)
+                self.assertIn("path_route", job["needs"])
+
+
+
+class SameTreeIsAnEvent(unittest.TestCase):
+    """No runner waits for the same-tree cmux-tui.
+
+    The old gate job polled the CDN on a Blacksmith runner for up to 45
+    minutes (10,934 job-minutes on 2026-10-06). Now path routing probes once:
+    a published tree runs the tree jobs in the same run; an unpublished one
+    leaves a marker artifact, and the cmux-tui artifacts run that publishes
+    the key dispatches cmux-next's same-tree mode (cmux_next_tree_notify.py).
+    """
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def test_no_step_polls_for_the_tree(self):
+        for name, job in self.jobs().items():
+            for step in job.get("steps", []):
+                run = step.get("run", "")
+                with self.subTest(job=name, step=step.get("name")):
+                    self.assertNotIn("pin-cmux-tui.sh wait", run)
+                    if "pin-cmux-tui.sh fetch" in run:
+                        # The tree is published before a tree job starts: a download, not a wait.
+                        self.assertLessEqual(int(step["env"]["CMUX_TUI_TREE_WAIT_SECONDS"]), 120)
+
+    def test_path_route_probes_once_and_leaves_a_marker(self):
+        route = self.jobs()["path_route"]
+        self.assertIn("tree_state", route["outputs"])
+        runs = " ".join(step.get("run", "") for step in route["steps"])
+        self.assertIn("pin-cmux-tui.sh probe", runs)
+        uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
+        self.assertEqual(len(uploads), 1)
+        self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
+        # The probe dispatches one cmux-tui artifacts run for a same-repository
+        # PR's unpublished merge tree: a pin ref (contents) and a dispatch (actions).
+        self.assertEqual(route["permissions"].get("actions"), "write")
+        self.assertEqual(route["permissions"].get("contents"), "write")
+
+    def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
+        jobs = self.jobs()
+        for name in TREE_JOBS:
+            job = jobs[name]
+            condition = " ".join(job["if"].split())
+            with self.subTest(job=name):
+                self.assertNotIn("same-tree-cmux-tui", job["needs"])
+                self.assertIn("needs.path_route.outputs.tree_state == 'ready'", condition)
+                self.assertIn("inputs.same_tree_state == 'ready'", condition)
+                checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+                self.assertIn("inputs.same_tree_sha", str(checkout["with"].get("ref", "")))
+
+    def test_same_tree_mode_runs_only_the_tree_jobs(self):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        inputs = document.get("on", document.get(True))["workflow_dispatch"]["inputs"]
+        for name in ("same_tree_sha", "same_tree_tiers", "same_tree_status_sha", "same_tree_state",
+                     "same_tree_reason", "same_tree_origin", "same_tree_origin_run"):
+            self.assertIn(name, inputs)
+        jobs = self.jobs()
+        for name in ("push-head-preflight", "path_route", "checks"):
+            with self.subTest(job=name):
+                self.assertIn("inputs.same_tree_sha == ''", jobs[name]["if"])
+
+    def test_an_unavailable_tree_is_red_without_waiting(self):
+        gate = self.jobs()["same-tree-cmux-tui"]
+        self.assertLessEqual(int(gate["timeout-minutes"]), 5)
+        self.assertIn("needs.path_route.outputs.tree_state == 'failed'", gate["if"])
+        self.assertIn("inputs.same_tree_state == 'failed'", gate["if"])
+        self.assertFalse([step for step in gate["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
+
+    def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
+        jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for name, state in (("publish-tree", "ready"), ("publish-pr-tree", "ready"), ("notify-unpublished-tree", "failed")):
+            job = jobs[name]
+            notify = [step for step in job["steps"] if "scripts/ci/cmux_next_tree_notify.py" in step.get("run", "")]
+            with self.subTest(job=name):
+                self.assertEqual(len(notify), 1)
+                self.assertIn(f"--state {state}", notify[0]["run"])
+                self.assertEqual(job["permissions"].get("actions"), "write")
+                # A notify failure must not turn a good publication red.
+                self.assertTrue(notify[0].get("continue-on-error"))
 
 
 if __name__ == "__main__":

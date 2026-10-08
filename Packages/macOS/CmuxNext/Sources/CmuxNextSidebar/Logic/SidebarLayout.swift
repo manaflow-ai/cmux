@@ -140,12 +140,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    let h = m.height(for: ws)
+                    let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now)
+                    let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: false, childCount: 0, groupColor: nil,
-                        tabDisclosure: disclosure(ws), tabCount: o.showCounts ? ws.tabs.count : nil
+                        tabDisclosure: disclosure(ws), content: content
                     ))
                     y += h + m.rowSpacing
                     if listsTabs(ws) {
@@ -170,13 +171,14 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     guard !groupCollapsed else { continue }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        let h = m.height(for: ws)
+                        let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now)
+                    let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: childIndex == entry.children.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: disclosure(ws), tabCount: o.showCounts ? ws.tabs.count : nil
+                            tabDisclosure: disclosure(ws), content: content
                         ))
                         y += h + m.rowSpacing
                         if listsTabs(ws) {

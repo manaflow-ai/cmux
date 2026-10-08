@@ -21,13 +21,24 @@ public nonisolated enum AgentPaneJSONScalar: Equatable, Sendable {
 
 /// The pick a gesture ticket is bound to (B1, ad349; the contract agreed with the ACP UI lead):
 /// `transport.gesture {intent: {method: "session/set_mode", params: {modeId}}}` or
-/// `{intent: {method: "session/set_config_option", params: {configId, value}}}`. Nothing else.
+/// `{intent: {method: "session/set_config_option", params: {configId, value}}}`, or a prompt the
+/// user sent that acpmux held for the folder trust answer,
+/// `{intent: {method: "session/prompt", params: {promptId}}}`: the send's own gesture, kept for that
+/// one prompt (its `_meta.acpmux.promptId`), so the Trust click's gesture goes to the trust answer.
+/// Nothing else.
 public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// The methods a ticket may be redeemed by, and the exact param keys of their intent.
     public static let methods: [String: Set<String>] = [
         "session/set_mode": ["modeId"],
         "session/set_config_option": ["configId", "value"],
+        "session/prompt": ["promptId"],
     ]
+
+    /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
+    /// while the user answers the folder trust question.
+    public var lifetime: TimeInterval {
+        method == "session/prompt" ? AgentPaneUserGestures.heldPromptLifetime : AgentPaneUserGestures.ticketLifetime
+    }
 
     public var method: String
     public var params: [String: AgentPaneJSONScalar]
@@ -71,12 +82,18 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
 
 /// What a frame picks, as small values for the main actor: its method and its params other than
 /// `sessionId` and `_meta`, each a JSON scalar; nil params when one is not a scalar (no match).
+/// A session/prompt picks only its `_meta.acpmux.promptId` (its blocks are no pick).
 public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
     public var method: String?
     public var params: [String: AgentPaneJSONScalar]?
 
     public init(method: String?, params: [String: Any]) {
         self.method = method
+        if method == "session/prompt" {
+            let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
+            return
+        }
         var scalars: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in params where key != "sessionId" && key != "_meta" {
             guard let scalar = AgentPaneJSONScalar(value) else {

@@ -92,6 +92,32 @@ if ! awk '
   exit 1
 fi
 
+if ! awk '
+  /^      - name: Download signing inputs \(parallel\)/ { in_download=1; next }
+  in_download && /^      - name:/ { in_download=0 }
+  in_download && /id: signing-inputs-parallel/ { saw_id=1 }
+  in_download && /download-run-artifact.py/ { downloads++ }
+  in_download && /--name cmux-nightly-unsigned-app --out nightly-inputs\/app/ { saw_app_download=1 }
+  in_download && /--connections 64/ { saw_app_connections=1 }
+  in_download && /app_ok=/ { saw_app_output=1 }
+  in_download && /daemon_ok=/ { saw_daemon_output=1 }
+  in_download && /helper_ok=/ { saw_helper_output=1 }
+  END { exit !(saw_id && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
+  exit 1
+fi
+
+for fallback in \
+  "if: steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
+  if ! grep -Fq "$fallback" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly signing input fallback is missing: $fallback"
+    exit 1
+  fi
+done
+
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
   exit 1
@@ -281,6 +307,61 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
+if ! awk '
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
+  job == "delta" && /--count 1/ { saw_previous=1 }
+  job == "delta" && /SPARKLE_MAXIMUM_DELTAS=1/ { saw_max=1 }
+  job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
+  END { exit !(saw_previous && saw_max && saw_artifact && !initial_delta) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: initial appcasts must be full-only and delta generation must run later per variant"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { delta=NR; next }
+  /^  republish-nightly-deltas:/ { republish=NR; next }
+  /^  publish-nightly:/ { publish=NR; next }
+  /^  report-nightly-failure:/ { report=NR; next }
+  END { exit !(publish && delta && republish && publish < delta && delta < republish && report > republish) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: Sparkle deltas must be downstream of first publication and before failure closeout"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  republish-nightly-deltas:/ { job="republish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /fail-fast: false/ { saw_matrix=1 }
+  job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
+  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
+  job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_republish && saw_r2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
+  in_clear && /^      - name:/ { in_clear=0 }
+  in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
+  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
+  END { exit !(saw_clear && saw_prepare && saw_key) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  exit 1
+fi
 
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
@@ -306,8 +387,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
+# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
+if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
   exit 1
 fi
 
@@ -586,13 +668,14 @@ if ! awk '
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
   in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
-  in_publish && /--immutable .*arm64-.*NIGHTLY_BUILD/ { saw_immutable_arm=1 }
-  in_publish && /--immutable .*x86_64-.*NIGHTLY_BUILD/ { saw_immutable_intel=1 }
-  in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
-  in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
-  in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
-  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && saw_immutable_intel && saw_immutable_universal && alias_count == 4 && feed_count == 4) }
-' "$WORKFLOW_FILE"; then
+  # Main publishes every variant, four aliases and the four feeds decide lists;
+  # nightly-next publishes arm64 only (tests/test_nightly_next_arm64_only.py).
+  in_publish && /variants=\(arm64 x86_64 universal\)/ { saw_all_variants=1 }
+  in_publish && /--immutable .*CHANNEL_DMG_PREFIX.*-\$\{variant\}-\$\{NIGHTLY_BUILD\}\.dmg/ { saw_immutable_variants=1 }
+  in_publish && /aliases=\(.*-arm64\.dmg.*-x86_64\.dmg.*-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"\)/ { saw_four_aliases=1 }
+  in_publish && /for feed in \$NIGHTLY_FEEDS/ { saw_feeds=1 }
+  END { exit !(saw_publish_if && saw_publisher && saw_all_variants && saw_immutable_variants && saw_four_aliases && saw_feeds) }
+' "$WORKFLOW_FILE" || ! grep -Fq ": ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
   exit 1
 fi
@@ -675,9 +758,23 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
-# a newer publication cannot cancel an earlier candidate or race its aliases.
+# nightly-next keeps its own concurrency group. A group shared with main let
+# every main push replace the pending nightly-next run (run 37579667979 was
+# cancelled before any job by main push run 37580645859), so the lower-frequency
+# track starved. The cross-feed build floor (nightly_version.py check-build)
+# still refuses a nightly-next build that is not above main's feed; that race
+# needs a main run to publish inside one nightly-next build and fails loudly.
+if grep -Fq "github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly-next must not share main's concurrency group (main pushes replace its pending run)"
+  exit 1
+fi
+if ! grep -Fq 'python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly-next must keep the cross-feed build floor check"
+  exit 1
+fi
+
+# Every nightly lane must let an in-flight build finish. GitHub still keeps one
+# pending run per group, so a newer push replaces only an older queued run.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
   exit 1
@@ -690,12 +787,12 @@ if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
   echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
   exit 1
 fi
-if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
+if ! grep -Fq "cancel-in-progress: false" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly runs must never cancel an in-flight build"
   exit 1
 fi
-if grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: the publishing schedule must not cancel an older nightly run"
+if grep -Eq "cancel-in-progress: \$\{\{" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly cancellation must be a literal false policy, not an event expression"
   exit 1
 fi
 

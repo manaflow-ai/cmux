@@ -22,10 +22,12 @@ struct DiffSidecarProcessTests {
 
     static let fast = DiffSidecarProcess.Limits(startup: .seconds(5), request: .seconds(10), grace: .milliseconds(100))
 
-    @Test func writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() async throws {
+    @Test(.timeLimit(.minutes(1))) func writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() async throws {
         let sidecar = try Self.script("\(Self.marker)\ncat > \"$DIR/request\"\nprintf '{\"id\":\"1\",\"result\":{\"type\":\"sessionClosed\"}}'")
+        // Assert the pipe handshake and bytes, independent of scheduling delays
+        // in parallel app tests. The deadline tests below use the real clock.
         let reply = try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data(#"{"method":"x"}"#.utf8),
-                                                     limits: Self.fast)
+                                                     limits: Self.fast, clock: ManualClock())
         #expect(String(decoding: reply, as: UTF8.self) == #"{"id":"1","result":{"type":"sessionClosed"}}"#)
         let request = try Data(contentsOf: sidecar.deletingLastPathComponent().appending(path: "request"))
         #expect(String(decoding: request, as: UTF8.self) == #"{"method":"x"}"#)

@@ -165,7 +165,10 @@ export function DiffPanel({
     const close = (event: KeyboardEvent) => {
       const focus = document.activeElement;
       if (event.key !== "Escape" || event.defaultPrevented || focus instanceof HTMLInputElement) return;
-      if (!focus || focus === document.body || panel.current?.contains(focus)) onClose();
+      if (!focus || focus === document.body || panel.current?.contains(focus)) {
+        event.preventDefault();
+        onClose();
+      }
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);

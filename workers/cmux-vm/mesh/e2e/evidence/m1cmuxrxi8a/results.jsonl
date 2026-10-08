@@ -1,0 +1,15 @@
+{"t":1791357377057,"event":"mesh","meshId":"mesh_vv78najr5586k2kwtbtmgtayfr","ipv4Cidr":"10.201.192.0/20","ms":133}
+{"t":1791357377217,"event":"vm","vmId":"vm_mdk6svg4kwcd4pgv99e3dz6g18","state":"running","idleTimeoutSeconds":300,"ms":160}
+{"t":1791357377448,"event":"vm-joined","ipv4":"10.201.192.1","ms":230}
+{"t":1791357378495,"event":"vm-server","exitCode":0,"stdout":"1"}
+{"t":1791357378640,"event":"keygen","code":0,"publicKey":"XZUh5Fp6+lJHRStEWWToZhbLFl2HzX2ArjFfX7ccW3s="}
+{"t":1791357408648,"event":"enroll","code":1,"stderr":"{\"error\":\"Transport\",\"message\":\"http://127.0.0.1:65429/v1/meshes/mesh_vv78najr5586k2kwtbtmgtayfr/devices: Network Error: Network Error: Error encountered in the status line: timed out reading response\"}\n"}
+{"t":1791357408649,"event":"error","message":"Error: enroll failed"}
+{"t":1791357408827,"event":"cleanup","path":"/v1/meshes/mesh_vv78najr5586k2kwtbtmgtayfr/vms/vm_mdk6svg4kwcd4pgv99e3dz6g18","status":204}
+{"t":1791357408888,"event":"cleanup","path":"/v1/vms/vm_mdk6svg4kwcd4pgv99e3dz6g18","status":204}
+{"t":1791357408935,"event":"cleanup","path":"/v1/meshes/mesh_vv78najr5586k2kwtbtmgtayfr","status":204}
+{"t":1791357408937,"event":"cmux-404","path":"/v1/vms/vm_mdk6svg4kwcd4pgv99e3dz6g18","status":404}
+{"t":1791357408939,"event":"cmux-404","path":"/v1/meshes/mesh_vv78najr5586k2kwtbtmgtayfr","status":404}
+{"t":1791357408956,"event":"provider-404","kind":"vpc","id":"vpc-45b8fd4ed753400c9d4d773deb58c38c","status":404}
+{"t":1791357408970,"event":"provider-404","kind":"vm","id":"vm-381cfd3ef81b425982cdd4acd7821a5d","status":404}
+{"t":1791357408971,"event":"done","run":"m1cmuxrxi8a","ok":false,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m1cmuxrxi8a"}

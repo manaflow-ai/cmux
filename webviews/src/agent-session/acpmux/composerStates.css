@@ -35,14 +35,22 @@
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
 }
 
-/* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
+/* Send and Stop: the one filled control, in the terminal theme's text color (never the ANSI blue);
+   its arrow is the opaque base; it steps toward the base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover,
 .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
 }
 .acpmux-send.acpmux-send-ready:active,
 .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
+}
+
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
+button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-muted);
+  cursor: default;
 }
 
 /* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
@@ -144,7 +152,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: 40vh;
+  max-height: calc(22px * 8 + 23px);
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;

@@ -1,9 +1,11 @@
 //! `cmux-rd`: the Linux remote desktop host engine (phase 1, virtual X display) and its
 //! measurement tools. Subcommands:
-//!   host     --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec x264|openh264] [--openh264-lib PATH] [--profile high|baseline]
+//!   host     --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264] [--openh264-lib PATH] [--profile high|baseline]
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
+//!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
+//!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
 //! The host and the test app are Linux (X11); encode-selftest and bench also build on macOS.
 //! Design: plans/cmux-next/remote-desktop.md. Wire: crate cmux-rd-proto.
 
@@ -33,6 +35,7 @@ mod stream;
 #[cfg(target_os = "linux")]
 mod testapp;
 mod token;
+mod upstream;
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;
@@ -44,7 +47,9 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
     let Some(cmd) = argv.get(1) else {
-        eprintln!("usage: cmux-rd host|bench|testapp [--key value ...]");
+        eprintln!(
+            "usage: cmux-rd host|bench|testapp|encode-selftest|openh264-install [--key value ...]"
+        );
         std::process::exit(2);
     };
     let opts = match args::Opts::parse(&argv[2..]) {
@@ -62,6 +67,8 @@ fn main() {
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         "encode-selftest" => selftest::run(&opts),
+        #[cfg(feature = "openh264")]
+        "openh264-install" => encoder::install_openh264(&opts),
         other => Err(format!("unknown command {other}").into()),
     };
     if let Err(e) = result {

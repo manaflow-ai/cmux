@@ -1,12 +1,17 @@
 // The changes view's filterable file tree, on @pierre/trees.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
+import { createTextMeasure, diffStatSpriteSheet, fileTreeStatsDecoration } from "../../../file-tree-stats";
 import type { TurnFile } from "../diff";
 import { treeUnsafeCSS } from "../diffTheme";
 import { Search } from "../changeIcons";
 import { useT } from "../i18n";
+import { experimentArm } from "../../../experiments/experiment";
+import { diffTreeDisclosure, TREE_NAME_FADES, treeNameFade } from "./treeMotion.experiment";
+import { attachTreeMotion } from "./treeMotionDom";
+import { attachTreeTitles } from "./treeTitles";
 
 export function ChangedFilesTree({
   files,
@@ -18,18 +23,44 @@ export function ChangedFilesTree({
   onSelect: (path: string) => void;
 }) {
   const t = useT();
+  // The folder disclosure motion and the long-name fade (the experiments' arms; their defaults ship).
+  const disclosure = experimentArm(diffTreeDisclosure);
+  const fadeWidth = TREE_NAME_FADES[experimentArm(treeNameFade)];
+  const motionRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node) return;
+      const detachMotion = attachTreeMotion(node, disclosure);
+      const detachTitles = attachTreeTitles(node, { fadeWidth });
+      return () => {
+        detachMotion();
+        detachTitles();
+      };
+    },
+    [disclosure, fadeWidth],
+  );
   const byDisplay = useMemo(() => new Map(files.map((file) => [file.displayPath, file])), [files]);
   // The tree keeps the renderer it was built with; it reads the current files through a ref.
   const filesRef = useRef(byDisplay);
   filesRef.current = byDisplay;
+  const [measureStats] = useState(() =>
+    createTextMeasure('system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'),
+  );
+  const statsSpriteSheet = useMemo(
+    () =>
+      diffStatSpriteSheet(
+        files.map((file) => ({ added: file.additions, deleted: file.deletions })),
+        measureStats,
+      ),
+    [files, measureStats],
+  );
   const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
     const file = filesRef.current.get(item.path);
     if (!file || item.kind !== "file") return null;
-    // This Pierre draws a decoration's text only, so the counts take the tree's muted color.
-    const text = [file.additions > 0 && `+${file.additions}`, file.deletions > 0 && `-${file.deletions}`]
-      .filter(Boolean)
-      .join(" ");
-    return text ? { text } : null;
+    return fileTreeStatsDecoration(
+      { added: file.additions, deleted: file.deletions },
+      { additions: "+", deletions: "-" },
+      measureStats,
+    );
   };
   // Pierre reports selection from clicks and keys; only file rows map to a diff.
   const onSelectionChange = useStableCallback((paths: readonly string[]) => {
@@ -61,11 +92,18 @@ export function ChangedFilesTree({
     initialExpansion: "open",
     initialSelectedPaths: selectedDisplay ? [selectedDisplay] : [],
     onSelectionChange,
-    icons: { set: "complete", colored: true },
+    icons: {
+      set: "complete",
+      colored: true,
+      spriteSheet: statsSpriteSheet,
+    },
     itemHeight: 28,
     renderRowDecoration,
     unsafeCSS: treeUnsafeCSS,
   });
+  useEffect(() => {
+    model.setIcons({ set: "complete", colored: true, spriteSheet: statsSpriteSheet });
+  }, [model, statsSpriteSheet]);
   // A transcript update rebuilds the files; the tree resets only when the paths differ.
   const shown = useRef(displayPaths);
   useEffect(() => {
@@ -89,7 +127,9 @@ export function ChangedFilesTree({
         />
       </label>
       {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">{t("changes.noMatchingFiles")}</div>}
-      <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowPick} onKeyDown={onRowPick} />
+      <div className="acpmux-diff-tree-motion" ref={motionRef}>
+        <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowPick} onKeyDown={onRowPick} />
+      </div>
     </>
   );
 }

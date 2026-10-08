@@ -3,9 +3,10 @@ import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
-import { useEscapeCloses } from "./menuEscape";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
@@ -61,6 +62,7 @@ export function EffortPicker({
     trigger.current?.focus();
   };
   useEscapeCloses(open, close);
+  const press = usePopoverTrigger(open, setOpen);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -85,7 +87,7 @@ export function EffortPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        onClick={() => setOpen(!open)}
+        {...press}
       >
         <span>{chip}</span>
         {chevron}

@@ -3,11 +3,9 @@ import CmuxNextDesign
 import CmuxNextPages
 
 extension WindowController {
-    /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights,
-    /// and the window controls that collapse while the sidebar is hidden (nxdog41). Strips under
-    /// the top row relay out with the controls, animated (`WindowRootView+CornerReveal`).
+    /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights
+    /// and the toggle's glyph. Strips under the top row relay out after it.
     func observeSidebarHidden() {
-        root.onWindowControlsChange = { [weak self] _ in self?.relayoutTopRowStrips() }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in Observations({ model.isHidden }) {
@@ -24,8 +22,7 @@ extension WindowController {
         }
     }
 
-    /// Strips under the traffic lights recompute their inset (inside an animation group when the
-    /// window controls change, so the tabs slide).
+    /// Strips under the traffic lights recompute their inset.
     private func relayoutTopRowStrips() {
         for pane in content?.panes.values.map({ $0 }) ?? [] {
             pane.view.stripView.updateWindowControlsAvoidance()
@@ -42,10 +39,6 @@ extension WindowController {
         root.showsTitlebarBadge = sidebar.model.isHidden
         root.needsLayout = true
     }
-
-    /// Full screen keeps the window's controls as they are (no collapse).
-    func windowDidEnterFullScreen(_ notification: Notification) { root.applyCornerReveal() }
-    func windowDidExitFullScreen(_ notification: Notification) { root.applyCornerReveal() }
 
     /// Pages in this window read the sidebar state (`data-app-sidebar`).
     private func pagesDidChangeChrome() {

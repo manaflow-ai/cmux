@@ -135,7 +135,7 @@ impl LayoutColumn {
         }
         self.root = fold(&rows, trees);
         self.rows = rows;
-        self.zellij_auto_layout = None;
+        self.creation_order_auto_layout = None;
     }
 
     /// Adds `row` holding `tree` below the row of `target`. A column without
@@ -185,7 +185,7 @@ impl LayoutColumn {
         edit: impl FnOnce(&mut Node, &mut Option<Vec<PaneId>>),
     ) {
         if self.rows.len() < 2 {
-            edit(&mut self.root, &mut self.zellij_auto_layout);
+            edit(&mut self.root, &mut self.creation_order_auto_layout);
             return;
         }
         let mut rows = self.row_trees();
@@ -222,7 +222,7 @@ impl Screen {
             }
             let root = std::mem::replace(&mut self.root, Node::Leaf(0));
             self.layout_columns.push(LayoutColumn::new(base_column, 1.0, root, None));
-            self.zellij_auto_layout = None;
+            self.creation_order_auto_layout = None;
         }
         let inserted = self
             .layout_column_for_pane_mut(target)

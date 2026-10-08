@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
@@ -39,18 +40,21 @@ import Testing
         #expect(target == .position(DropPosition(section: local, index: 0)))
     }
 
-    @Test func liveStatusOrPassiveDetailEarnsASecondLine() {
+    /// SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: only a turned-on element with
+    /// text earns a second line; a blank status never does.
+    @Test func onlyAShownElementWithTextEarnsASecondLine() {
         let m = SidebarLayoutMetrics.standard
-        let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~")
-        let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~", status: "Claude: running tests")
+        let passive = SidebarWorkspace(id: id("a"), title: "a", directory: "~")
+        let live = SidebarWorkspace(id: id("b"), title: "b", directory: "~", status: "Claude: running tests")
         let blank = SidebarWorkspace(id: id("c"), title: "c", status: "")
-        #expect(passive.liveDetail == nil)
-        #expect(blank.liveDetail == nil)
-        #expect(live.liveDetail == "Claude: running tests")
-        #expect(passive.rowDetail == "~")
-        #expect(m.height(for: passive) == m.rowHeightWithSubtitle)
-        #expect(m.height(for: blank) == m.rowHeight)
-        #expect(m.height(for: live) == m.rowHeightWithSubtitle)
+        var on = WorkspaceRowPreferences.defaults
+        on.base.shown.formUnion([.directory, .agentStatus])
+        for ws in [passive, live, blank] {
+            #expect(m.height(for: WorkspaceRowContent(ws, preferences: .defaults)) == m.rowHeight)
+        }
+        #expect(m.height(for: WorkspaceRowContent(passive, preferences: on)) == m.rowHeightWithSubtitle)
+        #expect(m.height(for: WorkspaceRowContent(blank, preferences: on)) == m.rowHeight)
+        #expect(WorkspaceRowContent(live, preferences: on).detail == "~ · Claude: running tests")
     }
 
     @Test func sidebarHasNoSearchFieldAndTypingDoesNotFilter() throws {

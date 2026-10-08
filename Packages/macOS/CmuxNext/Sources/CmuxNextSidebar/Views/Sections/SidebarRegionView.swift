@@ -25,6 +25,11 @@ final class SidebarRegionView: NSView {
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
     var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
+    /// Whether a window point is over the workspace list (a workspace tile
+    /// dropped there unpins); nil point ends the drag. The sidebar outlines the list.
+    var dropToListProbe: ((NSPoint?) -> Bool)?
+    /// A workspace item was dropped on the list.
+    var onDropToList: ((LayoutItemID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
@@ -41,6 +46,10 @@ final class SidebarRegionView: NSView {
     /// view (the sidebar), so the card and its shadow are never clipped to
     /// the band. Nil: the region itself (tests, a region on its own).
     weak var liftHost: NSView?
+    /// Items and sections can be dragged to reorder. The footer band's
+    /// cannot (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3: no drag and drop
+    /// in the footer row for now).
+    var allowsDrag = true
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false
@@ -97,7 +106,20 @@ final class SidebarRegionView: NSView {
     private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
         SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                  collapsed: content.collapsed, metrics: content.metrics,
-                                 labelWidths: labelWidths(content), appHeights: content.appHeights)
+                                 labelWidths: labelWidths(content), appHeights: content.appHeights,
+                                 iconWidths: iconWidths(content))
+    }
+
+    /// Icon-only items wider than a square: the profile avatar and its
+    /// chevron (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
+    private static func iconWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
+        var widths: [LayoutItemID: CGFloat] = [:]
+        for section in content.sections {
+            for item in section.items where content.infos[item.id]?.avatar != nil {
+                widths[item.id] = SidebarStyle.avatarControlWidth
+            }
+        }
+        return widths
     }
 
     private func place(_ view: NSView, _ frame: CGRect) {
@@ -112,7 +134,7 @@ final class SidebarRegionView: NSView {
         for section in content.sections where section.arrangement.layout == .inline
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
             for item in section.items where item.showsLabel {
-                let info = content.infos[item.id] ?? .fallback(for: item.ref)
+                let info = content.infos[item.id] ?? .fallback(for: item)
                 widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge)
             }
         }
@@ -153,7 +175,7 @@ final class SidebarRegionView: NSView {
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
-                view.configure(content.infos[id] ?? .fallback(for: item.ref), style: style)
+                view.configure(content.infos[id] ?? .fallback(for: item), style: style)
                 place(view, row.frame)
             }
         }
@@ -205,14 +227,16 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
+        addSubview(view)
+        itemViews[id] = view
+        // A client-only item (What's New) only opens: no drag, no menu.
+        guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
-        addSubview(view)
-        itemViews[id] = view
         return view
     }
 

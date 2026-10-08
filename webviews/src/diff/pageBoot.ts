@@ -18,7 +18,7 @@ import { type DiffNavigationPerform, startPageDiffCommands } from "./pageCommand
 import { installPageDiffStore } from "./pageStore";
 
 /** Renders the viewer with its config and initial language pack, and installs the language API. */
-export type DiffSurfaceRender = (config: DiffViewerConfig, languages: unknown) => void;
+export type DiffSurfaceRender = (config: DiffViewerConfig, languages: unknown) => void | Promise<void>;
 
 /** Shows the empty state for a config without a repository; resolves with the opened config. */
 export type DiffSurfacePick = (config: DiffPageConfig) => Promise<unknown>;
@@ -52,7 +52,7 @@ export async function bootPageDiff(
     },
     reload,
   );
-  render(config, pack ?? config.payload?.languages);
+  await render(config, pack ?? config.payload?.languages);
   api = languageAPI();
   for (const next of early.splice(0)) api?.apply(next as never);
   // The key dispatcher's diffViewer* commands run the viewer's own navigation actions.

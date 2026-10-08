@@ -639,10 +639,16 @@ pub enum MotionFade {
     Lift,
     /// Theme switch recoloring in place.
     Theme,
+    /// A highlighted row fading out after a jump to it (cmux-next: the
+    /// Settings row after a search jump or deep link).
+    Highlight,
+    /// The launch mark resolving on a window still connecting (cmux-next
+    /// `LaunchMarkView`, `Motion.revealLaunchMark`).
+    Launch,
 }
 
 impl MotionFade {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::Hover,
         Self::Focus,
         Self::FadeIn,
@@ -650,6 +656,8 @@ impl MotionFade {
         Self::Crossfade,
         Self::Lift,
         Self::Theme,
+        Self::Highlight,
+        Self::Launch,
     ];
 
     pub const fn base(self) -> f64 {
@@ -661,6 +669,9 @@ impl MotionFade {
             Self::Crossfade => 0.10,
             Self::Lift => 0.12,
             Self::Theme => 0.16,
+            // MotionTunables.swift:38-39 (fadeDefaults .highlight, .launch).
+            Self::Highlight => 1.2,
+            Self::Launch => 0.24,
         }
     }
 }

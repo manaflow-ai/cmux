@@ -74,6 +74,10 @@ fn workspace_extra(
     if let Some(kind) = super::home_store::workspace_kind(connection, workspace_id)? {
         fields.insert("kind".into(), json!(kind));
     }
+    // AGENT-CWD-FOR-FOLDERLESS-WORKSPACE: absent until the user chose one.
+    if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {
+        fields.insert("agent_folder".into(), json!(path));
+    }
     Ok(fields)
 }
 
@@ -104,20 +108,24 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     }
     let state = connection
         .query_row(
-            "SELECT zoom, back_json, forward_json FROM tab_state WHERE tab_id = ?1",
+            "SELECT zoom, back_json, forward_json, icon FROM tab_state WHERE tab_id = ?1",
             [tab_id],
             |row| {
                 Ok((
                     row.get::<_, Option<f64>>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((zoom, back, forward)) = state {
+    if let Some((zoom, back, forward, icon)) = state {
         if let Some(zoom) = zoom {
             fields.insert("zoom".into(), json!(zoom));
+        }
+        if let Some(icon) = icon {
+            fields.insert("icon".into(), json!(icon));
         }
         for (name, list) in [("back", back), ("forward", forward)] {
             if let Some(list) = list {

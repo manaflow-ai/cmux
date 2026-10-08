@@ -56,11 +56,14 @@ jobs:
           # Present while the cloud overflow switch has Blacksmith overflow off.
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           CMUX_CI_RUNNER_VARIABLES: |
+            CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
@@ -68,7 +71,7 @@ jobs:
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
             MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
-            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
             MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
             MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}

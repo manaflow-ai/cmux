@@ -57,7 +57,8 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
 | Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
-| Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; the 69f4256 menu and delete strings carry all 21 app languages (upstream has en and ja) |
+| Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; every string carries all 21 app languages (upstream has en and ja; the rest machine translated, `needs_review`) |
+| AppKitNative.xcstrings | every string in all 21 app languages (machine translated, `needs_review`); `check-l10n.sh` scans this package's tables |
 | Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |
 | Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
 | SwipeReply | the pane controller's window is optional |
@@ -70,6 +71,7 @@ and render-server field animation, blurred header and native scrolling.
 | NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
+| Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 
 ## Updating
@@ -85,8 +87,17 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at 0e4eb90
-(0e4eb90: Messages' own caret layer in the field and the typing-dot phase; 2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
+that are wip checkpoints. Current pins (2026-10-07): every file at 9ae05d5, the sidebar's included
+(9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
+v1.1, strings from its own catalog in this package's bundle (`SidebarLocalization.bundle = .module`), optional menu actions, host menu items and search sections, injectable unread and
+selection colours, and the updateHover fix (Tests/MessagesLabSidebarTests). 40b9869: MessagesLab's own fill span (the visible transcript plus one height above and
+below, from the view's bounds; our fill-clamp patch is gone) and the Markdown colour fix
+(our getWhite patch is gone); Sidebar v1.1's string catalog vendored as
+MessagesLabSidebar/Resources/SidebarLocalizable.xcstrings ahead of its code. d5d6a18: Markdown rendering, the selection model, custom rows and their catalyst files
+vendored; earlier bd65bbf: the applied contentOffset read back (no rounding drift), deferred spell checking
+(SpellCheck.swift; its probe driver is compiled out), the scroller's track from under the
+header to the field, send morph from the field top with a glass mask, Messages' interactions;
+0e4eb90: Messages' own caret layer in the field and the typing-dot phase; 2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
 rows add only their difference (`--no-container-motion` for A/B); 995b723's cheaper
 flight recorder (the cmux edits re-applied: policy, optional window, log folder);
 85684b4 builds with Xcode 26.6 and 27 and keeps ScrollPrefetcher on the engine
@@ -99,7 +110,8 @@ collapse above 3 screens ("Show all N lines", EN and JA from upstream), header g
 and scroll indicator timing measured from Messages, resize anchoring like Messages, the
 grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
-track click, compose hover only over the field) except SwipeReply at 0c8147b
+track click, compose hover only over the field) except SwipeReply at 0c8147b and TranscriptAccess at bd65bbf (d5d6a18's rewrite needs
+unvendored drivers: SelectionCheck, MarkdownAccess, the pager; a `cmux:` line speaks custom parts)
 (not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.

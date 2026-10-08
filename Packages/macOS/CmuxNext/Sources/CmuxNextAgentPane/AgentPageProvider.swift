@@ -29,14 +29,15 @@ public nonisolated struct AgentPageOps {
         var methods = Dictionary(uniqueKeysWithValues: [
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate",
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
-            "newTab.remember", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.browse", "onboarding.importAndSync", "app.action",
+            "newTab.remember", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",
             "quick.dismiss", "quick.openInWindow", "pane.action", "pane.tabState",
             "shell.run", "shell.read", "shell.stop",
-            "git.diff", "git.status", "file.search", "git.checkpoint.diff",
+            "git.diff", "git.status", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
         ].map { ($0, $0) })
+        for method in AgentPaneReplyRequest.methods { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods

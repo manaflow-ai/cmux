@@ -1,10 +1,14 @@
+import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
+import type { AgentQuestion } from "./question/model";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
+import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENT_ROW } from "./subagents/subagentRows";
 
 export type AcpmuxRow = {
   id: string;
@@ -41,6 +45,8 @@ export type AcpmuxRow = {
   ended?: boolean;
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
+  /// A subagent group's subagents (subagents/subagentFold.ts).
+  subagents?: Subagent[];
 };
 
 export type AcpmuxActivity = {
@@ -64,6 +70,8 @@ export type AcpmuxActivity = {
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
+    /// Images the call returned (ACP `image` content blocks), as data URLs.
+    images?: string[];
   };
 };
 
@@ -79,6 +87,23 @@ export type AcpmuxPermission = {
   kind?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
+  /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
+  /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
+  question?: AgentQuestion;
+};
+
+/** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry
+ *  catalog metadata, which ranks between the cmux catalog and the user's overrides. */
+export type AcpmuxCatalogModel = {
+  id: string;
+  name?: string;
+  unavailable?: string;
+  shortName?: string;
+  family?: string;
+  efforts?: string[];
+  defaultEffort?: string;
+  fast?: boolean;
+  contextWindow?: number;
 };
 
 export type AcpmuxSnapshot = {
@@ -143,8 +168,22 @@ export type AcpmuxSnapshot = {
   catalog: {
     id: string;
     name: string;
-    models: { id: string; name?: string; unavailable?: string }[];
+    models: AcpmuxCatalogModel[];
     unavailable?: string;
+    pickable?: boolean;
+    /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
+    family?: string;
+    /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
+    icon?: string;
+    /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
+     * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
+     * (`diagnostic`: its first problem). Global harnesses have none. */
+    folder?: {
+      folder: string;
+      path?: string;
+      state: "enabled" | "needs-enable" | "needs-trust" | "error";
+      diagnostic?: string;
+    };
   }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -155,6 +194,10 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** The outside chat this pane adopts is still open in another process (acpmux refused with
+   * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
+   * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
+  liveChat?: { canFork: boolean; command?: string };
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
@@ -254,11 +297,23 @@ export function editedCardHeight(files: number, plain = 0): number {
   return 58 + 34 * Math.min(entries, 3) + (entries > 3 ? 34 : 0);
 }
 
-/// What an edit without a diff lists as in the edited-files card, deduped.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
-  return [
-    ...new Set(items.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text)),
-  ];
+/// What edits without a diff list as in the edited-files card: each path they name, once
+/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file").
+/// Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
+  const out: { key: string; path?: string }[] = [];
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (!item.tool || item.tool.diffs?.length) return;
+    const paths = editedPaths(item.tool);
+    if (!paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
+    for (const path of paths)
+      if (!seen.has(path)) {
+        seen.add(path);
+        out.push({ key: `path-${path}`, path });
+      }
+  });
+  return out;
 }
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
@@ -278,6 +333,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
+  // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
+  // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
+  if (row.kind === SUBAGENTS) return 56;
+  if (row.kind === SUBAGENT_ROW) return row.status === "last" || row.status === "only" ? 56 : 48;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.
@@ -494,24 +553,36 @@ import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
-/// The pane header: the agent the session runs (its first prompt already titles the session
-/// picker and opens the transcript), and a status only when it says something to act on.
-export function paneHeader(snapshot: AcpmuxSnapshot, t: Translate = translate): { title: string; status: string } {
+/// The pane's fallback accessible name and problem-only header status.
+export function paneHeader(
+  snapshot: AcpmuxSnapshot,
+  t: Translate = translate,
+): { title: string; status: string; detail?: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
-  // A turn running when the connection dropped never ends, so connection trouble wins over Working.
+  // Initial connecting and normal turn events are quiet. The client includes the failure
+  // after `connecting:` while retrying, and keeps it until a successful connection.
   const connection = snapshot.connection;
+  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
+  const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
     connection === "disconnected"
-      ? t("header.reconnecting")
-      : connection.startsWith("connecting")
-        ? t("header.connecting")
-        : snapshot.isWorking
-          ? t("header.working")
-          : connection === "mock"
-            ? t("header.mock")
-            : "";
-  return { title, status };
+      ? t("header.disconnected")
+      : retrying
+        ? t("header.reconnecting")
+        : failed
+          ? t("header.failed")
+          : "";
+  if (!status) return { title, status };
+  const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
+  let rowError: string | undefined;
+  if (failed && !reason) {
+    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
+      rowError = snapshot.rows[index]?.error;
+      if (rowError) break;
+    }
+  }
+  return { title, status, detail: reason || rowError || status };
 }

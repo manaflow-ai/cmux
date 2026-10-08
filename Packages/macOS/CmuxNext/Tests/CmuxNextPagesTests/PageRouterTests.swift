@@ -127,6 +127,35 @@ import Testing
         #expect(daemon.filters.count == 1)
     }
 
+    /// A provider that sends its current state from inside `subscribe` (the icon picker's open
+    /// session): the page gets that event after the subscribe reply, numbered 1, then later ones.
+    final class EagerProvider: PageProvider {
+        var emit: (@MainActor (JSONValue) -> Void)?
+
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .null }
+
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            emit = onEvent
+            onEvent(["state": "now"])
+            return PageSubscription {}
+        }
+    }
+
+    @Test func anEventSentDuringSubscribeReachesThePageAfterTheReply() async {
+        let provider = EagerProvider()
+        let router = PageRouter(descriptor: page, routes: [PageRoute(prefix: "cmux.settings.", provider: provider)])
+        let sent = Box()
+        router.send = { sent.items.append($0) }
+        let reply = await router.handle(["t": "sub", "id": 30, "stream": "cmux.settings.changed"])
+        #expect(reply == ["t": "ok", "id": 30, "value": ["sub": 1]])
+        #expect(sent.items.isEmpty, "the event never goes out before the reply that names its subscription")
+        for _ in 0..<20 where sent.items.isEmpty { await Task.yield() }
+        provider.emit?(["state": "later"])
+        #expect(sent.items == [["t": "ev", "sub": 1, "seq": 1, "data": ["state": "now"]],
+                               ["t": "ev", "sub": 1, "seq": 2, "data": ["state": "later"]]])
+    }
+
     @Test func everyPageGetsTheConnectionAndCommandStreams() async {
         let (router, daemon, _, sent) = router()
         let connection = await router.handle(["t": "sub", "id": 20, "stream": .string(PageNativeOp.pageConnection)])

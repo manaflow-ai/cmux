@@ -5,18 +5,23 @@ import "../shared/styles.css";
 import "./styles.css";
 import "katex/dist/katex.min.css";
 import "./conversation/conversation.css";
+import "./chips/chips.css";
+import "./previewCard/previewCard.css";
 import "./changes/changes.css";
+import "./turnChanges/turnChanges.css";
 import "./summary/summary.css";
+import "./subagents/subagents.css";
 import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
-import "./searchChats.css";
+import "./composerAttachments.css";
 import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
-import { devHostParams, installDevHost } from "./devHost";
+import "./threadMinimap/threadMinimap.css";
+import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 
 // `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the
