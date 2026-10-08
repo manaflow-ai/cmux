@@ -67,10 +67,30 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         return subprocess.run(
             ["python3", str(SCRIPT), "--base", self.base, "--head", "HEAD"],
             cwd=self.superrepo, text=True, capture_output=True,
-            env={**os.environ, "GITHUB_TOKEN": "", "GH_TOKEN": ""},
+            env={
+                **os.environ,
+                "GITHUB_TOKEN": "",
+                "GH_TOKEN": "",
+                # The fixture uses a local submodule URL. Production URLs are
+                # HTTPS and never need this test-only transport allowance.
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "protocol.file.allow",
+                "GIT_CONFIG_VALUE_0": "always",
+            },
         )
 
     def test_unchanged_pointer_passes(self) -> None:
+        result = self.run_guard()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unchanged_pointer_does_not_need_a_submodule_checkout(self) -> None:
+        # An unrelated guard run must stay cheap even when the submodule URL
+        # is unavailable. The unchanged gitlink short-circuits before init.
+        shutil.rmtree(self.superrepo / "deps/sample")
+        modules = (self.superrepo / ".gitmodules").read_text(encoding="utf-8")
+        (self.superrepo / ".gitmodules").write_text(
+            modules.replace(str(self.subrepo), "/unavailable/subrepo"), encoding="utf-8"
+        )
         result = self.run_guard()
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -144,7 +164,7 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.pointer(self.a)
         result = self.run_guard(remove_submodule=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("could not determine ancestry", result.stderr)
+        self.assertIn("backward", result.stderr)
 
     def test_changed_pointer_initializes_missing_submodule(self) -> None:
         # The guard checkout starts without submodules. A changed pin must
@@ -153,6 +173,17 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.pointer(b)
         result = self.run_guard(remove_submodule=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_changed_pointer_init_failure_fails_closed(self) -> None:
+        b = self.commit_sub("unavailable changed pin")
+        self.pointer(b)
+        modules = (self.superrepo / ".gitmodules").read_text(encoding="utf-8")
+        (self.superrepo / ".gitmodules").write_text(
+            modules.replace(str(self.subrepo), "/unavailable/subrepo"), encoding="utf-8"
+        )
+        result = self.run_guard(remove_submodule=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not initialize changed submodule", result.stderr)
 
     def test_shallow_clone_gap_is_not_divergence(self) -> None:
         # CI checks submodules out shallowly. When a forward bump spans more
