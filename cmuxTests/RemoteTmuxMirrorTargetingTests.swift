@@ -516,6 +516,7 @@ struct RemoteTmuxMirrorTargetingTests {
             title: "build",
             propagateToCloud: false
         ))
+        #expect(try harness.surfaceTitles() == ["shell-a", "build"])
         #expect(try harness.finishCommands().contains("select-pane -t %5 -T 'build'"))
 
         harness.connection.handleMessageForTesting(.subscriptionChanged(

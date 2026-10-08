@@ -541,6 +541,13 @@ extension RemoteTmuxWindowMirror {
         bonsplitController.updateTab(tabId, title: title(forPane: paneId))
     }
 
+    /// Updates the Bonsplit tab owned by one projected tmux pane. These tab IDs
+    /// belong to this embedded controller, not the workspace's outer controller.
+    func updatePaneTabTitle(_ title: String, forPane paneId: Int, hasCustomTitle: Bool) {
+        guard let tabId = tabIdByPaneId[paneId] else { return }
+        bonsplitController.updateTab(tabId, title: title, hasCustomTitle: hasCustomTitle)
+    }
+
     func title(forPane paneId: Int) -> String {
         let index = paneIndexByPaneId[paneId] ?? 0
         let fallback = stableFallbackTitle(
