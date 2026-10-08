@@ -186,8 +186,12 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const destination =
         typeof fields["destination"] === "object" && fields["destination"] !== null ? Object.fromEntries(Object.entries(fields["destination"])) : {};
       const tunnelId = source["tunnelId"];
+      const cidr = source["cidr"];
       const vmId = destination["vmId"];
-      if (typeof tunnelId !== "string" || !tunnels.has(tunnelId)) return json({ message: "no such tunnel" }, 404);
+      // A source is a tunnel or a cidr (the provider's matcher takes either).
+      if (typeof cidr === "string") {
+        if (tunnelId !== undefined || !/^[0-9a-f:]+\/128$/u.test(cidr)) return json({ message: "bad source" }, 400);
+      } else if (typeof tunnelId !== "string" || !tunnels.has(tunnelId)) return json({ message: "no such tunnel" }, 404);
       if (typeof vmId !== "string" || !provider.vms.has(vmId)) return json({ message: "no such vm" }, 404);
       const rule: FakeRule = {
         id: `fwr-${crypto.randomUUID()}`,
