@@ -8,12 +8,14 @@ import SwiftUI
 /// VoiceOver cannot reach the field).
 struct SidebarRowAccessibilityModifier: ViewModifier {
     let isEditing: Bool
+    let accessibilityIdentifier: String
     let label: String
     let hint: String
     let moveUpLabel: String
     let moveDownLabel: String
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
+    let onActivate: () -> Void
 
     /// Applies combined (normal) or contained (editing) accessibility behavior
     /// to the row so the inline field stays reachable while renaming.
@@ -23,8 +25,11 @@ struct SidebarRowAccessibilityModifier: ViewModifier {
         } else {
             content
                 .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier(accessibilityIdentifier)
                 .accessibilityLabel(Text(label))
                 .accessibilityHint(Text(hint))
+                .accessibilityAction(onActivate)
                 .accessibilityAction(named: Text(moveUpLabel), onMoveUp)
                 .accessibilityAction(named: Text(moveDownLabel), onMoveDown)
         }

@@ -16661,12 +16661,14 @@ struct TabItemView: View, Equatable {
         .safeHelp(workspaceSnapshot.title)
         .modifier(SidebarRowAccessibilityModifier(
             isEditing: isEditing,
+            accessibilityIdentifier: "sidebarWorkspace.\(workspaceId.uuidString)",
             label: accessibilityTitle,
             hint: accessibilityHintText,
             moveUpLabel: moveUpActionText,
             moveDownLabel: moveDownActionText,
             onMoveUp: { moveBy(-1) },
-            onMoveDown: { moveBy(1) }
+            onMoveDown: { moveBy(1) },
+            onActivate: { updateSelection() }
         ))
         .contextMenu {
             TabItemWorkspaceContextMenuContent(row: self)

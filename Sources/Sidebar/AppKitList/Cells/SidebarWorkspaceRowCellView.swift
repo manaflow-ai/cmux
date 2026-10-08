@@ -747,9 +747,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
+        setAccessibilityRole(.button)
         setAccessibilityLabel(snapshot.accessibilityLabel(
             index: model.index, workspaceCount: model.accessibilityWorkspaceCount
         ))
+    }
+
+    /// Routes an assistive technology's AXPress through the same selection
+    /// command as a plain pointer click on the table row.
+    override func accessibilityPerformPress() -> Bool {
+        guard let actions else { return false }
+        actions.commands.updateSelection(modifiers: [])
+        return true
     }
 
     /// Live drop-line painting during native reorder drags. The controller
