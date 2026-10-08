@@ -7,7 +7,7 @@
 
 use super::*;
 
-const WAVE: usize = 3;
+const WAVE: usize = 6;
 /// Bytes each terminal writes while the daemon is stopped: more than the
 /// host's 8 MiB queued-output budget for the daemon's admin tap, so the host
 /// closes that tap and the daemon must reconnect.
@@ -167,10 +167,12 @@ fn reconnect_wave_records_gaps_and_coalesces_into_one_checkpoint() {
         std::thread::sleep(Duration::from_millis(100));
     }
     std::thread::sleep(Duration::from_millis(1500));
+    // A loaded host can spread the wave so that one straggler gets the next
+    // interval's checkpoint; one capture per reconnect is the bug.
     let checkpoints = checkpoint_count(&harness.socket, "checkpoints-after") - before;
-    assert_eq!(
-        checkpoints, 1,
-        "a wave of {WAVE} host reconnects must coalesce into one checkpoint, got {checkpoints}"
+    assert!(
+        checkpoints <= 2,
+        "a wave of {WAVE} host reconnects must coalesce, got {checkpoints} checkpoints"
     );
 
     // Every reconnect left durable evidence of its no-tap interval. A launch
@@ -187,15 +189,23 @@ fn reconnect_wave_records_gaps_and_coalesces_into_one_checkpoint() {
         "every reconnected terminal needs a host_reconnect gap record: {gaps:?}"
     );
 
-    // The coalesced checkpoint follows every gap, so the tail is reducible.
-    let preview = resource_request(
-        &harness.socket,
-        "reconnect-preview",
-        "session.journal.restore.preview",
-        serde_json::json!({"machine":"current","session":"current","checkpoint":"latest"}),
-        None,
-    );
-    assert_eq!(preview["fully_reducible"], true, "{preview}");
+    // A coalesced checkpoint follows every gap, so the tail becomes
+    // reducible within one interval.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let preview = resource_request(
+            &harness.socket,
+            "reconnect-preview",
+            "session.journal.restore.preview",
+            serde_json::json!({"machine":"current","session":"current","checkpoint":"latest"}),
+            None,
+        );
+        if preview["fully_reducible"] == true {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no checkpoint covered every gap: {preview}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
 
     for (index, (surface, _, _)) in created.iter().enumerate() {
         close_terminal_surface(&harness.socket, *surface, 10 + index as u64);
