@@ -252,9 +252,9 @@ they do not substitute for a tagged pair, device install, WAN run, or live SSH/b
 
 ### 2026-10-08 continuation
 
-The current continuation added four correctness slices. C9 snapshot capture now uses overflow-safe aggregate accounting and refuses captures above 2 MiB before allocation. C12's Rust `LinkTokenGrant` now accepts the backend's integer millisecond `expires_at`, matching the Cloud VM token contract. C9 lifecycle submission commits the applied receipt only when its original pending record is still current; if a concurrent tmux readback wins, the executor replays that durable receipt instead of overwriting it. Feed `feed.seen` keeps ids from permanently refused batches marked as reported, while transport failures remain retryable; a regression test covers repeated visibility passes after refusal.
+The current continuation added four correctness slices. C9 snapshot capture now uses overflow-safe aggregate accounting and refuses captures above 2 MiB before allocation. C12's Rust `LinkTokenGrant` now accepts the backend's integer millisecond `expires_at`, matching the Cloud VM token contract. C9 lifecycle submission commits the applied receipt only when its original pending record is still current; if a concurrent tmux readback wins, the executor replays that durable receipt instead of overwriting it. Feed `feed.seen` keeps refused singleton ids marked to prevent render loops, splits a refused mixed batch so valid ids still commit, and retries transport failures; regression tests cover all three paths.
 
-Commits: `6b583e684b6`, `06bbb631df9`, `50b2b8ee26a`, `61d0766a8a4`, `54e1ff8a22c`. Changed Swift sources and tests pass frontend parsing and `git diff --check`; the exact-head hosted workflow is running. Native package tests, tagged pair installation, live SSH, Cloud VM attach, and carrier WAN/device measurements remain unverified.
+Commits: `6b583e684b6`, `06bbb631df9`, `50b2b8ee26a`, `61d0766a8a4`, `54e1ff8a22c`, `89aa9d4c40b`, `2d957c46bed`. Changed Swift sources and tests pass frontend parsing and `git diff --check`; the exact-head hosted workflow's static and protocol/API jobs pass, while its macOS package-test job is queued. Native package tests, tagged pair installation, live SSH, Cloud VM attach, and carrier WAN/device measurements remain unverified.
 
 ### D2 carrier audit
 
