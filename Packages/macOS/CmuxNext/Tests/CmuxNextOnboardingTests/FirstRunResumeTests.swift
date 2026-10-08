@@ -24,7 +24,8 @@ import Testing
         try relaunched.markDone(completed: false)
         let after = OnboardingStateFile(url: written.url)
         #expect(!after.needsOnboarding())
-        #expect(after.resumeStep() == nil)
+        // Continue Setup still opens at the saved step.
+        #expect(after.resumeStep() == .importData)
     }
 
     /// A relaunch opens the first run at the saved step, even a step that

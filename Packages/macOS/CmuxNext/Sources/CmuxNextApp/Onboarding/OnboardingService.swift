@@ -15,11 +15,12 @@ import os
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
-    let state: OnboardingStateFile
+    /// The state file's one writer (`OnboardingStateFile` per channel).
+    let state: OnboardingStateQueue
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     /// The one onboarding window (set up in `init`).
-    private var presenter: OnboardingWindowPresenter!
+    private let presenter = OnboardingWindowPresenter()
     var controller: OnboardingWindowController? { presenter.controller }
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
@@ -46,7 +47,7 @@ final class OnboardingService {
     init(services: AppServices) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
-        state = OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID)
+        state = OnboardingStateQueue(file: OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID))
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -77,27 +78,13 @@ final class OnboardingService {
             guard let self else { return }
             projectFolders = folders
         }
-        presenter = OnboardingWindowPresenter { [unowned self] start, resume in
-            OnboardingModel(services: AppOnboardingServices(owner: self), start: start, resumingFirstRunAt: resume)
+        presenter.makeModel = { [weak self] start, resume in
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), start: start, resumingFirstRunAt: resume) }
         }
         presenter.onWindowClose = { [weak self] in
             // The task's session stays in acpmux (the agent may still be working); only the page closes.
             self?.firstTask?.view.close()
             self?.firstTask = nil
-        }
-    }
-
-    /// The last state file write; each write waits for the one before.
-    private var lastWrite: Task<Void, Never>?
-
-    /// Runs one small state file write off the main thread, after the one before.
-    private func write(_ label: String, _ work: @escaping @Sendable () throws -> Void) {
-        let previous = lastWrite
-        let logger = logger
-        // task-owner: one small file write, chained after the previous one
-        lastWrite = Task.detached {
-            await previous?.value
-            do { try work() } catch { logger.error("\(label, privacy: .public): \(String(describing: error), privacy: .public)") }
         }
     }
 
@@ -148,32 +135,25 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
-        presenter.show(step: step, resumingFirstRunAt: resume)
+    func show(step: OnboardingModel.Step? = nil) {
+        presenter.show(step: step)
     }
 
-    /// The first run is at `step`: kept so a relaunch resumes it there.
+    /// The first run is at `step`: kept so a relaunch (or Continue Setup)
+    /// resumes it there. A finished run stays finished.
     func recordProgress(_ step: OnboardingModel.Step, interacted: Bool) {
-        let state = state
-        write("onboarding progress") { try state.markProgress(step, interacted: interacted) }
+        state.write("onboarding progress") { try $0.markProgress(step, interacted: interacted) }
     }
 
-    /// The person closed the first run ("not now"): it comes back on the
-    /// next `OnboardingStateFile.notNowLaunches` launches, then only through
-    /// Continue Setup.
-    func recordNotNow() {
-        let state = state
-        write("onboarding not now") { try state.markNotNow() }
-    }
-
-    /// Continue Setup (Help menu, palette, Settings): the first run at its
-    /// saved step, or from its start when none is saved.
+    /// Continue Setup (Help menu, palette, Settings): the open first run as
+    /// it is, else the first run at its saved step (from its start when
+    /// none is saved). Finished or not, it stays as it was.
     func continueSetup() {
-        let state = state
-        // task-owner: one small file read, then the window opens
+        // task-owner: one queued file read, then the window opens
         Task { [weak self] in
-            let resume = await Task.detached { state.resumeStep() }.value
-            self?.show(resumingFirstRunAt: resume)
+            guard let state = self?.state else { return }
+            let resume = await state.perform { $0.resumeStep() }
+            self?.presenter.showFirstRun(resumingAt: resume)
         }
     }
 
@@ -182,24 +162,23 @@ final class OnboardingService {
     func showIfNeeded() {
         let forced = ProcessInfo.processInfo.environment[Self.forceKey] == "1"
         guard forced || !services.environment.noActivate else { return }
-        let state = state
-        // task-owner: one-shot launch check; ends after one file read
+        // task-owner: one-shot launch check; ends after one queued file read
         Task { [weak self] in
-            let decision = await Task.detached { state.takeLaunchShow() }.value
-            guard let self, !self.isShowing else { return }
+            guard let state = self?.state else { return }
+            let decision = await state.perform { $0.takeLaunchShow() }
+            guard let self, !isShowing else { return }
             switch decision {
-            case .start: show()
-            // An unfinished first run (quit, crash, new build, or a "not now"
-            // with launches left) resumes at its step.
-            case .resume(let step): show(resumingFirstRunAt: step)
+            case .start: presenter.showFirstRun(resumingAt: nil)
+            // An unfinished first run with launches left (each launch that
+            // showed it counts, closed or quit) resumes at its step.
+            case .resume(let step): presenter.showFirstRun(resumingAt: step)
             case .none: break
             }
         }
     }
 
     func markDone(completed: Bool) {
-        let state = state
-        write("onboarding state") { try state.markDone(completed: completed) }
+        state.write("onboarding state") { try $0.markDone(completed: completed) }
     }
 
     /// Onboarding ended: records it, and Done over Home lands on the New

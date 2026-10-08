@@ -135,4 +135,24 @@ import Testing
         #expect(models.filter { !$0.ended }.count == 1)
         #expect(presenter.controller?.model.isFirstRun == true)
     }
+
+    /// One serial writer: writes apply in the order asked for, and a read
+    /// sees every write queued before it. Each write replaces the file
+    /// whole and leaves no temporary file.
+    @Test func stateWritesAreOrderedAndAtomic() async throws {
+        let root = Self.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = OnboardingStateQueue(file: OnboardingStateFile(url: root.appending(path: "onboarding.json")))
+        let steps: [OnboardingModel.Step] = [.accounts, .classicSessions, .chats, .importData]
+        for index in 0..<40 {
+            let step = steps[index % steps.count]
+            queue.write("progress") { try $0.markProgress(step, interacted: true) }
+        }
+        #expect(await queue.perform { $0.resumeStep() } == steps[39 % steps.count])
+        queue.write("done") { try $0.markDone(completed: true) }
+        #expect(await queue.perform { $0.needsOnboarding() } == false)
+        await queue.drain()
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        #expect(names == ["onboarding.json"])
+    }
 }

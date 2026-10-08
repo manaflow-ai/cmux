@@ -225,7 +225,7 @@ final class AppOnboardingServices: OnboardingServices {
         owner.recordProgress(step, interacted: interacted)
     }
 
-    func onboardingDidLeave(notNow: Bool) {
-        if notNow { owner.recordNotNow() }
-    }
+    // `onboardingDidLeave` keeps the protocol's default (nothing): a launch
+    // that showed the first run was counted at the show
+    // (`OnboardingStateFile.takeLaunchShow`), closed or quit.
 }
