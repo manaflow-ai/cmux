@@ -145,6 +145,34 @@ struct BrowserReplRenderHostTests {
         #expect(visibleRenderWindows().isEmpty)
     }
 
+    /// A workspace transition can hide the portal hierarchy before the
+    /// panel's logical visibility flag is updated. Native input must follow
+    /// the live hierarchy into the render host instead of targeting that
+    /// hidden WebView.
+    @Test func shownTabHiddenInHierarchyUsesRenderHostForInput() throws {
+        let (window, _, panel, paneHost) = try makePane(key: true)
+        defer { window.orderOut(nil) }
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        // Keep the logical pane state shown, but model the hidden ancestor
+        // left behind while its workspace is inactive.
+        paneHost.isHidden = true
+        defer { paneHost.isHidden = false }
+        #expect(panel.isWebViewVisibleInPane)
+        #expect(panel.webView.isHiddenOrHasHiddenAncestor)
+
+        attachment.keepRendering()
+
+        #expect(attachment.isInRenderWindow)
+        #expect(attachment.isMirroringPane)
+        #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
+        #expect(!panel.webView.isHiddenOrHasHiddenAncestor)
+        #expect(panel.isWebViewVisibleInPane)
+    }
+
     @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() async throws {
         // The user works in another app: the page needs a key window for
         // focus and hover, and the pane must not go blank meanwhile.
