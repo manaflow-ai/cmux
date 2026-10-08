@@ -68,6 +68,10 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
+    /// The message the page reported under the pointer for the next context menu, and where the
+    /// menu's copies go (tests use their own pasteboard).
+    var messageMenuTarget: AgentPaneMessageTarget?
+    var pasteboard = NSPasteboard.general
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -123,7 +127,7 @@ public final class AgentPaneView: NSView {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = WKWebView(frame: .zero, configuration: configuration)
+            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             page = nil
             pageEvents = nil
             dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
@@ -169,6 +173,7 @@ public final class AgentPaneView: NSView {
             return event
         }
         installTransport()
+        installContextMenu()
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
@@ -304,6 +309,7 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         transportPacer?.stop()
+        removeContextMenu()
         if let page {
             page.close()
         } else {
