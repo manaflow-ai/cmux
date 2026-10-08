@@ -15,11 +15,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-SHADOWS = {
-    # workflow file -> (shadow job id, the job whose Mac output it compares)
-    "cmux-tui-artifacts.yml": ("macos-cross-shadow", "publish"),
-    "app-ffi-release.yml": ("macos-cross-shadow", "build"),
-}
+SHADOWS = [
+    # (workflow file, shadow job id, the job whose output it compares)
+    ("cmux-tui-artifacts.yml", "macos-cross-shadow", "publish"),
+    # The x86_64 run-time half runs the shadow job's binaries on an Intel Mac.
+    ("cmux-tui-artifacts.yml", "macos-cross-runtime-x86_64", "macos-cross-shadow"),
+    ("app-ffi-release.yml", "macos-cross-shadow", "build"),
+]
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$", re.M)
 
 
@@ -40,8 +42,8 @@ def needs(block: str) -> set[str]:
 
 class ShadowJobTests(unittest.TestCase):
     def test_every_shadow_job_is_compare_only(self) -> None:
-        for workflow, (shadow, compared) in SHADOWS.items():
-            with self.subTest(workflow=workflow):
+        for workflow, shadow, compared in SHADOWS:
+            with self.subTest(workflow=workflow, shadow=shadow):
                 all_jobs = jobs((WORKFLOWS / workflow).read_text(encoding="utf-8"))
                 self.assertIn(shadow, all_jobs, f"{workflow} has no {shadow} job")
                 block = all_jobs[shadow]
@@ -52,11 +54,16 @@ class ShadowJobTests(unittest.TestCase):
                 self.assertEqual(permissions.group(1).split(), ["contents:", "read"])
                 self.assertNotIn("secrets.", block)
                 self.assertNotRegex(block, r"(?m)^    environment:")
-                dependents = sorted(job for job, other in all_jobs.items() if shadow in needs(other))
+                # Only another compare-only shadow job may need a shadow job.
+                shadows = {job for wf, job, _ in SHADOWS if wf == workflow}
+                dependents = sorted(job for job, other in all_jobs.items()
+                                    if shadow in needs(other) and job not in shadows)
                 self.assertEqual(dependents, [], f"{workflow}: {dependents} must not need {shadow}")
 
     def test_shadow_jobs_run_the_shared_script(self) -> None:
-        for workflow, (shadow, _) in SHADOWS.items():
+        for workflow, shadow, compared in SHADOWS:
+            if compared not in {"publish", "build"}:
+                continue  # the run-time half builds nothing
             with self.subTest(workflow=workflow):
                 block = jobs((WORKFLOWS / workflow).read_text(encoding="utf-8"))[shadow]
                 self.assertIn("scripts/ci/macos-cross.sh", block)

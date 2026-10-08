@@ -128,7 +128,7 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
         (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
     let mutation = match (origin, mutation_id) {
-        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin)?),
+        (Some(origin), Some(id)) => Some(WorkspaceMutation::daemon(id, origin)?),
         (None, None) => None,
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };

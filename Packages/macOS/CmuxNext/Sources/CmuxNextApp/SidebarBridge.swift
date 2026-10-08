@@ -10,7 +10,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarModel()
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -33,6 +33,8 @@ final class SidebarBridge {
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
     private var snapshotRecorder = SidebarSnapshotRecorder()
+    /// Organization intents waiting for the home session's personal state.
+    let organizationQueue = SidebarOrganizationQueue()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
@@ -150,6 +152,8 @@ final class SidebarBridge {
         let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [])
+        // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
+        model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
         if let saved, !saved.profiles.isEmpty {
             seededProfiles = (saved.sidebarProfiles, saved.sidebarActiveProfileID)
             model.profiles = saved.sidebarProfiles
@@ -167,7 +171,8 @@ final class SidebarBridge {
     private func show(_ live: [SidebarRowSection], launching: Bool, failed: Set<MachineID>) {
         let sections = seed.merge(live, launching: launching, failed: failed)
         model.ungroupedFirst = !usesMixedOrder
-        if model.sections != sections { model.sections = sections }
+        model.setSections(sections)
+        organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
     }
@@ -184,7 +189,7 @@ final class SidebarBridge {
         // `show` records the snapshot right after, with the new space's rows.
     }
 
-    private func recordSnapshot() {
+    func recordSnapshot() {
         guard let state else { return }
         snapshotRecorder.record(model, window: state.id, services: services)
     }
