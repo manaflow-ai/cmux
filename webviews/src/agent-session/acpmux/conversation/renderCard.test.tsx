@@ -34,12 +34,15 @@ describe("render calls", () => {
     expect(renderCall(tool("render", { html: "<p>x</p>" }))).toEqual({ html: "<p>x</p>", title: undefined });
   });
 
-  test("leaves other tools, empty HTML and failed calls alone", () => {
+  test("leaves other tools, empty HTML and failed or unfinished calls alone", () => {
     expect(renderCall(tool("mcp__cmux__prerender", { html: "<p>x</p>" }))).toBeUndefined();
     expect(renderCall(tool("Render the page", { html: "<p>x</p>" }))).toBeUndefined();
     expect(renderCall(tool("render", { html: "  " }))).toBeUndefined();
     expect(renderCall(tool("render", { markup: "<p>x</p>" }))).toBeUndefined();
     expect(renderCall(tool("render", { html: "<p>x</p>" }, { status: "failed" }))).toBeUndefined();
+    // A turn cancelled mid-call ends with the call still pending: it never ran, so it draws nothing.
+    expect(renderCall(tool("render", { html: "<p>x</p>" }, { status: "pending" }))).toBeUndefined();
+    expect(renderCall(tool("render", { html: "<p>x</p>" }, { status: "in_progress" }))).toBeUndefined();
   });
 
   test("an ended turn shows each render above its answer, in call order; a running one waits", () => {
