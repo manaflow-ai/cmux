@@ -17,7 +17,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Chrome
     let backgroundView = NSView()
     /// Row hover wash; see `SidebarRowHover.swift`.
-    let hoverLayer = CALayer()
+    let hoverLayer = CAGradientLayer()
     private let railView = NSView()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()

@@ -15,7 +15,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Selection fill and edge layer. Internal so tests read its paint directly.
     let backgroundView = NSView()
     /// Row hover wash; see `SidebarRowHover.swift`.
-    let rowHoverLayer = CALayer()
+    let rowHoverLayer = CAGradientLayer()
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
