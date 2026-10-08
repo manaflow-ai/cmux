@@ -309,6 +309,25 @@ struct SidebarAppKitRowCellTests {
         #expect(tabManager.selectedTabId == workspace.id)
     }
 
+    @Test
+    func workspaceRowAccessibilityPressDoesNotSelectDuringInlineRename() throws {
+        let tabManager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace()
+        let model = Self.makeModel(workspaceId: workspace.id)
+        let cell = Self.configuredCell(
+            model: model,
+            tab: workspace,
+            tabManager: tabManager
+        )
+
+        cell.beginInlineRename()
+
+        #expect(cell.isEditing)
+        #expect(cell.accessibilityRole() == .group)
+        #expect(!cell.accessibilityPerformPress())
+        #expect(tabManager.selectedTabId == nil)
+    }
+
     @Test(arguments: [false, true], [
         ("**Pi finished.**", "Pi finished."),
         ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),

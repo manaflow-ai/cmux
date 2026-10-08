@@ -747,7 +747,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
-        setAccessibilityRole(.button)
+        setAccessibilityRole(isEditing ? .group : .button)
         setAccessibilityLabel(snapshot.accessibilityLabel(
             index: model.index, workspaceCount: model.accessibilityWorkspaceCount
         ))
@@ -756,7 +756,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// Routes an assistive technology's AXPress through the same selection
     /// command as a plain pointer click on the table row.
     override func accessibilityPerformPress() -> Bool {
-        guard let actions else { return false }
+        guard !isEditing, let actions else { return false }
         actions.commands.updateSelection(modifiers: [])
         return true
     }
@@ -1196,6 +1196,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
+        setAccessibilityRole(.group)
         titleView.isHidden = true
         // Give the field its title-slot frame BEFORE it enters the window:
         // the attach-time focus grab sizes the field editor from the current
@@ -1231,6 +1232,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         renameSession = nil
         session.field.removeFromSuperview()
         titleView.isHidden = false
+        setAccessibilityRole(.button)
         needsLayout = true
     }
 
