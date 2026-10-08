@@ -148,11 +148,11 @@ describe("install revocation reaches the team SSH KRL (workerd)", () => {
     const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
     await inDO(userStub, async (instance) => {
       const engine = instance.boundEngine
-      const g = { id: GRANT, grantee: INST, op_classes: ["read", "mutate-own"], approval: "none", expires_at: null, revoked_at: null, created_from: "install" }
+      const g = { id: GRANT, grantee: INST, op_classes: ["read", "mutate-own", "execute"], approval: "none", expires_at: null, revoked_at: null, created_from: "install" }
       engine.state = { ...engine.currentState, installs: { ...engine.currentState.installs, [INST]: install() }, grants: { ...engine.currentState.grants, [GRANT]: g } }
     })
     const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as TeamStub
-    const p: Principal = { identity: INST, kind: "install", user, team, install: INST, grant: GRANT, grant_classes: ["read", "mutate-own"], install_kind: "cli" }
+    const p: Principal = { identity: INST, kind: "install", user, team, install: INST, grant: GRANT, grant_classes: ["read", "mutate-own", "execute"], install_kind: "cli" }
     const key = await sshLine()
     const op = (pr: Principal) => teamStub.sshOp(team, pr, { op: "team_vm.ssh_cert", params: { public_key: key }, idempotency_key: crypto.randomUUID() })
     const a = (await op(p)).value.serial as number
@@ -176,7 +176,7 @@ describe("install revocation reaches the team SSH KRL (workerd)", () => {
     const user = ensured.value.id as string
     const team = ensured.value.personal_team as string
     const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as TeamStub
-    const p: Principal = { identity: INST, kind: "install", user, team, install: INST, grant: GRANT, grant_classes: ["read", "mutate-own"], install_kind: "cli" }
+    const p: Principal = { identity: INST, kind: "install", user, team, install: INST, grant: GRANT, grant_classes: ["read", "mutate-own", "execute"], install_kind: "cli" }
     const serial = (await teamStub.sshOp(team, p, { op: "team_vm.ssh_cert", params: { public_key: await sshLine() }, idempotency_key: crypto.randomUUID() })).value.serial as number
     expect(await teamStub.revokeInstallCerts(team, "user_00000000000000000099", INST)).toEqual({ ok: true, revoked: [] })
     expect(await teamStub.revokeInstallCerts(team, user, INST)).toEqual({ ok: true, revoked: [serial] })

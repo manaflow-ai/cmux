@@ -33,6 +33,7 @@ extension PageWebView {
         guard let current = webView.url, Self.sameDocumentURL(current, target) else {
             noteLoadedClaim()
             loaded = false
+            paintedUptime = nil // the new document has not painted; a pane holds until it does
             webView.load(URLRequest(url: target))
             return true
         }
@@ -40,6 +41,7 @@ extension PageWebView {
             claimDocument(documentAttributes: documentAttributes)
         } else {
             noteLoadedClaim()
+            paintedUptime = nil
             reloadDocument()
         }
         return true
