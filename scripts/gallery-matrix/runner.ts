@@ -176,7 +176,10 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
-    await page.goto(url, { waitUntil: "networkidle" });
+    // The gallery stage reports its own settled/ready state below. Waiting for networkidle here
+    // makes pages with a long-lived resource (the markdown showcase is one) look hung even after
+    // they have painted, adding a false 30-second stall to every engine.
+    await page.goto(url, { waitUntil: "domcontentloaded" });
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
