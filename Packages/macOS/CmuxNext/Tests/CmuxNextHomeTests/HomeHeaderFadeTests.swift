@@ -43,11 +43,14 @@ import Testing
     }
 
     @Test func reduceMotionShowsTheFadeAtOnce() async throws {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
         let (window, view, _) = await HomeFirstRunTests.view()
         defer { window.close() }
         let owner = try #require(view.transcript.headerZoneTrackingArea?.owner as? NSResponder)
+        // The override is process-wide, and other suites set and clear it on the main actor while
+        // this one awaits its view (base run 37859638919 saw a 0.12 s fade). Set it after the await:
+        // nothing suspends between here and the check.
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
         owner.mouseEntered(with: try Self.enterExit(.mouseEntered, in: window))
         #expect(view.transcript.lastHeaderFadeDuration == 0, "the band animates under Reduce Motion")
     }
