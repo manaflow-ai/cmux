@@ -237,6 +237,8 @@ test("the comment links each changed or new state's page in the branch's live pr
   expect(md).not.toContain("#/agent-pane.composer/x#");
   expect(md).not.toContain("https://cmux");
   expect(commentMarkdown([outcome({})], meta)).not.toContain("Live preview");
+  expect(diffPage([outcome({})], live)).toContain("Live previews (1)");
+  expect(diffPage([outcome({})], live)).toContain("/wt/next-composer-queue-actions/?entry=agent-pane.composer");
 });
 
 // Prints the name scripts/pr-media.py stores a file under (its sanitize()).
@@ -306,6 +308,10 @@ test("a played state gets a filmstrip; a step that moved changes the state even 
     problems: ["layout shift 0.120"],
   });
   expect(outcome!.frames![0]!.basePlay).toMatchObject({ status: "pass", layoutShift: 0 });
+  expect(outcome!.frames![1]!.base).toBeTruthy();
+  expect(outcome!.frames![1]!.head).toBeTruthy();
+  expect(existsSync(join(root, "play-diff", outcome!.frames![1]!.base!))).toBe(true);
+  expect(existsSync(join(root, "play-diff", outcome!.frames![1]!.head!))).toBe(true);
   expect(outcome!.play).toEqual({ status: "fail", error: undefined });
   // The thumbnail comes from the step that changed.
   expect(existsSync(join(root, "play-diff", outcome!.thumb!))).toBe(true);
@@ -313,7 +319,9 @@ test("a played state gets a filmstrip; a step that moved changes the state even 
   const md = commentMarkdown([outcome!], meta);
   expect(md).toContain("**Play checks failed**");
   expect(md).toContain("pane.menu/slash: step 1 click step 1: layout shift 0.120");
-  expect(diffPage([outcome!], meta)).toContain("frame-cell");
+  const html = diffPage([outcome!], meta);
+  expect(html).toContain("frame-cell");
+  expect(html).toContain("play: undefined");
 });
 
 test("a step that differs from itself makes an otherwise unchanged state nondeterministic", () => {

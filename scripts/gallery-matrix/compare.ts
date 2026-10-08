@@ -315,7 +315,13 @@ function comparePair(
   }
   const basePng = readPng(baseFile);
   const diff = diffMask(basePng, headPng);
-  if (diff.pixels === 0) return pair;
+  if (diff.pixels === 0) {
+    // Filmstrips need both stills even when a step is unchanged. Keep the paths
+    // alongside changed/new/removed pairs so every cell can open in the viewer.
+    pair.base = keep("base", dirs.base, names.base!);
+    pair.head = keep("head", dirs.head, names.head!);
+    return pair;
+  }
   pair.status = "changed";
   [pair.width, pair.height] = [diff.width, diff.height];
   pair.pixels = diff.pixels;

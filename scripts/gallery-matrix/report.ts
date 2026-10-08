@@ -130,21 +130,29 @@ export const liveLink = (o: Outcome, meta: ReportMeta) =>
     ? `${meta.links.live}?entry=${o.entry}#/${o.entry}/${o.variant}`
     : undefined;
 
+type LiveEntry = { label: string; url: string };
+
 /** One live link per changed or new entry and variant (themes and engines share a page). */
-function liveLinks(outcomes: Outcome[], meta: ReportMeta): string[] {
+function liveEntries(outcomes: Outcome[], meta: ReportMeta): LiveEntry[] {
   const seen = new Set<string>();
-  const links: string[] = [];
+  const links: LiveEntry[] = [];
   for (const o of outcomes) {
     if (o.status !== "changed" && o.status !== "new") continue;
     const link = liveLink(o, meta);
     if (!link || seen.has(link)) continue;
     seen.add(link);
-    links.push(`- ${escapeMd(`${o.entry}/${o.variant}`)}: \`${link}\``);
+    links.push({ label: `${o.entry}/${o.variant}`, url: link });
   }
   return links;
 }
 
 const escapeMd = (text: string) => text.replace(/[\r\n]+/g, " ").replace(/[|[\]<>`*_\\]/g, (c) => `\\${c}`);
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+
+function liveLinks(outcomes: Outcome[], meta: ReportMeta): string[] {
+  return liveEntries(outcomes, meta).map(({ label, url }) => `- ${escapeMd(label)}: \`${url}\``);
+}
 
 export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
   const n = counts(outcomes);
@@ -203,6 +211,12 @@ export function diffPage(outcomes: Outcome[], meta: ReportMeta): string {
     "\\u003c",
   );
   const title = `PR #${meta.pr} gallery diff`;
+  const live = liveEntries(outcomes, meta);
+  const liveMarkup = live.length
+    ? `<details class="live-links"><summary>Live previews (${live.length})</summary><ul>${live
+        .map(({ label, url }) => `<li><a href="${escapeHtml(url)}">${escapeHtml(label)}</a></li>`)
+        .join("")}</ul></details>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -215,6 +229,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-a
 header{padding:20px 16px 8px;max-width:1240px;margin:0 auto}
 h1{font-size:18px;margin:0 0 4px}
 .sub{color:var(--muted)}
+.live-links{margin-top:10px;color:var(--muted);font-size:12px}.live-links ul{columns:2;margin:6px 0 0;padding-left:18px}.live-links a{color:inherit}
 main{max-width:1240px;margin:0 auto;padding:8px 16px 48px}
 h2{font-size:15px;margin:28px 0 10px}
 article{background:var(--card);border-radius:10px;box-shadow:0 0 0 1px var(--edge);padding:12px;margin:0 0 16px}
@@ -244,7 +259,7 @@ details summary{cursor:pointer;color:var(--muted)}
 ul.plain{columns:2;padding-left:18px;color:var(--muted)}
 @media (max-width:640px){ul.plain{columns:1}.pair{grid-template-columns:1fr}}
 </style>
-<header><h1>${title}</h1><div class="sub" id="summary"></div></header>
+<header><h1>${title}</h1><div class="sub" id="summary"></div>${liveMarkup}</header>
 <main id="main"></main>
 <script>
 const {outcomes, labels} = ${data};
@@ -300,7 +315,12 @@ function card(o, i) {
     // The filmstrip: the played steps in order, then the final still; a frame opens in the views above.
     const strip = el("div", {class: "strip"});
     const select = (p, cell) => { picture(p, stage, buttons); for (const c of strip.children) c.setAttribute("aria-pressed", String(c === cell)); };
-    const frames = [...o.frames.map((f) => ({...f, label: "Step " + (f.index + 1) + ": " + f.step})), {...o, label: "Final"}];
+    // The final outcome's play field is the aggregate report, not a StepMetrics object.
+    // Leave it off the final cell so metricsText never reads step-only fields from it.
+    const frames = [
+      ...o.frames.map((f) => ({...f, label: "Step " + (f.index + 1) + ": " + f.step})),
+      {...o, play: undefined, label: "Final"},
+    ];
     for (const f of frames) {
       const src = f.head || f.base;
       const cell = el("button", {type: "button", class: "frame-cell"}, ...(src ? [img(src, f.label)] : []), el("span", {class: "frame-label"}, f.label), el("span", {class: "tag " + f.status}, f.status));
