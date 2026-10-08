@@ -190,13 +190,13 @@ struct CoderouterSidebarSectionTests {
         let root = try #require(CloudTreeCreateActionBuilder.add(to: [CloudTreeNodeBuilder.coderouterNode(section)]).first)
 
         #expect(root.kind == .coderouterSection(count: 3, refresh: CloudTreeSectionRefresh()))
-        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode Go", "Gemini"])
+        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode", "Gemini"])
         let codex = root.children[0]
         #expect(codex.kind == .coderouterProviderGroup(.codex, count: 2))
         #expect(codex.children.map(\.searchableTitle) == ["New Codex Account", "a@example.com", "b@example.com"])
         // An empty addable type still offers its New Account row.
         #expect(root.children[1].children.map(\.searchableTitle) == ["New Claude Account"])
-        #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Go Account"])
+        #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Account"])
         // A type CodeRouter can't add lists its accounts without a create row.
         #expect(root.children[3].children.map(\.searchableTitle) == ["c@example.com"])
     }

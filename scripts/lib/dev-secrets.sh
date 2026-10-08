@@ -227,7 +227,7 @@ cmux_dev_secrets_load() {
       echo "error: run scripts/setup-team-dev.sh once to configure ~/.secrets/cmuxterm-dev.env" >&2
     elif [[ "$profile" == "agent" ]]; then
       echo "error: agent auth profile requires complete CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD values${explicit_file:+ in $explicit_file}" >&2
-      echo "error: configure the shared agent pair in ~/.secrets/cmuxterm-dev.env" >&2
+      echo "error: run scripts/setup-team-dev.sh to configure the development simulator/test account" >&2
     elif [[ -n "$explicit_file" ]]; then
       echo "error: explicit credentials file does not contain a complete supported credential pair" >&2
     else
