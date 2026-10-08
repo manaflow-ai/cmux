@@ -534,7 +534,9 @@ assert 'branch not in {"main", "nightly-next"}' in auto
 assert "eligible=false" in auto and "source-branch-is-not-published" in auto
 assert "published: ${{ steps.publication-result.outputs.published }}" in auto
 assert "needs.publish.outputs.published == 'true'" in auto
-assert "SOURCE_HEAD_SHA.toLowerCase()" in auto
+assert "const label = `${process.env.CHANNEL}-failure`;" in auto
+assert "Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}" in auto
+assert "if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;" not in auto
 assert "--draft=false" in auto
 assert "prune_nightly_release_assets.py" in auto
 assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow
