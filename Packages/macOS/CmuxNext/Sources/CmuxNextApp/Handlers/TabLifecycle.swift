@@ -191,12 +191,21 @@ enum TabLifecycle {
         }
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement).
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
+        // that opens what the chat works on, not the strip's selected tab.
         let pane: PaneModel
+        var context: PaneController?
+        var docked = false
         if invocation.origin == .user, let chat = ctx.services.paneController(for: invoked) {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
-            guard let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) else { return }
-            pane = target.pane
+            if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
+                pane = target.pane
+                if target !== chat { context = chat }
+            } else {
+                // A lone chat docked and left the browser in its pane.
+                pane = invoked
+                docked = true
+            }
         } else {
             pane = invoked
         }
@@ -204,6 +213,7 @@ enum TabLifecycle {
         if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
             noteUserChoice(.browser(engine: plan.recordedEngine), ctx, invocation, pane: pane)
         }
+        if docked { return }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?
@@ -238,8 +248,8 @@ enum TabLifecycle {
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
         }
         if let controller = ctx.services.paneController(for: opener) {
-            // No URL given: what the selected tab works on (#16620).
-            if url == nil { controller.newBrowserTabFromSelectedTab(engine: engine, then: then) }
+            // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
+            if url == nil { (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then) }
             else { controller.newBrowserTab(url: url, engine: engine, then: then) }
             return
         }
