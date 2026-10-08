@@ -34,7 +34,11 @@ describe("VM install isolation", { timeout: 60_000 }, () => {
     expect((await read(s.vmToken, "cloud.vm.self.get", { machine: s.machine })).status).toBe(200)
     for (const op of ["install.list", "team.directory", "team.members.list"]) expect((await read(s.vmToken, op, {})).status, op).toBe(403)
     expect((await post("/v1/ops", s.vmToken, { op: "install.rename", params: { install: s.install.id, name: "x" }, idempotency_key: crypto.randomUUID(), origin: "cli" })).status).toBe(403)
-    for (const scope of ["user", "team", "feed", "cloud"]) {
+    // HostDO is deliberately still closed to VM installs until the phase-2
+    // Rust session host and VM admission contract land. Keep this endpoint in
+    // the isolation matrix so a route refactor cannot accidentally expose a
+    // control socket before that work is complete.
+    for (const scope of ["user", "team", "feed", "cloud", "host/host_h0000000000000000009"]) {
       const res = await worker.fetch(`https://api.test/v1/wire/${scope}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${s.vmToken}` } })
       expect(res.status, scope).toBe(403)
     }

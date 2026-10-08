@@ -190,3 +190,13 @@ This is a phone-side implementation with static and contract-test evidence only.
 WireGuard/WebRTC underlays, HostDO VM admission, and live token verification
 remain unimplemented; `cloudWorkspaces` stays disabled and no live VM attach is
 claimed.
+
+## 10. HostDO admission guard (2026-10-08)
+
+The VM install isolation contract now covers the HostDO route as well as the existing user, team, feed,
+and cloud sockets. `backend/apps/api/test/cloud-vm-isolation.test.ts` sends the VM install bearer to
+`/v1/wire/host/<host>` and requires HTTP 403 before `HostDO` admission. This preserves the phase-2
+boundary: the VM may call only its own `cloud.vm.*` operations until the Rust session host and the
+corresponding HostDO VM admission contract are implemented. The focused Vitest file passes (4 tests).
+This is route-level regression evidence only; it does not claim a VM session host, WireGuard/WebRTC
+underlay, token verification, or live attach.
