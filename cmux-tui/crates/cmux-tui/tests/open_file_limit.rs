@@ -85,10 +85,10 @@ impl Drop for Daemon {
                     "generation": identify["data"]["generation"],
                     "end_terminals": true,
                 }),
-                Duration::from_secs(300),
+                test_timeout(Duration::from_secs(300)),
             );
         }
-        let deadline = Instant::now() + Duration::from_secs(120);
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(120));
         while self.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
