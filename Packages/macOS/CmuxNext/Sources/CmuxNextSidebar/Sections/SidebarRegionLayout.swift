@@ -183,30 +183,13 @@ extension SidebarLayoutDocument {
     /// The item sections drawn above and below the workspace list in
     /// `room`, in region order (top, middle, bottom) split at the
     /// workspaces section. Items sections in the middle region draw in the
-    /// band next to the list. Pure, so the rail's nonisolated layout reads
-    /// it too. The middle sections after the list (`listTrail`) draw in the
-    /// list itself, not in the band below.
+    /// band next to the list; they scroll with it in phase 5
+    /// (plans/cmux-next/sidebar-sections.md 8). Pure, so the rail's
+    /// nonisolated layout reads it too.
     public nonisolated func bands(room: String?) -> (above: [LayoutSection], below: [LayoutSection]) {
         let ordered = SidebarRegion.allCases.flatMap { sections(in: $0, room: room) }
         guard let split = ordered.firstIndex(where: { $0.content == .workspaces }) else { return (ordered, []) }
         return (Array(ordered[..<split]), Array(ordered[(split + 1)...]))
-    }
-
-    /// The middle sections after the workspaces (Recents): they draw right
-    /// under the list's last row and scroll with it, one sidebar with no gap
-    /// (Leo 2026-10-06). The bottom region stays pinned under the list.
-    public nonisolated func listTrail(room: String?) -> [LayoutSection] {
-        let middle = sections(in: .middle, room: room)
-        guard let split = middle.firstIndex(where: { $0.content == .workspaces }) else { return [] }
-        return Array(middle[(split + 1)...])
-    }
-
-    /// `bands(room:)` with the list's trail (`listTrail`) taken out of the band below.
-    public nonisolated func bandsAroundList(room: String?) -> (above: [LayoutSection], trail: [LayoutSection], below: [LayoutSection]) {
-        let (above, below) = bands(room: room)
-        let trail = listTrail(room: room)
-        let trailIDs = Set(trail.map(\.id))
-        return (above, trail, below.filter { !trailIDs.contains($0.id) })
     }
 }
 

@@ -9,7 +9,7 @@ import CmuxNextDesign
 // Chats section) scrolls above it and never pushes it out of view.
 extension SidebarView {
     /// Every region that draws layout items, the footer first.
-    var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, list.trailer.region, aboveRegion] }
+    var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, aboveRegion] }
 
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
@@ -52,12 +52,13 @@ extension SidebarView {
         installCardStack()
     }
 
-    /// Gives the regions their sections: the band above the list, the list's trail (Recents, under
-    /// its last row), the band below without the footer section, and the footer section alone.
+    /// Gives the three regions their sections: the band above the list,
+    /// the band below it without the footer section, and the footer section
+    /// alone (when it is in the band below).
     func updateBands() {
         let width = bounds.width
         let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
-        let (above, trail, below) = model.layout.bandsAroundList(room: model.activeProfileID?.rawValue)
+        let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
@@ -73,7 +74,6 @@ extension SidebarView {
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
         }
         aboveRegion.update(content(shownAbove), width: width)
-        list.trailer.show(content(trail.presenting(hidingItems: hidden, apps: apps)), width: width, in: list)
         belowRegion.update(content(shownBelow.filter { !isFooter($0) }), width: width)
         footerRegion.update(content(shownBelow.filter(isFooter)), width: width)
     }
