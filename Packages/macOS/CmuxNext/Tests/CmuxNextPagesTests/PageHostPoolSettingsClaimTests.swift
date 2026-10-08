@@ -52,10 +52,14 @@ struct PageHostPoolSettingsClaimTests {
         pool.follow(second)
         pool.noteLikely()
         await Self.spareReady(pool)
-        // In the app the spare stays parked for seconds or longer, so its Settings document has
-        // already read (and failed) before the claim. Wait for that state.
+        // In the app the spare stays parked for seconds or longer. Its Settings document holds its
+        // reads until a claim binds routes, so it never shows the failed-read banner.
         let spare = try #require(pool.spareHost)
-        #expect(await Self.banner(in: spare, becomes: "loadFailed") == "loadFailed", "the parked spare reads with no routes")
+        try await Task.sleep(for: .seconds(1))
+        let parkedState = try await spare.webKitView.callAsyncJavaScript(
+            "return document.querySelector('[data-read-only]')?.getAttribute('data-read-only') ?? null;",
+            contentWorld: .page) as? String
+        #expect(parkedState == nil, "the parked spare must not read through its empty router")
 
         let provider = RecordingProvider()
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider)]

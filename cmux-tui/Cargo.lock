@@ -10,6 +10,7 @@ dependencies = [
  "base64",
  "clap",
  "cmux-chat-index",
+ "cmux-coderouter",
  "cmux-local-auth",
  "cmux-unix-socket",
  "crossterm",
@@ -306,6 +307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
+ "axum-macros",
  "base64",
  "bytes",
  "form_urlencoded",
@@ -352,6 +354,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aa268c23bfbbd2c4363b9cd302a4f504fb2a9dfe7e3451d66f35dd392e20aca"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -869,6 +882,41 @@ name = "cmux-cloud-cli"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-coderouter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "bytes",
+ "cmux-local-auth",
+ "fs4",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "hmac",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "reqwest",
+ "rustls",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tower-http",
+ "tracing",
+ "url",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
@@ -886,6 +934,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -995,6 +1044,7 @@ dependencies = [
  "anyhow",
  "libc",
  "portable-pty",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1116,6 +1166,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "uds_windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1302,6 +1354,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-tui-cdp",
  "cmux-unix-socket",
@@ -5115,6 +5168,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -6365,6 +6419,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
  "tokio",
  "tower",

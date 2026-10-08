@@ -5,7 +5,12 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
-import { BUILD_REPORT_PDF_PAGE_PNG, BUILD_TIMES_PNG, LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
+import {
+  BUILD_REPORT_PDF_PAGE_PNG,
+  BUILD_TIMES_PNG,
+  LOGIN_SCREENSHOT_PNG,
+  LOGIN_TESTS_MP4,
+} from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -36,6 +41,49 @@ const MATH = [
   "$$",
   "",
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
+].join("\n");
+
+const BUILD_CHART = [
+  "The app target dominates the build. Per-target wall time from the last 20 CI runs on main:",
+  "",
+  "```vega-lite",
+  JSON.stringify(
+    {
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      width: 420,
+      height: 180,
+      data: {
+        values: [
+          { target: "app", p50: 312, p90: 371 },
+          { target: "api", p50: 204, p90: 229 },
+          { target: "worker", p50: 171, p90: 190 },
+          { target: "ui-kit", p50: 122, p90: 140 },
+          { target: "docs", p50: 88, p90: 97 },
+          { target: "e2e", p50: 64, p90: 82 },
+          { target: "lint", p50: 41, p90: 45 },
+        ],
+      },
+      layer: [
+        {
+          mark: { type: "bar", color: "#3b6fd8" },
+          encoding: {
+            y: { field: "target", type: "nominal", sort: "-x", title: null },
+            x: { field: "p50", type: "quantitative", title: "seconds (p50, tick = p90)" },
+            tooltip: [{ field: "target" }, { field: "p50" }, { field: "p90" }],
+          },
+        },
+        {
+          mark: { type: "tick", color: "#e8a33d", thickness: 2 },
+          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+  "```",
+  "",
+  "Splitting the app target's type check (41% of its time) is the biggest win.",
 ].join("\n");
 
 const MARKDOWN_MIX = [
@@ -123,9 +171,12 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
+    "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/chips/ReplyMedia.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
@@ -146,6 +197,19 @@ export default agentPaneEntry({
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
         summary(29, { status: "completed", durationMs: 41_000 }),
+      ]),
+    },
+    "github-references": {
+      note: "Issue and pull request references link in prose while code stays untouched.",
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Please review #18325 and manaflow-ai/cmux#18321", 3),
+        assistant(
+          "The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
     },
     tasks: {
@@ -323,6 +387,33 @@ export default agentPaneEntry({
         ),
         summary(5.6, { status: "completed", toolCount: 3 }),
       ]),
+    },
+    "tool-video": {
+      note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
+      chipHost: {
+        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
+        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Record the login tests running so I can attach it to the PR", 4),
+        activity(
+          [
+            tool("vhs scripts/login-tests.tape", "execute", "completed", {
+              command: "vhs scripts/login-tests.tape",
+              output: "Recorded 7 s to /Users/you/src/atlas-web/out/login-tests.mp4\n",
+              exitCode: 0,
+            }),
+          ],
+          3.8,
+        ),
+        assistant("All six login tests pass; the recording is ready to attach.", 3.6),
+        summary(3.6, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "vega-lite-chart": {
+      note: "A vega-lite fence in a reply draws as a chart (the markdown viewer's bundled Vega); Code shows the spec.",
+      height: 520,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",

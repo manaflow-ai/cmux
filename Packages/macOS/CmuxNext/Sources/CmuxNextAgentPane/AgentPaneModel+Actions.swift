@@ -13,7 +13,8 @@ extension AgentPaneModel {
     /// inside that same gesture.
     func runAction(_ id: String) -> [String: Any] {
         guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id)
-                || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil),
+                || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil)
+                || newTab?.tools.contains(where: { $0.id == id || $0.menu.contains(id) }) == true,
               let onRunAction else {
             return Self.unsupported("action.run")
         }

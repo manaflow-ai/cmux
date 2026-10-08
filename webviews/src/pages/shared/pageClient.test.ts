@@ -184,6 +184,71 @@ describe("BridgePageClient", () => {
   });
 });
 
+/** A parked pooled document (the host set `__cmuxPageParked` before page code ran). */
+function parkedHost() {
+  const posted: any[] = [];
+  const replaced: string[] = [];
+  const handler: ReplyHandler = {
+    postMessage: async (body: any) => {
+      posted.push(body);
+      if (body.t === "sub") return { t: "ok", id: body.id, value: { sub: 9 } };
+      if (body.t === "call") return { t: "ok", id: body.id, value: { op: body.op } };
+      return undefined;
+    },
+  };
+  const location = { hash: "", replace: (url: string) => replaced.push(url) };
+  const target: Record<string, unknown> = { __cmuxPageParked: true, location };
+  const client = new BridgePageClient(handler, target);
+  const receive = (m: unknown) => (target[RECEIVE_NAME] as (m: unknown) => void)(m);
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  return { client, posted, replaced, receive, tick };
+}
+
+describe("a parked pooled document", () => {
+  test("holds its calls and subscriptions until the claim, then sends them in order and acknowledges", async () => {
+    const { client, posted, replaced, receive, tick } = parkedHost();
+    const read = client.call<{ op: string }>("cmux.settings.list", {});
+    const sub = client.subscribe("cmux.settings.changed", () => undefined);
+    await tick();
+    expect(posted).toEqual([]);
+
+    receive({ t: "call", id: 3, op: "cmux.page.claim", params: { route: "#/settings/general" } });
+    expect(await read).toEqual({ op: "cmux.settings.list" });
+    expect(typeof (await sub)).toBe("function");
+    await tick();
+    expect(replaced).toEqual(["#/settings/general"]);
+    expect(posted.map((m) => m.t + ":" + (m.op ?? m.stream ?? m.id))).toEqual([
+      "call:cmux.settings.list",
+      "sub:cmux.settings.changed",
+      "ok:3",
+    ]);
+    expect(posted[2]).toEqual({ t: "ok", id: 3, value: { claimed: true } });
+
+    // Claimed: later calls go out at once.
+    posted.length = 0;
+    await client.call("cmux.settings.snapshot", {});
+    expect(posted[0]).toMatchObject({ t: "call", op: "cmux.settings.snapshot" });
+  });
+
+  test("a held call that the caller aborts is dropped, never sent", async () => {
+    const { client, posted, receive, tick } = parkedHost();
+    const controller = new AbortController();
+    const read = client.call("cmux.settings.list", {}, { signal: controller.signal });
+    controller.abort();
+    await expect(read).rejects.toMatchObject({ code: "cmux.op.cancelled" });
+    receive({ t: "call", id: 4, op: "cmux.page.claim", params: {} });
+    await tick();
+    expect(posted).toEqual([{ t: "ok", id: 4, value: { claimed: true } }]);
+  });
+
+  test("a document that already ran answers a claim with not_parked, so the host reloads it", async () => {
+    const { target, posted } = host(() => undefined);
+    (target[RECEIVE_NAME] as (m: unknown) => void)({ t: "call", id: 2, op: "cmux.page.claim", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(posted).toEqual([{ t: "err", id: 2, code: "cmux.page.not_parked", message: "the document already ran" }]);
+  });
+});
+
 describe("createPageClient", () => {
   test("finds only a reply-capable cmuxPage handler", () => {
     expect(findReplyHandler("cmuxPage", {})).toBeNull();
