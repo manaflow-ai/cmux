@@ -3,13 +3,16 @@
 //! `StartTransientUnit` only queues the job; the host may get `Launch` (and
 //! fork its shell) only after the kernel moved it. Instead of polling, the
 //! daemon watches the cgroup v2 tree with inotify: `IN_CREATE` on the
-//! cgroup root (for the slice), on the slice directory (for the scope), and
-//! `IN_MODIFY` on the scope's `cgroup.events`, which the kernel rewrites
-//! when the scope becomes populated. The watches are added BEFORE the
-//! `StartTransientUnit` call, so no event can be missed; after every wake
-//! the state is read again (event order is not trusted). The wait is one
-//! `poll()` deadline; on timeout, on a cgroup v1 host, or when inotify
-//! cannot be set up, the caller fails open.
+//! cgroup root (for the slice), on the slice directory (for the scope), on
+//! the scope directory (for its `cgroup.events`), and `IN_MODIFY` on the
+//! scope's `cgroup.events`, which the kernel rewrites when the scope
+//! becomes populated. A watch is armed on a path only after the path
+//! exists, and each level is watched before the next level is checked, so
+//! a child that appears between two checks still wakes the wait. The
+//! watches are added BEFORE the `StartTransientUnit` call, so no event can
+//! be missed; after every wake the state is read again (event order is not
+//! trusted). The wait is one `poll()` deadline; on timeout, on a cgroup v1
+//! host, or when inotify cannot be set up, the caller fails open.
 
 use std::ffi::CString;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -35,6 +38,7 @@ pub(crate) struct PlacementWatch {
     slice: PathBuf,
     scope: PathBuf,
     watching_slice: bool,
+    watching_scope: bool,
     watching_events: bool,
 }
 
@@ -65,6 +69,7 @@ impl PlacementWatch {
             root: root.to_path_buf(),
             inotify,
             watching_slice: false,
+            watching_scope: false,
             watching_events: false,
         };
         if !add_watch(&watch.inotify, &watch.root, libc::IN_CREATE) {
@@ -79,9 +84,14 @@ impl PlacementWatch {
         if !self.watching_slice && self.slice.is_dir() {
             self.watching_slice = add_watch(&self.inotify, &self.slice, libc::IN_CREATE);
         }
-        if !self.watching_events && self.scope.is_dir() {
-            self.watching_events =
-                add_watch(&self.inotify, &self.scope.join("cgroup.events"), libc::IN_MODIFY);
+        if !self.watching_scope && self.scope.is_dir() {
+            // Do not assume `cgroup.events` exists with its directory: watch
+            // the directory, so a file that appears later still wakes us.
+            self.watching_scope = add_watch(&self.inotify, &self.scope, libc::IN_CREATE);
+        }
+        let events = self.scope.join("cgroup.events");
+        if !self.watching_events && events.is_file() {
+            self.watching_events = add_watch(&self.inotify, &events, libc::IN_MODIFY);
         }
     }
 
@@ -149,6 +159,31 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
             let scope = writer_root.join("s.slice").join("h.scope");
             std::fs::create_dir_all(&scope).ok();
+            std::fs::write(scope.join("cgroup.events"), "populated 0\nfrozen 0\n").ok();
+            std::thread::sleep(Duration::from_millis(50));
+            std::fs::write(scope.join("cgroup.events"), "populated 1\nfrozen 0\n").ok();
+        });
+        let started = Instant::now();
+        let result = watch.map(|watch| watch.wait(Duration::from_secs(5)));
+        writer.join().ok();
+        assert_eq!(result, Ok(Ok(())));
+        assert!(started.elapsed() < Duration::from_secs(4), "the wait did not end on the event");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// cx-nvhp: the scope directory can be visible before its
+    /// `cgroup.events` file. The watch must still see the file appear and
+    /// then its change, instead of sleeping to the deadline.
+    #[test]
+    fn the_wait_ends_on_the_event_when_cgroup_events_appears_after_the_scope() {
+        let root = temp_root("late-events");
+        std::fs::write(root.join("cgroup.controllers"), "cpu memory\n").ok();
+        let scope = root.join("s.slice").join("h.scope");
+        std::fs::create_dir_all(&scope).ok();
+        let watch = PlacementWatch::new(&root, "s.slice", "h.scope");
+        assert!(watch.is_ok(), "{:?}", watch.as_ref().err());
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
             std::fs::write(scope.join("cgroup.events"), "populated 0\nfrozen 0\n").ok();
             std::thread::sleep(Duration::from_millis(50));
             std::fs::write(scope.join("cgroup.events"), "populated 1\nfrozen 0\n").ok();

@@ -1387,6 +1387,38 @@ jobs:
           KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
         run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
 
+  # nightly-next is promoted only to a commit whose cmux-tui tree is published
+  # and whose cmux-next Release compile passed, so the nightly builds its tip
+  # with the tip's own nightly.yml and daemon. cmux-next.yml asks when the
+  # Release compile passes; this job asks when the tree is ready (just
+  # published, or already published by an earlier commit with the same key),
+  # so whichever finishes last requests it. It requests the newest
+  # feat-cmux-next push with this tree and a green Release compile, so a
+  # commit whose own run here was replaced by a newer push is not lost.
+  request-nightly-next:
+    name: request nightly-next promotion
+    needs: [tree-preflight, publish-tree]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.publish-tree.result == 'success') && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      # actions: read finds the Release compile; actions: write dispatches
+      # main's promote-nightly-next.
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Request nightly-next promotion on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: scripts/cmux-next/request-nightly-next.sh --tree-ready "$SHA" --repo "$GITHUB_REPOSITORY"
+
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
   # its opaque arm64 binary and uses the base checkout's uploader. The merge
