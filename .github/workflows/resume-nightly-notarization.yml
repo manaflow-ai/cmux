@@ -18,30 +18,21 @@ on:
         options:
           - nightly
           - rc
-      release_id:
-        description: Existing GitHub release id for the nightly or RC channel
+      variant:
+        description: Architecture variant recorded by the recovery manifest
         required: true
-        type: string
-      immutable_name:
-        description: Build-numbered DMG name to retain after acceptance
-        required: true
-        type: string
-      alias_name:
-        description: Architecture DMG alias to publish after acceptance
-        required: true
-        type: string
-      publish:
-        description: Publish the verified immutable DMG and alias to the existing release
-        required: true
-        default: false
-        type: boolean
+        type: choice
+        options:
+          - arm64
+          - x86_64
+          - universal
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-publish-${{ inputs.channel }}
+  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}
   cancel-in-progress: false
 
 jobs:
@@ -54,14 +45,12 @@ jobs:
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact }}
       REQUESTED_CHANNEL: ${{ inputs.channel }}
-      RELEASE_ID: ${{ inputs.release_id }}
-      IMMUTABLE_NAME: ${{ inputs.immutable_name }}
-      ALIAS_NAME: ${{ inputs.alias_name }}
+      REQUESTED_VARIANT: ${{ inputs.variant }}
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
-      - name: Checkout recovery tools
+      - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -72,7 +61,7 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "source_run_id must be numeric" >&2; exit 2; }
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
-          source_head_sha="$(python3 - "$RUNNER_TEMP/source-run.json" "$GITHUB_REPOSITORY" "$REQUESTED_CHANNEL" <<'PY'
+          read -r source_head_sha source_run_attempt < <(python3 - "$RUNNER_TEMP/source-run.json" "$GITHUB_REPOSITORY" "$REQUESTED_CHANNEL" <<'PY'
           import json
           import pathlib
           import re
@@ -84,6 +73,8 @@ jobs:
               raise SystemExit("source run is not the trusted nightly workflow")
           if run.get("repository", {}).get("full_name") != repository:
               raise SystemExit("source run belongs to a different repository")
+          if run.get("head_repository", {}).get("full_name") != repository:
+              raise SystemExit("source run was created from a different repository")
           if run.get("event") not in {"push", "schedule", "workflow_dispatch"}:
               raise SystemExit("source run event is not a published nightly event")
           branch = run.get("head_branch") or ""
@@ -91,169 +82,61 @@ jobs:
               raise SystemExit("nightly recovery source is not on a published branch")
           if channel == "rc" and not branch.startswith("rc/"):
               raise SystemExit("RC recovery source is not on an RC branch")
-          if run.get("conclusion") not in {"failure", "timed_out", "cancelled"}:
-              raise SystemExit("source run did not fail before publication")
+          if run.get("conclusion") not in {"failure", "success", "timed_out", "cancelled"}:
+              raise SystemExit("source run did not complete before recovery")
           head_sha = run.get("head_sha", "")
           if not re.fullmatch(r"[0-9a-fA-F]{40}", head_sha):
               raise SystemExit("source run has no valid head SHA")
-          print(head_sha)
+          run_attempt = run.get("run_attempt")
+          if not isinstance(run_attempt, int) or run_attempt < 1:
+              raise SystemExit("source run has no valid run attempt")
+          print(head_sha, run_attempt)
           PY
-          )"
-          echo "SOURCE_HEAD_SHA=$source_head_sha" >> "$GITHUB_ENV"
+          )
+          {
+            echo "SOURCE_HEAD_SHA=$source_head_sha"
+            echo "SOURCE_RUN_ATTEMPT=$source_run_attempt"
+          } >> "$GITHUB_ENV"
 
       - name: Download exact recovery artifact
         run: |
           set -euo pipefail
-          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "source_run_id must be numeric" >&2; exit 2; }
-          [[ "$RELEASE_ID" =~ ^[0-9]+$ ]] || { echo "release_id must be numeric" >&2; exit 2; }
           [[ "$RECOVERY_ARTIFACT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "invalid recovery artifact name" >&2; exit 2; }
+          rm -rf recovery
+          mkdir -p recovery
           gh run download "$SOURCE_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name "$RECOVERY_ARTIFACT" \
             --dir recovery
-          app_archive="recovery/cmux-nightly-notarization-recovery-app.tar.gz"
-          [ -f "$app_archive" ] || { echo "signed app archive is missing" >&2; exit 1; }
-          python3 - "$app_archive" <<'PY'
-          import pathlib
-          import tarfile
-          import sys
+          test -f recovery/cmux-nightly-notarization-recovery.json
+          test -f recovery/cmux-nightly-notarization-recovery-app.tar.gz
 
-          with tarfile.open(sys.argv[1], "r:gz") as archive:
-              names = archive.getnames()
-              if not any(name.endswith(".app") or ".app/" in name for name in names):
-                  raise SystemExit("signed app archive contains no app bundle")
-              for member in archive.getmembers():
-                  name = member.name
-                  path = pathlib.PurePosixPath(name)
-                  if path.is_absolute() or ".." in path.parts:
-                      raise SystemExit(f"unsafe signed app archive member: {name}")
-                  if member.issym() or member.islnk():
-                      target = pathlib.PurePosixPath(member.linkname)
-                      if target.is_absolute() or ".." in target.parts:
-                          raise SystemExit(f"unsafe signed app archive link: {name}")
-          PY
-          mkdir -p recovery/cmux-nightly-notarization-recovery-app
-          tar -xzf "$app_archive" -C recovery/cmux-nightly-notarization-recovery-app
-
-      - name: Resolve and verify recovery manifest
+      - name: Resolve and verify exact recovery manifest
         run: |
           set -euo pipefail
-          manifest_count="$(find recovery -maxdepth 1 -type f -name 'cmux-nightly-notarization-recovery.json' | wc -l | tr -d ' ')"
-          [ "$manifest_count" = 1 ] || { echo "expected one recovery manifest, found $manifest_count" >&2; exit 1; }
-          manifest="$(find recovery -maxdepth 1 -type f -name 'cmux-nightly-notarization-recovery.json' -print -quit)"
-          resolved_count=0
-          while IFS= read -r value; do
-            case "$resolved_count" in
-              0) state="$value" ;;
-              1) dmg="$value" ;;
-              2) app="$value" ;;
-              3) evidence="$value" ;;
-              4) channel="$value" ;;
-              5) release_tag="$value" ;;
-              6) manifest_head_sha="$value" ;;
-              *) echo "invalid recovery manifest resolution" >&2; exit 1 ;;
-            esac
-            resolved_count=$((resolved_count + 1))
-          done < <(python3 - "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$REQUESTED_CHANNEL" "$IMMUTABLE_NAME" "$ALIAS_NAME" <<'PY'
-          import json
-          import pathlib
-          import re
-          import sys
+          python3 scripts/ci/resolve-notarization-recovery.py \
+            recovery/cmux-nightly-notarization-recovery.json \
+            "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$REQUESTED_CHANNEL" "$REQUESTED_VARIANT" \
+            --source-run-attempt "$SOURCE_RUN_ATTEMPT" --extract-app > "$RUNNER_TEMP/recovery.env"
+          while IFS='=' read -r key value; do
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
+          done < "$RUNNER_TEMP/recovery.env"
 
-          manifest_path, source_run_id, source_head_sha, requested_channel, immutable_name, alias_name = sys.argv[1:]
-          manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
-          required = ("source_run_id", "head_sha", "channel", "release_tag", "dmg_prefix", "variant", "dmg_path", "app_path", "state_path", "log_path", "app_archive_path", "immutable_path", "dmg_sha256", "submission_id")
-          missing = [key for key in required if not manifest.get(key)]
-          if missing:
-              raise SystemExit(f"recovery manifest missing: {', '.join(missing)}")
-          if str(manifest["source_run_id"]) != source_run_id:
-              raise SystemExit("recovery artifact was created by a different workflow run")
-          if manifest["head_sha"].lower() != source_head_sha.lower():
-              raise SystemExit("recovery manifest head differs from the source run")
-          if manifest["channel"] != requested_channel:
-              raise SystemExit("recovery manifest channel does not match the requested channel")
-          if manifest.get("schema") != 1 or manifest["channel"] not in {"nightly", "rc"}:
-              raise SystemExit("unsupported recovery manifest")
-          if not re.fullmatch(r"[0-9a-fA-F]{64}", manifest["dmg_sha256"]):
-              raise SystemExit("recovery manifest has an invalid DMG SHA-256")
-          if pathlib.Path(manifest["immutable_path"]).name != immutable_name:
-              raise SystemExit("immutable name does not match recovery manifest")
-          if alias_name != f"{manifest['dmg_prefix']}-{manifest['variant']}.dmg":
-              raise SystemExit("alias name does not match recovery manifest")
-          root = pathlib.Path(manifest_path).parent.resolve()
-          values = []
-          for key in ("state_path", "dmg_path", "app_path", "log_path", "app_archive_path"):
-              relative = pathlib.PurePosixPath(manifest[key])
-              if relative.is_absolute() or ".." in relative.parts:
-                  raise SystemExit(f"invalid recovery path: {key}")
-              path = (root / pathlib.Path(*relative.parts)).resolve()
-              if root not in path.parents or not path.exists():
-                  raise SystemExit(f"missing recovery file: {key}")
-              values.append(str(path))
-          if not (pathlib.Path(values[2]) / "Contents").is_dir():
-              raise SystemExit("recovery app path is not a bundle")
-          values.extend((manifest["channel"], manifest["release_tag"], manifest["head_sha"]))
-          print("\n".join(values))
-          PY
-          )
-          [ "$resolved_count" = 7 ] || { echo "invalid recovery manifest resolution" >&2; exit 1; }
-          manifest_head_sha="$(python3 - "$manifest" <<'PY'
-          import json
-          import pathlib
-          import sys
-          print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["head_sha"])
-          PY
-          )"
-          [ "$manifest_head_sha" = "$SOURCE_HEAD_SHA" ] || { echo "recovery manifest head differs from the source run" >&2; exit 1; }
-          [ "$channel" = "$REQUESTED_CHANNEL" ] || { echo "requested channel does not match recovery manifest" >&2; exit 1; }
-          tag_from_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .tag_name)"
-          [ "$tag_from_release" = "$release_tag" ] || { echo "release id does not match saved release tag" >&2; exit 1; }
-          release_body="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .body)"
-          published_sha="$(printf '%s\n' "$release_body" | sed -nE 's/.*<!-- cmux-published-sha: ([0-9a-fA-F]{40}) -->.*/\1/p' | head -n 1)"
-          if [ -n "$published_sha" ] && [ "$published_sha" != "$SOURCE_HEAD_SHA" ]; then
-            git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
-            if ! git merge-base --is-ancestor "$published_sha" "$SOURCE_HEAD_SHA"; then
-              echo "source recovery is older than the current published release; refusing stale alias replacement" >&2
-              exit 1
-            fi
-          fi
-          {
-            echo "STATE_FILE=$state"
-            echo "DMG_RELEASE=$dmg"
-            echo "APP_PATH=$app"
-            echo "EVIDENCE_FILE=$evidence"
-            echo "CMUX_CHANNEL=$channel"
-            echo "RELEASE_TAG=$release_tag"
-          } >> "$GITHUB_ENV"
-
-      - name: Wait, staple, and validate only after Accepted
+      - name: Wait, staple, and validate exact submitted DMG
         run: |
           set -euo pipefail
-          immutable="recovery/$IMMUTABLE_NAME"
-          CMUX_CHANNEL="$CMUX_CHANNEL" \
+          mkdir -p verified
+          CMUX_CHANNEL="$REQUESTED_CHANNEL" \
           CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
           ./scripts/ci/resume-nightly-notarization.sh \
-            "$STATE_FILE" \
-            "$APP_PATH" \
-            "$DMG_RELEASE" \
-            "$immutable"
+            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
 
       - name: Upload verified recovery artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-notarization-verified-${{ inputs.recovery_artifact }}
-          path: recovery
+          name: cmux-${{ inputs.channel }}-notarization-verified-${{ inputs.variant }}-${{ github.run_id }}
+          path: |
+            recovery
+            verified
           if-no-files-found: error
-          retention-days: 3
-
-      - name: Publish verified DMG assets
-        if: inputs.publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/publish-release-assets.py \
-            --repo "$GITHUB_REPOSITORY" \
-            --release-id "$RELEASE_ID" \
-            --immutable "recovery/$IMMUTABLE_NAME" \
-            --alias "recovery/$ALIAS_NAME"
+          retention-days: 14
