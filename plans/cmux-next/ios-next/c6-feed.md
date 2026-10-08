@@ -80,12 +80,12 @@ install identity exist, else the seam stays on the mock and DEV shows "not regis
 ### 4.1 Reliability hardening (2026-10-08)
 
 `CloudFeedSource` treats an idempotency key as one local operation as well as one owner operation.
-Concurrent callers that reuse a stable key (for example a lock-screen action racing the Feed tab)
-share the single outbound `op` frame and all receive its one settled receipt. This prevents duplicate
-frames and avoids orphaning the first caller's continuation. `CmuxiOSFeedCloudTests` covers the
-fan-out and asserts that one key produces one owner operation; reconnect resend and decided-key
-settlement remain covered by the existing source tests. Device and real-network verification remain
-the D3 gate below.
+Concurrent callers that reuse a stable key share the single outbound `op` frame and all receive its
+one settled receipt, including callers that join while a replacement socket is still reconnecting.
+`FeedStore` derives the same `FeedPushIntent` key for equivalent in-app answer and read actions, so a
+lock-screen HTTPS action racing the Feed tab carries the same owner key even though the transports
+are separate. `CmuxiOSFeedCloudTests` covers fan-out and reconnect joining; model and push tests pin
+the shared key mapping. Device and real-network verification remain the D3 gate below.
 
 ## 5. Screen
 

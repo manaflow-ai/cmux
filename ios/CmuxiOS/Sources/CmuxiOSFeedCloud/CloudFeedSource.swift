@@ -85,7 +85,6 @@ public actor CloudFeedSource: FeedSource {
     }
 
     public func perform(_ intent: FeedIntent, key: IntentKey) async throws -> IntentReceipt {
-        guard connection.isLive, outbox != nil else { throw FeatureSourceError.offline }
         guard let text = FeedWireEncode.text(FeedWireEncode.opFrame(intent, key: key, device: device)) else {
             throw FeatureSourceError.unsupported(intent.op)
         }
@@ -95,6 +94,10 @@ public actor CloudFeedSource: FeedSource {
                 // enqueue another frame; fan the eventual receipt out to the
                 // racing caller instead.
                 waiting[key.rawValue, default: []].append(continuation)
+                return
+            }
+            guard connection.isLive, outbox != nil else {
+                continuation.resume(throwing: FeatureSourceError.offline)
                 return
             }
             waiting[key.rawValue] = [continuation]

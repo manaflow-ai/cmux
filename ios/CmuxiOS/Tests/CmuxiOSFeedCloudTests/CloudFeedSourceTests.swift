@@ -170,6 +170,45 @@ import Testing
         #expect(try await b == .committed(key: undecided, revision: 4))
     }
 
+    @Test func duplicateKeyCallerDuringReconnectJoinsThePendingOperation() async throws {
+        let first = FakeFeedConnection(), reconnected = FakeFeedConnection()
+        let transport = FakeFeedTransport([first, reconnected])
+        let source = CloudFeedSource(apiBaseURL: URL(string: "https://api.example.test")!, device: "iPhone",
+                                     clientVersion: "1.2", transport: transport, clock: ImmediateClock(),
+                                     token: { "tok" })
+        var updates = await source.updates().makeAsyncIterator()
+        var sentFirst = first.outbound.makeAsyncIterator()
+        first.push(OwnerJSON.welcome)
+        first.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+
+        let key = IntentKey(rawValue: "idem_reconnect_shared")
+        let original = Task { try await source.perform(.read(itemIDs: ["fi_1"]), key: key) }
+        _ = try #require(await nextFrame(&sentFirst, t: "op"))
+        first.drop()
+        while await transport.requests.count < 2 { await Task.yield() }
+
+        // The replacement socket is connected but has not sent welcome yet,
+        // so the source is still `.connecting`. A retry with the same key
+        // must join the in-flight operation instead of throwing offline.
+        let retry = Task { try await source.perform(.read(itemIDs: ["fi_1"]), key: key) }
+        while await source.waitingContinuationCount < 2 { await Task.yield() }
+
+        var sentReconnected = reconnected.outbound.makeAsyncIterator()
+        reconnected.push(OwnerJSON.welcome)
+        _ = try #require(await nextFrame(&sentReconnected, t: "subscribe"))
+        reconnected.push(OwnerJSON.snapshot(seq: 2, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+        _ = try #require(await nextFrame(&sentReconnected, t: "op"))
+        reconnected.push(["t": "request-settled", "tx": "t", "idempotency_key": key.rawValue,
+                          "stream": "feed:usr_1", "sequence": 3, "ok": true])
+
+        let expected = IntentReceipt.committed(key: key, revision: 3)
+        #expect(try await original.value == expected)
+        #expect(try await retry.value == expected)
+        #expect(reconnected.sentFrameCount("op") == 1)
+    }
+
     @Test func gateErrorOnAnOpRefusesItAndOnASnapshotRequestReconnects() async throws {
         let first = FakeFeedConnection(), second = FakeFeedConnection()
         let (source, transport) = makeSource([first, second])

@@ -1,7 +1,20 @@
 import CmuxiOSFeatureKit
 import CmuxiOSFeedModel
+import CmuxFeedPushCore
 import Foundation
 import Testing
+
+actor KeyRecordingFeedSource: FeedSource {
+    let hub = MockSnapshotHub<[FeedItem]>(MockFixtures.feedItems())
+    private(set) var keys: [IntentKey] = []
+
+    func updates() async -> AsyncStream<SourceSnapshot<[FeedItem]>> { await hub.stream() }
+
+    func perform(_ intent: FeedIntent, key: IntentKey) async throws -> IntentReceipt {
+        keys.append(key)
+        return .committed(key: key, revision: await hub.current.revision)
+    }
+}
 
 @MainActor
 @Suite struct FeedStoreTests {
@@ -31,6 +44,16 @@ import Testing
         guard case .refused(_, _, let closedElsewhere) = outcome else { Issue.record("got \(outcome)"); return }
         #expect(closedElsewhere)
         #expect(store.state.pending.isEmpty)
+    }
+
+    @Test func inAppAnswerUsesTheBannerStableKey() async {
+        let source = KeyRecordingFeedSource()
+        let store = FeedStore(source: source, device: "iPhone")
+        store.receive(await source.hub.current)
+
+        _ = await store.answer("feed1", .permission(allow: true, scope: nil))
+
+        #expect(await source.keys == [IntentKey(rawValue: "feed-push-feed1-FEED_ALLOW")])
     }
 
     @Test func offlineSendsNothingAndQueuesNothing() async {

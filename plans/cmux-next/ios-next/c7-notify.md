@@ -19,6 +19,9 @@ c16-platform.md 4 (`NotificationRouteDecoder`, `.feed(item:)`), c11-settings.md 
 No second copy of any owner state exists on the phone. A banner action is an intent; its key is stable
 per (item, action, text), so a repeated delivery of one tap commits once. Nothing queues: a send that
 fails says "Answer not sent" on the lock screen and the item stays open on the owner.
+The in-app Feed tab derives that same key for equivalent answer and mark-read actions through
+`FeedPushIntent.makeIdempotencyKey`, allowing the owner ledger to collapse a banner/tab race even
+though the banner uses `/v1/ops` and the tab uses the feed WebSocket.
 
 ## 2. Categories and actions
 

@@ -18,4 +18,16 @@ public struct FeedPushIntent: Hashable, Sendable {
         self.change = change
         self.idempotencyKey = idempotencyKey
     }
+
+    /// Builds the stable key shared by banner actions and the in-app Feed
+    /// surface. Text replies include a digest so two different responses to
+    /// the same item remain distinct owner operations.
+    public static func makeIdempotencyKey(item: String, action: FeedPushAction, text: String? = nil) -> String {
+        var key = "feed-push-\(item)-\(action.rawValue)"
+        guard action == .reply || action == .requestChanges, let text else { return key }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 { hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
+        key += "-\(String(hash, radix: 16))"
+        return key
+    }
 }

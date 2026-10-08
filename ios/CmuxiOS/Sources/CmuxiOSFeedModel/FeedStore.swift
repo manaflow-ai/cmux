@@ -1,4 +1,5 @@
 public import CmuxiOSFeatureKit
+import CmuxFeedPushCore
 public import Foundation
 
 /// The Feed screen's model: subscribes to a `FeedSource`, keeps the
@@ -84,7 +85,7 @@ public final class FeedStore {
         default:
             break
         }
-        let key = IntentKey()
+        let key = key(for: intent)
         guard isLive else {
             return finish(.notSent(intent, offline: true))
         }
@@ -147,6 +148,46 @@ public final class FeedStore {
     }
 
     // MARK: - Drafts
+
+    /// Uses the same stable action key as a banner when an in-app answer has
+    /// an equivalent push action. The owner ledger then collapses a lock
+    /// screen and Feed-tab race; other intents keep fresh keys.
+    private func key(for intent: FeedIntent) -> IntentKey {
+        switch intent {
+        case .answer(let item, let reply):
+            switch reply {
+            case .permission(let allow, let scope):
+                guard !allow || scope != .always else { return IntentKey() }
+                let action: FeedPushAction
+                if !allow { action = .deny }
+                else {
+                    switch scope {
+                    case .once: action = .allowOnce
+                    case .session: action = .allowForSession
+                    case nil: action = .allow
+                    case .always: return IntentKey()
+                    }
+                }
+                return IntentKey(rawValue: FeedPushIntent.makeIdempotencyKey(item: item, action: action))
+            case .text(let text):
+                let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return IntentKey(rawValue: FeedPushIntent.makeIdempotencyKey(item: item, action: .reply, text: value))
+            case .plan(let approved, let comment):
+                let action: FeedPushAction = approved ? .approvePlan : .requestChanges
+                let value = comment?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return IntentKey(rawValue: FeedPushIntent.makeIdempotencyKey(item: item, action: action, text: value))
+            case .confirm(let confirmed):
+                let action: FeedPushAction = confirmed ? .confirm : .cancel
+                return IntentKey(rawValue: FeedPushIntent.makeIdempotencyKey(item: item, action: action))
+            case .choice:
+                return IntentKey()
+            }
+        case .read(let items) where items.count == 1:
+            return IntentKey(rawValue: FeedPushIntent.makeIdempotencyKey(item: items[0], action: .markRead))
+        default:
+            return IntentKey()
+        }
+    }
 
     public func choiceDraft(_ itemID: FeedItem.ID) -> [String: FeedChoiceSelection] { choiceDrafts[itemID] ?? [:] }
 

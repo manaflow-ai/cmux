@@ -562,12 +562,19 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSFeedModel",
-            dependencies: ["CmuxiOSFeatureKit"],
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CmuxiOSFeedModelTests",
-            dependencies: ["CmuxiOSFeedModel", "CmuxiOSFeatureKit"],
+            dependencies: [
+                "CmuxiOSFeedModel",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
