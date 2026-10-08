@@ -254,6 +254,7 @@ extension LinkSession {
         case let .rtt(sample):
             guard current?.generation == generation else { return }
             rtt = sample
+            wakeRenderCreditWaiters()
             publishBadge()
             if let threshold = configuration.degradedRTT {
                 if sample > threshold {
@@ -270,6 +271,23 @@ extension LinkSession {
             deliverIncoming(track)
         case .closed:
             transportClosed(generation)
+        }
+    }
+
+    /// An RTT increase can enlarge the adaptive render window without an
+    /// acknowledgement arriving first. Wake only render senders; their
+    /// `channelSend` loop re-checks the bounded budget before proceeding.
+    func wakeRenderCreditWaiters() {
+        guard configuration.renderCreditTargetBytesPerSecond != nil else { return }
+        for id in channels.keys {
+            guard let record = channels[id],
+                  record.descriptor.reliability == .reliableOrdered,
+                  record.descriptor.priority == .render,
+                  record.descriptor.budgetBytes == ChannelDescriptor.defaultBudget(for: .render)
+            else { continue }
+            let waiters = Array(record.creditWaiters.values)
+            channels[id]?.creditWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
         }
     }
 

@@ -149,6 +149,19 @@ extension LinkSession {
 
     // MARK: - Send
 
+    /// The default terminal render window follows the measured path RTT. A
+    /// feature that supplies a non-default budget keeps that contract; this
+    /// avoids silently changing small diagnostic channels and keeps the
+    /// adaptation bounded by `LinkConfiguration`.
+    func effectiveBudget(for record: ChannelRecord) -> Int {
+        let base = record.descriptor.budgetBytes
+        guard record.descriptor.reliability == .reliableOrdered,
+              record.descriptor.priority == .render,
+              base == ChannelDescriptor.defaultBudget(for: .render)
+        else { return base }
+        return configuration.renderCreditBudget(for: rtt, base: base)
+    }
+
     func channelSend(_ id: UInt32, _ incarnation: UInt64, _ payload: Data) async throws -> UInt64 {
         let size = payload.count
         let limit = min(configuration.maxFrameBytes, current?.capabilities.maxFrameBytes ?? .max)
@@ -159,7 +172,7 @@ extension LinkSession {
         guard let descriptor = channels[id]?.descriptor else { throw LinkError.channelClosed }
         if descriptor.reliability.isReliable {
             while let record = channels[id], record.retainedBytes > 0,
-                  record.retainedBytes + size > descriptor.budgetBytes {
+                  record.retainedBytes + size > effectiveBudget(for: record) {
                 try await waitForCredit(id)
                 try checkSendable(id, incarnation)
             }
