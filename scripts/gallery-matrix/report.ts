@@ -230,6 +230,8 @@ header{padding:20px 16px 8px;max-width:1240px;margin:0 auto}
 h1{font-size:18px;margin:0 0 4px}
 .sub{color:var(--muted)}
 .live-links{margin-top:10px;color:var(--muted);font-size:12px}.live-links ul{columns:2;margin:6px 0 0;padding-left:18px}.live-links a{color:inherit}
+label{display:inline-flex;align-items:center;gap:6px;margin-top:10px;color:var(--muted);font-size:12px}
+select{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--edge);border-radius:6px;padding:3px 6px}
 main{max-width:1240px;margin:0 auto;padding:8px 16px 48px}
 h2{font-size:15px;margin:28px 0 10px}
 article{background:var(--card);border-radius:10px;box-shadow:0 0 0 1px var(--edge);padding:12px;margin:0 0 16px}
@@ -259,11 +261,12 @@ details summary{cursor:pointer;color:var(--muted)}
 ul.plain{columns:2;padding-left:18px;color:var(--muted)}
 @media (max-width:640px){ul.plain{columns:1}.pair{grid-template-columns:1fr}}
 </style>
-<header><h1>${title}</h1><div class="sub" id="summary"></div>${liveMarkup}</header>
+<header><h1>${title}</h1><div class="sub" id="summary"></div><label>Entry <select id="entry-filter" aria-label="Filter gallery diff by entry"><option value="">All entries</option></select></label>${liveMarkup}</header>
 <main id="main"></main>
 <script>
 const {outcomes, labels} = ${data};
 const main = document.getElementById("main");
+const entryFilter = document.getElementById("entry-filter");
 const el = (tag, attrs = {}, ...kids) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); n.append(...kids); return n; };
 const img = (src, alt) => el("img", {src, alt, loading: "lazy"});
 const pct = (n, of) => (100 * n / of) + "%";
@@ -336,19 +339,41 @@ function card(o, i) {
     picture(o, stage, buttons);
   }
   if (o.play && o.play.error) parts.push(el("div", {class: "sub"}, "Play: " + o.play.error));
-  return el("article", {id: o.key}, ...parts);
+  return el("article", {id: o.key, "data-entry": o.entry}, ...parts);
 }
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
   if (!list.length) return;
   if (status === "unchanged") {
+    const section = el("section", {"data-status": status});
     const failed = list.filter(([o]) => o.play && o.play.status === "fail");
-    if (failed.length) main.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
-    main.append(el("details", {}, el("summary", {}, list.length + " unchanged"), el("ul", {class: "plain"}, ...list.map(([, i]) => el("li", {}, labels[i])))));
+    if (failed.length) section.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
+    const details = el("details", {});
+    details.append(
+      el("summary", {"data-summary": "unchanged"}, list.length + " unchanged"),
+      el("ul", {class: "plain"}, ...list.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
+    );
+    section.append(details);
+    main.append(section);
     return;
   }
-  main.append(el("h2", {}, titles[status] + " (" + list.length + ")"), ...list.map(([o, i]) => card(o, i)));
+  const section = el("section", {"data-status": status});
+  section.append(el("h2", {}, titles[status] + " (" + list.length + ")"), ...list.map(([o, i]) => card(o, i)));
+  main.append(section);
 });
+for (const entry of [...new Set(outcomes.map((o) => o.entry))].sort()) entryFilter.append(el("option", {value: entry}, entry));
+const applyEntryFilter = () => {
+  const selected = entryFilter.value;
+  for (const node of main.querySelectorAll("[data-entry]")) node.hidden = Boolean(selected && node.dataset.entry !== selected);
+  for (const section of main.querySelectorAll("[data-status]")) {
+    const visible = new Set([...section.querySelectorAll("[data-entry]")].filter((node) => !node.hidden).map((node) => node.dataset.entry));
+    section.hidden = visible.size === 0;
+    const summary = section.querySelector("[data-summary='unchanged']");
+    if (summary) summary.textContent = visible.size + " unchanged";
+  }
+};
+entryFilter.addEventListener("change", applyEntryFilter);
+applyEntryFilter();
 </script>
 </html>
 `;
