@@ -15,6 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 base64.workspace = true
+ring.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
