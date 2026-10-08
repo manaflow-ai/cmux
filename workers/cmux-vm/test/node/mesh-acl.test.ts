@@ -114,8 +114,18 @@ describe("device IPv6 address rules (transport.md 7, 13.6)", () => {
     expect(plan.remove.map((rule) => rule.cidr)).toEqual([`${A1}/128`]);
   });
 
-  it("counts address rules against the VM's per-resource limit", () => {
+  it("never makes a policy fail its budget: address rules that do not fit are left out, tunnel rules stay", () => {
     const result = withAddresses(new Map([[D1, A1], [D2, A2]]), [{ src: ["device:*"], dst: [V1], allow: ["icmp"] }], { rulesPerResource: 3, rulesPerMesh: 500 });
+    if (!result.ok) throw new Error("an address must never make the policy fail");
+    expect(result.rules.filter((rule) => rule.cidr === null)).toHaveLength(2);
+    expect(result.rules.filter((rule) => rule.cidr !== null)).toHaveLength(1);
+    const meshCap = withAddresses(new Map([[D1, A1]]), [{ src: [D1], dst: ["vm:*"], allow: ["icmp"] }], { rulesPerResource: 180, rulesPerMesh: 3 });
+    if (!meshCap.ok) throw new Error("an address must never make the policy fail");
+    expect(meshCap.rules).toHaveLength(3);
+  });
+
+  it("a policy over budget without any address still fails", () => {
+    const result = withAddresses(new Map([[D1, A1]]), [{ src: ["device:*"], dst: [V1], allow: ["tcp:1", "tcp:2"] }], { rulesPerResource: 3, rulesPerMesh: 500 });
     expect(result).toMatchObject({ ok: false, reason: "perResource", resourceId: V1, count: 4 });
   });
 
@@ -132,6 +142,7 @@ describe("parseDeviceIpv6", () => {
     expect(parseDeviceIpv6("2a01:4f8::1")).toBe("2a01:4f8::1");
     expect(parseDeviceIpv6("2600:0:0:1:0:0:0:1")).toBe("2600:0:0:1::1");
     expect(parseDeviceIpv6("3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")).toBe("3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+    expect(parseDeviceIpv6("2001:200::1")).toBe("2001:200::1");
   });
   it("refuses every address that is not one device's own global unicast address", () => {
     for (const bad of [
@@ -147,6 +158,10 @@ describe("parseDeviceIpv6", () => {
       "2001:0:4136:e378:8000:63bf:3fff:fdd2",
       "2002:c000:0201::1",
       "4000::1",
+      "2001:1::1",
+      "2001:1ff::1",
+      "3fff::1",
+      "3fff:fff::1",
       "2600::1/64",
       "2600::1%en0",
       "2600:::1",

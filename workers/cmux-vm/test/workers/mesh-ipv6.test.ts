@@ -24,7 +24,8 @@ const ADDRESS_2 = "2600:1700:abcd:2::9";
 
 let h: Harness;
 beforeEach(async () => {
-  h = await makeHarness();
+  // No minimum interval between address changes, except in the test of that budget.
+  h = await makeHarness({ mesh: { budgets: { addressChangeIntervalMs: 0 } } });
 });
 afterEach(async () => {
   await h.dispose();
@@ -62,8 +63,8 @@ const enroll = async (meshId: string, creator: string, install: InstallKey, wgPu
   return str(field(field(await json(response), "device"), "id"));
 };
 
-const publish = async (install: InstallKey, deviceId: string, address: string | null) =>
-  anonymous(`/v1/devices/${deviceId}/signed/address`, await addressBody(install, deviceId, address));
+const publish = async (install: InstallKey, deviceId: string, address: string | null, headers: Record<string, string> = {}) =>
+  h.request(`/v1/devices/${deviceId}/signed/address`, headers, { method: "POST", body: await addressBody(install, deviceId, address) });
 
 /** The provider rules whose source is a cidr. */
 const cidrRules = () => [...h.mesh.rules.values()].filter((rule) => typeof rule.source["cidr"] === "string");
@@ -169,5 +170,72 @@ describe("a device's public IPv6 address", () => {
     const forged = await addressBody(theirs, theirId, ADDRESS_1, { signWith: mine });
     expect((await anonymous(`/v1/devices/${theirId}/signed/address`, forged)).status).toBe(404);
     expect(cidrRules()).toEqual([]);
+  });
+});
+
+describe("address rules: review findings", () => {
+  it("deleting the device while its address rule is being created leaves no address rule at the provider", async () => {
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    const release = h.mesh.holdRuleCreates();
+    const published = publish(install, deviceId, ADDRESS_1);
+    await h.mesh.ruleCreateHeld();
+    const deleted = call(`/v1/devices/${deviceId}`, mesh.creator, "DELETE");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    await published;
+    expect((await deleted).status).toBe(204);
+    expect(cidrRules()).toEqual([]);
+  });
+
+  it("an address rule whose row could not be recorded is deleted at the provider", async () => {
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    h.mesh.failRuleRecords(1);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(503);
+    expect(cidrRules()).toEqual([]);
+  });
+
+  it("publishing the same address again takes no lock and makes no provider call", async () => {
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    const before = h.upstreamRequests.length;
+    const release = h.mesh.holdRuleCreates();
+    // A held provider call elsewhere does not matter: an unchanged address does nothing.
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    release();
+    expect(h.upstreamRequests.slice(before)).toEqual([]);
+  });
+
+  it("refuses an address outside the /64 the request came from when it came over IPv6", async () => {
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    expect((await publish(install, deviceId, ADDRESS_1, { "cf-connecting-ip": "2600:1700:abcd:9::1" })).status).toBe(400);
+    expect(cidrRules()).toEqual([]);
+    expect((await publish(install, deviceId, ADDRESS_1, { "cf-connecting-ip": "2600:1700:abcd:1:aaaa::7" })).status).toBe(200);
+    expect(cidrRules()).toHaveLength(1);
+    // Over IPv4 the address cannot be checked against the source.
+    expect((await publish(install, deviceId, ADDRESS_2, { "cf-connecting-ip": "198.51.100.7" })).status).toBe(200);
+  });
+});
+
+describe("address change budget", () => {
+  it("a second change within the interval is 429 with a retry time; publishing the same address is not a change", async () => {
+    await h.dispose();
+    h = await makeHarness({ mesh: { budgets: { addressChangeIntervalMs: 60_000 } } });
+    const mesh = await meshWithVms();
+    const install = await makeInstallKey();
+    const deviceId = await enroll(mesh.meshId, mesh.creator, install, KEY_1);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    expect((await publish(install, deviceId, ADDRESS_1)).status).toBe(200);
+    const refused = await publish(install, deviceId, ADDRESS_2);
+    expect(refused.status).toBe(429);
+    expect(Number((await json(refused))["retryAfterSeconds"])).toBeGreaterThan(0);
+    expect(cidrRules().map((rule) => rule.source["cidr"])).toEqual([`${ADDRESS_1}/128`]);
   });
 });
