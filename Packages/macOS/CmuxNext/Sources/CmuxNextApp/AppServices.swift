@@ -47,8 +47,6 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
-    /// The menu bar indicator of phones viewing or controlling this Mac (C3).
-    private(set) lazy var remoteDesktopMenu = RemoteDesktopStatusMenu()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

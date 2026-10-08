@@ -33,7 +33,7 @@ enum AppMobileLinkServices {
                                                environment: ProcessInfo.processInfo.environment)
         let agentHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         let vnc: RemoteDesktopVncPolicy = setting.vncEnabled ? .allowed(allowLoopback: setting.vncAllowsLoopback) : .off
-        let menu = services.remoteDesktopMenu
+        let menu = services.mobile.remoteDesktopMenu
         // Typed up front so the closure is formed @Sendable (it captures only
         // a String); Xcode 26.6 rejects converting an inferred closure later.
         let socketPath: (@Sendable () async -> String?)? = (acpmux?.socketPath).map { path in { @Sendable in path } }

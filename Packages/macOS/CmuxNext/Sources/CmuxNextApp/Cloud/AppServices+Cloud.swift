@@ -32,13 +32,10 @@ extension AppServices {
         if registry.context != context { registry.context = context }
     }
 
-    /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         cloud.start()
         let cloud = cloud!, machines = machines
-        let apiBaseURL = feed.apiBaseURL, launch = environment.launch
-        // The phone link runs as this Mac's install for the signed-in account.
-        AppMobileLinkServices.configure(self, cloud: cloud, apiBaseURL: apiBaseURL, launch: launch)
+        AppMobileLinkServices.configure(self, cloud: cloud, apiBaseURL: feed.apiBaseURL, launch: environment.launch)
         return Task { [weak self] in
             var account: String?
             for await state in Observations({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
