@@ -238,6 +238,7 @@ fn dispatch_resource_request(
                 selectors: request.selectors,
                 fields: request.fields,
                 idempotency_key: request.envelope.idempotency_key,
+                actor: request.actor,
             })
         }
         OperationOwner::Snapshot => match operation {
@@ -487,7 +488,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     });
     let preparation = mux
         .prepare_resource_effect(
-            idempotency_key,
+            &request.mutation().map_err(resource_operation_error)?,
             operation,
             &fingerprint,
             &intent,

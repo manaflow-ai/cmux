@@ -13515,7 +13515,7 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, client, params),
+        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, params),
         Command::BindConversationTabSession(params) => conversation_tabs_wire::bind(mux, params),
         Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),

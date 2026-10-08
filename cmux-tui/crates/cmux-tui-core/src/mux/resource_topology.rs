@@ -330,9 +330,9 @@ impl Mux {
             "workspace_key":Self::new_workspace_key()?,
             "name":reserved_name,
         });
-        let preparation = registry.prepare_resource_creation(
+        let preparation = registry.prepare_resource_creation_for(
             correlation_key,
-            &mutation.id,
+            mutation,
             "workspace.create",
             &fingerprint,
             &proposed_intent,
@@ -2622,8 +2622,8 @@ impl Mux {
                     &mut state,
                     &registry,
                 )?;
-                registry.prepare_resource_effect(
-                    &mutation.id,
+                registry.prepare_resource_effect_for(
+                    mutation,
                     &operation_name,
                     fingerprint,
                     &intent,
@@ -3648,9 +3648,9 @@ impl Mux {
                 true,
             )? {
                 Some(ResourceCreationPreparation::Execute { intent, .. }) => registry
-                    .prepare_resource_creation(
+                    .prepare_resource_creation_for(
                         correlation_key,
-                        &mutation.id,
+                        mutation,
                         &operation_name,
                         fingerprint,
                         &intent,
@@ -3678,9 +3678,9 @@ impl Mux {
                         &mut state,
                         &registry,
                     )?;
-                    registry.prepare_resource_creation(
+                    registry.prepare_resource_creation_for(
                         correlation_key,
-                        &mutation.id,
+                        mutation,
                         &operation_name,
                         fingerprint,
                         &intent,
@@ -6469,9 +6469,9 @@ mod creation_recovery_tests {
         mux.workspace_registry
             .lock()
             .unwrap()
-            .prepare_resource_creation(
+            .prepare_resource_creation_for(
                 correlation_key,
-                &mutation.id,
+                &mutation,
                 &operation_name,
                 &fingerprint,
                 &intent,

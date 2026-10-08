@@ -5578,15 +5578,15 @@ impl Mux {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_resource_effect(
         &self,
-        idempotency_key: &str,
+        mutation: &WorkspaceMutation,
         operation: &str,
         fingerprint: &Value,
         intent: &Value,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
-        self.workspace_registry.lock().unwrap().prepare_resource_effect(
-            idempotency_key,
+        self.workspace_registry.lock().unwrap().prepare_resource_effect_for(
+            mutation,
             operation,
             fingerprint,
             intent,
@@ -11333,7 +11333,7 @@ impl Mux {
                     "source": source.as_str(),
                 });
                 self.prepare_resource_effect(
-                    idempotency_key,
+                    &WorkspaceMutation::daemon(idempotency_key, "resource-api")?,
                     OPERATION,
                     &fingerprint,
                     &intent,
@@ -21180,7 +21180,7 @@ mod tests {
         let expected_revision = mux.with_state(|state| state.resource_revision);
         assert!(matches!(
             mux.prepare_resource_effect(
-                idempotency_key,
+                &WorkspaceMutation::daemon(idempotency_key, "test").unwrap(),
                 operation,
                 &fingerprint,
                 &serde_json::json!({}),
