@@ -178,6 +178,9 @@ pub mod method {
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
+    /// A new dashboard token, served at once (`hub/web_token.rs`); unix
+    /// socket only.
+    pub const MUX_WEB_TOKEN_ROTATE: &str = "_acpmux/web_token_rotate";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
