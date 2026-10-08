@@ -7,18 +7,19 @@
  * message (UTF-8, lines joined by "\n", no trailing newline):
  *
  *   cmux-mesh-v1
- *   <purpose: enroll | rotate-key | peers | tunnel>
+ *   <purpose: enroll | rotate-key | peers | tunnel | address>
  *   <target: the mesh id for enroll, the device id for the others>
  *   <the WireGuard public key being registered: the device key on enroll, the
  *    new key on rotate-key, empty for peers and tunnel>
  *   <installPublicKey>
- *   <the device name for enroll, empty for the others>
+ *   <the device name for enroll, the published public IPv6 address for
+ *    address (empty to clear it), empty for the others>
  *   <signedAt: unix milliseconds>
  *   <nonce: 16 random bytes, base64url without padding>
  *
  * For a device without a credential (enrolled with a one-time code) the
  * signature IS the credential on the routes under /v1/devices/{id}/signed/:
- * peers, tunnel and rotate-key of that one device, nothing else.
+ * peers, tunnel, rotate-key and address of that one device, nothing else.
  *
  * The Worker rebuilds the message from the request, so a changed field fails
  * the signature. signedAt must be within SIGNATURE_SKEW_MS of the Worker's
@@ -34,7 +35,7 @@ export const SIGNATURE_SKEW_MS = 120_000;
 
 export const SIGNED_MESSAGE_VERSION = "cmux-mesh-v1";
 
-export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel";
+export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel" | "address";
 
 /** The 65-byte uncompressed P-256 point, base64 (starts with 0x04, so with "B"). */
 export const InstallPublicKey = Schema.String.pipe(Schema.pattern(/^B[A-Za-z0-9+/]{86}=$/u)).annotations({
