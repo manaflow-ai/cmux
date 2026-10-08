@@ -234,6 +234,10 @@ struct BrowserReplRenderHostTests {
         }
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
 
+        // The pane window is key while the portal is still hidden. This is
+        // the ordering that made the old visibility callback restore into a
+        // hidden pane.
+        window.reportsKey = true
         panel.noteWebViewVisibility(false, reason: "test.logicalHidden")
         panel.noteWebViewVisibility(true, reason: "test.logicalShown")
         await Task.yield()
