@@ -96,6 +96,12 @@ impl WorkspaceMutation {
         Self::new(id, origin, Actor::local_user())
     }
 
+    /// A fresh mutation inside this one (a reservation it makes): same
+    /// origin and actor, its own id.
+    pub(crate) fn reservation(&self) -> Self {
+        Self::local(&self.origin, self.actor.clone())
+    }
+
     /// The daemon's own work (startup, reaps, reducers), never a request.
     pub fn daemon(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
         Self::new(id, origin, Actor::Daemon)

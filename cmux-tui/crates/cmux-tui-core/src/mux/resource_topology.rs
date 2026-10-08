@@ -27,6 +27,7 @@ mod emptied_workspace;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
+mod reservations;
 mod screen_create;
 mod structural_move;
 mod unpublished_creation;
@@ -47,7 +48,7 @@ struct LayoutMutationContext<'a> {
 #[derive(Clone, Copy)]
 struct ResourceEffectIntentContext<'a> {
     expected_revision: Option<u64>,
-    mutation_origin: &'a str,
+    mutation: &'a WorkspaceMutation,
 }
 
 struct PaneAddOptions<'a> {
@@ -2617,7 +2618,7 @@ impl Mux {
                     &fields,
                     ResourceEffectIntentContext {
                         expected_revision,
-                        mutation_origin: &mutation.origin,
+                        mutation,
                     },
                     &mut state,
                     &registry,
@@ -3673,7 +3674,7 @@ impl Mux {
                         &effect_fields,
                         ResourceEffectIntentContext {
                             expected_revision,
-                            mutation_origin: &mutation.origin,
+                            mutation,
                         },
                         &mut state,
                         &registry,
@@ -4093,15 +4094,16 @@ impl Mux {
                 }
                 None => TerminalId::random()?.to_hex(),
             };
-            let mutation = WorkspaceMutation::daemon_local(context.mutation_origin);
+            let mutation = context.mutation.reservation();
             intent["terminal_reservation"] = json!({
                 "terminal_id":terminal_id,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+                "mutation_actor":mutation.actor.wire(),
             });
         }
         if topology_effect_may_create_workspace(operation) {
-            let mutation = WorkspaceMutation::daemon_local(context.mutation_origin);
+            let mutation = context.mutation.reservation();
             let workspace_key = fields
                 .get("workspace_key")
                 .and_then(Value::as_str)
@@ -4113,6 +4115,7 @@ impl Mux {
                 "workspace_public_id":WorkspacePublicId::random()?,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+                "mutation_actor":mutation.actor.wire(),
             });
         }
         if creates == Some(CreatedIdentityKind::Browser) {
@@ -4599,80 +4602,6 @@ impl Mux {
                 "tab_id":identity.tab_id,
                 "browser_id":id,
             }),
-        })
-    }
-
-    fn effect_workspace_reservation(
-        &self,
-        intent: &Value,
-    ) -> anyhow::Result<(String, WorkspacePublicId, WorkspaceMutation)> {
-        let reservation = intent["workspace_reservation"]
-            .as_object()
-            .context("stored topology intent omitted its workspace reservation")?;
-        let key = reservation["workspace_key"]
-            .as_str()
-            .context("stored workspace reservation omitted its key")?
-            .to_string();
-        let public_id = WorkspacePublicId::parse(
-            reservation["workspace_public_id"]
-                .as_str()
-                .context("stored workspace reservation omitted its public id")?
-                .to_string(),
-        )?;
-        let mutation = WorkspaceMutation::daemon(
-            reservation["mutation_id"]
-                .as_str()
-                .context("stored workspace reservation omitted its mutation id")?,
-            reservation["mutation_origin"]
-                .as_str()
-                .context("stored workspace reservation omitted its mutation origin")?,
-        )?;
-        Ok((key, public_id, mutation))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn effect_terminal_reservation(
-        &self,
-        intent: &Value,
-        workspace_key: &str,
-        argv: Option<&[String]>,
-        cwd: Option<&str>,
-        name: Option<&str>,
-        size: Option<(u16, u16)>,
-        on_exit: Option<TerminalOnExit>,
-    ) -> anyhow::Result<TerminalReservationRequest> {
-        let stored = intent["terminal_reservation"]
-            .as_object()
-            .context("stored topology intent omitted its terminal reservation")?;
-        let terminal_hex = stored["terminal_id"]
-            .as_str()
-            .context("stored terminal reservation omitted its terminal id")?;
-        let terminal_id = TerminalId::from_hex(terminal_hex)
-            .context("stored terminal reservation has an invalid terminal id")?;
-        let mutation = WorkspaceMutation::daemon(
-            stored["mutation_id"]
-                .as_str()
-                .context("stored terminal reservation omitted its mutation id")?,
-            stored["mutation_origin"]
-                .as_str()
-                .context("stored terminal reservation omitted its mutation origin")?,
-        )?;
-        Ok(TerminalReservationRequest {
-            terminal_id,
-            mutation,
-            fingerprint: terminal_create_fingerprint(
-                workspace_key,
-                Some(terminal_hex),
-                argv,
-                cwd,
-                name,
-                size,
-                on_exit,
-            )?,
-            expected_generation: None,
-            expected_revision: None,
-            on_exit: on_exit.unwrap_or_default(),
-            env: terminal_env_field(&intent["fields"]),
         })
     }
 
