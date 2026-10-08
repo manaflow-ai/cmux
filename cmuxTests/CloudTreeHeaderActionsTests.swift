@@ -130,6 +130,33 @@ struct CloudTreeHeaderActionsTests {
         #expect(controls?.isHidden ?? true)
     }
 
+    @Test("A sibling hit target cannot retain a Cloud tree row's hover")
+    func hoverClearsWhenPointerIsOwnedBySibling() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
+        let row = tree.devicesSection
+        let menu = try Self.controls(in: tree.cell(for: row))
+
+        tree.move(to: row)
+        #expect(menu.alphaValue == 1)
+
+        // CloudNewMachineButton is a SwiftUI sibling above the outline. Model
+        // its AppKit hit target over the row to ensure the outline does not
+        // keep the last tree row hovered when another view owns the pointer.
+        let sibling = NSView(frame: tree.outline.convert(
+            tree.outline.rect(ofRow: tree.outline.row(forItem: row)),
+            to: fixture.container
+        ))
+        fixture.container.addSubview(sibling, positioned: .above, relativeTo: nil)
+        defer { sibling.removeFromSuperview() }
+
+        tree.move(toWindowPoint: sibling.convert(
+            NSPoint(x: sibling.bounds.midX, y: sibling.bounds.midY), to: nil
+        ))
+        #expect(menu.alphaValue == 0)
+    }
+
     /// Hovered header actions stay in the accessibility tree with their roles.
     @Test("Hovered header actions stay in the accessibility tree with their labels")
     func fadedHeaderActionsStayAccessible() async throws {
@@ -367,7 +394,10 @@ struct CloudTreeHeaderActionsTests {
         /// Delivers the tracking-area move the pointer produces over `node`'s row.
         func move(to node: CloudTreeNode) {
             let rect = outline.rect(ofRow: outline.row(forItem: node))
-            let location = outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            move(toWindowPoint: outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil))
+        }
+
+        func move(toWindowPoint location: NSPoint) {
             let event = NSEvent.mouseEvent(
                 with: .mouseMoved, location: location, modifierFlags: [], timestamp: 0,
                 windowNumber: fixture.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
