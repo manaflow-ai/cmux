@@ -124,6 +124,7 @@ fi
 # the recorded submission id, and only then run the stapling and publication
 # checks below.
 NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-25m}"
+SUBMIT_ONLY="${CMUX_NOTARY_SUBMIT_ONLY:-false}"
 NOTARY_SUBMISSION_FILE="${CMUX_NOTARY_SUBMISSION_FILE:-${DMG_RELEASE}.notarization.state}"
 NOTARY_OUTPUT_FILE="${CMUX_NOTARY_OUTPUT_FILE:-${DMG_RELEASE}.notarization.log}"
 NOTARY_SUBMIT_OUTPUT="$NOTARY_DIR/dmg-submit-output"
@@ -134,10 +135,12 @@ for notary_sidecar in "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"; do
     exit 1
   fi
 done
+notary_submit_args=(notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" --output-format json)
+if [ "$SUBMIT_ONLY" != true ]; then
+  notary_submit_args+=(--wait --timeout "$NOTARY_WAIT_TIMEOUT")
+fi
 set +e
-"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
-  --wait --timeout "$NOTARY_WAIT_TIMEOUT" --output-format json \
-  >"$NOTARY_SUBMIT_OUTPUT" 2>&1
+"$XCRUN_TOOL" "${notary_submit_args[@]}" >"$NOTARY_SUBMIT_OUTPUT" 2>&1
 NOTARY_SUBMIT_EXIT=$?
 set -e
 
@@ -181,6 +184,12 @@ write_notary_state() {
     printf 'status=%s\n' "$DMG_STATUS"
     printf 'dmg_path=%s\n' "$DMG_RELEASE"
     printf 'dmg_sha256=%s\n' "$dmg_sha256"
+    printf 'submit_exit=%s\n' "$NOTARY_SUBMIT_EXIT"
+    printf 'immutable_path=%s\n' "$DMG_IMMUTABLE"
+    printf 'release_tag=%s\n' "${CHANNEL_RELEASE_TAG:-}"
+    printf 'dmg_prefix=%s\n' "${CHANNEL_DMG_PREFIX:-}"
+    printf 'variant=%s\n' "${NIGHTLY_VARIANT:-}"
+    printf 'channel=%s\n' "$CHANNEL"
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
   } > "$state_tmp"
   /bin/mv "$state_tmp" "$NOTARY_SUBMISSION_FILE"
@@ -199,6 +208,27 @@ save_notary_output() {
   fi
   cat "$NOTARY_OUTPUT_FILE" >&2
 }
+
+if [ "$SUBMIT_ONLY" = true ]; then
+  if [ -z "$DMG_SUBMIT_ID" ]; then
+    save_notary_output
+    echo "DMG submission returned no Apple submission id; refusing asynchronous handoff" >&2
+    exit 1
+  fi
+  if [ "$NOTARY_SUBMIT_EXIT" -ne 0 ]; then
+    write_notary_state
+    save_notary_output
+    echo "DMG submission failed before an asynchronous handoff (submission $DMG_SUBMIT_ID); refusing continuation" >&2
+    exit 1
+  fi
+  write_notary_state
+  save_notary_output
+  echo "DMG uploaded for asynchronous processing (submission $DMG_SUBMIT_ID); publication awaits Accepted" >&2
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+  fi
+  exit 0
+fi
 
 if [ -n "$DMG_SUBMIT_ID" ] \
   && { [ "$NOTARY_SUBMIT_EXIT" -ne 0 ] || [ "$DMG_STATUS" != "Accepted" ]; }; then
