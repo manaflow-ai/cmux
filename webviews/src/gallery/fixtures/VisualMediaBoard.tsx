@@ -186,7 +186,12 @@ export function VisualMediaBoard() {
             </button>
           ))}
         </fieldset>
-        <button className="cmux-gallery-media-action" type="button" onClick={() => setAutoplay((current) => !current)}>
+        <button
+          className="cmux-gallery-media-action"
+          type="button"
+          aria-pressed={!autoplay}
+          onClick={() => setAutoplay((current) => !current)}
+        >
           {autoplay ? "Pause previews" : "Play previews"}
         </button>
         <fieldset className="cmux-gallery-media-filter">
