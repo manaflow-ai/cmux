@@ -1,0 +1,27 @@
+.cmux-gallery-media-board{display:flex;flex-direction:column;gap:12px;color:var(--page-text,var(--text-color,#e8e8e8));font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+.cmux-gallery-media-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:30px}
+.cmux-gallery-media-filter{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 5%,transparent)}
+.cmux-gallery-media-filter button,.cmux-gallery-media-action{border:0;border-radius:6px;padding:5px 8px;background:transparent;color:color-mix(in srgb,currentColor 68%,transparent);font:inherit;font-size:12px;cursor:pointer}
+.cmux-gallery-media-filter button:hover,.cmux-gallery-media-filter button.is-active,.cmux-gallery-media-action:hover{background:color-mix(in srgb,currentColor 12%,transparent);color:currentColor}
+.cmux-gallery-media-action{border:1px solid color-mix(in srgb,currentColor 16%,transparent)}
+.cmux-gallery-media-count-label{margin-left:auto;color:color-mix(in srgb,currentColor 60%,transparent);font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.cmux-gallery-media-help{max-width:760px;margin:0;color:color-mix(in srgb,currentColor 67%,transparent);font-size:12px;line-height:1.5}
+.cmux-gallery-media-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.cmux-gallery-media-card{min-width:0;overflow:hidden;border:1px solid color-mix(in srgb,currentColor 13%,transparent);border-radius:12px;background:color-mix(in srgb,currentColor 5%,transparent)}
+.cmux-gallery-media-stage{position:relative;display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;border:0;background:#10131d;color:#fff;cursor:pointer}
+.cmux-gallery-media-stage img{display:block;width:100%;height:100%;transition:opacity .18s ease-out}
+.cmux-gallery-media-stage:hover img{opacity:.88}
+.cmux-gallery-media-stage:focus-visible,.cmux-gallery-media-filter button:focus-visible,.cmux-gallery-media-action:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.cmux-gallery-media-stage-top{position:absolute;inset:8px 8px auto;display:flex;justify-content:space-between;align-items:center;color:#fff;font:500 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;text-shadow:0 1px 4px #000;pointer-events:none}
+.cmux-gallery-media-kind,.cmux-gallery-media-count{padding:4px 6px;border-radius:5px;background:rgb(0 0 0/.42);backdrop-filter:blur(6px)}
+.cmux-gallery-media-stage-hint{position:absolute;inset:auto 8px 8px;color:#fff;text-align:left;font:400 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;text-shadow:0 1px 4px #000;opacity:0;transition:opacity .15s ease-out;pointer-events:none}
+.cmux-gallery-media-stage:hover .cmux-gallery-media-stage-hint,.cmux-gallery-media-stage:focus-visible .cmux-gallery-media-stage-hint{opacity:.9}
+.cmux-gallery-media-copy{padding:10px 11px 11px}
+.cmux-gallery-media-title-row{display:flex;align-items:baseline;gap:8px;min-width:0}
+.cmux-gallery-media-title-row strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:currentColor;font-size:13px;font-weight:600;line-height:1.25}
+.cmux-gallery-media-format{flex:none;color:color-mix(in srgb,currentColor 60%,transparent);font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.cmux-gallery-media-copy p{margin:5px 0 0;color:color-mix(in srgb,currentColor 65%,transparent);font-size:12px;line-height:1.35}
+@media (prefers-reduced-motion:reduce){.cmux-gallery-media-stage img,.cmux-gallery-media-stage-hint{transition:none}}
+
+.cmux-gallery-media-filter{margin:0}
+.cmux-gallery-media-visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

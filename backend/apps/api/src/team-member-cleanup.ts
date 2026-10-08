@@ -3,6 +3,9 @@ import type { TeamState } from "./domains/team.ts"
 import { TABLE_HOST, type HostRecord, type RowsWithScan } from "./domains/team-members.ts"
 import { KRL_GRACE_MS } from "./domains/team-ssh.ts"
 import { ensureSshTables } from "./team-ssh-ca.ts"
+import { ensureLoginTables } from "./team-sso-login.ts"
+import { userIdFor } from "./domains/user.ts"
+import { lastCertValidBefore } from "./team-ssh-taint.ts"
 
 export interface CleanupDeps {
   readonly state: () => TeamState
@@ -10,6 +13,28 @@ export interface CleanupDeps {
   readonly sql: SqlStorage
   readonly now: () => number
   readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
+  /** The Stack project the user ids derive from (domains/user.ts userIdFor). */
+  readonly stackProjectId: string
+}
+
+/**
+ * Ends the member's SSO sessions of this team (cx-44j.50): withSsoSession then stamps this team on
+ * none of their new installs. Rows hold the Stack subject; the user id derives from it.
+ */
+const ssoSubjects = (deps: CleanupDeps): Map<string, Array<string>> => {
+  ensureLoginTables(deps.sql)
+  deps.sql.exec(`DELETE FROM sso_sessions3 WHERE expires_at <= ?`, deps.now())
+  const byUser = new Map<string, Array<string>>()
+  for (const { stack_user } of deps.sql.exec<{ stack_user: string }>(`SELECT DISTINCT stack_user FROM sso_sessions3`).toArray()) {
+    const user = userIdFor(deps.stackProjectId, stack_user)
+    byUser.set(user, [...(byUser.get(user) ?? []), stack_user])
+  }
+  return byUser
+}
+
+/** Sessions from before the removal only: a sign-in after a re-join stays. */
+const endSsoSessions = (deps: CleanupDeps, subjects: ReadonlyArray<string>, at: number) => {
+  for (const sub of subjects) deps.sql.exec(`DELETE FROM sso_sessions3 WHERE stack_user = ? AND signed_in_at <= ?`, sub, at)
 }
 
 const HOST_PAGE = 200
@@ -39,6 +64,8 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
   ensureSshTables(deps.sql)
   // Without the row scan the hosts cannot be found: fail (the alarm retries) instead of ending the cleanup with none.
   if (!deps.rows?.scanFrom) throw new Error("team rows are not readable")
+  // One scan of the SSO sessions for every pending member (the table also holds non-members of the email domain).
+  const subjects = ssoSubjects(deps)
   for (const [user, at] of pending) {
     const now = deps.now()
     const serials = deps.sql
@@ -56,7 +83,12 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
     }
     // Legacy maps (an old head before team.rows_migrate) hold hosts too.
     for (const h of Object.values(deps.state().hosts ?? {})) if (h.owner_user === user && !h.orphaned && h.enrolled_at <= at && !hosts.includes(h.id)) hosts.push(h.id)
-    committed(deps.submitSystem("team.member.cleaned", { user, hosts }, `member-cleaned:${user}:${at}`))
+    endSsoSessions(deps, subjects.get(user) ?? [], at)
+    // TeamVmDO taints the current VM when this certificate outlived the VM's creation (cx-q4f3). A Linux
+    // account is allocated at the first certificate request: with no record left (a certificate from before
+    // the holder record, past the 24 h issued log), assume the member held one until now.
+    const certValidBefore = lastCertValidBefore(deps.sql, user) ?? (deps.state().vm_accounts?.[user] ? Number.MAX_SAFE_INTEGER : null)
+    committed(deps.submitSystem("team.member.cleaned", { user, hosts, ...(certValidBefore === null ? {} : { cert_valid_before: certValidBefore }) }, `member-cleaned:${user}:${at}`))
   }
   return pending.length
 }

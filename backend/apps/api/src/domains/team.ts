@@ -1,6 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { personalTeamIdFor } from "./user.ts"
 import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
@@ -38,7 +39,11 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "team_vm.ssh_cert.challenge",
   "team_vm.ssh_cert",
   "team_vm.ssh_cert.revoke",
-  "team_vm.ssh_ca.rotate"
+  "team_vm.ssh_ca.rotate",
+  // A tainted team VM's owner actions: role check and audit here, the act in TeamVmDO (cx-q4f3).
+  "team_vm.taint.accept",
+  "team_vm.rebuild",
+  "team_vm.retired.delete"
 ])
 
 export const teamDomain: Domain<TeamState> = {
@@ -101,7 +106,7 @@ export const teamDomain: Domain<TeamState> = {
       case "team.member.cleaned": {
         // TeamDO's own submit after it put the member's certificates on the KRL (team-member-cleanup.ts).
         if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
-        const v = (params ?? {}) as { user?: unknown; hosts?: unknown }
+        const v = (params ?? {}) as { user?: unknown; hosts?: unknown; cert_valid_before?: unknown }
         if (typeof v.user !== "string" || !Array.isArray(v.hosts)) return reject("validation.invalid", "user and hosts required")
         const at = state.member_cleanup?.[v.user]
         if (at === undefined) return { ok: true, state, value: { orphaned: [] }, changed: false }
@@ -119,11 +124,13 @@ export const teamDomain: Domain<TeamState> = {
           state: a.state,
           writes: orphaned.flatMap((h) => hostUpsert(h)),
           value: { orphaned: orphaned.map((h) => h.id) },
-          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox]
+          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox, ...vmTaintNotice(state.team?.id, user, at, rejoined ? undefined : v.cert_valid_before)]
         }
       }
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")
+        // Only the caller's own personal team (cx-er4p review): never a shared team id, whatever builds the principal.
+        if (p.team !== personalTeamIdFor(p.user)) return reject("auth.forbidden", "not your personal team")
         if (state.team && state.team.id !== p.team) return reject("auth.forbidden", "not this team")
         const name = p.display_name ?? "Personal"
         const member: typeof TeamMember.Type = { user: p.user, role: "owner", display_name: name }
@@ -220,6 +227,14 @@ export const teamDomain: Domain<TeamState> = {
       case "domain.release":
         // External effects: only through the Worker's HTTP route (never the wire), so a secret is never an op param.
         return reject("validation.invalid", `${op} runs through POST /v1/ops only`)
+      case "team_vm.taint_audit": {
+        // TeamDO's own submit after an owner or admin acted on a tainted team VM (cx-q4f3): audit only.
+        if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
+        const t = params as { action?: string; by?: string; epoch?: number; tainted_by?: ReadonlyArray<string> }
+        const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted" }[t.action ?? ""]
+        if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
+      }
       case "team_vm.ssh_ca_installed":
       case "team_vm.ssh_certs_revoked":
       case "team_vm.ssh_account_allocated": {
@@ -322,6 +337,12 @@ const withAudit = (r: Audited<TeamState>, team: string, ctx: import("@cmux/owner
   const a = appendAudit(r.state, team, ctx, op, r.audit.summary, r.audit.detail)
   return { ok: true as const, state: a.state, value: r.value, outbox: [a.outbox] }
 }
+
+/** The removal's notice to the team VM record (cx-q4f3), when the member ever held a team SSH certificate. */
+const vmTaintNotice = (team: string | undefined, user: string, at: number, certValidBefore: unknown) =>
+  team && typeof certValidBefore === "number"
+    ? [{ kind: "team_vm.member_removed", entity: `vm-taint:${team}:${user}:${at}`, payload: { user, at, cert_valid_before: certValidBefore }, target: { class: "TeamVmDO", name: team } }]
+    : []
 
 /** The head without a legacy host entry (a head before team.rows_migrate). */
 const withoutLegacyHost = <S extends LegacyTeamMaps>(state: S, id: string): S => {

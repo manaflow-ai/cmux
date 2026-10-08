@@ -126,13 +126,15 @@ public extension PageDescriptor {
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
-    /// sections' buttons.
+    /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
     static let settings = PageDescriptor(
         id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
-        nativeOps: [PageNativeOp.actionRun],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"])
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",
+                  // Agents > Computer Use card (ComputerUseSetup).
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop"], ownsSearchField: true)
 

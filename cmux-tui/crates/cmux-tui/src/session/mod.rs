@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use crate::local_actor::me;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -280,39 +281,11 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 }
 
 #[cfg(test)]
-pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
-    remote::RemoteRequestError::Timeout.into()
-}
-
+mod local_actor_tests;
 #[cfg(test)]
-pub(crate) fn test_remote_transport_error() -> anyhow::Error {
-    remote::RemoteRequestError::Transport(std::io::Error::new(
-        std::io::ErrorKind::BrokenPipe,
-        "socket closed",
-    ))
-    .into()
-}
-
+mod test_errors;
 #[cfg(test)]
-pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
-    test_remote_rejected_error_with_message("unknown surface")
-}
-
-#[cfg(test)]
-pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
-        .into()
-}
-
-#[cfg(test)]
-fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected {
-        error: message.to_string(),
-        code: Some(code.to_string()),
-        delivery: None,
-    }
-    .into()
-}
+pub(crate) use test_errors::*;
 
 pub struct SidebarPluginSurface {
     pub surface_id: Option<SurfaceId>,
@@ -847,7 +820,7 @@ impl Session {
                 let tree = self.tree();
                 match initial_bootstrap(&tree) {
                     InitialBootstrap::FirstWorkspace => {
-                        mux.new_workspace(None, size)?;
+                        mux.new_workspace_as(me(), None, size)?;
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
                         let workspace = tree
@@ -856,7 +829,14 @@ impl Session {
                             .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
-                        mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                        mux.create_terminal_in_workspace_as(
+                            me(),
+                            workspace,
+                            None,
+                            None,
+                            None,
+                            size,
+                        )?;
                     }
                     InitialBootstrap::LayoutIntact => {}
                 }
@@ -1582,7 +1562,7 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_screen(screen)? {
+                if mux.close_screen_as(me(), screen)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown screen {screen}")
@@ -1597,7 +1577,7 @@ impl Session {
     pub fn rename_screen(&self, screen: ScreenId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_screen(screen, name);
+                mux.rename_screen_as(me(), screen, name);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1609,7 +1589,7 @@ impl Session {
     pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                let _ = mux.zoom_pane(pane, mode);
+                let _ = mux.zoom_pane_as(me(), pane, mode);
                 Ok(())
             }
             Session::Remote(remote) => {
@@ -1820,9 +1800,10 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_split_ratio_checked(split, ratio),
+                    || mux.set_split_ratio_checked_as(me(), split, ratio),
                     |(owner, transaction)| {
-                        mux.set_split_ratio_in_process_transaction_checked(
+                        mux.set_split_ratio_in_process_transaction_checked_as(
+                            me(),
                             split,
                             ratio,
                             owner,
@@ -1863,9 +1844,10 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_viewport_pane_width_checked(pane, width),
+                    || mux.set_viewport_pane_width_checked_as(me(), pane, width),
                     |(owner, transaction)| {
-                        mux.set_viewport_pane_width_in_process_transaction_checked(
+                        mux.set_viewport_pane_width_in_process_transaction_checked_as(
+                            me(),
                             pane,
                             width,
                             owner,
@@ -1900,7 +1882,7 @@ impl Session {
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
         match self {
-            Session::Local(mux) => mux.undo_layout(pane, revision, confirm_close),
+            Session::Local(mux) => mux.undo_layout_as(me(), pane, revision, confirm_close),
             Session::Remote(remote) => {
                 if !remote.supports_capability(LAYOUT_UNDO_CAPABILITY) {
                     anyhow::bail!(
@@ -1926,7 +1908,7 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_surface(surface)? {
+                if mux.close_surface_as(me(), surface)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown surface {surface}")
@@ -1984,7 +1966,7 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_pane(pane)? {
+                if mux.close_pane_as(me(), pane)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown pane {pane}")
@@ -1999,7 +1981,7 @@ impl Session {
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.swap_panes(pane, target);
+                mux.swap_panes_as(me(), pane, target);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2011,7 +1993,7 @@ impl Session {
     pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .close_workspace_at_revision(workspace, None)?
+                .close_workspace_at_revision_as(me(), workspace, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
@@ -2060,7 +2042,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .close_provider_managed_workspace(workspace, &key)?
+                .close_provider_managed_workspace_as(me(), workspace, &key)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
             Session::Remote(remote) => {
@@ -2082,7 +2064,7 @@ impl Session {
     pub fn rename_surface(&self, surface: SurfaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_surface(surface, name);
+                mux.rename_surface_as(me(), surface, name);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2094,7 +2076,7 @@ impl Session {
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .rename_workspace_at_revision(workspace, name, None)?
+                .rename_workspace_at_revision_as(me(), workspace, name, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
@@ -2115,7 +2097,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .rename_provider_managed_workspace(workspace, &key, name)?
+                .rename_provider_managed_workspace_as(me(), workspace, &key, name)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
             Session::Remote(remote) => {
@@ -2146,7 +2128,7 @@ impl Session {
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_tab(surface, pane, index);
+                mux.move_tab_as(me(), surface, pane, index);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2180,7 +2162,7 @@ impl Session {
             crate::localization::catalog().menu.move_tab_workspace_unsupported
         );
         match self {
-            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Local(mux) => mux.move_tab_to_workspace_as(me(), surface, workspace),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
@@ -2192,7 +2174,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace_at_revision(workspace, index, None)?;
+                mux.move_workspace_at_revision_as(me(), workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -3101,6 +3083,7 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 
 #[cfg(test)]
 mod tests {
+    use crate::local_actor::TuiMuxOps;
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{

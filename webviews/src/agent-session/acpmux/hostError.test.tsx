@@ -204,3 +204,27 @@ test("Retry during an attempt already in flight runs a full attempt when that on
     delete pane.cmuxAcpmuxActions;
   }
 });
+
+test("a host error is the page's first frame: the host stops covering the pane once it draws", async () => {
+  const pane = paneWindow();
+  let painted = 0;
+  pane.cmuxAcpmuxActions = {
+    ready: async () => Promise.reject(new Error(HOST_ERROR)),
+    "pane.painted": async () => {
+      painted += 1;
+    },
+  };
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await settle();
+    expect(document.querySelector(".acpmux-host-error")?.textContent ?? "(no error shown)").toContain(HOST_ERROR);
+    // The host keeps its loading state over the page until this report; a failed handshake
+    // that never reported would leave the error hidden behind it.
+    expect(painted).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+    delete pane.cmuxAcpmuxActions;
+  }
+});

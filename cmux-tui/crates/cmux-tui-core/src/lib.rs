@@ -72,6 +72,8 @@ mod surface;
 mod terminal_backend;
 mod terminal_end;
 #[cfg(unix)]
+mod terminal_loss_cause;
+#[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
 pub mod terminal_respawn_text;
@@ -79,8 +81,12 @@ pub mod terminal_respawn_text;
 mod windows_processes;
 mod workspace_registry;
 
+#[cfg(unix)]
+mod host_exe;
 pub mod layout;
 pub mod platform;
+#[cfg(unix)]
+mod process_identity;
 pub mod process_resources;
 pub mod server;
 pub mod terminal_host;

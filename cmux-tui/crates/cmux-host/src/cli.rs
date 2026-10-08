@@ -24,7 +24,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR]";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -143,6 +143,9 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
         "logs" => logs_verb(rest),
         "rekey" => rekey_verb(rest),
         "cloud" => cloud_verb(rest),
+        "team-ssh" => crate::team_ssh::cli::run(rest),
+        "team" => crate::team_ssh::team_cli::run(rest),
+        "team-enroll" => crate::team_ssh::enroll::run(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             code(0)

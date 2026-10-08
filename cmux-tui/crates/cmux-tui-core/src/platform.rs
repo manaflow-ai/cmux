@@ -938,6 +938,26 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
     process_name(foreground_process_group(pid)?)
 }
 
+/// Program name (basename only, never arguments) of the job a terminal runs
+/// in the foreground when that job is not the terminal's own PTY child
+/// `pid`: the program a shell started and waits for. `None` when the child
+/// itself is in the foreground (an idle shell, or a command terminal whose
+/// command is the child), or when the lookup fails. One PTY query of a
+/// known process, never a process scan.
+pub fn foreground_job_name(pid: u32) -> Option<String> {
+    let leader = foreground_process_group(pid)?;
+    if leader == pid {
+        return None;
+    }
+    let name = process_name(leader)?;
+    // Linux reads argv[0], which a program that sets its title can fill
+    // with arguments: keep only its first word.
+    #[cfg(target_os = "linux")]
+    let name = name.split_whitespace().next()?.to_string();
+    let base = Path::new(&name).file_name()?.to_string_lossy().into_owned();
+    (!base.is_empty()).then_some(base)
+}
+
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
     // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15

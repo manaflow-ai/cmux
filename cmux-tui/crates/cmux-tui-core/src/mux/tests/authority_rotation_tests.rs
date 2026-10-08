@@ -32,6 +32,7 @@ fn authority_rotation_waits_for_an_authorized_lifecycle_mutation() {
         let key = workspace.key.clone();
         move || {
             mux.close_provider_managed_workspace_authorized(
+                &Actor::Daemon,
                 workspace.workspace,
                 &key,
                 AUTHORITY_ONE,
