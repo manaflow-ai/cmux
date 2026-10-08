@@ -30,8 +30,8 @@ extension SidebarListView {
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
-        let rows = liftRows(for: press.key, hidden: hidden)
-        guard let rowFrame = blockFrame(rows), let content = liftContent(rows, in: rowFrame) else { return }
+        let rows = SidebarListLift.rows(self, for: press.key, hidden: hidden)
+        guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
         let count: Int
         if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
@@ -109,7 +109,7 @@ extension SidebarListView {
     }
     /// Flies the lifted view to its row's current frame, then swaps it out.
     func land(_ drag: Drag) {
-        let destination = blockFrame(liftRows(for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
+        let destination = SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             guard let self else { return }
             self.suppressed.subtract(drag.hiddenKeys)
