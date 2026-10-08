@@ -102,7 +102,7 @@ struct CloudWelcomeMediaCarousel: View {
                     media
                 }
                 .padding(.leading, 28)
-                .padding(.trailing, 20)
+                .padding(.trailing, 28)
             } else {
                 stacked
             }
@@ -211,7 +211,7 @@ struct CloudWelcomeMediaCarousel: View {
     // MARK: Media
 
     private var media: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         return ZStack {
             slideMedia(currentSlide)
                 .id(currentSlide.id)
@@ -229,7 +229,6 @@ struct CloudWelcomeMediaCarousel: View {
             withAnimation(.easeOut(duration: 0.15)) { isHoveringMedia = hovering }
         }
         .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
     }
 
     /// Autoplay: a pause button while the pointer is over the clip (a play button
