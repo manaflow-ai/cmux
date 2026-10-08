@@ -245,6 +245,40 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "team.member.remove",
+    {
+      name: "team.member.remove",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ user: Schema.String }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: removes a member; the outbox revokes their installs bound to the team and ends their pending integration approvals there (cx-44j.47).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "user.team_left",
+    {
+      name: "user.team_left",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "user",
+      principals: ["system"],
+      params: Schema.Struct({ team: Schema.String }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the team's TeamDO removed this user; every install bound to that team is revoked (cx-44j.47).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "team.rows_migrate",
     {
       name: "team.rows_migrate",

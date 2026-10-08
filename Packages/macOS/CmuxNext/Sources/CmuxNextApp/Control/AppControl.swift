@@ -309,6 +309,10 @@ final class AppControl {
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
+            // The cookie import card on browser pages (cx-367y).
+            .mainActor("debug.cookie_prompt") { [weak services] call in
+                .value(services.map { DebugCookiePrompt.run(call.params, services: $0) } ?? .null)
+            },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
             },
