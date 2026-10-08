@@ -239,6 +239,17 @@ body {
   flex-direction: row;
   flex-wrap: wrap;
 }
+/* The all-variants view is a contact sheet: keep each preview at the same
+ * thumbnail width so the entry can be scanned without a long vertical stack. */
+.gallery-stages--variants {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.gallery-stages--variants .gallery-stage {
+  flex: 0 1 420px;
+  max-width: 100%;
+}
 .gallery-stage {
   margin: 0;
 }
