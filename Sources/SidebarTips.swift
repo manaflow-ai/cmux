@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSidebar
 
 /// One short "how to use cmux" tip shown by the sidebar footer's Tips button.
 struct SidebarTip: Identifiable, Equatable {
@@ -111,112 +112,29 @@ enum SidebarTipsCatalog {
     }
 }
 
-/// What the user has seen of the tips, persisted per Mac.
-struct SidebarTipsProgress: Equatable {
-    var currentTipID: String?
-    var seenTipIDs: Set<String>
-    /// Local calendar day (`yyyy-MM-dd`) the Tips popover was last opened.
-    /// `nil` until the first open.
-    var lastOpenedDay: String?
-    /// Set by "Don't show again"; the Help popover's "Show Tips" clears it.
-    var isHidden: Bool
-
-    init(
-        currentTipID: String? = nil,
-        seenTipIDs: Set<String> = [],
-        lastOpenedDay: String? = nil,
-        isHidden: Bool = false
-    ) {
-        self.currentTipID = currentTipID
-        self.seenTipIDs = seenTipIDs
-        self.lastOpenedDay = lastOpenedDay
-        self.isHidden = isHidden
-    }
-}
-
-/// Pure rules for the footer button and which tip the popover opens on.
-///
-/// The button carries a small dot until the popover is opened for the first
-/// time, then never again. Opening it on a new day moves on to the next
-/// unseen tip, so each day starts on something new without any badge.
-enum SidebarTipsSchedule {
-    static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(
-            format: "%04ld-%02ld-%02ld",
-            components.year ?? 0,
-            components.month ?? 0,
-            components.day ?? 0
-        )
-    }
-
-    static func showsButton(_ progress: SidebarTipsProgress) -> Bool {
-        !progress.isHidden
-    }
-
-    static func showsUnopenedIndicator(_ progress: SidebarTipsProgress) -> Bool {
-        showsButton(progress) && progress.lastOpenedDay == nil
-    }
-
-    static func currentIndex(_ progress: SidebarTipsProgress, tipIDs: [String]) -> Int {
-        progress.currentTipID.flatMap { tipIDs.firstIndex(of: $0) } ?? 0
-    }
-
-    /// Progress after the popover opens on `today`.
-    static func opened(
-        _ progress: SidebarTipsProgress,
-        tipIDs: [String],
-        today: String
-    ) -> SidebarTipsProgress {
-        guard !tipIDs.isEmpty else { return progress }
-        var next = progress
-        let currentIndex = progress.currentTipID.flatMap { tipIDs.firstIndex(of: $0) }
-        if let currentIndex {
-            let isNewDay = progress.lastOpenedDay != today
-            if isNewDay, progress.seenTipIDs.contains(tipIDs[currentIndex]) {
-                let count = tipIDs.count
-                let following = (1...count).map { tipIDs[(currentIndex + $0) % count] }
-                next.currentTipID = following.first { !progress.seenTipIDs.contains($0) }
-                    ?? tipIDs[(currentIndex + 1) % count]
-            }
-        } else {
-            next.currentTipID = tipIDs.first { !progress.seenTipIDs.contains($0) } ?? tipIDs[0]
-        }
-        next.lastOpenedDay = today
-        if let currentTipID = next.currentTipID {
-            next.seenTipIDs.insert(currentTipID)
-        }
-        return next
-    }
-
-    /// Progress after the user pages to `tipID` inside the popover.
-    static func selected(_ progress: SidebarTipsProgress, tipID: String) -> SidebarTipsProgress {
-        var next = progress
-        next.currentTipID = tipID
-        next.seenTipIDs.insert(tipID)
-        return next
-    }
-}
-
 /// `UserDefaults` keys for `SidebarTipsProgress`. Seen ids are stored
 /// comma-joined so `@AppStorage` can observe them across windows.
 enum SidebarTipsStorage {
     static let currentTipIDKey = "sidebarTips.currentTipID"
     static let seenTipIDsKey = "sidebarTips.seenTipIDs"
     static let lastOpenedDayKey = "sidebarTips.lastOpenedDay"
-    static let hiddenKey = "sidebarTips.hidden"
+    // Keep the original key so earlier opt-outs still suppress reminders.
+    static let automaticTipsDisabledKey = "sidebarTips.hidden"
+    static let lastOpenedAtKey = "sidebarTips.lastOpenedAt"
 
     static func progress(
         currentTipID: String,
         seenTipIDs: String,
         lastOpenedDay: String,
-        isHidden: Bool = false
+        automaticTipsDisabled: Bool = false,
+        lastOpenedAt: Double = 0
     ) -> SidebarTipsProgress {
         SidebarTipsProgress(
             currentTipID: currentTipID.isEmpty ? nil : currentTipID,
             seenTipIDs: Set(seenTipIDs.split(separator: ",").map(String.init)),
             lastOpenedDay: lastOpenedDay.isEmpty ? nil : lastOpenedDay,
-            isHidden: isHidden
+            automaticTipsDisabled: automaticTipsDisabled,
+            lastOpenedAt: lastOpenedAt > 0 ? Date(timeIntervalSince1970: lastOpenedAt) : nil
         )
     }
 

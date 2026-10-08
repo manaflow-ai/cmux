@@ -1,45 +1,50 @@
 import AppKit
+import CoreGraphics
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
 import SwiftUI
 
-/// Sidebar-footer lightbulb that opens a small popover with one tip at a time
-/// on how to use cmux. Same size, tint, hover and popover anchor as the Help
-/// button next to it. A small accent dot sits on the bulb until the popover is
-/// opened for the first time (see `SidebarTipsSchedule`); the popover never
-/// opens by itself. "Don't show again" hides the button until the Help
-/// popover's "Show Tips" brings it back.
+/// Opens short cmux tips; automatic reminders can be disabled independently.
 struct SidebarTipsButton: View {
-    @AppStorage(SidebarTipsStorage.hiddenKey) private var isHidden = false
-
     var body: some View {
-        // Hiding removes the inner view so its popover state goes with it. A
-        // popover left open in another window would otherwise come back on
-        // its own when "Show Tips" brings the button back.
-        if SidebarTipsSchedule.showsButton(SidebarTipsProgress(isHidden: isHidden)) {
-            SidebarTipsFooterButton()
-        }
+        SidebarTipsFooterButton(clock: ContinuousClock())
     }
 }
 
-private struct SidebarTipsFooterButton: View {
-    private static let iconSize: CGFloat = 13
-    /// `circle.fill` point size; draws a dot about 6pt across.
-    private static let dotPointSize: CGFloat = 6.5
-    private static let dotTopInset: CGFloat = 2
-    private static let dotTrailingInset: CGFloat = 2
+private struct SidebarTipsFooterButton<C: Clock>: View where C.Duration == Duration {
+    private static var iconSize: CGFloat { 13 }
+    private static var dotPointSize: CGFloat { 6.5 }
+
+    let clock: C
 
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @Environment(\.controlActiveState) private var controlActiveState
     @AppStorage(SidebarTipsStorage.currentTipIDKey) private var currentTipID = ""
     @AppStorage(SidebarTipsStorage.seenTipIDsKey) private var seenTipIDs = ""
     @AppStorage(SidebarTipsStorage.lastOpenedDayKey) private var lastOpenedDay = ""
-    @AppStorage(SidebarTipsStorage.hiddenKey) private var isHidden = false
+    @AppStorage(SidebarTipsStorage.lastOpenedAtKey) private var lastOpenedAt = 0.0
+    @AppStorage(SidebarTipsStorage.automaticTipsDisabledKey) private var automaticTipsDisabled = false
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var isPopoverPresented = false
+    @State private var isInteracting = false
+    @State private var windowNumber: Int?
 
+    private let schedule = SidebarTipsSchedule()
     private let title = String(localized: "sidebar.tips.button", defaultValue: "Tips")
+
+    private struct AutomaticOpportunity: Equatable {
+        let windowNumber: Int?
+        let isActive: Bool
+    }
+
+    private struct DismissalRequest: Equatable {
+        let isPresented: Bool
+        let isInteracting: Bool
+        let tipID: String
+    }
 
     private var tipIDs: [String] {
         SidebarTipsCatalog.visibleTips(showsModifierHoldHints: showModifierHoldHints).map(\.id)
@@ -50,50 +55,63 @@ private struct SidebarTipsFooterButton: View {
             currentTipID: currentTipID,
             seenTipIDs: seenTipIDs,
             lastOpenedDay: lastOpenedDay,
-            isHidden: isHidden
+            automaticTipsDisabled: automaticTipsDisabled,
+            lastOpenedAt: lastOpenedAt
         )
     }
 
     private var showsUnopenedIndicator: Bool {
-        !isPopoverPresented && SidebarTipsSchedule.showsUnopenedIndicator(progress)
+        !isPopoverPresented && schedule.showsUnopenedIndicator(progress)
     }
 
     var body: some View {
         Button {
-            if !isPopoverPresented {
-                let today = SidebarTipsSchedule.dayKey(for: Date())
-                store(SidebarTipsSchedule.opened(progress, tipIDs: tipIDs, today: today))
+            if isPopoverPresented {
+                isPopoverPresented = false
+            } else {
+                presentTip()
             }
-            isPopoverPresented.toggle()
         } label: {
-            // The dot is a hosted symbol like the bulb, not a SwiftUI shape:
-            // the bulb is an AppKit view, and SwiftUI drawing or masking on
-            // top of it does not show reliably (see `CmuxHostedSystemSymbolImage`).
+            // Both glyphs are hosted symbols so the dot composites over AppKit.
             ZStack(alignment: .topTrailing) {
                 SidebarFooterCircularIcon(
-                    systemName: "lightbulb",
+                    systemName: "book.closed",
                     style: SidebarFooterCircularIconStyle.standard.resized(to: Self.iconSize)
                 )
                 .frame(width: SidebarFooterButtonMetrics.buttonSize, height: SidebarFooterButtonMetrics.buttonSize)
                 if showsUnopenedIndicator {
                     CmuxSystemSymbolImage(systemName: "circle.fill", pointSize: Self.dotPointSize, tint: cmuxAccent.color)
-                        .padding(.top, Self.dotTopInset)
-                        .padding(.trailing, Self.dotTrailingInset)
+                        .padding(.top, 2)
+                        .padding(.trailing, 2)
                 }
             }
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: SidebarFooterButtonMetrics.buttonSize, height: SidebarFooterButtonMetrics.buttonSize)
+        .background(WindowAccessor { window in windowNumber = window.windowNumber })
         .background(ArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
             detachedGap: 4
         ) {
-            SidebarTipsPopover(showsModifierHoldHints: showModifierHoldHints) {
-                isPopoverPresented = false
-                isHidden = true
-            }
+            SidebarTipsPopover(showsModifierHoldHints: showModifierHoldHints) { isInteracting = $0 }
         })
+        .task(id: AutomaticOpportunity(windowNumber: windowNumber, isActive: controlActiveState == .key)) {
+            await offerAutomaticTip()
+        }
+        .task(id: DismissalRequest(isPresented: isPopoverPresented, isInteracting: isInteracting, tipID: currentTipID)) {
+            guard isPopoverPresented, !isInteracting, !NSWorkspace.shared.isVoiceOverEnabled else { return }
+            do {
+                // This is the intended reading deadline, owned and cancelled by SwiftUI.
+                try await clock.sleep(for: .seconds(5))
+                try Task.checkCancellation()
+                guard !NSWorkspace.shared.isVoiceOverEnabled else { return }
+                isPopoverPresented = false
+            } catch {}
+        }
+        .onChange(of: isPopoverPresented) { _, presented in
+            if !presented { isInteracting = false }
+        }
         .accessibilityElement(children: .ignore)
         .safeHelp(title)
         .accessibilityLabel(title)
@@ -105,49 +123,40 @@ private struct SidebarTipsFooterButton: View {
         .accessibilityIdentifier("SidebarTipsButton")
     }
 
-    private func store(_ next: SidebarTipsProgress) {
+    private func offerAutomaticTip() async {
+        guard controlActiveState == .key, windowNumber != nil,
+              !isPopoverPresented, !NSWorkspace.shared.isVoiceOverEnabled,
+              schedule.automaticTip(progress, tipIDs: tipIDs, now: Date()) != nil else { return }
+        do {
+            // One opportunity per activation, not a polling or repeating reminder.
+            try await clock.sleep(for: .seconds(30))
+            try Task.checkCancellation()
+        } catch { return }
+        guard let windowNumber, let window = NSApp.window(withWindowNumber: windowNumber),
+              NSApp.isActive, window.isKeyWindow, window.attachedSheet == nil, NSApp.modalWindow == nil,
+              !isPopoverPresented, !NSWorkspace.shared.isVoiceOverEnabled,
+              [CGEventType.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel].allSatisfy({
+                  CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) >= 30
+              }),
+              let tipID = schedule.automaticTip(progress, tipIDs: tipIDs, now: Date()) else { return }
+        presentTip(automaticTipID: tipID)
+    }
+
+    private func presentTip(automaticTipID: String? = nil) {
+        var startingProgress = progress
+        if let automaticTipID { startingProgress.currentTipID = automaticTipID }
+        let next = schedule.opened(startingProgress, tipIDs: tipIDs, now: Date())
         currentTipID = next.currentTipID ?? ""
         seenTipIDs = SidebarTipsStorage.encodedSeenTipIDs(next.seenTipIDs)
         lastOpenedDay = next.lastOpenedDay ?? ""
-    }
-}
-
-/// "Show Tips" row for the Help popover. It only appears while the Tips
-/// button is hidden by "Don't show again", and matches the other Help rows.
-struct SidebarTipsHelpMenuItem: View {
-    let dismissHelpPopover: () -> Void
-
-    @AppStorage(SidebarTipsStorage.hiddenKey) private var isHidden = false
-
-    var body: some View {
-        if isHidden {
-            Button {
-                dismissHelpPopover()
-                isHidden = false
-            } label: {
-                HStack(spacing: 8) {
-                    Text(String(localized: "sidebar.help.showTips", defaultValue: "Show Tips"))
-                        .cmuxFont(size: 12)
-                    Spacer(minLength: 0)
-                    CmuxSystemSymbolImage(
-                        systemName: "lightbulb",
-                        pointSize: 13,
-                        tint: Color(nsColor: .secondaryLabelColor)
-                    )
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("SidebarHelpMenuOptionShowTips")
-        }
+        lastOpenedAt = next.lastOpenedAt?.timeIntervalSince1970 ?? 0
+        isInteracting = false
+        isPopoverPresented = true
     }
 }
 
 /// The Tips popover: the tip's title with its live shortcut, one or two lines
-/// of explanation, a row to page through the other tips, and "Don't show
-/// again". Every tip is laid out in the same stack and only the current one is
+/// of explanation, a row to page through the other tips, and the automatic-tip preference. Every tip is laid out in the same stack and only the current one is
 /// visible, so the popover keeps the tallest tip's height and nothing moves
 /// while paging. Reads and writes the shared progress itself so paging stays
 /// live while it is open.
@@ -157,17 +166,19 @@ private struct SidebarTipsPopover: View {
     /// Passed in from the footer: the popover's own hosting view has no
     /// settings runtime in its environment.
     let showsModifierHoldHints: Bool
-    let onDontShowAgain: () -> Void
+    let onInteractionChanged: (Bool) -> Void
 
     @AppStorage(SidebarTipsStorage.currentTipIDKey) private var currentTipID = ""
     @AppStorage(SidebarTipsStorage.seenTipIDsKey) private var seenTipIDs = ""
     @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var isDontShowAgainHovered = false
+    @AppStorage(SidebarTipsStorage.automaticTipsDisabledKey) private var automaticTipsDisabled = false
+    @State private var isHovered = false
+    @FocusState private var focusedControl: String?
 
     var body: some View {
         let tips = SidebarTipsCatalog.visibleTips(showsModifierHoldHints: showsModifierHoldHints)
         let progress = SidebarTipsStorage.progress(currentTipID: currentTipID, seenTipIDs: seenTipIDs, lastOpenedDay: "")
-        let index = min(SidebarTipsSchedule.currentIndex(progress, tipIDs: tips.map(\.id)), max(tips.count - 1, 0))
+        let index = min(SidebarTipsSchedule().currentIndex(progress, tipIDs: tips.map(\.id)), max(tips.count - 1, 0))
         if tips.indices.contains(index) {
             content(tips: tips, index: index)
         }
@@ -201,21 +212,30 @@ private struct SidebarTipsPopover: View {
                 }
             }
             .padding(.top, 10)
-            Button(action: onDontShowAgain) {
-                Text(String(localized: "sidebar.tips.dontShowAgain", defaultValue: "Don’t show again"))
+            Toggle(isOn: $automaticTipsDisabled) {
+                Text(String(localized: "sidebar.tips.disableAutomatic", defaultValue: "Don’t show tips automatically"))
                     .cmuxFont(size: 11)
-                    .foregroundStyle(Color(nsColor: isDontShowAgainHovered ? .labelColor : .secondaryLabelColor))
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
-            .buttonStyle(.plain)
-            .onHover { isDontShowAgainHovered = $0 }
-            .padding(.top, 4)
-            .accessibilityIdentifier("SidebarTipsDontShowAgainButton")
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .focused($focusedControl, equals: "automaticTips")
+            .padding(.top, 6)
+            .accessibilityIdentifier("SidebarTipsDisableAutomaticCheckbox")
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 10)
         .frame(width: Self.width, alignment: .leading)
         .accessibilityIdentifier("SidebarTipsPopover")
+        .onHover { hovered in
+            isHovered = hovered
+            onInteractionChanged(hovered || focusedControl != nil)
+        }
+        .onChange(of: focusedControl) { _, focused in
+            onInteractionChanged(isHovered || focused != nil)
+        }
+        .onDisappear { onInteractionChanged(false) }
     }
 
     private func tipText(_ tip: SidebarTip) -> some View {
@@ -281,11 +301,12 @@ private struct SidebarTipsPopover: View {
         .safeHelp(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier(accessibilityIdentifier)
+        .focused($focusedControl, equals: accessibilityIdentifier)
     }
 
     private func select(_ tipID: String) {
         let progress = SidebarTipsStorage.progress(currentTipID: currentTipID, seenTipIDs: seenTipIDs, lastOpenedDay: "")
-        let next = SidebarTipsSchedule.selected(progress, tipID: tipID)
+        let next = SidebarTipsSchedule().selected(progress, tipID: tipID)
         currentTipID = next.currentTipID ?? ""
         seenTipIDs = SidebarTipsStorage.encodedSeenTipIDs(next.seenTipIDs)
     }

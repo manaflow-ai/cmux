@@ -15648,7 +15648,6 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
                 isExternalLink: false
             )
-            SidebarTipsHelpMenuItem { isPopoverPresented = false }
             helpOptionButton(
                 title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
                 action: .importBrowserData,
