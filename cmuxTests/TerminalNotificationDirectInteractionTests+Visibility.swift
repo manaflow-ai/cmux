@@ -10,7 +10,7 @@ import CmuxTerminalCore
 #endif
 
 extension TerminalNotificationDirectInteractionTests {
-    func testPresentedRendererRevealSkipsDeferredRefresh() throws {
+    func testPresentedRendererSkipsRedundantDeferredRefresh() throws {
 #if DEBUG
         let window = makeWindow()
         defer { window.orderOut(nil) }
@@ -46,18 +46,18 @@ extension TerminalNotificationDirectInteractionTests {
             waitUntil(timeout: 5.0) { surface.isRendererPresented },
             "Expected the visible renderer to present before testing the reveal policy"
         )
+        drainMainQueue()
 
         surface.resetDebugForceRefreshCount()
-        if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(
-            rendererPresented: surface.isRendererPresented
-        ) {
-            hostedView.scheduleVisibilityRevealRefresh(transition: .reveal)
-        }
-        XCTAssertFalse(
+        // A renderer can present after a reveal queues its fallback but before
+        // the callback runs. Exercise that callback's current-health guard.
+        hostedView.scheduleVisibilityRevealRefresh(transition: .reveal)
+        XCTAssertTrue(
             hostedView.hasVisibilityRevealRefreshScheduled,
-            "A currently presented renderer must not enter the deferred reveal path"
+            "Expected a pending callback to exercise the deferred refresh guard"
         )
         drainMainQueue()
+        XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled)
         XCTAssertEqual(surface.debugForceRefreshCount(), 0)
 #else
         throw XCTSkip("Debug-only regression test")
@@ -133,14 +133,27 @@ extension TerminalNotificationDirectInteractionTests {
 
         hostedView.setActive(false)
         hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue(file: file, line: line)
 
         surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-        drainMainQueue()
-        // The reveal redraw runs on a later main-queue turn; wait for it.
-        _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= expected }
+        XCTAssertEqual(surface.hasPresentedFrame, presentedFrameBeforeReveal, file: file, line: line)
+        XCTAssertFalse(surface.isRendererPresented, file: file, line: line)
+        XCTAssertTrue(
+            hostedView.hasVisibilityRevealRefreshScheduled,
+            "An unpresented renderer must schedule the reveal fallback",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(), 0,
+            "The reveal must defer its redraw until after the visibility update",
+            file: file,
+            line: line
+        )
+        drainMainQueue(file: file, line: line)
+        XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled, file: file, line: line)
 
         XCTAssertEqual(surface.debugForceRefreshCount(), expected, message, file: file, line: line)
     }
