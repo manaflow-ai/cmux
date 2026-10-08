@@ -19,6 +19,7 @@ import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type
 import { GalleryVariantPick } from "./GalleryVariantPick";
 import { CompareView } from "./CompareView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
+import { Tunables } from "./Tunables";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
 
@@ -373,6 +374,15 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
           env={env}
           onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
         />
+        {entry.tunables && entry.tunables.length > 0 && (
+          <Tunables
+            tunables={entry.tunables}
+            tune={env.tune}
+            onChange={(tune) =>
+              go({ ...address, search: { ...env, tune, view: search.view, compare: search.compare } }, true)
+            }
+          />
+        )}
         <details className="gallery-covers">
           <summary>
             {entry.host} · covers {entry.covers.length}

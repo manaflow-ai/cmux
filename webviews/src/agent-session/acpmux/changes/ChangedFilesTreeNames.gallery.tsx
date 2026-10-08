@@ -5,7 +5,7 @@
 import { componentEntry } from "../../../gallery/format";
 import { LANGUAGE_FILES, LONG_NAMES, VERY_LONG_NAMES } from "../../../gallery/fixtures/changedFiles";
 import type { TurnFile } from "../diff";
-import { treeNameFade } from "./treeMotion.experiment";
+import { treeMarqueeEasing, treeNameFade, treeNameFadeCurve } from "./treeMotion.experiment";
 
 type Props = { files: TurnFile[] };
 
@@ -21,6 +21,7 @@ export default componentEntry<Props>({
   pane: true,
   widths: { narrow: 200, normal: 250, wide: 320 },
   height: 640,
+  tunables: [treeNameFadeCurve, treeMarqueeEasing],
   experiment: {
     definition: treeNameFade,
     script: [
