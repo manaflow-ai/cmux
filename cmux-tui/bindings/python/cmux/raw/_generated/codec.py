@@ -195,6 +195,8 @@ MODEL_BY_PATH = {
     'commands/browser-reload/request': models.BrowserReloadRequest,
     'commands/browser-wheel/request': models.BrowserWheelRequest,
     'commands/browser-wheel-guarded/request': models.BrowserWheelGuardedRequest,
+    'commands/chief-inspect/request': models.ChiefInspectRequest,
+    'commands/chief-inspect/result': models.ChiefInspectResult,
     'commands/clear-history/request': models.ClearHistoryRequest,
     'commands/clear-window-title/request': models.ClearWindowTitleRequest,
     'commands/client-focus/request': models.ClientFocusRequest,
