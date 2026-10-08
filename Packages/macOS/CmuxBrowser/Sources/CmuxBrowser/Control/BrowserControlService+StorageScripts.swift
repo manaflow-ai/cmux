@@ -3,9 +3,9 @@ import Foundation
 /// JavaScript builders and parameter normalization for the `browser storage.*`
 /// control commands (`storage.get`, `storage.set`, `storage.clear`).
 ///
-/// Every string returned here is byte-identical to the script the corresponding
-/// `v2BrowserStorage*` method previously assembled inline in `TerminalController`;
-/// only the assembly moved. The owning `@MainActor` controller keeps the WebKit
+/// Every string returned here started as the script the corresponding
+/// `v2BrowserStorage*` method previously assembled inline in `TerminalController`.
+/// The owning `@MainActor` controller keeps the WebKit
 /// evaluation seam and the per-surface ref/workspace state, normalizes the raw
 /// result via ``BrowserControlService/normalizeJSValue(_:isUndefinedSentinel:)``,
 /// and composes the RPC reply, so the wire output is unchanged.
@@ -40,7 +40,8 @@ extension BrowserControlService {
     /// When `key` is `nil` the script returns every entry of the chosen storage
     /// area as an object; otherwise it returns the single item. Returns
     /// `{ ok: false, error: 'not_available' }` when the storage area is absent.
-    /// Byte-identical to the script previously inlined in `v2BrowserStorageGet`.
+    /// Whole-area entries are defined as own properties so keys that collide with
+    /// `Object.prototype` members, such as `__proto__`, are kept.
     /// - Parameters:
     ///   - storageType: `"session"` or `"local"`, as returned by ``storageType(params:)``.
     ///   - key: the specific key to read, or `nil` to read the whole area.
@@ -58,7 +59,13 @@ extension BrowserControlService {
             const out = {};
             for (let i = 0; i < st.length; i++) {
               const k = st.key(i);
-              out[k] = st.getItem(k);
+              // Define own properties so a literal "__proto__" key stays data.
+              Object.defineProperty(out, k, {
+                value: st.getItem(k),
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
             }
             return { ok: true, value: out };
           }

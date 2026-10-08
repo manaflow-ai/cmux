@@ -48,7 +48,13 @@ struct BrowserControlServiceStorageScriptsTests {
             const out = {};
             for (let i = 0; i < st.length; i++) {
               const k = st.key(i);
-              out[k] = st.getItem(k);
+              // Define own properties so a literal "__proto__" key stays data.
+              Object.defineProperty(out, k, {
+                value: st.getItem(k),
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
             }
             return { ok: true, value: out };
           }
