@@ -1011,7 +1011,7 @@ extension CMUXCLI {
           --machine <id>        Skip routing and use this machine.
           --new                 Force a fresh pool machine.
           --size <s>            Memory preset for a machine this run creates
-                                (4g to 32g on Pro; 64g needs cmux Max).
+                                (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
           --timeout <seconds>   Command timeout (default \(vmRunDefaultTimeoutSeconds)s, max 15 minutes).
           --wait, --output      Accepted for symmetry with `vm agent`; `vm run` always
                                 blocks on the command and prints its output.
@@ -1082,7 +1082,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g on Pro (64g needs cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g on Pro (24g, 32g, and 64g need cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1689,7 +1689,7 @@ extension CMUXCLI {
           --new          Ignore the pool and report a fresh machine.
           --provision    Actually create the machine when routing would.
           --size <s>     Memory preset for a machine --provision creates
-                         (4g to 32g on Pro; 64g needs cmux Max).
+                         (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
           --json         {machine, created, reason, would_provision, directory}
         """
     }
@@ -1738,7 +1738,7 @@ extension CMUXCLI {
                            (exit 1, the agent is not stopped). Default: no limit.
           --new            Force a fresh pool machine.
           --size <s>       Memory preset for a machine this call creates
-                           (4g to 32g on Pro; 64g needs cmux Max).
+                           (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
 
         Examples:
           cmux vm agent --agent claude --sync -- "run the test suite and fix failures"
@@ -1841,7 +1841,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g on Pro (64g needs cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g on Pro (24g, 32g, and 64g need cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1946,7 +1946,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g on Pro (64g needs cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g on Pro (24g, 32g, and 64g need cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }

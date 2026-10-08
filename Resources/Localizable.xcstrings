@@ -643019,7 +643019,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 32g؛ ويتطلب 64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
+            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 16g؛ وتتطلب 24g و32g و64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
           }
         },
         "es": {
@@ -643031,19 +643031,19 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 32g 的大小；64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
+            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 16g 的大小；24g、32g 和 64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 32g 的大小；64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
+            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 16g 的大小；24g、32g 和 64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 32g 크기를 지원하며 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
+            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 16g 크기를 지원하며 24g, 32g, 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
           }
         },
         "ja": {

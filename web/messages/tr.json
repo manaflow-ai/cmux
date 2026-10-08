@@ -3092,7 +3092,7 @@
       "errPlan": "Cloud VM'ler için ücretli plan gerekir",
       "fixPlan": "Ücretsiz hesaplar makine oluşturamaz. Fiyatlandırma sayfasından planınızı yükseltin.",
       "errSize": "Bir boyut daha büyük bir plan gerektiriyor",
-      "fixSize": "32 GB'tan büyük makineler için cmux Max gerekir. Daha küçük bir boyut seçin veya planınızı yükseltin.",
+      "fixSize": "16 GB'tan büyük makineler için cmux Max gerekir. Daha küçük bir boyut seçin veya planınızı yükseltin.",
       "errLimit": "Etkin makine sınırına ulaşıldı",
       "fixLimit": "Bir makineyi duraklatın veya silin, ardından yeniden deneyin.",
       "errPool": "Yeterli Cloud VM kaynağı yok",

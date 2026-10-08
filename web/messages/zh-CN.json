@@ -3094,7 +3094,7 @@
       "errPlan": "Cloud VM 需要付费套餐",
       "fixPlan": "免费账户无法创建机器。请在定价页面升级。",
       "errSize": "所选规格需要更高级的套餐",
-      "fixSize": "大于 32 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
+      "fixSize": "大于 16 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
       "errLimit": "已达到活跃机器数量上限",
       "fixLimit": "暂停或删除一台机器后重试。",
       "errPool": "Cloud VM 资源不足",

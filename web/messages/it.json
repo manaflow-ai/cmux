@@ -3094,7 +3094,7 @@
       "errPlan": "Le VM Cloud richiedono un piano a pagamento",
       "fixPlan": "Gli account gratuiti non possono creare macchine. Passa a un piano a pagamento dalla pagina dei prezzi.",
       "errSize": "Una dimensione richiede un piano superiore",
-      "fixSize": "Le macchine oltre 32 GB richiedono cmux Max. Scegli una dimensione inferiore o passa a un piano superiore.",
+      "fixSize": "Le macchine oltre 16 GB richiedono cmux Max. Scegli una dimensione inferiore o passa a un piano superiore.",
       "errLimit": "Limite di macchine attive raggiunto",
       "fixLimit": "Metti in pausa o elimina una macchina, poi riprova.",
       "errPool": "Risorse Cloud VM insufficienti",

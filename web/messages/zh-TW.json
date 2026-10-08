@@ -3093,7 +3093,7 @@
       "errPlan": "Cloud VM 需要付費方案",
       "fixPlan": "免費帳號無法建立機器。請在定價頁面升級。",
       "errSize": "所選規格需要更高階的方案",
-      "fixSize": "大於 32 GB 的機器需要 cmux Max。請選擇較小的規格或升級。",
+      "fixSize": "大於 16 GB 的機器需要 cmux Max。請選擇較小的規格或升級。",
       "errLimit": "已達使用中機器數量上限",
       "fixLimit": "暫停或刪除一台機器後再試一次。",
       "errPool": "Cloud VM 資源不足",

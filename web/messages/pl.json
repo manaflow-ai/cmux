@@ -3094,7 +3094,7 @@
       "errPlan": "Maszyny wirtualne Cloud wymagają płatnego planu",
       "fixPlan": "Konta darmowe nie mogą tworzyć maszyn. Zmień plan na stronie z cennikiem.",
       "errSize": "Rozmiar wymaga wyższego planu",
-      "fixSize": "Maszyny większe niż 32 GB wymagają cmux Max. Wybierz mniejszy rozmiar lub zmień plan.",
+      "fixSize": "Maszyny większe niż 16 GB wymagają cmux Max. Wybierz mniejszy rozmiar lub zmień plan.",
       "errLimit": "Osiągnięto limit aktywnych maszyn",
       "fixLimit": "Wstrzymaj lub usuń maszynę, a następnie spróbuj ponownie.",
       "errPool": "Za mało zasobów Cloud VM",

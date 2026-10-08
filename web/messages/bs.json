@@ -3094,7 +3094,7 @@
       "errPlan": "Cloud VM-ovi zahtijevaju plaćeni plan",
       "fixPlan": "Besplatni računi ne mogu kreirati mašine. Nadogradite na stranici s cijenama.",
       "errSize": "Veličina zahtijeva veći plan",
-      "fixSize": "Mašine veće od 32 GB zahtijevaju cmux Max. Izaberite manju veličinu ili nadogradite plan.",
+      "fixSize": "Mašine veće od 16 GB zahtijevaju cmux Max. Izaberite manju veličinu ili nadogradite plan.",
       "errLimit": "Dostignuto je ograničenje aktivnih mašina",
       "fixLimit": "Pauzirajte ili obrišite mašinu, pa pokušajte ponovo.",
       "errPool": "Nema dovoljno Cloud VM resursa",

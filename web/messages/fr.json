@@ -3096,7 +3096,7 @@
       "errPlan": "Les VM Cloud nécessitent un forfait payant",
       "fixPlan": "Les comptes gratuits ne peuvent pas créer de machines. Passez à un forfait payant sur la page des tarifs.",
       "errSize": "Une taille nécessite un forfait supérieur",
-      "fixSize": "Les machines de plus de 32 GB nécessitent cmux Max. Choisissez une taille plus petite ou passez à un forfait supérieur.",
+      "fixSize": "Les machines de plus de 16 GB nécessitent cmux Max. Choisissez une taille plus petite ou passez à un forfait supérieur.",
       "errLimit": "Limite de machines actives atteinte",
       "fixLimit": "Mettez en pause ou supprimez une machine, puis réessayez.",
       "errPool": "Ressources Cloud VM insuffisantes",

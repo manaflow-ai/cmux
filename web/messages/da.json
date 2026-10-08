@@ -3091,7 +3091,7 @@
       "errPlan": "Cloud-VM'er kræver et betalt abonnement",
       "fixPlan": "Gratis konti kan ikke oprette maskiner. Opgrader på prissiden.",
       "errSize": "En størrelse kræver et større abonnement",
-      "fixSize": "Maskiner større end 32 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
+      "fixSize": "Maskiner større end 16 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
       "errLimit": "Grænsen for aktive maskiner er nået",
       "fixLimit": "Sæt en maskine på pause, eller slet den, og prøv igen.",
       "errPool": "Ikke nok Cloud VM-ressourcer",

@@ -4618,7 +4618,7 @@
       "errPlan": "Cloud VMs require a paid plan",
       "fixPlan": "Free accounts cannot create machines. Upgrade on the pricing page.",
       "errSize": "A size needs a larger plan",
-      "fixSize": "Machines larger than 32 GB need cmux Max. Choose a smaller size or upgrade.",
+      "fixSize": "Machines larger than 16 GB need cmux Max. Choose a smaller size or upgrade.",
       "errLimit": "Active machine limit reached",
       "fixLimit": "Pause or delete a machine, then try again.",
       "errPool": "Not enough Cloud VM resources",
