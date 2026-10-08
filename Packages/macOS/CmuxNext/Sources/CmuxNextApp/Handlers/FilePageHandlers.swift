@@ -17,14 +17,17 @@ enum FilePageHandlers {
         let services = context.services
         services.pages.register(services.viewers.markdownPages)
         services.pages.register(services.viewers.editorPages)
-        // R96: a recovered draft of a local file opens in the code editor page as an unsaved edit
-        // (the launch notice's Open). The page compares the file with the draft's base itself.
+        // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
+        // in the page of its file type (D11): a markdown file in the markdown page, others in the
+        // code editor page. The page compares the file with the draft's base itself.
         RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
             Task { @MainActor in
                 guard let restore = await FilePageRecovery.restore(draft), let services,
                       let pane = services.windows.active?.focusedPane else { return }
-                services.viewers.editorPages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
+                let pages = FilePageOpener.kind(for: restore.url) == .markdown
+                    ? services.viewers.markdownPages : services.viewers.editorPages
+                pages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
                 // The file changed after the draft: say so; the draft stays unsaved changes.
                 if restore.conflict, let window = services.windowController(showing: pane)?.window ?? pane.view.window {
                     _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)",

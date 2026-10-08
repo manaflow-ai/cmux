@@ -427,6 +427,7 @@
       "conversation-bind",
       "conversation-agent-token",
       "conversation-import",
+      "chief-inspect",
       "browser-host-provider",
       "cloud-session-set",
       "cloud-session-clear",
@@ -439,6 +440,9 @@
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
       "cloud-conversation-unsubscribe",
+      "cloud-mux-subscribe",
+      "cloud-mux-unsubscribe",
+      "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read"
     ],
@@ -848,6 +852,18 @@
     },
     {
       "name": "cloud-inbox-reset",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-mux-wake",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-mux-resynced",
       "streams": [
         "subscribe"
       ]
@@ -1654,6 +1670,8 @@
         "InputAck": 23,
         "ClipboardReadRequest": 24,
         "ClipboardReadCancel": 25,
+        "PtyCustody": 26,
+        "LaunchAdopt": 27,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,

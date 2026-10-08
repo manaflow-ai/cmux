@@ -6,8 +6,6 @@
    transparent (fills and rules) or one of the theme's text tokens. Other themes keep
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
-@import "../../../markdown-task-checkbox.css";
-
 :root {
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
@@ -652,6 +650,28 @@ pre.cv-math-source {
   margin-top: 6px;
   text-align: right;
 }
+/* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
+   transcript stays light; a click opens the image viewer. */
+.cv-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.cv-tool-images .cv-img {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+  margin: 0;
+  object-fit: contain;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+
+.cv-tool-images .cv-media.is-video video {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+}
+
 .cv-tool-output {
   margin: 4px 0 8px;
   max-height: 240px;
@@ -809,12 +829,13 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. */
+/* Copy under an answer; the row's height is reserved. A long failure note (a gateway 503) wraps
+ * and grows the row instead of overflowing a fixed 28px box, which cut its first and last lines. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  min-height: 28px;
   margin-left: -4.5px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
@@ -844,6 +865,18 @@ pre.cv-math-source {
 }
 .cv-turn-summary {
   margin-left: 4.5px;
+}
+.cv-turn-summary,
+.cv-turn-time {
+  flex: none;
+  white-space: nowrap;
+}
+.cv-turn-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: 5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
@@ -990,6 +1023,130 @@ pre.cv-math-source {
   height: auto;
   margin: 6px 0;
   border-radius: 8px;
+}
+/* A reply image that opens the image viewer (ImageViewer.tsx). */
+.cv-img-open {
+  all: unset;
+  display: block;
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.cv-img-open:focus-visible .cv-img {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+
+/* The image viewer: one image over the whole pane, a bar with its name, position, copy and close,
+   and arrows through the chat's images at the sides. */
+.acpmux-image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  color: var(--agent-text);
+  outline: none;
+}
+.acpmux-image-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+.acpmux-image-viewer-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-image-viewer-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 10px 0 16px;
+  font-size: 13px;
+}
+.acpmux-image-viewer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-image-viewer-count {
+  margin-right: 8px;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-image-viewer-action,
+.acpmux-image-viewer-step {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+.acpmux-image-viewer-action:hover,
+.acpmux-image-viewer-step:hover {
+  color: var(--agent-text);
+  background: var(--agent-control-hover);
+}
+.acpmux-image-viewer-action:focus-visible,
+.acpmux-image-viewer-step:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+}
+.acpmux-image-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Symmetric, so the stage's center is the fitted image's center (zoomAbout in ImageViewer.tsx). */
+  padding: 16px 56px;
+  overflow: hidden;
+  touch-action: none;
+}
+.acpmux-image-viewer-stage.is-zoomed {
+  cursor: grab;
+}
+.acpmux-image-viewer-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+.acpmux-image-viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.acpmux-image-viewer-stage:not(.is-zoomed) .acpmux-image-viewer-image {
+  cursor: zoom-in;
+}
+.acpmux-image-viewer-step {
+  position: absolute;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: var(--agent-control);
+}
+.acpmux-image-viewer-step.is-previous {
+  left: 12px;
+}
+.acpmux-image-viewer-step.is-next {
+  right: 12px;
 }
 
 /* A shell mode command's block (shell/ShellRow.tsx): the command in mono after a `!` in the
@@ -1162,4 +1319,53 @@ pre.cv-math-source {
   color: var(--agent-text);
   font: inherit;
   cursor: pointer;
+}
+
+/* Charts in replies (DiagramBlock). */
+.cv-diagram {
+  margin: 8px 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  overflow: hidden;
+}
+.cv-diagram__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  font-size: 11px;
+  background: var(--cv-card-fill);
+}
+.cv-diagram__lang {
+  opacity: 0.7;
+}
+.cv-diagram__toggle {
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+.cv-diagram__toggle:hover {
+  background: var(--cv-card-ring);
+}
+.cv-diagram__chart {
+  min-height: 120px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.cv-diagram__chart svg {
+  max-width: 100%;
+  height: auto;
+}
+.cv-diagram__error {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--agent-danger);
+}
+.cv-diagram .cv-codeblock {
+  margin: 0;
+  border-radius: 0;
 }

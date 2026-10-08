@@ -112,6 +112,62 @@ WEBVIEW = (
     "scripts/build-webviews-app.sh", "scripts/check-webviews-react-compiler.mjs",
 )
 
+# The web bundles are build output since cx-vn5 (scripts/cmux-next/build-web-bundles.sh
+# runs before every package build). A change to what they are built from is a
+# change to the targets that ship them: their tests read the built pages, as they
+# read the committed copies before.
+BUNDLE_INPUTS = (
+    "webviews/src/*", "webviews/scripts/*", "webviews/package.json", "webviews/bun.lock",
+    "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
+    "Resources/markdown-viewer/marked.min.js",
+    "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
+    "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-optchat-inspector-web.sh",
+    "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+)
+BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+# Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
+# and that the app takes as a `.copy` resource: a change to them needs no compile.
+CHECKED_WEB_BUNDLES = (
+    PACKAGE + "Sources/CmuxNextAgentPane/Resources/agent-pane/*",
+)
+
+# CI-only files: workflows, CI scripts, the router and gh-merge-green, and their tests. actionlint
+# and the CI unit tests (ci.yml's guards) and the routing replay (the checks job) cover them on
+# Linux, and `gh-merge-green --revert` undoes one in a command.
+CI_ONLY = (
+    ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
+    "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
+    "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
+    "tests/test_base_red_excuse.py", "tests/test_ci_*.py",
+)
+# The CI files that route themselves (the router reads them; the replay checks them).
+CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
+
+
+def web_fast(path: str) -> bool:
+    """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
+    if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
+        return True
+    return any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE)
+
+
+def ci_only(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
+
+
+def consumed(path: str, tree_inputs: list[str], read) -> bool:
+    """A Mac tier reads this file (a toolchain pin, a job script, a daemon or tree input, a
+    generated-file input or a test fixture), whatever its name looks like."""
+    if path in FULL_INPUTS and path not in CI_SELF:
+        return True
+    if path in DAEMON_PATHS or any(matches(path, p) for p in SWIFT_JOB_INPUTS + tuple(tree_inputs)):
+        return True
+    if any(matches(path, p) for p in GENERATED_INPUTS) and not any(fnmatch.fnmatch(path, b) for b in CHECKED_WEB_BUNDLES):
+        return True
+    return read(path)
+
 
 @dataclass
 class Route:
@@ -195,6 +251,17 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
 
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
+    read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
+    # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
+    # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
+    # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
+    tree_inputs_early = tree_input_paths(root)
+    if "dev-build" not in labels and all(
+        (web_fast(path) or ci_only(path)) and not consumed(path, tree_inputs_early, read) for path in changed
+    ):
+        kinds = sorted({"CI" if ci_only(path) else "web" for path in changed})
+        result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
+        return result
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
@@ -221,6 +288,12 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         if any(matches(path, prefix) for prefix in SWIFT_JOB_INPUTS):
             result.swift = True
             result.reasons.append(f"{path} is a swift test job script")
+
+        if any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            shipped = {name for name in BUNDLE_TARGETS if name in graph["targets"]}
+            changed_targets |= shipped
+            result.native = True
+            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}")
 
         owner = owning_target(graph, path)
         if owner is not None:

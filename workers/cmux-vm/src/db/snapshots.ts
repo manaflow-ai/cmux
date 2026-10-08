@@ -88,7 +88,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
             "snapshots.record",
             `INSERT INTO cmux_vm.resources
                (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, parent_cmux_id, display_name, labels)
-             VALUES ($1, $2, 'snapshot', $3, $4, $5::timestamptz, $6, $7, $8::jsonb)`,
+             VALUES ($1, $2, 'snapshot', $3, $4, $5::timestamptz, $6, $7, $8::text::jsonb)`,
             [
               snapshot.id,
               snapshot.tenantId,
@@ -119,8 +119,8 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
               WHERE tenant_id = $1 AND kind = 'snapshot' AND deleted_at IS NULL
                 AND ($2::text IS NULL OR parent_cmux_id = $2::text)
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
-                AND ($6::jsonb IS NULL OR labels @> $6::jsonb)
-                AND ($7::jsonb IS NULL OR $7::jsonb ? cmux_id)
+                AND ($6::text::jsonb IS NULL OR labels @> $6::text::jsonb)
+                AND ($7::text::jsonb IS NULL OR $7::text::jsonb ? cmux_id)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $5`,
             [

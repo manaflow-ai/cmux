@@ -9,6 +9,20 @@ import Testing
         #expect(shape(s, local) == "a b G2[h1,h2] c")
     }
 
+    @Test func settingAGroupIconStoresItAndNilRemovesIt() throws {
+        var s = fixture()
+        #expect(SidebarEdits.apply(.setGroupIcon(g1, "star.fill"), to: &s))
+        var group = try #require(s.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
+            if case let .group(group) = node, group.id == g1 { group } else { nil }
+        }.first)
+        #expect(group.icon == .symbol("star.fill"))
+        SidebarEdits.apply(.setGroupIcon(g1, nil), to: &s)
+        group = try #require(s.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
+            if case let .group(group) = node, group.id == g1 { group } else { nil }
+        }.first)
+        #expect(group.icon == nil)
+    }
+
     @Test func closingPinnedGroupKeepsEmptySavedGroup() {
         var s = fixture()
         SidebarEdits.apply(.setGroupPinned(g1, true), to: &s)

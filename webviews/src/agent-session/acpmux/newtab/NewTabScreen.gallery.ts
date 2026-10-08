@@ -6,7 +6,26 @@ import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/ac
 import { minutesAgo } from "../../../gallery/clock";
 
 const newTab = (fields: Record<string, unknown> = {}) => ({
-  newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", ...fields },
+  newTab: {
+    layout: "b",
+    kind: "agent",
+    cwd: CWD,
+    home: "/Users/you",
+    lastAgent: "claude",
+    tools: [
+      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌃⇧⌘G", menu: [] },
+      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight", "splitDown"] },
+      { id: "file.open", title: "Files", symbol: "folder", shortcut: "⇧⌘O", menu: [] },
+      {
+        id: "agentPane.searchChats",
+        title: "Side chat",
+        symbol: "bubble.left.and.text.bubble.right",
+        shortcut: "⌘K",
+        menu: [],
+      },
+    ],
+    ...fields,
+  },
   newSession: true,
 });
 
@@ -48,6 +67,30 @@ export default agentPaneEntry({
       note: "Opened from a web tab: the field holds its address.",
       ready: newTab({ location: "https://github.com/manaflow-ai/cmux/pull/17516" }),
       snapshot: noChat(manySessions(4)),
+    },
+    "without-tools": {
+      note: "The reserved Tools region is omitted when no host action can run.",
+      ready: newTab({ tools: [] }),
+      snapshot: noChat(manySessions(3)),
+    },
+    "with-tools": {
+      note: "Tools use the host action catalog and shortcut labels.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+    },
+    "omnibar-row-kinds": {
+      note: "Open tab, workspace, history, search, agent and shell intent rows.",
+      ready: newTab({
+        location: "release notes",
+        omnibar: {
+          tabs: [{ id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-1", name: "Docs", detail: "~/src/docs" }],
+          folders: [CWD],
+          commands: ["bun test"],
+          history: [{ url: "https://cmux.dev/docs", title: "cmux docs" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
     },
   },
 });

@@ -11,7 +11,9 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
-names=(cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin)
+# Every companion the publisher requires (macOS and Linux), from its own list.
+# shellcheck disable=SC2207 # one name per line, no spaces
+names=($(python3 "$ROOT/scripts/ci/publish-cmux-tui-tree.py" --list-companions))
 
 python3 - "$ROOT/.github/workflows/cmux-tui-artifacts.yml" "$TMP/publish.sh" <<'PY'
 import sys, yaml
@@ -27,6 +29,7 @@ mkdir -p "$src/cmux-tui" "$src/scripts/cmux-next" "$src/scripts/ci"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$ROOT/scripts/ci/publish-cmux-tui-tree.py" "$src/scripts/ci/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 cdn="$TMP/cdn"
 # The trusted uploader, write-once into the CDN directory.

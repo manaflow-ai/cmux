@@ -47,6 +47,8 @@ export interface PopoverProps {
   /** The accessible name of the popover (role dialog). */
   label: string;
   className?: string;
+  /** Which side of the anchor receives the popover. */
+  side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -60,6 +62,7 @@ export function Popover({
   anchor,
   label,
   className,
+  side = "bottom",
   initialFocus,
   finalFocus,
   children,
@@ -71,7 +74,7 @@ export function Popover({
         <BasePopover.Positioner
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
-          side="bottom"
+          side={side}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >

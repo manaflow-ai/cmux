@@ -39,7 +39,6 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         registerSyncBarrier(service.router, daemon: services.daemon)
-        let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
@@ -49,11 +48,32 @@ final class AppControl {
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
         service.router.register([
+            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
+            .async("resources") { [weak services] call in
+                let services = await MainActor.run { services }
+                return try await ResourceControl.run(call.params, services: services)
+            }.withDeadline(.fixed(ResourceControl.deadline)),
+            // Installed Chrome extensions, shortcuts and toolbar badges.
+            .mainActor("browser.extensions") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(ExtensionControl.report(services))
+            },
+            // Ghostty config keys and keybind actions cmux does not apply (R92).
+            GhosttyDiagnosticsControl().method,
+        ])
+        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
+        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        #if DEBUG
+        let probe = frameProbe
+        service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            .mainActor("debug.page_host_pool") { [weak services] call in
+                .value(DebugPageHostPool.handle(call.params, services: services))
+            },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
             .mainActor("debug.focus") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -147,11 +167,6 @@ final class AppControl {
                 return report
                 #endif
             },
-            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
-            .async("resources") { [weak services] call in
-                let services = await MainActor.run { services }
-                return try await ResourceControl.run(call.params, services: services)
-            }.withDeadline(.fixed(ResourceControl.deadline)),
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
@@ -171,14 +186,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCrashes.report(services))
             },
-            // Installed Chrome extensions, shortcuts and toolbar badges.
-            .mainActor("browser.extensions") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(ExtensionControl.report(services))
-            },
-            // Ghostty config keys and keybind actions cmux does not apply (R92).
-            GhosttyDiagnosticsControl().method,
         ])
+        #endif
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
@@ -231,6 +240,10 @@ final class AppControl {
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
+            },
+            .mainActor("debug.omnibar_type") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.type(call.params, services: services))
             },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
@@ -332,6 +345,7 @@ final class AppControl {
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
+            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
             .mainActor("debug.low_power_mode") { call in
@@ -339,6 +353,14 @@ final class AppControl {
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
+            },
+            // Reduce Transparency as overlays follow it (toasts, menus): `enabled: bool`
+            // overrides macOS for this app only, `enabled: null` follows macOS again.
+            .mainActor("debug.reduce_transparency") { call in
+                let mode = ReduceTransparency.shared
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)])
             },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)

@@ -58,6 +58,10 @@
     {
       "path": "/api/cron/apple-notifications",
       "schedule": "17,47 * * * *"
+    },
+    {
+      "path": "/api/cron/model-catalog",
+      "schedule": "19 * * * *"
     }
   ]
 }

@@ -10,14 +10,19 @@
 #
 #   environment          trigger                       Worker
 #   cmux-vm-preview      push to a feat-cmux-vm-<lane>  cmux-vm-preview-<lane> (workers.dev)
-#   cmux-vm-staging      push to main                  cmux-vm-staging, then smoke-staging
+#   cmux-vm-staging      push to main or feat-cmux-next cmux-vm-staging, then smoke-staging
+#
+# feat-cmux-next deploys staging while cmux VM lands there first (Lawrence,
+# 2026-10-07: "into feat-cmux-next is all we want rn, no main").
 #
 # smoke-staging runs scripts/smoke.ts against the staging Worker after each
 # staging deploy: create, exec, pause and delete by exact id on the test
 # tenant. It needs the cmux-vm-staging environment variable
 # CMUX_VM_STAGING_URL and secret CMUX_VM_SMOKE_API_KEY (an API key of the
 # dedicated smoke tenant with vm:read, vm:write and vm:exec); without them it
-# is skipped with a notice.
+# is skipped with a notice. With the optional secret CMUX_VM_SMOKE_API_KEY_B
+# (a key of a second smoke tenant with the same scopes) the smoke also proves
+# that the second tenant gets 404 for every call on the first tenant's VM.
 #
 # Production deploys are added with the protected cmux-vm-production
 # environment (cx-b4h.5), not here.
@@ -33,6 +38,7 @@
 #   cloudflare-preflight  token, Workers scripts and Hyperdrive list checks
 #   hyperdrive-ensure     create or update the Hyperdrive config named after
 #                         the chosen environment from its CMUX_VM_DATABASE_URL
+#   deploy-staging        deploy the dispatched ref to staging, then smoke it
 
 name: cmux VM
 
@@ -47,7 +53,7 @@ on:
     # Lane branches deploy the preview Worker (decision V6). The preview
     # environment admits only feat-cmux-vm-* refs, which a pull_request run
     # (refs/pull/N/merge) never is, so preview deploys run on push.
-    branches: [main, "feat-cmux-vm-*"]
+    branches: [main, feat-cmux-next, "feat-cmux-vm-*"]
     paths:
       - workers/cmux-vm/**
       - .github/workflows/cmux-vm.yml
@@ -56,7 +62,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -73,7 +79,7 @@ permissions:
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
@@ -263,7 +269,9 @@ jobs:
         run: bash scripts/deploy.sh
 
   deploy-staging:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -315,7 +323,9 @@ jobs:
         run: bash scripts/deploy.sh
 
   smoke-staging:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
     needs: deploy-staging
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -353,4 +363,5 @@ jobs:
         env:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_STAGING_URL }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
+          CMUX_VM_SMOKE_API_KEY_B: ${{ secrets.CMUX_VM_SMOKE_API_KEY_B }}
         run: bun scripts/smoke.ts
