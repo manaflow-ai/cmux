@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Nema dovoljno Cloud VM resursa",
+      "memoryMessage": "Vaši VM-ovi već koriste {used} od {pool} GB RAM-a. Ovom VM-u treba {requested} GB.",
+      "vcpuMessage": "Vaši VM-ovi već koriste {used} od {pool} vCPU-a. Ovom VM-u treba {requested} vCPU-a.",
+      "upgradeAction": "Pauzirajte ili obrišite VM, ili pređite na Max.",
+      "action": "Pauzirajte ili obrišite VM."
     }
   },
   "billingRecovery": {
@@ -403,6 +410,7 @@
       "label": "Meni računa",
       "settings": "Postavke",
       "billing": "Naplata",
+      "switchAccount": "Promijeni račun",
       "signOut": "Odjavi se",
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
@@ -426,7 +434,8 @@
         "memberReadOnly": "Ovaj plan mogu mijenjati samo administratori tima.",
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
-        "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama."
+        "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama.",
+        "addSeats": "Dodaj mjesta"
       },
       "teamList": {
         "heading": "Opsezi naplate",
@@ -488,16 +497,17 @@
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
-            "24 GB RAM-a i 6 vCPU-a dijeljeno među VM-ovima",
+            "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a",
             "cmux aplikacija za iOS"
           ],
           "max": [
-            "64 GB RAM-a i 16 vCPU-a dijeljeno među VM-ovima",
+            "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a",
             "Veće mašine",
             "Sve iz Pro"
           ],
           "team": [
             "Sve iz Pro za svakog člana",
+            "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 20 vCPU-a i 40 GB RAM-a po plaćenom mjestu u cijelom timu",
             "Jedna faktura za cijeli tim",
             "Prioritetna podrška"
           ]
@@ -540,6 +550,11 @@
         "team": "Kreirajte tim",
         "banner": "Sada koristite {plan}.",
         "bannerLink": "Plan i naplata"
+      },
+      "appStore": {
+        "title": "Naplaćuje se putem App Storea",
+        "body": "Vaš plan je kupljen u cmux aplikaciji za iPhone i naplaćuje ga Apple. Promijenite ga ili otkažite u svojim App Store pretplatama.",
+        "manage": "Upravljajte u App Storeu"
       }
     },
     "mobileDevices": {
@@ -1058,6 +1073,8 @@
         "revoke": "Opozovi",
         "linksTitle": "Linkovi za pozivnicu",
         "linksDescription": "Link za višekratnu upotrebu kojim se svako može pridružiti kao član.",
+        "seatNudge": "Članova i pozvanih: {used}, a plan ima mjesta: {seats}. Pozivnice i dalje rade; dodajte {over, plural, one {# mjesto} few {# mjesta} other {# mjesta}} da pokrijete sve.",
+        "seatNudgeAction": "Upravljaj mjestima",
         "actions": {
           "makeAdmin": "Postavi za administratora",
           "makeMember": "Postavi za člana",
@@ -1122,6 +1139,80 @@
       "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
       "apiKeyUsageDetail": "Posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
+      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
+    },
+    "cloud": {
+      "title": "Cloud mašine i pristup s Maca",
+      "description": "Postavite odlaznu mrežu za svaku mašinu i pregledajte Mac računare s WireGuard pristupom vašoj privatnoj Cloud VM mreži. Uparivanja za iPhone i Iroh vode se odvojeno.",
+      "macAccessTitle": "Pristup s Maca",
+      "machines": {
+        "title": "Mašine",
+        "empty": "Nemate Cloud mašina.",
+        "personal": "lično",
+        "team": "tim",
+        "status": {
+          "provisioning": "pokreće se",
+          "running": "radi",
+          "failed": "neuspjelo",
+          "paused": "pauzirano",
+          "destroyed": "izbrisano"
+        }
+      },
+      "network": {
+        "open": "Mreža",
+        "title": "Odlazna mreža za {name}",
+        "description": "Odaberite šta ova mašina može dosegnuti. Promjene se primjenjuju odmah, bez ponovnog pokretanja.",
+        "loading": "Učitavanje mrežne politike…",
+        "loadError": "Mrežnu politiku za ovu mašinu nije moguće učitati.",
+        "saveError": "Ovu mrežnu politiku nije moguće primijeniti.",
+        "unsupported": "Ova mašina ne podržava kontrolu odlazne mreže.",
+        "retry": "Pokušaj ponovo",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "primijenjeno",
+          "pending": "primjenjuje se",
+          "failed": "primjena nije uspjela"
+        },
+        "unsaved": "nesačuvane promjene",
+        "refresh": "Osvježi",
+        "modeLabel": "Odlazni pristup",
+        "mode": {
+          "full": {
+            "label": "Puni internet",
+            "description": "Bilo koja javna adresa."
+          },
+          "allowlist": {
+            "label": "Lista dozvoljenih",
+            "description": "Samo predlošci, domene i IP rasponi koje navedete."
+          },
+          "none": {
+            "label": "Bez interneta",
+            "description": "Samo cmux hostovi navedeni ispod."
+          }
+        },
+        "presetsTitle": "Predlošci",
+        "presetsNote": "Svaki predložak dodaje tačne nazive hostova. Usluga koja koristi druge poddomene može trebati dodatne domene.",
+        "domainsTitle": "Domene",
+        "domainsNote": "Samo tačni nazivi hostova, samo HTTPS na portu 443. Zamjenski znakovi još nisu podržani.",
+        "domainInput": "Domena",
+        "rangesTitle": "IP rasponi",
+        "rangesNote": "Zaštitni zid provajdera ih provodi izvan mašine. Ostavite port prazan da dozvolite sve portove. Port zahtijeva protokol.",
+        "cidrInput": "IP raspon (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokol",
+        "anyProtocol": "bilo koji",
+        "noteInput": "Napomena (opcionalno)",
+        "allPorts": "svi portovi",
+        "dnsLabel": "Dozvoli DNS",
+        "dnsNote": "Omogućava alatima da razriješe nazive na koje upućuju vaši IP rasponi. Domenama DNS nije potreban. Otvoreni DNS je odlazni kanal: proces može slati podatke u nazivima koje traži.",
+        "requiredTitle": "Uvijek dozvoljeno",
+        "requiredNote": "cmux treba ove hostove u svakom načinu rada da instalira i ažurira CLI na mašini.",
+        "add": "Dodaj",
+        "remove": "Ukloni",
+        "discard": "Odbaci promjene",
+        "close": "Zatvori",
+        "apply": "Primijeni"
+      },
       "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju.",
       "apiKeysEmptyTitle": "Još nema API ključeva",
       "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta.",
@@ -2029,9 +2120,9 @@
         "automation": {
           "ampIntegration": "Uključuje ili isključuje cmux hookove za Amp. Kada su isključeni, priloženi plugin ostaje instaliran, ali neaktivan.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji.",
-          "agentAutoResume": "Šalje `continue`, uz postepeno odgađanje, agentu pokrenutom iz cmux-a čiji je potez završio greškom servisa koja se može ponoviti (model bez kapaciteta, preopterećen ili izgubljena veza). Potezi koji čekaju čovjeka nikada se ne nastavljaju.",
           "workspaceAutoNaming": "Opcionalno AI automatsko imenovanje radnih prostora i kartica iz sadržaja razgovora agenta. Kada je omogućeno, cmux sažima podržane sesije agenata u kratke naslove koristeći vlastiti binarni fajl svakog agenta; ručna preimenovanja uvijek imaju prednost.",
           "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida.",
+          "agentAutoResume": "Šalje `continue`, uz postepeno odgađanje, agentu pokrenutom iz cmux-a čiji je potez završio greškom servisa koja se može ponoviti (model bez kapaciteta, preopterećen ili izgubljena veza). Potezi koji čekaju čovjeka nikada se ne nastavljaju.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
@@ -2066,6 +2157,7 @@
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
+          "showLinkHoverURL": "Prikazuje odredište linka u donjem lijevom uglu panela preglednika dok je pokazivač iznad linka ili dok link ima fokus tastature.",
           "urlAllowlist": "Obrasci hostova ili URL-ova koji ograničavaju navigaciju u ugrađenom pregledniku. Postavke predlažu lokalne razvojne izvore; spremanje liste uključuje opcionalno ograničenje. Uklonite stavke da ih blokirate ili ostavite korisničku vrijednost praznom bez upravljane politike da isključite ograničenje."
         },
         "workspaceGroups": {
@@ -2084,6 +2176,7 @@
           "compactStatusIcons": "Nazivi SF Symbols koji zamjenjuju compactAgentStatus glif za svako stanje, na primjer {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Stanja bez vrijednosti zadržavaju ugrađeni simbol, a naziv koji se ne može prikazati vraća se na njega.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje.",
+          "showAgentUsage": "Dodaje potrošnju agenta za kod u stavku statusa za Claude Code ili Codex: model i iskorišteni kontekstni prozor, a za Claude Code i procijenjeni trošak API-ja (glavna nit i podagenti) prema objavljenim cjenovnicima Anthropica. Trošak je procjena, a ne račun za vašu pretplatu; batch i prioritetni nivoi, partnerske cijene, brzi način rada i naknade za serverske alate nisu uračunati.",
           "beta": {
             "conversations": {
               "enabled": "Prikaži objedinjeni prikaz razgovora u izborniku bočne trake."
@@ -2780,14 +2873,21 @@
       "planMax": "Max",
       "sizesDefault": "Nove mašine koriste 8 GB memorije kada ne izaberete veličinu. Pokrenite cmux vm ls --json da vidite veličine koje vaš plan dozvoljava.",
       "limitsTitle": "Ograničenja plana",
-      "limitsDesc": "Ograničenja plana broje mašine, a ne zajednički skup CPU-a ili memorije. Svaka mašina dobija resurse svoje veličine.",
+      "limitsDesc": "Vaše aktivne mašine dijele jedan zajednički skup vCPU-a i memorije. Pokrenite jednu veliku mašinu ili nekoliko malih. Pauzirane mašine ne troše zajednički skup. Disk se određuje za svaku mašinu posebno i nije dio zajedničkog skupa.",
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
-      "limitsPaid": "Pro i Max računi mogu imati do 50 aktivnih mašina. Mašina je aktivna dok radi ili se pokreće.",
-      "limitsTeam": "Timski računi mogu imati do 50 aktivnih mašina po svakom plaćenom mjestu.",
-      "limitsMax": "Mašine veće od 24 GB zahtijevaju cmux Max.",
+      "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 aktivnih mašina koje dijele 20 vCPU-a i 40 GB memorije. Mašina je aktivna dok radi ili se pokreće.",
+      "limitsTeam": "Timski računi mogu imati do 5 aktivnih mašina po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
+      "limitsMax": "Max računi mogu imati do 5 aktivnih mašina koje dijele 80 vCPU-a i 160 GB memorije. Jedna mašina može imati do 32 GB i 16 vCPU-a na Pro i Team planu, ili do 64 GB i 32 vCPU-a na Max planu.",
+      "limitsPoolFull": "Ako bi nova, nastavljena, povećana ili forkana mašina premašila zajednički skup, cmux odbija zahtjev i pokazuje koliko je skupa zauzeto. Pauzirajte ili obrišite mašinu da oslobodite resurse ili pređite na Max.",
       "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Nema mjerenja potrošnje ni naplate prekoračenja.",
+      "agentUpdatesTitle": "Održavaj agente za kodiranje ažurnim",
+      "agentUpdatesDesc": "Kada je ova postavka uključena, mašina ažurira Claude Code, Codex, OpenCode, pi i agent-browser. Provjerava nakon kreiranja mašine i pri svakom povezivanju, najviše jednom u 24 sata. Ažuriranje radi odvojeno, pa nikad ne blokira povezivanje.",
+      "agentUpdatesSource": "Svaki alat dolazi iz svog zvaničnog GitHub izdanja i provjerava se prema sha256 sažetku datoteke izdanja. npm se ne koristi. Izdanje se instalira tek kada je javno 3 dana, a ažuriranje nikad ne instalira stariju verziju. Pokrenuti agent zadržava datoteke s kojima je pokrenut, a neuspjelo ažuriranje ostavlja trenutnu verziju.",
+      "agentUpdatesStatus": "Rezultat posljednje provjere je u /etc/cmux/agent-updates.state, a zapisnik ažuriranja je /var/log/cmux-agent-updates.log. Neuspjela provjera se ponovo pokreće pri sljedećem povezivanju.",
+      "agentUpdatesToggle": "List New Machine ovo uključuje po defaultu. Da to promijeniš za postojeću mašinu, desnim klikom na mašinu izaberi Keep Agents Up to Date ili pokreni cmux vm agent-updates. cmux vm new zadržava verzije iz slike osim ako proslijediš --agent-updates latest. Isključivanjem ažuriranja zadržavaju se već instalirane verzije.",
+      "agentUpdatesNetwork": "Ažuriranja koriste samo github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux dozvoljava ove hostove u svakom mrežnom načinu, uključujući Allowlist i No internet, pa mrežna politika nikad ne blokira ažuriranja.",
       "resizeTitle": "Promjena veličine",
-      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 256 GB, memorija do 64 GB, a CPU do 32 vCPU. Stvarni maksimum određuje vaš plan.",
+      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 256 GB. Memorija raste do 32 GB, a CPU do 16 vCPU na Pro i Team planu, ili do 64 GB i 32 vCPU na Max planu. Veća mašina troši više vašeg zajedničkog skupa. Stvarni maksimum određuje vaš plan.",
       "pauseTitle": "Pauziranje i nastavak",
       "pauseDesc": "cmux vm pause zaustavlja računarske resurse mašine. Disk, radni prostori i historija terminala ostaju. Pokrenuti procesi se zaustavljaju. cmux vm resume ponovo pokreće mašinu. Otvaranje pauzirane mašine ili pokretanje komande na njoj također je pokreće.",
       "pauseIdle": "Mašine se ne pauziraju same kada miruju. Mašina radi dok je ne pauzirate ili obrišete.",
@@ -2938,9 +3038,11 @@
       "errPlan": "Cloud VM-ovi zahtijevaju plaćeni plan",
       "fixPlan": "Besplatni računi ne mogu kreirati mašine. Nadogradite na stranici s cijenama.",
       "errSize": "Veličina zahtijeva veći plan",
-      "fixSize": "Mašine veće od 24 GB zahtijevaju cmux Max. Izaberite manju veličinu ili nadogradite plan.",
+      "fixSize": "Mašine veće od 32 GB zahtijevaju cmux Max. Izaberite manju veličinu ili nadogradite plan.",
       "errLimit": "Dostignuto je ograničenje aktivnih mašina",
       "fixLimit": "Pauzirajte ili obrišite mašinu, pa pokušajte ponovo.",
+      "errPool": "Nema dovoljno Cloud VM resursa",
+      "fixPool": "Vaše aktivne mašine već koriste zajedničke vCPU-e ili memoriju. Pauzirajte ili obrišite mašinu, izaberite manju veličinu ili pređite na Max.",
       "errLocked": "Mašina je zaključana",
       "fixLocked": "Vaš plaćeni plan je istekao, a mašina je starija od 7 dana. Nadogradite da se ponovo povežete. Vaše datoteke su sačuvane.",
       "errAgentMissing": "claude ili codex: komanda nije pronađena",
@@ -5043,7 +5145,8 @@
   "pricing": {
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
-    "signedOutSignIn": "Prijavite se"
+    "signedOutSignIn": "Prijavite se",
+    "manageInAppStore": "Upravljajte u App Storeu"
   },
   "platforms": {
     "macos": "macOS",
@@ -5209,6 +5312,60 @@
     "signedOutTitle": "Prijavite se da autorizujete coderouter",
     "signedOutBody": "Aplikacija komandne linije čeka da se prijavite. Prijavite se svojim cmux računom da završite povezivanje ovog terminala. Ako niste pokrenuli ovaj zahtjev, zatvorite ovu stranicu.",
     "signInButton": "Prijavi se"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "Prijavi se na cmux",
+    "signInSubtitle": "Jedan račun za aplikaciju, cloud i kontrolnu ploču.",
+    "signUpTitle": "Napravi cmux račun",
+    "signUpSubtitle": "Jedan račun za aplikaciju, cloud i kontrolnu ploču.",
+    "continueWithProvider": "Nastavi putem {provider}",
+    "signInWithPasskey": "Prijavi se pristupnim ključem",
+    "orContinueWith": "Ili nastavi putem",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "ti@firma.ba",
+    "continueWithEmail": "Nastavi putem e-maila",
+    "emailCodeTab": "E-mail",
+    "emailPasswordTab": "E-mail i lozinka",
+    "passwordLabel": "Lozinka",
+    "repeatPasswordLabel": "Ponovi lozinku",
+    "signInButton": "Prijavi se",
+    "createAccountButton": "Napravi račun",
+    "forgotPassword": "Zaboravljena lozinka?",
+    "noAccount": "Nemaš račun?",
+    "signUpLink": "Registruj se",
+    "haveAccount": "Već imaš račun?",
+    "signInLink": "Prijavi se",
+    "checkEmailTitle": "Provjeri e-mail",
+    "checkEmailBody": "Unesi kod od 6 znakova koji smo poslali na {email}.",
+    "codeLabel": "Kod",
+    "back": "Nazad",
+    "resendCode": "Ponovo pošalji kod",
+    "chooseAccountTitle": "Odaberi račun",
+    "chooseAccountSubtitle": "za nastavak na cmux",
+    "useAnotherAccount": "Koristi drugi račun",
+    "forgetAccount": "Ukloni {account} s ove liste",
+    "signedOut": "Odjavljen",
+    "signingInAs": "Prijava kao {account}…",
+    "sessionEnded": "Ovaj račun je odjavljen. Prijavi se ponovo da nastaviš.",
+    "redirecting": "Prijavljivanje…",
+    "lastUsed": "zadnje korišteno",
+    "legal": "Nastavkom prihvataš {terms} i {privacy}.",
+    "termsOfService": "Uslovi korištenja",
+    "privacyPolicy": "Politika privatnosti",
+    "signUpDisabled": "Novi računi se trenutno ne mogu napraviti.",
+    "noMethods": "Prijava trenutno nije dostupna. Pokušaj kasnije.",
+    "embeddedDisabled": "Dugmad za prijavu su isključena na ugrađenim stranicama. Otvori ovu stranicu u zasebnoj kartici.",
+    "errorInvalidEmail": "Unesi ispravnu e-mail adresu.",
+    "errorPasswordRequired": "Unesi lozinku.",
+    "errorPasswordTooShort": "Koristi najmanje {min} znakova.",
+    "errorPasswordTooLong": "Koristi najviše {max} znakova.",
+    "errorPasswordsDontMatch": "Lozinke se ne podudaraju.",
+    "errorWrongPassword": "E-mail ili lozinka nisu ispravni.",
+    "errorInvalidCode": "Taj kod nije ispravan. Provjeri e-mail i pokušaj ponovo.",
+    "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
+    "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
+    "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
+    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
   },
   "MobileRelease106": {
     "title": "Novosti u verziji 1.0.6",

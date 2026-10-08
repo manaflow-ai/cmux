@@ -2,6 +2,7 @@ import type { Domain, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { checkAnswer, FeedAnswer, FeedArchive, FeedCancel, FeedPrefsSet, FeedRead, FeedSnooze, type FeedItem } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { reduceAdopt, reduceAdoptCancel, reducePost } from "./feed-post.ts"
+import { approvalDecision, integrationPoster } from "./feed-approvals.ts"
 import { matchesFilter, type FeedFilterValue } from "./feed-query.ts"
 import {
   ADOPT_TOMBSTONE_MS,
@@ -74,6 +75,8 @@ const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Re
   if (ctx.origin !== "user") return reject("auth.forbidden", "answers come only from a user action (origin user)")
   // Sign-in, passkey and Mac handoffs are completed in the Mac pane that holds the context, never typed elsewhere.
   if (item.needs_mac && ctx.principal.install_kind !== "mac") return reject("auth.forbidden", "this request is answered on the Mac that holds its context")
+  // An integration approval (G8) is answered only by the person's own session, never by an install an app or agent could drive.
+  if (item.poster.kind === "integration" && ctx.principal.kind !== "session") return reject("auth.forbidden", "approve this request in the cmux web dashboard, signed in with your account")
   const r = checkAnswer(item.kind, item.prompt, item.answer_schema, d.value.answer)
   if (!r.ok) return reject("validation.invalid", r.message)
   const next = touch(item, ctx.now, {
@@ -83,7 +86,8 @@ const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Re
     read_at: item.read_at ?? ctx.now,
     push_due_at: null
   })
-  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next } }
+  const decision = (d.value.answer as { decision?: unknown } | null)?.decision === "allow" ? "allow" : "deny"
+  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next }, outbox: approvalDecision(next, decision) }
 }
 
 const reduceCancel = (state: FeedState, params: unknown, ctx: ReduceContext): Result => {
@@ -109,7 +113,8 @@ const reduceCancel = (state: FeedState, params: unknown, ctx: ReduceContext): Re
     closed_at: ctx.now,
     push_due_at: null
   })
-  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next } }
+  // A declined integration approval is a final deny for the waiting op (G8).
+  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next }, ...(reason === "declined" ? { outbox: approvalDecision(next, "deny") } : {}) }
 }
 
 const reduceTriage = (state: FeedState, op: string, params: unknown, ctx: ReduceContext): Result => {
@@ -250,6 +255,14 @@ export const feedDomain: Domain<FeedState> = {
 
   authorize: (state, op, _params, principal) => {
     if (SYSTEM_OPS.has(op)) return principal.kind === "system" ? undefined : { code: "auth.forbidden", message: `${op} is internal` }
+    // The owner's own UserDO posts security notices (FeedDO.systemPrincipal sets `user` only for
+    // the stream user:<feed user>); no other system source posts, and a system post is no grant.
+    if (principal.kind === "system") {
+      // A team's ConnectionDO posts approval requests (G8, FeedDO.integrationApproval stamps `user`).
+      const poster = principal.identity === `system:user:${principal.user}` || integrationPoster(principal) !== null
+      if (op !== "feed.post" || !principal.user || !poster) return { code: "auth.forbidden", message: `${op} is not open to system principals` }
+      return state.user && principal.user !== state.user ? { code: "auth.forbidden", message: "not this user's feed" } : undefined
+    }
     if (state.user && principal.user !== state.user) return { code: "auth.forbidden", message: "not this user's feed" }
     if (userOnly.has(op) && !isUserClient(principal)) return { code: "auth.forbidden", message: `${op} is for the user's own clients, not agents` }
     // The grant lives in UserDO; the Worker resolves it per call and passes the classes (as for TeamDO).
@@ -258,7 +271,8 @@ export const feedDomain: Domain<FeedState> = {
 
   reduce: (stateIn, op, params, ctx) => {
     const p = ctx.principal
-    const state = stateIn.user === null && p.kind !== "system" && p.user ? { ...stateIn, user: p.user } : stateIn
+    const owner = p.kind !== "system" || p.identity === `system:user:${p.user}`
+    const state = stateIn.user === null && owner && p.user ? { ...stateIn, user: p.user } : stateIn
     switch (op) {
       case "feed.post":
         return reducePost(state, params, ctx)

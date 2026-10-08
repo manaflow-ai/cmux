@@ -14,7 +14,10 @@
 //! `exited_at`, `revision`), so older registries open unchanged and older
 //! daemons can still read newer ones. A receipt carries no provenance, so a
 //! persisted end is classified by its outcome: `exit` and `signal` are
-//! process ends; `unknown` is a host loss.
+//! process ends; `unknown` is a host loss, except the reason
+//! [`EXIT_UNOBSERVED`], which a replacement host that adopted a running
+//! session reports when it saw that session end but could not read its
+//! status (it was not the parent).
 
 use serde_json::Value;
 
@@ -45,6 +48,11 @@ pub(crate) enum TerminalEnd {
     /// explicit close.
     LaunchFailed(TerminalExit),
 }
+
+/// The exit reason of a replacement host that adopted a running session
+/// (terminal-host `LaunchAdopt`): it saw the process end but, not being its
+/// parent, could not read the status. This is a real process end.
+pub(crate) const EXIT_UNOBSERVED: &str = "exit-unobserved";
 
 /// Stable reason codes for a host loss, from the free-form reasons the owner
 /// records. Unknown text maps to `other`; the raw text stays in `detail`.
@@ -93,6 +101,12 @@ impl TerminalEnd {
             Some(
                 outcome @ (TerminalExitOutcome::Exit { .. } | TerminalExitOutcome::Signal { .. }),
             ) => Self::ProcessEnded(TerminalExit { outcome, exited_at_ms }),
+            Some(TerminalExitOutcome::Unknown { reason }) if reason == EXIT_UNOBSERVED => {
+                Self::ProcessEnded(TerminalExit {
+                    outcome: TerminalExitOutcome::Unknown { reason },
+                    exited_at_ms,
+                })
+            }
             Some(outcome @ TerminalExitOutcome::Unknown { .. }) => {
                 Self::HostLost(TerminalExit { outcome, exited_at_ms })
             }
@@ -224,6 +238,21 @@ mod tests {
             assert!(matches!(end, TerminalEnd::HostLost(_)), "{end:?}");
             assert!(end.detach_proof().is_none());
         }
+    }
+
+    /// cx-6so.49 L1: a replacement host that adopted a running session saw
+    /// it end without a status; that receipt is a process end, while any
+    /// other unknown reason stays a host loss.
+    #[test]
+    fn persisted_exit_unobserved_receipt_is_a_process_end() {
+        let unobserved = receipt(serde_json::json!({"kind":"unknown","reason":"exit-unobserved"}));
+        let end = TerminalEnd::from_receipt(Some(&unobserved));
+        assert!(matches!(end, TerminalEnd::ProcessEnded(_)), "{end:?}");
+        assert_eq!(end.exit().exited_at_ms, 12);
+        assert!(end.detach_proof().is_some());
+        assert_eq!(end.wire_json()["kind"], "exited");
+        let near = receipt(serde_json::json!({"kind":"unknown","reason":"exit-unobserved: x"}));
+        assert!(matches!(TerminalEnd::from_receipt(Some(&near)), TerminalEnd::HostLost(_)));
     }
 
     #[test]

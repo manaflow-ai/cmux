@@ -264,3 +264,25 @@ fn service_events_have_tag_0x80_and_refuse_unknown_flag_bits() {
     too_long.extend(std::iter::repeat_n(0u8, cmux_rd_proto::MAX_SERVICE_BYTES + 1));
     assert!(InputPacket::decode(&too_long).is_err());
 }
+
+/// Bulk chunks (rd change C5): stream frame type 3, `u64 transfer`, `u64
+/// offset`, bytes, at most 64 KiB per frame.
+#[test]
+fn bulk_frames_ride_the_stream_carrier_and_round_trip() {
+    use cmux_rd_proto::{
+        BulkFrame, MAX_BULK_CHUNK, STREAM_BULK, StreamDeframer, encode_stream_frame,
+    };
+    let frame = BulkFrame { transfer: 7, offset: 65_520, bytes: vec![9; 300] };
+    let payload = frame.encode();
+    assert_eq!(&payload[..16], &[7, 0, 0, 0, 0, 0, 0, 0, 0xf0, 0xff, 0, 0, 0, 0, 0, 0]);
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_BULK, &payload, &mut bytes).expect("bulk is a stream frame type");
+    let mut d = StreamDeframer::default();
+    d.extend(&bytes);
+    let (kind, got) = d.next_frame().expect("frame").expect("whole");
+    assert_eq!(kind, STREAM_BULK);
+    assert_eq!(BulkFrame::decode(&got).expect("decode"), frame);
+    let too_big = BulkFrame { transfer: 1, offset: 0, bytes: vec![0; MAX_BULK_CHUNK + 1] }.encode();
+    assert!(BulkFrame::decode(&too_big).is_err());
+    assert!(BulkFrame::decode(&[1, 2, 3]).is_err());
+}

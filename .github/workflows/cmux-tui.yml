@@ -250,8 +250,21 @@ jobs:
       # The Rust god-file ratchet (plans/cmux-next/OWNERSHIP-PRINCIPLES.md): no cmux-tui
       # file may pass 1000 lines or 60 functions unless godfile-baseline.tsv lists it,
       # and a listed file may not grow. Both modes run it, so no landing gate skips it.
+      # It fails only on what this commit grew against its merge base with
+      # feat-cmux-next, so a god file already on the base blocks no lane; if the
+      # merge base cannot be read or fetched, it checks every file.
       - name: Rust god-file check
-        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=()
+          if merge_base="$(gh api "repos/$GITHUB_REPOSITORY/compare/feat-cmux-next...$EXACT_COMMIT" --jq .merge_base_commit.sha 2>/dev/null)" \
+            && [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] \
+            && git fetch --quiet --no-tags --depth=1 origin "$merge_base"; then
+            base=(--base "$merge_base")
+          fi
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
@@ -708,6 +721,46 @@ jobs:
         working-directory: cmux-tui
         run: cargo test -p ghostty-vt --test terminal_corpus
 
+  # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
+  # the `test (macos)` matrix entry, which was their only macOS run. The
+  # relay builds no Ghostty or Zig code, so this job needs only Rust.
+  # Attempt 1 takes the owned AWS minis through CI_AWS_SIDE_RUNNER
+  # (CI_SIDE_LANE_RUNNER when it is empty); workflow text never names an owned
+  # pool label (tests/test_ci_self_hosted_guard.sh). A rerun goes back to the
+  # background lane.
+  macos-relay:
+    name: chatmux-relay tests (macOS)
+    needs: validate-inputs
+    if: inputs.mode == 'full' || inputs.test_filter == 'chatmux_relay' || inputs.test_filter == 'chatmux-relay'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Use short temporary directory for macOS socket tests
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-macos-relay
+
+      - name: cargo test -p chatmux-relay
+        working-directory: cmux-tui
+        run: cargo test -p chatmux-relay --locked
+
   test:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -925,7 +978,7 @@ jobs:
     name: test (windows)
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: windows-latest
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -978,6 +1031,61 @@ jobs:
           cargo test -p cmux-tui-core --lib --locked \
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
+          # Windows process data: reads only processes in this daemon's
+          # terminal jobs (plans/cmux-next/windows-daemon.md, section 2).
+          cargo test -p cmux-tui-core --lib --locked \
+            --target x86_64-pc-windows-gnu \
+            windows_processes:: -- --test-threads=1
+          # The SDK's local_socket transport (shared with the daemon) and the
+          # clients over it (plans/cmux-next/windows-daemon.md): same-user,
+          # owner-only directory and sandbox refusals; mock-daemon tests.
+          cargo test --locked --target x86_64-pc-windows-gnu \
+            -p cmux-sdk -p cmux-daemon-client
+
+      # A peer of another user is refused by cmux::local_socket's accept.
+      # The peer runs as LocalService (another SID, no new account) through
+      # a scheduled task on this throwaway runner; the next step deletes the
+      # task whatever happens.
+      - name: Refuse a local-socket peer of another user (LocalService)
+        working-directory: cmux-tui
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = 'C:\cls-peer'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          icacls $dir /grant '*S-1-1-0:(OI)(CI)F' | Out-Null
+          $exe = cargo test --locked --target x86_64-pc-windows-gnu -p cmux-sdk `
+              --test local_socket_windows --no-run --message-format=json |
+            ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'local_socket_windows' } |
+            Select-Object -Last 1 -ExpandProperty executable
+          if (-not $exe) { throw 'no local_socket_windows test executable' }
+          Copy-Item $exe "$dir\peer.exe"
+          $parent = Start-Process -PassThru -NoNewWindow -FilePath $exe `
+            -ArgumentList '--ignored','--exact','other_user_peer_is_refused','--nocapture','--test-threads','1' `
+            -RedirectStandardOutput "$dir\parent.out" -RedirectStandardError "$dir\parent.err"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path "$dir\ready")) {
+            if ((Get-Date) -gt $deadline) { throw 'the listener never got ready' }
+            Start-Sleep -Milliseconds 200
+          }
+          $action = New-ScheduledTaskAction -Execute "$dir\peer.exe" -Argument '--ignored --exact other_user_child --test-threads 1'
+          $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\LOCAL SERVICE' -LogonType ServiceAccount
+          Register-ScheduledTask -TaskName 'cmux-local-socket-peer' -Action $action -Principal $principal | Out-Null
+          Start-ScheduledTask -TaskName 'cmux-local-socket-peer'
+          if (-not $parent.WaitForExit(120000)) { $parent.Kill(); throw 'the listener test timed out' }
+          Get-Content "$dir\parent.out", "$dir\parent.err" -ErrorAction SilentlyContinue
+          $peer = Get-Content "$dir\child-user" -ErrorAction SilentlyContinue
+          "peer user: $peer"
+          if ($peer -ne 'S-1-5-19') { throw "the peer did not run as LocalService ($peer)" }
+          if ($parent.ExitCode -ne 0) { throw "other_user_peer_is_refused failed ($($parent.ExitCode))" }
+
+      - name: Delete the LocalService peer task
+        if: always()
+        shell: pwsh
+        run: |
+          Unregister-ScheduledTask -TaskName 'cmux-local-socket-peer' -Confirm:$false -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force 'C:\cls-peer' -ErrorAction SilentlyContinue
 
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})
@@ -1182,7 +1290,7 @@ jobs:
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-      windows_runner: windows-latest
+      windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
       checkout_ref: ${{ inputs.commit }}
 
   hosted-verification:
@@ -1192,6 +1300,7 @@ jobs:
       - validate-inputs
       - lint
       - macos
+      - macos-relay
       - msrv-check
       - web-frontend
       - go-pane
@@ -1208,6 +1317,8 @@ jobs:
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
       LINT_RESULT: ${{ needs.lint.result }}
       MACOS_RESULT: ${{ needs.macos.result }}
+      MACOS_RELAY_RESULT: ${{ needs.macos-relay.result }}
+      TEST_FILTER: ${{ inputs.test_filter }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       GO_PANE_RESULT: ${{ needs.go-pane.result }}
@@ -1233,6 +1344,9 @@ jobs:
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "lint" "$LINT_RESULT"
           require_success "macOS lint and tests" "$MACOS_RESULT"
+          if [[ "$MODE" == "full" || "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
+            require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"
+          fi
           require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           require_success "Go pane SDK" "$GO_PANE_RESULT"

@@ -1,0 +1,24 @@
+# Codex through the codex-acp adapter: npm install -g @zed-industries/codex-acp
+schema = 1
+id = "codex"
+name = "Codex"
+icon = "openai"
+protocol = "acp"
+command = "codex-acp"
+
+[capabilities]
+effort = ["low", "medium", "high", "xhigh"]
+fast = true
+permission_modes = true
+resume = true
+
+[auth]
+login = "codex login"
+docs = "https://developers.openai.com/codex/cli"
+
+[sessions]
+adapter = "codex"
+roots = ["${CODEX_HOME:-~/.codex}/sessions"]
+[sessions.resume]
+argv = ["codex", "resume", "{id}"]
+cwd = "{cwd}"

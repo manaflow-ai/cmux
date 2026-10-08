@@ -73,6 +73,24 @@ enum OnboardingStrings {
                               defaultValue: "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac.",
                               bundle: .module), items)
     }
+    /// Only Firefox profiles chosen: no Keychain item to allow.
+    static var passwordsFirefoxOnly: String {
+        String(localized: "onboarding.passwords.firefoxOnly",
+               defaultValue: "Import asks you to confirm with Touch ID or your password. Firefox keeps its key in the profile, so macOS asks for no Keychain item. If a Firefox profile has a primary password, cmux asks for it once and does not keep it.",
+               bundle: .module)
+    }
+    /// Follows the Keychain paragraph when the choice mixes Chromium browsers and Firefox.
+    static var passwordsFirefoxPrimary: String {
+        String(localized: "onboarding.passwords.firefoxPrimary",
+               defaultValue: "If a Firefox profile has a primary password, cmux asks for it once and does not keep it.", bundle: .module)
+    }
+    /// The consent screen's paragraph: Chromium browsers name the Keychain items macOS asks about
+    /// (`quote` puts them in quotation marks); Firefox keeps its key in the profile.
+    static func passwordsConsent(keychainItems: [String], includesFirefox: Bool, quote: ([String]) -> String) -> String {
+        guard !keychainItems.isEmpty else { return passwordsFirefoxOnly }
+        let keychain = passwordsKeychain(quote(keychainItems))
+        return includesFirefox ? keychain + " " + passwordsFirefoxPrimary : keychain
+    }
     /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
     static var passwordsAuthReason: String {
         String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .module)
@@ -86,6 +104,22 @@ enum OnboardingStrings {
         String(localized: "onboarding.passwords.store",
                defaultValue: "They go into cmux’s own encrypted password store, where autofill finds them. Agents never see them, and nothing is read until you click Import.",
                bundle: .module)
+    }
+    /// "Already saved with a different password: 2. cmux kept the saved password."
+    static func passwordsConflicts(_ count: String) -> String {
+        String(format: String(localized: "onboarding.import.passwordsConflicts",
+                              defaultValue: "Already saved with a different password: %@. cmux kept the saved password.",
+                              bundle: .module), count)
+    }
+    /// The finished line's password counts, counts only: skipped (other than conflicts), then
+    /// differing passwords that were kept. Empty when there is neither.
+    static func passwordsSummary(_ reports: [PasswordImportReport]) -> String {
+        let skipped = reports.reduce(0) { $0 + $1.notImportedOtherThanConflicts }
+        let conflicts = reports.reduce(0) { $0 + $1.conflicts }
+        var parts: [String] = []
+        if skipped > 0 { parts.append(passwordsSkipped(skipped.formatted(.number))) }
+        if conflicts > 0 { parts.append(passwordsConflicts(conflicts.formatted(.number))) }
+        return parts.joined(separator: " ")
     }
     /// "Passwords skipped: 9" (already saved, or not a web sign-in).
     static func passwordsSkipped(_ count: String) -> String {
@@ -108,7 +142,7 @@ enum OnboardingStrings {
 
     /// "Google Chrome · Work" (Safari and one-profile browsers: the browser name).
     static func profileName(_ profile: BrowserSourceProfile) -> String {
-        profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family == .webkit
+        profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
             ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
     }
 

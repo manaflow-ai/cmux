@@ -211,3 +211,95 @@ index 687b23e1299f025f126be22a38a89279687fef42..84ee0ba5002cafd3608105504bcf0bbc
  		script: `(${script.toString()})()`
  	});
  }
+diff --git a/dist/client-app-B0cTytS5.d.ts b/dist/client-app-B0cTytS5.d.ts
+index a6a641a2f913f0469700b936a325e4c71e596a89..a8004f32b8b4351cec4a6ed57f7a84d27573b32d 100644
+--- a/dist/client-app-B0cTytS5.d.ts
++++ b/dist/client-app-B0cTytS5.d.ts
+@@ -1331,6 +1331,8 @@ type StackClientApp<HasTokenStore extends boolean = boolean, ProjectId extends s
+   readonly urls: Readonly<ResolvedHandlerUrls>;
+   signInWithOAuth(provider: string, options?: {
+     returnTo?: string;
++    /** cmux patch: passed to the provider as the OIDC `login_hint` (the account's email). */
++    loginHint?: string;
+   }): Promise<void>;
+   signInWithCredential(options: {
+     email: string;
+diff --git a/dist/esm/lib/hexclave-app/apps/implementations/client-app-impl.js b/dist/esm/lib/hexclave-app/apps/implementations/client-app-impl.js
+index ddbf5a043adfd9d01fb09fc38eaff0c6f5562875..e83794e56b1ea3c6618bd9332851bff1fb794fd7 100644
+--- a/dist/esm/lib/hexclave-app/apps/implementations/client-app-impl.js
++++ b/dist/esm/lib/hexclave-app/apps/implementations/client-app-impl.js
+@@ -2723,7 +2723,8 @@ var _HexclaveClientAppImplIncomplete = class _HexclaveClientAppImplIncomplete {
+ 			throw e;
+ 		}
+ 		const location = Result.orThrow(authorizeResult);
+-		await this._redirectTo({ url: location });
++		const target = withLoginHint(location, options?.loginHint);
++		await this._redirectTo({ url: target });
+ 		await neverResolve();
+ 	}
+ 	/**
+@@ -3214,6 +3215,18 @@ var _HexclaveClientAppImplIncomplete = class _HexclaveClientAppImplIncomplete {
+ 	}
+ };
+ //#endregion
++/** cmux patch: the provider URL with the OIDC `login_hint`, so a known account skips the provider's account chooser. */
++function withLoginHint(location, loginHint) {
++	if (!loginHint) return location;
++	try {
++		const url = new URL(location);
++		url.searchParams.set("login_hint", loginHint);
++		return url.toString();
++	} catch {
++		return location;
++	}
++}
++
+ export { _HexclaveClientAppImplIncomplete, stripBrowserActionQueryParam };
+ 
+ //# sourceMappingURL=client-app-impl.js.map
+\ No newline at end of file
+diff --git a/dist/esm/lib/hexclave-app/apps/interfaces/client-app.d.ts b/dist/esm/lib/hexclave-app/apps/interfaces/client-app.d.ts
+index 0e639461c5e5c2642a6b45cc0ef194463864b8d6..6855a2f1f95b9df03e7c04a31c0742d15ff37da9 100644
+--- a/dist/esm/lib/hexclave-app/apps/interfaces/client-app.d.ts
++++ b/dist/esm/lib/hexclave-app/apps/interfaces/client-app.d.ts
+@@ -80,6 +80,8 @@ type StackClientApp<HasTokenStore extends boolean = boolean, ProjectId extends s
+   readonly urls: Readonly<ResolvedHandlerUrls>;
+   signInWithOAuth(provider: string, options?: {
+     returnTo?: string;
++    /** cmux patch: passed to the provider as the OIDC `login_hint` (the account's email). */
++    loginHint?: string;
+   }): Promise<void>;
+   signInWithCredential(options: {
+     email: string;
+diff --git a/dist/lib/hexclave-app/apps/implementations/client-app-impl.js b/dist/lib/hexclave-app/apps/implementations/client-app-impl.js
+index 0d0959614b2c8a30484a21736585a39125f14b76..c4b432ccb7d14bc76bdb9d23d772f76a5fcd50ef 100644
+--- a/dist/lib/hexclave-app/apps/implementations/client-app-impl.js
++++ b/dist/lib/hexclave-app/apps/implementations/client-app-impl.js
+@@ -2728,7 +2728,8 @@ var _HexclaveClientAppImplIncomplete = class _HexclaveClientAppImplIncomplete {
+ 			throw e;
+ 		}
+ 		const location = _hexclave_shared_dist_utils_results.Result.orThrow(authorizeResult);
+-		await this._redirectTo({ url: location });
++		const target = withLoginHint(location, options?.loginHint);
++		await this._redirectTo({ url: target });
+ 		await (0, _hexclave_shared_dist_utils_promises.neverResolve)();
+ 	}
+ 	/**
+@@ -3222,4 +3223,16 @@ var _HexclaveClientAppImplIncomplete = class _HexclaveClientAppImplIncomplete {
+ exports._HexclaveClientAppImplIncomplete = _HexclaveClientAppImplIncomplete;
+ exports.stripBrowserActionQueryParam = stripBrowserActionQueryParam;
+ 
++/** cmux patch: the provider URL with the OIDC `login_hint`, so a known account skips the provider's account chooser. */
++function withLoginHint(location, loginHint) {
++	if (!loginHint) return location;
++	try {
++		const url = new URL(location);
++		url.searchParams.set("login_hint", loginHint);
++		return url.toString();
++	} catch {
++		return location;
++	}
++}
++
+ //# sourceMappingURL=client-app-impl.js.map
+\ No newline at end of file

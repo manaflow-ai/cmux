@@ -593,6 +593,7 @@ fn clipboard_record_field_round_trips_defaults_false_and_needs_v4() {
     v3.record_version = 3;
     v3.supports_input_ack = false;
     v3.supports_terminal_metadata = false;
+    v3.supports_viewer_size_priority = false;
     assert!(validate_terminal_host_record(&record_path, &v3).is_err());
     v3.supports_clipboard_read = false;
     validate_terminal_host_record(&record_path, &v3).unwrap();

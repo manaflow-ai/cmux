@@ -32,6 +32,7 @@ Sources today:
 | `mac_settings_account_card` | Settings > Account card |
 | `mac_settings_cloud_machines` | Settings > Cloud machines billing |
 | `mac_machines_panel_requires_pro` | machines panel empty state |
+| `mac_cloud_welcome` | "Introducing cmux Cloud" welcome window (Free plan) |
 | `mac_machines_panel_upgrade_nudge` | nudge under the create button |
 | `mac_machines_panel_trial_banner` | free-access countdown / expired banner |
 | `mac_machines_panel_machine_action` | row action that needs a paid plan |

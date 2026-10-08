@@ -38,7 +38,7 @@
   --cmux-md-quote-border: 3px solid var(--cmux-md-border-color);
   --cmux-md-table-border: 1px solid var(--cmux-md-border-color);
   --cmux-md-table-header-background: var(--cmux-md-code-background);
-  --cmux-md-task-checked-color: var(--cmux-md-link-color);
+  --cmux-md-task-checked-color: var(--cmux-diff-accent, var(--cmux-md-text-color));
   --cmux-md-selection-color: color-mix(in srgb, var(--cmux-md-link-color) 28%, transparent);
   --cmux-md-caret-color: var(--cmux-md-text-color);
   --cmux-md-footnote-size: 0.9em;
@@ -324,21 +324,12 @@ body {
   position: relative;
 }
 
-.md-prose li[data-item-type="task"]::before {
-  content: "";
+.md-prose li[data-item-type="task"] .cmux-markdown-checkbox {
   position: absolute;
   left: -1.4em;
   top: 0.3em;
-  width: 0.9em;
-  height: 0.9em;
-  border: 1px solid var(--cmux-md-faint-color);
-  border-radius: 3px;
-  cursor: default;
-}
-
-.md-prose li[data-item-type="task"][data-checked="true"]::before {
-  background: var(--cmux-md-task-checked-color);
-  border-color: var(--cmux-md-task-checked-color);
+  --cmux-markdown-checkbox-secondary: var(--cmux-md-muted-color);
+  --cmux-markdown-checkbox-accent: var(--cmux-md-task-checked-color);
 }
 
 .md-prose hr {

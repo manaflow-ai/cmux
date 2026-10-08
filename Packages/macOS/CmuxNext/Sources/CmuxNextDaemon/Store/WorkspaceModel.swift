@@ -20,6 +20,9 @@ public final class WorkspaceModel: Identifiable {
     /// Closed by the daemon at its next start (incognito); from the daemon's
     /// state resources (`DaemonStore.session`).
     public internal(set) var ephemeral = false
+    /// The folder new agent chats of this workspace start in, set by the user with "Choose
+    /// Folder…" (`workspace.agent_folder.set`); from the daemon's state resources.
+    public internal(set) var agentFolder: String?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
@@ -94,8 +97,9 @@ public final class WorkspaceModel: Identifiable {
     }
 
     /// Lays the daemon's workspace state over the record.
-    func applyState(ephemeral: Bool, status: WorkspaceStatus?, screenGroups groups: [ScreenGroupSnapshot]?) {
+    func applyState(ephemeral: Bool, agentFolder: String? = nil, status: WorkspaceStatus?, screenGroups groups: [ScreenGroupSnapshot]?) {
         if self.ephemeral != ephemeral { self.ephemeral = ephemeral }
+        if self.agentFolder != agentFolder { self.agentFolder = agentFolder }
         if self.status != status { self.status = status }
         screenGroupsFromState = groups != nil
         if let groups, screenGroups != groups { screenGroups = groups }

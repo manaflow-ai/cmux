@@ -12,6 +12,11 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        // A section's collapse is window view state (sidebar snapshot), never a daemon command.
+        if case .toggleCollapse(.section) = intent {
+            model.apply(intent)
+            return recordSnapshot()
+        }
         // The Pinned section is the daemon's pin, in either organization: a
         // drop there pins, a pinned workspace dropped on its own machine
         // unpins. Pinned order follows the sidebar, so a drop of workspaces
@@ -32,7 +37,7 @@ extension SidebarBridge {
                 if !leaving.isEmpty { sendPinned(leaving, false) }
             }
         }
-        if usesPersonalOrganization, handlePersonal(intent) { return }
+        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.
@@ -77,9 +82,8 @@ extension SidebarBridge {
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
             // `workspace_group.*`, `handlePersonal`); the shared group
-            // commands are not used, so the daemon can drop them.
-            services.registry.refuse(daemon(ofGroupless: intent))
-            resync()
+            // commands are not used, so the daemon can drop them. Before personal state loads it waits.
+            if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
                 services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
@@ -103,15 +107,15 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate:
-            // The footer pill: install the staged update and relaunch; the
-            // relaunch keeps every session (SIDEBAR-FOOTER-MINIMAL).
-            services.updater.installClicked()
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip:
+            SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)
+        case .dropOnLayoutSection(let ids, let section, let index):
+            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
         case .toggleLayoutSection:
             model.apply(intent)
-        case .setIcon, .setGroupPinned, .openGroup:
+        case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
             model.apply(intent)
@@ -143,11 +147,6 @@ extension SidebarBridge {
         let pairs = keys(ids)
         guard let daemon = pairs.first?.0, pairs.allSatisfy({ $0.0 === daemon }) else { return nil }
         return (daemon, pairs.map(\.1))
-    }
-
-    /// Why a group intent is refused without personal state.
-    private func daemon(ofGroupless intent: SidebarIntent) -> String {
-        services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles)
     }
 
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
@@ -187,13 +186,19 @@ extension SidebarBridge {
         }
     }
 
+    /// Refuses an organization intent that personal state cannot take.
+    func refuseOrganization() {
+        services.registry.refuse(services.machines.local.personalStateUnavailableReason)
+        resync()
+    }
+
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
-                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                       selection: state.selection)
+        model.setSections(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                        hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                        newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

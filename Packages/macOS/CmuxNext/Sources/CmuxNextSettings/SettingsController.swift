@@ -30,6 +30,8 @@ public final class SettingsController {
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
     public private(set) var managedKeys: [String: ManagedSource] = [:]
     /// Managed policy keys that are not settings (`EnrollmentToken`, `DisabledFeatures`, ...).
+    public private(set) var managedChatRoots: [String] = []
+    /// Managed policy values outside the settings schema.
     public private(set) var managedPolicy: [String: JSONValue] = [:]
     /// The user's own cmux-next.json document; `snapshot.root` is the effective one.
     public private(set) var fileRoot: JSONValue = .object([:])
@@ -50,6 +52,8 @@ public final class SettingsController {
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
+    /// The launch's read (`readAtLaunch`), adopted by the first load.
+    @ObservationIgnored private var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
@@ -61,7 +65,7 @@ public final class SettingsController {
     }
 
     /// Everything a load depends on; an unchanged input skips the apply.
-    private struct LoadInputs: Equatable {
+    fileprivate nonisolated struct LoadInputs: Equatable, Sendable {
         let source: String
         let managed: ManagedPreferences
         let team: TeamPolicyLayer
@@ -72,9 +76,11 @@ public final class SettingsController {
         design: DesignSettings = .shared,
         fileURL: URL = CmuxConfigFile.defaultURL(),
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
-        managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles()
+        managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
+        launch: LaunchRead? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL)
+        self.launchRead = launch
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
         self.managedWatchFiles = managedWatchFiles
@@ -89,7 +95,7 @@ public final class SettingsController {
         self.watcher = watcher
         watcher.start()
         startManagedWatchers()
-        requestReload()
+        if loadCount == 0 { loadNow() } else { requestReload() }
     }
 
     public func stop() {
@@ -242,36 +248,78 @@ public final class SettingsController {
     }
 
     private func loadOnce() async {
-        let file = self.file
-        let validDensities = SettingsApplier.validDensities
-        let validMetrics = SettingsApplier.validMetrics
-        let configDirectory = file.url.deletingLastPathComponent()
-        let reader = managedReader
-        let team = teamPolicy
-        let lastGood = fileRoot
-        let loaded: (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot) = await Task.detached {
+        let (file, reader, team, lastGood) = (file, managedReader, teamPolicy, fileRoot)
+        let valid = Self.validValues
+        adopt(await Task.detached {
             let managed = reader.read()
-            var source = ""
-            var problem: String?
-            var root = lastGood
-            do {
-                source = try await file.source()
-                let parsed = try JSONC.parse(source)
-                if case .object = parsed { root = parsed } else { problem = "root is not an object" }
-            } catch {
-                problem = String(describing: error)
-            }
-            // Managed layers always merge, over the last good file when this one
-            // is unreadable, so MDM forced values apply even while the user's
-            // file is broken (spec/enterprise.md 5.2).
-            let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
-            var snapshot = CmuxConfigSnapshot.parse(
-                effective.root, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory
-            )
-            if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
-            snapshot.diagnostics += effective.diagnostics
-            return (LoadInputs(source: source, managed: managed, team: team), effective, snapshot)
-        }.value
+            let source: Result<String, any Error>
+            do { source = .success(try await file.source()) } catch { source = .failure(error) }
+            return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
+                               configDirectory: file.url.deletingLastPathComponent())
+        }.value)
+    }
+
+    /// The launch's first load, on the calling thread: the first window
+    /// draws in the file's appearance, never a frame of the defaults first.
+    private func loadNow() {
+        if let launch = launchRead {
+            launchRead = nil
+            return adopt(launch.loaded)
+        }
+        let source = Result { try CmuxConfigFile.source(at: file.url) }
+        adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
+                          configDirectory: file.url.deletingLastPathComponent()))
+    }
+
+    /// The launch's first load, read before the controller exists so the
+    /// terminal runtime starts in the file's appearance; the controller
+    /// adopts it (`init(launch:)`) instead of reading the file again.
+    public nonisolated struct LaunchRead: Sendable {
+        fileprivate let loaded: Loaded
+        public let fileURL: URL
+        public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
+    }
+
+    public static func readAtLaunch(
+        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
+    ) -> LaunchRead {
+        let source = Result { try CmuxConfigFile.source(at: fileURL) }
+        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
+                                         configDirectory: fileURL.deletingLastPathComponent()), fileURL: fileURL)
+    }
+
+    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
+    private static var validValues: (densities: Set<String>, metrics: Set<String>) {
+        (SettingsApplier.validDensities, SettingsApplier.validMetrics)
+    }
+
+    /// Parses the file's text and merges the managed layers.
+    private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
+                                           lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
+                                           configDirectory: URL) -> Loaded {
+        var source = ""
+        var problem: String?
+        var root = lastGood
+        do {
+            source = try read.get()
+            let parsed = try JSONC.parse(source)
+            if case .object = parsed { root = parsed } else { problem = "root is not an object" }
+        } catch {
+            problem = String(describing: error)
+        }
+        // Managed layers always merge, over the last good file when this one
+        // is unreadable, so MDM forced values apply even while the user's
+        // file is broken (spec/enterprise.md 5.2).
+        let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        var snapshot = CmuxConfigSnapshot.parse(
+            effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
+        )
+        if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
+        snapshot.diagnostics += effective.diagnostics
+        return (LoadInputs(source: source, managed: managed, team: team), effective, snapshot)
+    }
+
+    private func adopt(_ loaded: Loaded) {
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
@@ -281,6 +329,7 @@ public final class SettingsController {
             snapshot = loaded.snapshot
             fileRoot = effective.fileRoot
             managedKeys = effective.managedKeys
+            managedChatRoots = effective.managedChatRoots
             managedPolicy = effective.policy
             let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
             applier.registry.disabledFeatures = policy.features

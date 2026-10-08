@@ -40,13 +40,60 @@
   // Case does not count either ("Main content" repeats "main content").
   const squash = (s) => String(s || "").replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "").toLowerCase();
 
+  // Tree walks here are iterative: a stitched tree can be 1,000 levels deep
+  // (MAX_NEST), and the session VM's stack holds about 1,300 calls.
+
   function hasRef(list) {
-    return (list || []).some((c) => typeof c !== "string" && (c.ref || hasRef(c.children)));
+    const stack = [list || []];
+    while (stack.length) {
+      for (const c of stack.pop()) {
+        if (typeof c === "string") continue;
+        if (c.ref) return true;
+        if (c.children) stack.push(c.children);
+      }
+    }
+    return false;
   }
 
-  // Text a node contributes to its parent's name: its own name, else its text.
+  // Text a node contributes to its parent's name: its own name, else its
+  // text (the texts in document order; normalizing once is the same as
+  // normalizing each level).
   function textOf(list) {
-    return normalize((list || []).map((c) => (typeof c === "string" ? c : c.name || c.value || textOf(c.children))).join(" "));
+    const parts = [];
+    const stack = [{ list: list || [], i: 0 }];
+    while (stack.length) {
+      const top = stack[stack.length - 1];
+      if (top.i >= top.list.length) {
+        stack.pop();
+        continue;
+      }
+      const c = top.list[top.i++];
+      if (typeof c === "string") parts.push(c);
+      else if (c.name || c.value) parts.push(c.name || c.value);
+      else if (c.children) stack.push({ list: c.children, i: 0 });
+    }
+    return normalize(parts.join(" "));
+  }
+
+  // Maps a tree bottom-up, as a recursive map would: `prepare(list)` gives
+  // the items of a list, `kidsOf(item)` the list to map below an item (null
+  // for none), and `visit(item, mapped, out)` adds what the item becomes to
+  // its parent's output list, `mapped` being its mapped list (or null).
+  function mapTree(nodes, prepare, kidsOf, visit) {
+    const stack = [{ items: prepare(nodes), i: 0, out: [], item: null }];
+    for (;;) {
+      const f = stack[stack.length - 1];
+      if (f.i >= f.items.length) {
+        stack.pop();
+        if (!stack.length) return f.out;
+        visit(f.item, f.out, stack[stack.length - 1].out);
+        continue;
+      }
+      const item = f.items[f.i++];
+      const kids = typeof item === "string" ? null : kidsOf(item);
+      if (kids) stack.push({ items: prepare(kids), i: 0, out: [], item });
+      else visit(item, null, f.out);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -83,88 +130,89 @@
   }
 
   function shape(nodes, options) {
-    const out = [];
-    for (const raw of foldPunctuation(nodes)) {
-      if (typeof raw === "string") {
-        out.push(raw);
-        continue;
-      }
-      const n = Object.assign({}, raw);
-      if (n.children) n.children = shape(n.children, options);
-      // A link named only by an image's alt text, or not at all, is known by
-      // where it goes.
-      const kids = n.children || [];
-      const imageOnly = kids.length > 0 && kids.every((c) => typeof c !== "string" && (c.role === "img" || c.role === "image"));
-      if (n.role === "link" && n.url && (!n.name || imageOnly)) n.showUrl = true;
-      // A caption, legend or label that names its container is not repeated.
-      if (n.name && n.children && n.children.length > 1 && n.children[0] === n.name) n.children = n.children.slice(1);
-      if (n.role === "row" && n.children && !hasRef(n.children) && n.children.every((c) => typeof c !== "string" && CELL_ROLES.has(c.role))) {
-        const cells = n.children.map((c) => c.name || textOf(c.children));
-        if (n.children.every((c) => c.role === "columnheader")) n.header = true;
-        if (!n.name || squash(cells.join("")) === squash(n.name)) delete n.name;
-        n.value = cells.join(" | ");
-        delete n.children;
-      } else if (n.name && n.children && squash(textOf(n.children)) === squash(n.name)) {
-        // A name from content repeats the children. Keep the children when
-        // they carry refs or the name is too long to print, else the name.
-        // A control with its own ref keeps its name, so it can be told apart
-        // (a <summary> disclosure around a link).
-        if (hasRef(n.children)) {
-          if (!n.ref) delete n.name;
-        } else if (n.name.length > CONTENT_NAME_LIMIT) delete n.name;
-        else {
-          delete n.children;
-          // The name is the content now, so it prints whole.
-          n.contentName = true;
-        }
-      }
-      // A lone text the name already says (an aria-label that extends the
-      // visible text) is not repeated.
-      if (n.name && n.children && n.children.length === 1 && typeof n.children[0] === "string" &&
-          squash(n.name).includes(squash(n.children[0]))) delete n.children;
-      if (n.children && !n.children.length) delete n.children;
-      if (n.options && !(options.options || n.expanded === true)) {
-        // A closed drop-down lists its options on its own line, capped.
-        n.inlineOptions = n.options.map((o) => o.name);
-        // The page agent sends only the first options of a long list.
-        if (n.optionCount) n.inlineCount = n.optionCount;
-        delete n.options;
-      }
+    return mapTree(nodes, foldPunctuation, (raw) => raw.children || null, (raw, shaped, out) => shapeNode(raw, shaped, out, options));
+  }
 
-      // Structure with nothing in it says nothing.
-      if (!n.act && !n.ref && !n.name && n.value === undefined && !n.children && !MEANINGFUL_EMPTY_ROLES.has(n.role)) continue;
-      // An unnamed landmark or group directly around one of its own kind
-      // adds nothing.
-      if (!n.name && !n.ref && n.children && n.children.length === 1 && typeof n.children[0] !== "string" &&
-          n.children[0].role === n.role && Object.keys(n).every((k) => k === "role" || k === "children")) {
-        out.push(n.children[0]);
-        continue;
-      }
-      // An unnamed list item or table cell around one element prints as
-      // that element.
-      if (TRANSPARENT_WRAPPERS.has(n.role) && !n.name && !n.ref && n.children && n.children.length === 1 &&
-          typeof n.children[0] !== "string" && Object.keys(n).every((k) => k === "role" || k === "children")) {
-        out.push(n.children[0]);
-        continue;
-      }
-      out.push(n);
+  // One node of shape(), `shaped` its children shaped.
+  function shapeNode(raw, shaped, out, options) {
+    if (typeof raw === "string") {
+      out.push(raw);
+      return;
     }
-    return out;
+    const n = Object.assign({}, raw);
+    if (shaped) n.children = shaped;
+    // A link named only by an image's alt text, or not at all, is known by
+    // where it goes.
+    const kids = n.children || [];
+    const imageOnly = kids.length > 0 && kids.every((c) => typeof c !== "string" && (c.role === "img" || c.role === "image"));
+    if (n.role === "link" && n.url && (!n.name || imageOnly)) n.showUrl = true;
+    // A caption, legend or label that names its container is not repeated.
+    if (n.name && n.children && n.children.length > 1 && n.children[0] === n.name) n.children = n.children.slice(1);
+    if (n.role === "row" && n.children && !hasRef(n.children) && n.children.every((c) => typeof c !== "string" && CELL_ROLES.has(c.role))) {
+      const cells = n.children.map((c) => c.name || textOf(c.children));
+      if (n.children.every((c) => c.role === "columnheader")) n.header = true;
+      if (!n.name || squash(cells.join("")) === squash(n.name)) delete n.name;
+      n.value = cells.join(" | ");
+      delete n.children;
+    } else if (n.name && n.children && squash(textOf(n.children)) === squash(n.name)) {
+      // A name from content repeats the children. Keep the children when
+      // they carry refs or the name is too long to print, else the name.
+      // A control with its own ref keeps its name, so it can be told apart
+      // (a <summary> disclosure around a link).
+      if (hasRef(n.children)) {
+        if (!n.ref) delete n.name;
+      } else if (n.name.length > CONTENT_NAME_LIMIT) delete n.name;
+      else {
+        delete n.children;
+        // The name is the content now, so it prints whole.
+        n.contentName = true;
+      }
+    }
+    // A lone text the name already says (an aria-label that extends the
+    // visible text) is not repeated.
+    if (n.name && n.children && n.children.length === 1 && typeof n.children[0] === "string" &&
+        squash(n.name).includes(squash(n.children[0]))) delete n.children;
+    if (n.children && !n.children.length) delete n.children;
+    if (n.options && !(options.options || n.expanded === true)) {
+      // A closed drop-down lists its options on its own line, capped.
+      n.inlineOptions = n.options.map((o) => o.name);
+      // The page agent sends only the first options of a long list.
+      if (n.optionCount) n.inlineCount = n.optionCount;
+      delete n.options;
+    }
+
+    // Structure with nothing in it says nothing.
+    if (!n.act && !n.ref && !n.name && n.value === undefined && !n.children && !MEANINGFUL_EMPTY_ROLES.has(n.role)) return;
+    // An unnamed landmark or group directly around one of its own kind
+    // adds nothing.
+    if (!n.name && !n.ref && n.children && n.children.length === 1 && typeof n.children[0] !== "string" &&
+        n.children[0].role === n.role && Object.keys(n).every((k) => k === "role" || k === "children")) {
+      out.push(n.children[0]);
+      return;
+    }
+    // An unnamed list item or table cell around one element prints as
+    // that element.
+    if (TRANSPARENT_WRAPPERS.has(n.role) && !n.name && !n.ref && n.children && n.children.length === 1 &&
+        typeof n.children[0] !== "string" && Object.keys(n).every((k) => k === "role" || k === "children")) {
+      out.push(n.children[0]);
+      return;
+    }
+    out.push(n);
   }
 
   // Interactive nodes, the named ancestors that locate them, and the page
   // outline: headings and landmarks.
   function interactiveOnly(nodes) {
-    const out = [];
-    for (const n of nodes) {
-      if (typeof n === "string") continue;
-      if (n.role === "heading" && n.name && !n.act) {
+    const outline = (n) => n.role === "heading" && n.name && !n.act;
+    return mapTree(nodes, (list) => list, (n) => (outline(n) ? null : n.children || null), (n, mapped, out) => {
+      if (typeof n === "string") return;
+      if (outline(n)) {
         const heading = Object.assign({}, n);
         delete heading.children;
         out.push(heading);
-        continue;
+        return;
       }
-      let kids = n.children ? interactiveOnly(n.children) : [];
+      let kids = mapped || [];
       // An unnamed control is known by its text.
       if (n.act && !n.name) kids = [...(n.children || []).filter((c) => typeof c === "string"), ...kids];
       const copy = Object.assign({}, n);
@@ -174,9 +222,8 @@
       else if (kids.length && (n.name || n.role === "iframe" || LANDMARK_ROLES.has(n.role))) {
         delete copy.value;
         out.push(copy);
-      } else out.push(...kids);
-    }
-    return out;
+      } else for (const k of kids) out.push(k);
+    });
   }
 
   function nodeHead(n, options) {
@@ -230,15 +277,21 @@
   }
 
   function render(nodes, options = {}, depth = 0, lines = []) {
-    const indent = "  ".repeat(depth);
-    for (const n of nodes) {
-      if (typeof n === "string") {
-        lines.push(`${indent}- text: ${q(n)}`);
+    const stack = [{ list: nodes, i: 0, indent: "  ".repeat(depth) }];
+    while (stack.length) {
+      const f = stack[stack.length - 1];
+      if (f.i >= f.list.length) {
+        stack.pop();
         continue;
       }
-      const own = ownLines(n, options, indent);
+      const n = f.list[f.i++];
+      if (typeof n === "string") {
+        lines.push(`${f.indent}- text: ${q(n)}`);
+        continue;
+      }
+      const own = ownLines(n, options, f.indent);
       for (const l of own.lines) lines.push(l);
-      render(own.kids, options, depth + 1, lines);
+      if (own.kids.length) stack.push({ list: own.kids, i: 0, indent: f.indent + "  " });
     }
     return lines;
   }
@@ -275,39 +328,48 @@
   // children), in document order.
   function buildItems(nodes, options) {
     const items = [];
-    const visit = (list, depth, parent) => {
-      const out = [];
-      for (const n of list) {
-        const indent = "  ".repeat(depth);
-        const item = { parent, depth, index: items.length, children: null, lines: null, refs: 0, total: 1, ref: null, sig: "text", include: false, tier: 1, run: null };
-        items.push(item);
-        if (typeof n === "string") {
-          item.lines = [`${indent}- text: ${q(n)}`];
-        } else {
-          const own = ownLines(n, options, indent);
-          item.lines = own.lines;
-          item.ref = n.ref || null;
-          item.role = n.role;
-          item.node = n;
-          const kinds = new Set();
-          for (const c of own.kids) kinds.add(typeof c === "string" ? "text" : c.role);
-          item.sig = n.role + "(" + [...kinds].sort().join(",") + ")";
-          item.children = visit(own.kids, depth + 1, item);
-        }
-        item.cost = item.lines.reduce((a, l) => a + l.length + 1, 0);
-        item.total = item.lines.length;
-        item.refs = item.ref ? 1 : 0;
-        item.subCost = item.cost;
-        for (const c of item.children || []) {
-          item.total += c.total;
-          item.refs += c.refs;
-          item.subCost += c.subCost;
-        }
-        out.push(item);
+    const roots = [];
+    // Items in document order (a parent before its children), then the
+    // subtree sums from the last item back.
+    const stack = [{ list: nodes, i: 0, depth: 0, parent: null, out: roots }];
+    while (stack.length) {
+      const f = stack[stack.length - 1];
+      if (f.i >= f.list.length) {
+        stack.pop();
+        continue;
       }
-      return out;
-    };
-    const roots = visit(nodes, 0, null);
+      const n = f.list[f.i++];
+      const indent = "  ".repeat(f.depth);
+      const item = { parent: f.parent, depth: f.depth, index: items.length, children: null, lines: null, refs: 0, total: 1, ref: null, sig: "text", include: false, tier: 1, run: null };
+      items.push(item);
+      f.out.push(item);
+      if (typeof n === "string") {
+        item.lines = [`${indent}- text: ${q(n)}`];
+      } else {
+        const own = ownLines(n, options, indent);
+        item.lines = own.lines;
+        item.ref = n.ref || null;
+        item.role = n.role;
+        item.node = n;
+        const kinds = new Set();
+        for (const c of own.kids) kinds.add(typeof c === "string" ? "text" : c.role);
+        item.sig = n.role + "(" + [...kinds].sort().join(",") + ")";
+        item.children = [];
+        stack.push({ list: own.kids, i: 0, depth: f.depth + 1, parent: item, out: item.children });
+      }
+      item.cost = item.lines.reduce((a, l) => a + l.length + 1, 0);
+      item.total = item.lines.length;
+      item.refs = item.ref ? 1 : 0;
+      item.subCost = item.cost;
+    }
+    for (let k = items.length - 1; k >= 0; k--) {
+      const item = items[k];
+      const p = item.parent;
+      if (!p) continue;
+      p.total += item.total;
+      p.refs += item.refs;
+      p.subCost += item.subCost;
+    }
     return { roots, items };
   }
 
@@ -391,9 +453,10 @@
         for (let k = i + RUN_KEEP * best.period; k < end; k++) if (list[k].tier !== 0) demote(list[k]);
         i = end;
       }
-      for (const it of list) if (it.children) markRuns(it.children);
     };
+    // Every list of children, in document order.
     markRuns(roots);
+    for (const it of items) if (it.children) markRuns(it.children);
 
     // One pass per budget: pick items, render them with their notes. A pass
     // that overshoots (notes cost more than reserved) runs again with less.
@@ -431,9 +494,15 @@
       // that does not fit so what prints stays contiguous.
       // A small subtree (a list item, a card) goes in whole or not at all.
       const small = Math.max(200, budget / 10);
-      const subtree = (it, out = []) => {
-        out.push(it);
-        for (const c of it.children || []) subtree(c, out);
+      const subtree = (it) => {
+        const out = [];
+        const stack = [it];
+        while (stack.length) {
+          const x = stack.pop();
+          out.push(x);
+          const kids = x.children || [];
+          for (let k = kids.length - 1; k >= 0; k--) stack.push(kids[k]);
+        }
         return out;
       };
       for (const tier of [1, 2]) {
@@ -448,39 +517,45 @@
       }
       lines = [];
       let refsShown = 0;
-      const emit = (list, parent) => {
-        let skipped = [];
-        const flush = () => {
-          if (!skipped.length) return;
-          const indent = "  ".repeat(skipped[0].depth);
-          const refs = skipped.reduce((a, s) => a + s.refs, 0);
-          const run = skipped[0].run;
-          const sameRun = run && skipped.every((s) => s.run === run) && skipped.length % run.period === 0;
-          let count;
-          if (sameRun && run.period === 1 && skipped[0].role) count = `${commas(skipped.length)} more ${skipped[0].role}`;
-          else if (sameRun && run.period > 1) count = `${commas(skipped.length / run.period)} more repeats of ${run.kinds.join(", ")}`;
-          else count = `${commas(skipped.reduce((a, s) => a + s.total, 0))} more line${skipped.length === 1 && skipped[0].total === 1 ? "" : "s"}`;
-          let scopeRef = null;
-          for (let p = parent; p && !scopeRef; p = p.parent) scopeRef = p.ref;
-          lines.push(`${indent}- … ${count}${refs ? ` (${commas(refs)} ref${refs === 1 ? "" : "s"})` : ""}${scopeRef ? `: snapshot(${q(scopeRef)})` : ""}`);
-          skipped = [];
-        };
-        for (const it of list) {
-          if (!it.include) {
-            skipped.push(it);
-            continue;
-          }
-          flush();
-          if (it.ref) refsShown++;
-          for (const l of it.lines) {
-            // A single line longer than a quarter of the budget prints its start.
-            lines.push(l.length > lineCap ? `${l.slice(0, lineCap)}…" (${commas(l.length)} characters)` : l);
-          }
-          if (it.children) emit(it.children, it);
-        }
-        flush();
+      // One frame per list being printed: its parent item and the items
+      // left out so far, which print as one line where they were.
+      const flush = (f) => {
+        const skipped = f.skipped;
+        if (!skipped.length) return;
+        const indent = "  ".repeat(skipped[0].depth);
+        const refs = skipped.reduce((a, s) => a + s.refs, 0);
+        const run = skipped[0].run;
+        const sameRun = run && skipped.every((s) => s.run === run) && skipped.length % run.period === 0;
+        let count;
+        if (sameRun && run.period === 1 && skipped[0].role) count = `${commas(skipped.length)} more ${skipped[0].role}`;
+        else if (sameRun && run.period > 1) count = `${commas(skipped.length / run.period)} more repeats of ${run.kinds.join(", ")}`;
+        else count = `${commas(skipped.reduce((a, s) => a + s.total, 0))} more line${skipped.length === 1 && skipped[0].total === 1 ? "" : "s"}`;
+        let scopeRef = null;
+        for (let p = f.parent; p && !scopeRef; p = p.parent) scopeRef = p.ref;
+        lines.push(`${indent}- … ${count}${refs ? ` (${commas(refs)} ref${refs === 1 ? "" : "s"})` : ""}${scopeRef ? `: snapshot(${q(scopeRef)})` : ""}`);
+        f.skipped = [];
       };
-      emit(roots, null);
+      const stack = [{ list: roots, parent: null, i: 0, skipped: [] }];
+      while (stack.length) {
+        const f = stack[stack.length - 1];
+        if (f.i >= f.list.length) {
+          flush(f);
+          stack.pop();
+          continue;
+        }
+        const it = f.list[f.i++];
+        if (!it.include) {
+          f.skipped.push(it);
+          continue;
+        }
+        flush(f);
+        if (it.ref) refsShown++;
+        for (const l of it.lines) {
+          // A single line longer than a quarter of the budget prints its start.
+          lines.push(l.length > lineCap ? `${l.slice(0, lineCap)}…" (${commas(l.length)} characters)` : l);
+        }
+        if (it.children) stack.push({ list: it.children, parent: it, i: 0, skipped: [] });
+      }
       const text = lines.join("\n");
       const note = finalNote(text.length, refsShown);
       if (text.length + 1 + note.length <= maxChars) {
@@ -916,13 +991,69 @@
     });
   }
 
+  // The page agent's walk depth bound (page-agent.js MAX_DEPTH), here for
+  // the whole stitched tree: a frame's tree goes under its iframe, so its
+  // walk starts at the iframe's depth, and an iframe whose frame would start
+  // at the bound is not read and says so with the walk's cut note.
+  const MAX_NEST = 1000;
+  const NEST_CUT = `nested deeper than ${MAX_NEST} elements; snapshot this ref to read it`;
+
+  // A tree from its pre-order list ([depth, node or text] per entry, the
+  // page agent's `flat`). Depths step down freely and up by one at most.
+  function unflatten(flat) {
+    const roots = [];
+    const open = [];
+    for (const [depth, item] of flat) {
+      if (!Number.isInteger(depth) || depth < 0 || depth > open.length) throw new Error(`snapshot: the page agent sent a malformed tree (depth ${depth} after ${open.length})`);
+      if (depth === 0) roots.push(item);
+      else (open[depth - 1].children || (open[depth - 1].children = [])).push(item);
+      open.length = depth;
+      if (typeof item !== "string") open.push(item);
+    }
+    return roots;
+  }
+
+  // The most page nodes one snapshot reads, over all its frames (the page
+  // agent's own bound per read is the same). A hostile page can hold
+  // millions; the walk stops here instead of pinning the page and the
+  // session, and the snapshot says so. `_maxNodes` lowers it (tests).
+  const MAX_SNAPSHOT_NODES = 250000;
+  // The most characters of page text, names, values and URLs one snapshot
+  // reads, over all its frames (the page agent's own bound per frame is the
+  // same): one text node or value can hold megabytes, which the node budget
+  // does not bound, and the tree is kept as the diff baseline. `_maxSize`
+  // lowers it (tests).
+  const MAX_SNAPSHOT_SIZE = 2000000;
+  function nodeBudget(options) {
+    if (!options._nodes) {
+      const asked = options._maxNodes > 0 ? Math.floor(options._maxNodes) : MAX_SNAPSHOT_NODES;
+      const size = Math.min(options._maxSize > 0 ? Math.floor(options._maxSize) : MAX_SNAPSHOT_SIZE, MAX_SNAPSHOT_SIZE);
+      options._nodes = { left: Math.min(asked, MAX_SNAPSHOT_NODES), total: Math.min(asked, MAX_SNAPSHOT_NODES), sizeLeft: size, sizeTotal: size, truncated: null };
+    }
+    return options._nodes;
+  }
+
   // Reads a frame's tree and, a few at a time, the trees of the frames
-  // inside it.
-  async function frameTree(page, frame, rootHandle, options, inner) {
+  // inside it. `nest`: how deep the stitched tree is where this frame's
+  // tree goes. `share` (`sizeShare`) is the part of the node (size) budget
+  // this frame and the frames inside it may read, reserved for it before
+  // any of them is read: the frames inside split what this frame left of
+  // its own share, never the snapshot's remaining budget, which siblings
+  // still being read hold shares of. So frames read together never pass
+  // the budget.
+  async function frameTree(page, frame, rootHandle, options, inner, nest = 0, share, sizeShare) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
+    const budget = nodeBudget(options);
+    const maxNodes = Math.max(1, share === undefined ? budget.left : share);
+    const maxSize = Math.max(1, sizeShare === undefined ? budget.sizeLeft : sizeShare);
     let called = 0;
-    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame) });
+    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), nest, maxNodes, maxSize });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
+    const usedNodes = Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
+    const usedSize = Math.min(maxSize, Math.max(0, Number(r.size) || 0));
+    budget.left -= usedNodes;
+    budget.sizeLeft -= usedSize;
+    if (r.truncated && !budget.truncated) budget.truncated = r.truncated;
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
     const timing = options._timing;
@@ -933,15 +1064,14 @@
     }
     page._noteRefMax(frame, r.max);
     if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+    const flat = r.flat || [];
+    // An entry's depth in the stitched tree is `nest` plus its depth here.
     const iframes = [];
-    const collect = (list) => {
-      for (const n of list) {
-        if (typeof n === "string") continue;
-        if (n.role === "iframe") iframes.push(n);
-        else if (n.children) collect(n.children);
-      }
-    };
-    collect(r.nodes);
+    for (const [depth, n] of flat) {
+      if (typeof n === "string" || n.role !== "iframe") continue;
+      if (nest + depth + 1 >= MAX_NEST) n._child = { deep: true };
+      else iframes.push(n), (n._nest = nest + depth + 1);
+    }
     // All iframes of this frame resolve to their frames in one driver call
     // (frame.contentFrames); a driver without it answers per iframe.
     const handles = iframes.map((n) => n.frame).filter(Boolean);
@@ -954,12 +1084,19 @@
         if (e && e.code === "unsupported") page._batchContentFrames = false;
       }
     }
+    // The frames inside split what this frame left of its share, so
+    // reading them together cannot pass it.
+    const childShare = iframes.length ? Math.floor((maxNodes - usedNodes) / iframes.length) : 0;
+    const childSizeShare = iframes.length ? Math.floor((maxSize - usedSize) / iframes.length) : 0;
     await Promise.all(iframes.map(async (node) => {
       let child = null;
       try {
         if (batch) child = batch.get(node.frame) || null;
         else child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
-        if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true) };
+        if (child && !child._detached && (childShare < 1 || childSizeShare < 1)) {
+          node._child = { frame: child, overBudget: childShare < 1 ? "node" : "size" };
+          budget.truncated = budget.truncated || (childShare < 1 ? "nodes" : "size");
+        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, node._nest, childShare, childSizeShare) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
         // The driver does not read a frame that shows a page the domain
@@ -968,7 +1105,7 @@
         else if (child && !child._detached) node._child = { frame: child, tree: null };
       }
     }));
-    return { frame, nodes: r.nodes };
+    return { frame, flat };
   }
 
   // Prefixes refs with their frame's prefix and inlines each frame's tree
@@ -976,36 +1113,45 @@
   // depth first, so they do not depend on which frame answered first.
   // `[focused]` holds only along the focused frame chain, and on-screen marks
   // only inside iframes that are on screen.
+  // The result is one pre-order list: a frame's entries follow its iframe's,
+  // one level deeper.
   function stitch(page, tree, focusChain, onScreen) {
-    const prefix = page._prefixFor(tree.frame);
-    const fix = (list) => {
-      for (const node of list) {
-        if (typeof node === "string") continue;
-        if (node.ref) node.ref = prefix + node.ref;
-        if (!focusChain) delete node.focused;
-        if (!onScreen) delete node.vp;
-        if (node.role === "iframe") {
-          const focused = !!node.frameFocused;
-          const child = node._child;
-          const shown = !!node.vp;
-          delete node.frame;
-          delete node.frameFocused;
-          delete node._child;
-          if (child && child.timedOut) node.unread = "timed out";
-          if (child && child.blocked) node.unread = "blocked by the domain policy";
-          if (child && child.tree) {
-            const inner = stitch(page, child.tree, focusChain && focused, shown);
-            if (inner.length) node.children = inner;
-          } else if (child && child.frame) page._prefixFor(child.frame);
-        } else if (node.children) fix(node.children);
+    const out = [];
+    const open = (t, base, focus, shown) => ({ flat: t.flat, i: 0, base, focus, shown, prefix: page._prefixFor(t.frame) });
+    const stack = [open(tree, 0, focusChain, onScreen)];
+    while (stack.length) {
+      const f = stack[stack.length - 1];
+      if (f.i >= f.flat.length) {
+        stack.pop();
+        continue;
       }
-    };
-    fix(tree.nodes);
-    return tree.nodes;
+      const [d, node] = f.flat[f.i++];
+      const depth = f.base + d;
+      out.push([depth, node]);
+      if (typeof node === "string") continue;
+      if (node.ref) node.ref = f.prefix + node.ref;
+      if (!f.focus) delete node.focused;
+      if (!f.shown) delete node.vp;
+      if (node.role !== "iframe") continue;
+      const focused = !!node.frameFocused;
+      const child = node._child;
+      const shown = !!node.vp;
+      delete node.frame;
+      delete node.frameFocused;
+      delete node._child;
+      delete node._nest;
+      if (child && child.deep) node.unread = NEST_CUT;
+      if (child && child.timedOut) node.unread = "timed out";
+      if (child && child.blocked) node.unread = "blocked by the domain policy";
+      if (child && child.overBudget) node.unread = `the snapshot's ${child.overBudget} budget is used up`;
+      if (child && child.tree) stack.push(open(child.tree, depth + 1, f.focus && focused, shown));
+      else if (child && child.frame) page._prefixFor(child.frame);
+    }
+    return out;
   }
 
   async function frameNodes(page, frame, rootHandle, options, focusChain) {
-    return stitch(page, await frameTree(page, frame, rootHandle, options), focusChain, true);
+    return unflatten(stitch(page, await frameTree(page, frame, rootHandle, options), focusChain, true));
   }
 
   // Resolves snapshot()/screenshot() targets: a page, a locator, or a ref.
@@ -1050,6 +1196,11 @@
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
     const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const budget = nodeBudget(options);
+    if (budget.truncated) {
+      const note = core.readCutNote("the snapshot", { truncated: budget.truncated, maxNodes: budget.total, maxSize: budget.sizeTotal });
+      trailer.push(`# ${note}; the rest of the page is not shown. Snapshot a part of it (snapshot(ref) or snapshot(locator)) to read further`);
+    }
     body.push(...trailer);
     return { header, body, nodes, full, trailer };
   }
@@ -1092,19 +1243,23 @@
   async function annotate(page, target) {
     const { nodes } = await capture(page, target, { interactive: true });
     const byPrefix = new Map();
-    const walk = (list) => {
-      for (const n of list) {
-        if (typeof n === "string") continue;
-        if (n.ref && n.act) {
-          const m = /^(f\d+)?(e\d+)$/.exec(n.ref);
-          const prefix = m[1] || "";
-          if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
-          byPrefix.get(prefix).push([m[2], n.ref]);
-        }
-        if (n.children) walk(n.children);
+    const stack = [{ list: nodes, i: 0 }];
+    while (stack.length) {
+      const f = stack[stack.length - 1];
+      if (f.i >= f.list.length) {
+        stack.pop();
+        continue;
       }
-    };
-    walk(nodes);
+      const n = f.list[f.i++];
+      if (typeof n === "string") continue;
+      if (n.ref && n.act) {
+        const m = /^(f\d+)?(e\d+)$/.exec(n.ref);
+        const prefix = m[1] || "";
+        if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
+        byPrefix.get(prefix).push([m[2], n.ref]);
+      }
+      if (n.children) stack.push({ list: n.children, i: 0 });
+    }
     const drawn = [];
     for (const [prefix, refs] of byPrefix) {
       const frame = page._frameForPrefix(prefix);

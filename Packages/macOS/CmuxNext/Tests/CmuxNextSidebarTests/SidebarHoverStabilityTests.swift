@@ -50,6 +50,25 @@ import Testing
         #expect(view.nameFrame == rest)
     }
 
+    /// An unread row's x takes the badge's slot on hover, so the name and
+    /// the activity glyph beside it stay put.
+    @Test(arguments: [UnreadState.dot, .count(3), .count(128)])
+    func anUnreadRowsNameKeepsItsWidthOnHover(_ unread: UnreadState) throws {
+        var sections = fixture()
+        sections[1].nodes[0] = .workspace(SidebarWorkspace(id: id("a"), title: "Unread work", unread: unread))
+        let h = MinimalChromeTests.Harness(sections: sections)
+        let row = try #require(h.sidebar.list.rowViews[.workspace(id("a"))] as? WorkspaceRowView)
+        row.layoutSubtreeIfNeeded()
+        let rest = row.titleFrame
+        row.isHovered = true
+        row.layoutSubtreeIfNeeded()
+        #expect(row.titleFrame == rest)
+        #expect(!row.closeButton.isHidden)
+        row.isHovered = false
+        row.layoutSubtreeIfNeeded()
+        #expect(row.titleFrame == rest)
+    }
+
     @Test func aTitledSectionsChevronFadesInsteadOfMounting() {
         let view = SidebarSectionHeaderView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         view.configure(title: "Apps", collapsed: false)

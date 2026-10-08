@@ -187,7 +187,11 @@ async fn each_harness_starts_and_stays_in_a_reviewed_asking_mode_for_the_web() {
         let src = id(&local.new_on(&d, harness, json!({})).await);
         let _ = local.call("session/set_mode", json!({"sessionId": src, "modeId": loose})).await;
         let r = web.call("session/fork", json!({"sessionId": src})).await;
-        assert!(err(&r).contains("does not ask"), "{harness}: {r}");
+        // A Claude session the Mac started is refused before its mode (D13).
+        assert!(
+            err(&r).contains("does not ask") || err(&r).contains("Mac's Claude permissions"),
+            "{harness}: {r}"
+        );
     }
     // An unknown harness: refused, and nothing is left behind.
     let before = local.call("_acpmux/sessions", json!({})).await["result"]["sessions"]

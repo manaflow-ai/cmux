@@ -87,7 +87,7 @@ private struct StepRow: View {
                 .accessibilityIdentifier("cmux.accounts.step.connect.\(row.provider.rawValue)")
         } else if row.canReauthenticate {
             Button(AccountsStrings.reauthTitle(row)) { model.reauthenticate(row.provider) }
-                .buttonStyle(AccountsButtonStyle(palette: palette))
+                .buttonStyle(AccountsButtonStyle(palette: palette, prominent: true))
                 .disabled(row.isBusy)
         }
     }

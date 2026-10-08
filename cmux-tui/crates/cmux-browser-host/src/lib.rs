@@ -12,7 +12,11 @@
 
 pub mod automation_input;
 pub mod cdp;
+pub mod cookie_backups;
 pub mod driver;
+pub mod egress_proxy;
+pub mod egress_scope;
+pub mod egress_services;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
@@ -30,6 +34,7 @@ pub mod lease;
 pub mod locality;
 pub mod observe;
 pub mod policy;
+pub mod private_data_log;
 pub mod protocol;
 pub mod provider;
 #[cfg(unix)]

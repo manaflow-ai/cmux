@@ -387,12 +387,20 @@ mark {
   align-items: center;
 }
 
-.select select {
+.select .ui-select-native {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.select .ui-select-button {
   appearance: none;
   padding-right: 24px;
 }
 
-.select .icon {
+.select .ui-select-chevron {
   position: absolute;
   right: 6px;
   color: var(--muted-text);
@@ -821,39 +829,7 @@ mark {
   max-width: 320px;
 }
 
-/* Theme picker by level and wallpaper grid (R82 commit 4). */
-.theme-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.theme-picker > .field {
-  max-width: 320px;
-}
-
-.theme-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 240px;
-  overflow-y: auto;
-  border-top: 1px solid var(--border);
-}
-
-.theme-choice {
-  padding: 6px 8px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.theme-choice[aria-pressed="true"] {
-  background: var(--accent-soft);
-}
-
+/* Wallpaper grid (R82 commit 4). */
 .backdrop-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));

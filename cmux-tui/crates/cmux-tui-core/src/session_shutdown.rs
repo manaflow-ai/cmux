@@ -191,6 +191,11 @@ impl SessionShutdownClock {
         }
     }
 
+    /// Whether this owner's shutdown began.
+    pub(crate) fn began(&self) -> bool {
+        self.own_started.load(Ordering::SeqCst)
+    }
+
     /// This owner's shutdown start, once it began. `begin` stamps right
     /// after it sets the flag, so the wait is a few instructions.
     fn own_start(&self) -> Option<u64> {

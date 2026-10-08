@@ -20,8 +20,12 @@ pub mod flags {
     pub const REFINE: u8 = 0b0010;
     /// The frame recovers from a loss by referencing an acknowledged frame.
     pub const RECOVERY: u8 = 0b0100;
+    /// The frame is a lossless tile top-off (rd change C3) on a tile stream:
+    /// standalone (no reference chain); `ref_frame` names the video frame of
+    /// the surface stream it applies on top of. Sent only with the `tile` cap.
+    pub const TILE: u8 = 0b1000;
     /// Every defined flag.
-    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY;
+    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY | TILE;
 }
 
 /// What a datagram carries.
@@ -44,6 +48,14 @@ pub enum DatagramKind {
     Feedback = 7,
     /// Bandwidth probe padding (host to viewer).
     Probe = 8,
+    /// A clock probe with the viewer's current estimate (viewer to host; cap `clock`).
+    ClockPing = 9,
+    /// The host's answer to a clock probe (host to viewer; cap `clock`).
+    ClockPong = 10,
+    /// One shard (data when `index < count`, parity otherwise) of an
+    /// upstream media frame, viewer to host: microphone, camera or screen
+    /// share (rd change C4; cap `up_media`).
+    UpMedia = 11,
 }
 
 impl DatagramKind {
@@ -58,6 +70,9 @@ impl DatagramKind {
             6 => Self::CursorPos,
             7 => Self::Feedback,
             8 => Self::Probe,
+            9 => Self::ClockPing,
+            10 => Self::ClockPong,
+            11 => Self::UpMedia,
             other => return Err(DecodeError::Kind(other)),
         })
     }
@@ -131,7 +146,7 @@ impl DatagramHeader {
             fec_count: r.u16()?,
             transport_seq: r.u16()?,
         };
-        if matches!(kind, DatagramKind::Video | DatagramKind::Fec) {
+        if matches!(kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::UpMedia) {
             let total = u32::from(header.count) + u32::from(header.fec_count);
             // A frame with parity is one FEC block (at most 255 shards); a frame without
             // parity may span up to MAX_FRAME_SHARDS data shards.
@@ -139,8 +154,9 @@ impl DatagramHeader {
             if header.count == 0 || u32::from(header.index) >= total || total > limit {
                 return Err(DecodeError::Invalid("shard index or count"));
             }
+            // Upstream shards use one kind; the index tells data from parity.
             let parity = kind == DatagramKind::Fec;
-            if parity != (header.index >= header.count) {
+            if kind != DatagramKind::UpMedia && parity != (header.index >= header.count) {
                 return Err(DecodeError::Invalid("shard kind"));
             }
         }

@@ -605,7 +605,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         let output = lifecycle_cli(args);
         assert_success(&output);
         let help = String::from_utf8(output.stdout).unwrap();
-        assert!(help.contains("cmux server"), "{help}");
+        assert!(help.contains("cmux daemon"), "{help}");
         assert!(!help.contains("cmux [OPTIONS]           Start a session"), "{help}");
     }
 
@@ -931,7 +931,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
 }
 
 #[test]
-fn removed_daemon_entrypoint_fails_before_process_work_with_precise_migration() {
+fn bare_daemon_without_an_action_fails_before_process_work() {
     let root = unique_temp_dir("removed-daemon-entrypoint");
     let socket = root.join("must-not-create.sock");
     let state = root.join("must-not-create-state");
@@ -944,10 +944,9 @@ fn removed_daemon_entrypoint_fails_before_process_work_with_precise_migration() 
     ]);
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
+    // `daemon` is the lifecycle again (decision D1): no action, usage error.
     let error = String::from_utf8(output.stderr).unwrap();
-    assert!(error.contains("`cmux daemon` was renamed to `cmux server start`"), "{error}");
-    assert!(error.contains("cmux server start --help"), "{error}");
-    assert!(!error.contains("START OPTIONS"), "{error}");
+    assert!(!error.is_empty() && !error.contains("START OPTIONS"), "{error}");
     assert!(!socket.exists());
     assert!(!state.exists());
 }
@@ -972,7 +971,7 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_eq!(error["code"], "server.unavailable");
     assert!(!error["message"].as_str().unwrap().contains(socket.to_str().unwrap()));
 
-    // This is the binary-level spelling reached by `uvx cmux server stop`.
+    // This is the binary-level spelling reached by `uvx cmux daemon stop`.
     let human = lifecycle_cli(&[
         "server",
         "stop",
@@ -3616,8 +3615,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
-        supports_terminal_metadata: false,
-        supports_clipboard_read: false,
+        ..Default::default()
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
