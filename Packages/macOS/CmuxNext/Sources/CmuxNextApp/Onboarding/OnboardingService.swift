@@ -18,6 +18,8 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
+    /// The cookie import card on browser pages (cx-367y).
+    private(set) lazy var cookiePrompt = CookieImportPromptService(services: services)
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
@@ -130,11 +132,15 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
+    /// `importKinds` checks only those kinds on the import step (the cookie
+    /// import card opens it on cookies).
+    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil,
+              importKinds: Set<ImportDataKind>? = nil) {
         var interrupted: OnboardingModel.Step?
         if let controller {
             if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
                 if let step { controller.model.go(to: step) }
+                if let importKinds { controller.model.importer.preset(kinds: importKinds) }
                 controller.present()
                 return
             }
@@ -147,6 +153,7 @@ final class OnboardingService {
             self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
+        if let importKinds { model.importer.preset(kinds: importKinds) }
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil

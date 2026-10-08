@@ -139,9 +139,11 @@ final class AppOnboardingServices: OnboardingServices {
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
-        return try await importer.run(plan, into: destination) { step in
+        let summary = try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
+        owner.cookiePrompt.importFinished(summary)
+        return summary
     }
 
     func canImportPasswords() async -> Bool {

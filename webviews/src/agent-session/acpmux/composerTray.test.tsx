@@ -139,3 +139,75 @@ test("an open location menu stacks above the composer card", async () => {
   ];
   expect(zIndex(positioner)).toBeGreaterThan(Math.max(...card.map(zIndex)));
 });
+
+// cx-yrgh (nxdog72, Lawrence 2026-10-08): the folder menu still covered the top of the card in the
+// app. The row sits at the card's bottom edge, and a menu placed on its control's top side lands
+// on the card above the row. jsdom has no layout, so the test gives the card, the row and the
+// controls the app's boxes (a 1024x768 pane, the card 190px tall at the bottom) and reads where
+// the menu's positioner puts the menu: its bottom must be at or above the card's top edge.
+const PANE = { width: 1024, height: 768 };
+const CARD = { left: 390, top: 560, right: 1010, bottom: 750 };
+const ROW = { left: 390, top: 714, right: 1010, bottom: 750 };
+const CONTROL = { left: 417, top: 722, right: 505, bottom: 744 };
+const box = (rect: { left: number; top: number; right: number; bottom: number }) => ({
+  ...rect,
+  x: rect.left,
+  y: rect.top,
+  width: rect.right - rect.left,
+  height: rect.bottom - rect.top,
+  toJSON: () => rect,
+});
+const withAppLayout = async (run: () => Promise<void>) => {
+  const proto = dom.window.Element.prototype;
+  const original = proto.getBoundingClientRect;
+  const html = doc.documentElement;
+  proto.getBoundingClientRect = function (this: Element) {
+    if (this.matches(".acpmux-composer-box")) return box(CARD) as DOMRect;
+    if (this.matches(".acpmux-composer-context")) return box(ROW) as DOMRect;
+    if (this.closest(".acpmux-location-picker")) return box(CONTROL) as DOMRect;
+    if (this === html || this === doc.body) return box({ left: 0, top: 0, right: PANE.width, bottom: PANE.height }) as DOMRect;
+    return box({ left: 0, top: 0, right: 0, bottom: 0 }) as DOMRect;
+  };
+  for (const [key, value] of [
+    ["clientWidth", PANE.width],
+    ["clientHeight", PANE.height],
+  ] as const)
+    Object.defineProperty(html, key, { configurable: true, get: () => value });
+  try {
+    await run();
+  } finally {
+    proto.getBoundingClientRect = original;
+    delete (html as unknown as Record<string, unknown>).clientWidth;
+    delete (html as unknown as Record<string, unknown>).clientHeight;
+  }
+};
+/// The menu's top edge in the pane, once the positioner has placed it (the popup is 0px tall here,
+/// so its top is its bottom). Floating UI writes a translate, or top/left, or a bottom offset.
+const placedMenuTop = async (positioner: HTMLElement) => {
+  const read = () => {
+    const style = positioner.style;
+    const translate = /translate(?:3d)?\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(style.transform);
+    if (translate) return Number(translate[2]) + (Number.parseFloat(style.top) || 0);
+    if (style.bottom && style.bottom !== "auto") return PANE.height - Number.parseFloat(style.bottom);
+    return Number.parseFloat(style.top) || 0;
+  };
+  for (let attempt = 0; attempt < 100 && read() === 0; attempt += 1)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  return read();
+};
+
+for (const picker of ["Location", "Computer"]) {
+  test(`the ${picker} menu opens fully above the composer card, not over its top`, async () => {
+    await withAppLayout(async () => {
+      await render();
+      await act(async () => {
+        expect(openPicker(picker)).toBe(true);
+      });
+      const menu = doc.querySelector(".acpmux-location-menu")!;
+      expect(menu).not.toBeNull();
+      const top = await placedMenuTop(menu.closest<HTMLElement>(".ui-positioner")!);
+      expect(top).toBeGreaterThan(0);
+      expect(top).toBeLessThanOrEqual(CARD.top);
+    });
+  });
+}
