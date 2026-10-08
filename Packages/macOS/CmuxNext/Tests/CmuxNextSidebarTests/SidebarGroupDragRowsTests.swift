@@ -158,4 +158,23 @@ import Testing
         #expect(h.shownMembers(g1) == ["g1", "g3"])
         #expect(h.shownMembers(g2) == ["h1", "g2", "h2"])
     }
+
+    /// nxdog70: a drop onto a row made a "New Group" in blue. A new group
+    /// never gets blue automatically (nor grey): it takes the group palette.
+    @Test func aNewGroupFromADropIsNeverBlue() throws {
+        var sections = fixture()
+        for color in GroupColor.allCases {
+            let color = SidebarGroupBand.newGroupColor(in: sections)
+            #expect(color != .blue && color != .grey, "picked \(color)")
+            sections[1].nodes.append(.group(SidebarGroup(id: GroupID("n-\(color.rawValue)"), name: "N", color: color, workspaces: [w("z-\(color.rawValue)")])))
+        }
+        let h = Harness()
+        defer { h.window.close() }
+        #expect(try h.drag(.workspace(id("c")), direction: -1) { h.list.drag?.target == .ontoWorkspace(id("b")) })
+        h.list.finishDrag()
+        let made = h.model.sections[1].nodes.compactMap { node -> SidebarGroup? in
+            if case let .group(g) = node, g.id != g1, g.id != g2 { g } else { nil }
+        }
+        #expect(made.count == 1 && made.first?.color != .blue, "made: \(made.map(\.color))")
+    }
 }
