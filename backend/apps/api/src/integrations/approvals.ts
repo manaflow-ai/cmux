@@ -11,6 +11,9 @@ import type { Principal } from "@cmux/ownership"
  * state, events, the feed item or the projection. The feed item shows the op, the target and a
  * short summary; the approval view reads the rest with the user's session
  * (`integration.approval.get`). Rows leave 30 days after they end.
+ *
+ * CloudDO keeps the same table for Cloud money and destructive requests from an install
+ * (cloud-approvals.ts, cx-wb5.65); its rows name the bucket `cloud` instead of a connection.
  */
 export const RISKY_CLASSES: ReadonlySet<string> = new Set(["send-external", "money", "destructive"])
 export const APPROVAL_TTL_MS = 24 * 3_600_000
@@ -167,6 +170,11 @@ export const expireDue = (sql: Sql, now: number) =>
   sql.exec(`UPDATE integration_approvals SET state = 'expired', ended_at = ?, params = '{}' WHERE state = 'pending' AND expires_at <= ?`, now, now)
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "")
+const sizeText = (v: unknown) => {
+  const s = (v && typeof v === "object" ? v : {}) as Record<string, unknown>
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null)
+  return [n(s.cpu) !== null ? `${n(s.cpu)} vCPU` : "", n(s.memory_mb) !== null ? `${n(s.memory_mb)} MB memory` : "", n(s.disk_mb) !== null ? `${n(s.disk_mb)} MB disk` : ""].filter(Boolean).join(", ")
+}
 const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [])
 
 /**
@@ -188,6 +196,17 @@ export const describeRequest = (op: string, p: Record<string, unknown>): { targe
       return { target: text(`${text(p.repo, 200)}#${String(p.issue ?? "")}`, 300), summary: "" }
     case "slack.post_as_bot":
       return { target: text(p.channel, 100), summary: "" }
+    // Cloud requests from an install (CloudDO, cx-wb5.65): the machine or snapshot, and the size.
+    case "cloud.machine.create":
+      return { target: text(p.name, 100) || "new machine", summary: text(`${sizeText(p.size)}${p.from_snapshot ? ` from snapshot ${text(p.from_snapshot, 40)}` : ""}`, 200) }
+    case "cloud.machine.resize":
+      return { target: text(p.machine, 100), summary: sizeText(p.size) }
+    case "cloud.machine.delete":
+    case "cloud.snapshot.create":
+      return { target: text(p.machine, 100), summary: text(p.name, 100) }
+    case "cloud.snapshot.delete":
+    case "cloud.snapshot.restore":
+      return { target: text(p.snapshot, 100), summary: text(p.name, 100) }
     default:
       return { target: text(p.connection, 100), summary: "" }
   }

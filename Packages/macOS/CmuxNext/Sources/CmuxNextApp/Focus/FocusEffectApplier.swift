@@ -40,7 +40,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 }
             })
         }
-        controller.services.observeFocus(of: controller)
+        controller.services.input.observeFocus(of: controller)
     }
 
     func teardown() {
