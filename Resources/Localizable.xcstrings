@@ -1,6 +1,1030 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "coderouter.loadingTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال CodeRouter يحمّل إعدادات حساب هذا الفريق. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter još učitava postavke računa ovog tima. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter indlæser stadig dette teams kontoindstillinger. Prøv igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter lädt noch die Kontoeinstellungen dieses Teams. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter is still loading this team's account settings. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter todavía está cargando la configuración de cuentas de este equipo. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter charge encore les paramètres de compte de cette équipe. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter sta ancora caricando le impostazioni degli account di questo team. Riprova tra un momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter はこのチームのアカウント設定を読み込んでいます。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter កំពុងផ្ទុកការកំណត់គណនីរបស់ក្រុមនេះនៅឡើយ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter가 이 팀의 계정 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter laster fortsatt inn kontoinnstillingene for dette teamet. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter nadal wczytuje ustawienia kont tego zespołu. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O CodeRouter ainda está carregando as configurações de conta desta equipe. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter ещё загружает настройки аккаунтов этой команды. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter ยังคงโหลดการตั้งค่าบัญชีของทีมนี้อยู่ โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter bu ekibin hesap ayarlarını hâlâ yüklüyor. Birazdan tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter ще завантажує налаштування облікових записів цієї команди. Спробуйте ще раз за мить."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter 仍在加载此团队的帐户设置。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter 仍在載入此團隊的帳戶設定。請稍後再試。"
+          }
+        }
+      }
+    },
+    "coderouter.selectTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر فريقًا قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite tim prije dodavanja računa agenta za kodiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg et team, før du tilføjer en kodeagentkonto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Team aus, bevor du ein Coding-Agent-Konto hinzufügst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a team before adding a coding agent account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un equipo antes de añadir una cuenta de agente de programación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez une équipe avant d’ajouter un compte d’agent de codage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona un team prima di aggiungere un account di agente di programmazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントアカウントを追加する前にチームを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមជ្រើសរើសក្រុមមុនពេលបន្ថែមគណនីភ្នាក់ងារសរសេរកូដ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트 계정을 추가하기 전에 팀을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg et team før du legger til en kodeagentkonto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz zespół przed dodaniem konta agenta programistycznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione uma equipe antes de adicionar uma conta de agente de programação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите команду, прежде чем добавлять аккаунт агента программирования."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรดเลือกทีมก่อนเพิ่มบัญชีเอเจนต์เขียนโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodlama ajanı hesabı eklemeden önce bir ekip seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть команду, перш ніж додавати обліковий запис агента програмування."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加编码代理帐户前请选择一个团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增編碼代理帳戶前請選擇團隊。"
+          }
+        }
+      }
+    },
+    "coderouter.selectWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مساحة عمل محلية قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite lokalni radni prostor prije dodavanja računa agenta za kodiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg et lokalt arbejdsområde, før du tilføjer en kodeagentkonto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen lokalen Workspace aus, bevor du ein Coding-Agent-Konto hinzufügst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a local workspace before adding a coding agent account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un espacio de trabajo local antes de añadir una cuenta de agente de programación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez un espace de travail local avant d’ajouter un compte d’agent de codage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona un’area di lavoro locale prima di aggiungere un account di agente di programmazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントアカウントを追加する前にローカルワークスペースを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋានមុនពេលបន្ថែមគណនីភ្នាក់ងារសរសេរកូដ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트 계정을 추가하기 전에 로컬 워크스페이스를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg et lokalt arbeidsområde før du legger til en kodeagentkonto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz lokalną przestrzeń roboczą przed dodaniem konta agenta programistycznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione uma área de trabalho local antes de adicionar uma conta de agente de programação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите локальное рабочее пространство, прежде чем добавлять аккаунт агента программирования."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรดเลือกเวิร์กสเปซในเครื่องก่อนเพิ่มบัญชีเอเจนต์เขียนโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodlama ajanı hesabı eklemeden önce yerel bir çalışma alanı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть локальну робочу область, перш ніж додавати обліковий запис агента програмування."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加编码代理帐户前请选择一个本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增編碼代理帳戶前請選擇本機工作區。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is not supported by the app on %2$@. The CLI and the app come from different builds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wird von der App an %2$@ nicht unterstützt. CLI und App stammen aus unterschiedlichen Builds."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ n’est pas pris en charge par l’app sur %2$@. La CLI et l’app proviennent de builds différents."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ غير مدعوم من التطبيق على %2$@. واجهة سطر الأوامر والتطبيق من إصدارين مختلفين."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La app en %2$@ no admite %1$@. La CLI y la app proceden de compilaciones distintas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 上的 App 不支援 %1$@。CLI 與 App 來自不同的建置版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 上的 App 不支持 %1$@。CLI 与 App 来自不同的构建版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 앱은 %1$@을(를) 지원하지 않습니다. CLI와 앱의 빌드가 서로 다릅니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のアプリは %1$@ に対応していません。CLI とアプリのビルドが異なります。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.cliLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This CLI: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese CLI: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette CLI : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة سطر الأوامر هذه: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta CLI: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 CLI: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この CLI: %@"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.appLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected app: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbundene App: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App connectée : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التطبيق المتصل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App conectada: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線的 App：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接的 App：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 앱: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続先アプリ: %@"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fixLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lösung: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solution : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solución: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解決方式：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解决方法：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해결 방법: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対処: %@"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.otherProduct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This socket belongs to %1$@, which has its own CLI. Run %2$@, or put its directory first on PATH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Socket gehört zu %1$@, das eine eigene CLI hat. Führe %2$@ aus oder setze dessen Verzeichnis an den Anfang von PATH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce socket appartient à %1$@, qui a sa propre CLI. Exécutez %2$@ ou placez son dossier en tête du PATH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتمي هذا المقبس إلى %1$@، وله واجهة سطر أوامر خاصة به. شغّل %2$@، أو ضع مجلده أولًا في PATH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este socket pertenece a %1$@, que tiene su propia CLI. Ejecuta %2$@ o pon su carpeta al principio de PATH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 屬於 %1$@，它有自己的 CLI。請執行 %2$@，或將其目錄放在 PATH 的最前面。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 属于 %1$@，它有自己的 CLI。请运行 %2$@，或将其目录放在 PATH 的最前面。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 소켓은 자체 CLI가 있는 %1$@의 것입니다. %2$@을(를) 실행하거나 해당 디렉터리를 PATH 맨 앞에 두세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このソケットは独自の CLI を持つ %1$@ のものです。%2$@ を実行するか、そのディレクトリを PATH の先頭に置いてください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.otherProductNoPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This socket belongs to %@, which has its own CLI. Run the cmux CLI inside that app's bundle (Contents/Resources/bin/cmux)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Socket gehört zu %@, das eine eigene CLI hat. Führe die cmux-CLI im Bundle dieser App aus (Contents/Resources/bin/cmux)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce socket appartient à %@, qui a sa propre CLI. Exécutez la CLI cmux incluse dans le bundle de cette app (Contents/Resources/bin/cmux)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتمي هذا المقبس إلى %@، وله واجهة سطر أوامر خاصة به. شغّل واجهة cmux الموجودة داخل حزمة ذلك التطبيق (Contents/Resources/bin/cmux)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este socket pertenece a %@, que tiene su propia CLI. Ejecuta la CLI de cmux incluida en el paquete de esa app (Contents/Resources/bin/cmux)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 屬於 %@，它有自己的 CLI。請執行該 App 套件內的 cmux CLI（Contents/Resources/bin/cmux）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 属于 %@，它有自己的 CLI。请运行该 App 包内的 cmux CLI（Contents/Resources/bin/cmux）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 소켓은 자체 CLI가 있는 %@의 것입니다. 해당 앱 번들 안의 cmux CLI(Contents/Resources/bin/cmux)를 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このソケットは独自の CLI を持つ %@ のものです。そのアプリのバンドル内の cmux CLI（Contents/Resources/bin/cmux）を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.cliOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This CLI is older than the app. Run the app's CLI, %@, or remove the older cmux from PATH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese CLI ist älter als die App. Führe die CLI der App aus (%@) oder entferne die ältere cmux-CLI aus PATH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette CLI est plus ancienne que l’app. Exécutez la CLI de l’app, %@, ou retirez l’ancienne cmux du PATH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة سطر الأوامر هذه أقدم من التطبيق. شغّل واجهة التطبيق %@، أو أزل نسخة cmux الأقدم من PATH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta CLI es más antigua que la app. Ejecuta la CLI de la app, %@, o quita la cmux antigua de PATH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI 比 App 舊。請執行 App 的 CLI（%@），或從 PATH 移除較舊的 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI 比 App 旧。请运行 App 的 CLI（%@），或从 PATH 中移除较旧的 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 CLI는 앱보다 오래되었습니다. 앱의 CLI(%@)를 실행하거나 PATH에서 이전 cmux를 제거하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この CLI はアプリより古いです。アプリの CLI（%@）を実行するか、古い cmux を PATH から外してください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.appOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The running app is older than this CLI. Quit and reopen cmux to finish an installed update, or update it with cmux > Check for Updates."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die laufende App ist älter als diese CLI. Beende cmux und öffne es erneut, um ein installiertes Update abzuschließen, oder aktualisiere es über cmux > Nach Updates suchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’app en cours d’exécution est plus ancienne que cette CLI. Quittez puis rouvrez cmux pour terminer une mise à jour installée, ou mettez-la à jour via cmux > Rechercher les mises à jour."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التطبيق قيد التشغيل أقدم من واجهة سطر الأوامر هذه. أغلق cmux وأعد فتحه لإكمال تحديث مثبّت، أو حدّثه من cmux > التحقق من وجود تحديثات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La app en ejecución es más antigua que esta CLI. Cierra y vuelve a abrir cmux para terminar una actualización instalada, o actualízala con cmux > Buscar actualizaciones."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的 App 比此 CLI 舊。請結束並重新開啟 cmux 以完成已安裝的更新，或透過 cmux > 檢查更新 進行更新。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行的 App 比此 CLI 旧。请退出并重新打开 cmux 以完成已安装的更新，或通过 cmux > 检查更新 进行更新。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 앱이 이 CLI보다 오래되었습니다. 설치된 업데이트를 마치려면 cmux를 종료했다가 다시 열거나, cmux > 업데이트 확인으로 업데이트하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のアプリはこの CLI より古いです。インストール済みのアップデートを完了するには cmux を終了して開き直すか、cmux > アップデートを確認 で更新してください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read the app's version. Compare it in cmux > About cmux with this CLI, then relaunch or update the older one."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Version der App konnte nicht gelesen werden. Vergleiche sie unter cmux > Über cmux mit dieser CLI und starte dann die ältere neu oder aktualisiere sie."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire la version de l’app. Comparez-la dans cmux > À propos de cmux avec cette CLI, puis relancez ou mettez à jour la plus ancienne."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la versión de la app. Compárala en cmux > Acerca de cmux con esta CLI y luego reinicia o actualiza la más antigua."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのバージョンを取得できませんでした。cmux > cmuxについて でこの CLI と比較し、古い方を再起動または更新してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 버전을 읽을 수 없습니다. cmux > cmux에 관하여에서 이 CLI와 비교한 다음 오래된 쪽을 다시 실행하거나 업데이트하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 App 的版本。请在 cmux > 关于 cmux 中与此 CLI 比较，然后重新启动或更新较旧的一方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 App 的版本。請在 cmux > 關於 cmux 中與此 CLI 比較，然後重新啟動或更新較舊的一方。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة إصدار التطبيق. قارنه في cmux > حول cmux مع واجهة سطر الأوامر هذه، ثم أعد تشغيل الأقدم أو حدّثه."
+          }
+        }
+      }
+    },
+    "cli.versionSkew.app.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown (it does not answer system.identify)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannt (antwortet nicht auf system.identify)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inconnue (elle ne répond pas à system.identify)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير معروف (لا يستجيب لـ system.identify)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desconocida (no responde a system.identify)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知（不回應 system.identify）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知（不响应 system.identify）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없음(system.identify에 응답하지 않음)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明（system.identify に応答しません）"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.app.noVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, a build that does not report its version"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, ein Build, der seine Version nicht meldet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, un build qui n’indique pas sa version"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@، إصدار لا يُبلغ عن رقم نسخته"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, una compilación que no indica su versión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，此建置版本不回報其版本號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，此构建版本不报告其版本号"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, 버전을 보고하지 않는 빌드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（バージョンを報告しないビルド）"
+          }
+        }
+      }
+    },
     "browser.omnibar.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -10166,6 +11190,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "스크린샷 접근 권한 설정 완료"
+          }
+        }
+      }
+    },
+    "computerUse.onboarding.helperUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このdevビルドではComputer Useを使用できません。使用するにはcmux NIGHTLYをインストールしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ist in diesem Dev-Build nicht verfügbar. Installiere cmux NIGHTLY, um es zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use no está disponible en esta compilación de desarrollo. Instala cmux NIGHTLY para usarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use n’est pas disponible dans cette version de développement. Installez cmux NIGHTLY pour l’utiliser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 개발 빌드에서는 Computer Use를 사용할 수 없습니다. 사용하려면 cmux NIGHTLY를 설치하세요."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام الكمبيوتر غير متاح في إصدار التطوير هذا. ثبّت cmux NIGHTLY لاستخدامه."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此开发版本无法使用 Computer Use。请安装 cmux NIGHTLY 后使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此開發版本無法使用 Computer Use。請安裝 cmux NIGHTLY 後使用。"
           }
         }
       }
@@ -640838,6 +641921,242 @@
         }
       }
     },
+    "cli.vm.list.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nList your Cloud VMs, their state, provider, image, and plan usage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nIhre Cloud-VMs mit Status, Anbieter, Image und Planauslastung auflisten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation :\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nLister vos VM Cloud, leur état, leur fournisseur, leur image et l’utilisation du forfait."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nاعرض أجهزة Cloud VM وحالتها وموفّرها وصورتها واستخدام خطتك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nMuestra tus VM de Cloud, su estado, proveedor, imagen y uso del plan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\n列出您的 Cloud VM、狀態、提供者、映像檔與方案用量。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\n列出你的 Cloud VM、状态、提供商、镜像和套餐用量。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nCloud VM의 상태, 제공업체, 이미지 및 요금제 사용량을 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方：\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nCloud VM の状態、プロバイダ、イメージ、プラン使用量を一覧表示します。"
+          }
+        }
+      }
+    },
+    "cli.vm.new.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 32g; 64g requires Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 32g; 64g erfordert Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 32g ; 64g nécessite Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 32g؛ ويتطلب 64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 32g; 64g requiere Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 32g 的大小；64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 32g 的大小；64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 32g 크기를 지원하며 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 32g まで対応し、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
+          }
+        }
+      }
+    },
+    "cli.vm.ports.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm ports <machine> [--json]\n\nShow listening TCP ports inside a Cloud VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung:\n  cmux vm ports <machine> [--json]\n\nZeigt die lauschenden TCP-Ports in einer Cloud-VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation :\n  cmux vm ports <machine> [--json]\n\nAfficher les ports TCP en écoute dans une VM Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام:\n  cmux vm ports <machine> [--json]\n\nاعرض منافذ TCP المستمعة داخل Cloud VM."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm ports <machine> [--json]\n\nMuestra los puertos TCP en escucha dentro de una VM de Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm ports <machine> [--json]\n\n顯示 Cloud VM 內正在監聽的 TCP 連接埠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm ports <machine> [--json]\n\n显示 Cloud VM 内正在监听的 TCP 端口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법:\n  cmux vm ports <machine> [--json]\n\nCloud VM에서 수신 대기 중인 TCP 포트를 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方：\n  cmux vm ports <machine> [--json]\n\nCloud VM 内で待ち受けている TCP ポートを表示します。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.tuiDaemonUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der cmux-tui-Daemon der Maschine ist nicht verfügbar. Wecken Sie die Maschine auf oder versuchen Sie `cmux vm workspace new` erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le daemon cmux-tui de la machine est indisponible. Réveillez la machine ou réessayez `cmux vm workspace new`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برنامج cmux-tui الخفي على الجهاز غير متاح. أيقظ الجهاز أو أعد محاولة `cmux vm workspace new`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El daemon cmux-tui de la máquina no está disponible. Activa la máquina o vuelve a intentar `cmux vm workspace new`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器的 cmux-tui daemon 無法使用。喚醒機器，或重試 `cmux vm workspace new`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器的 cmux-tui 守护进程不可用。唤醒机器，或重试 `cmux vm workspace new`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 cmux-tui 데몬을 사용할 수 없습니다. 머신을 깨운 후 `cmux vm workspace new`를 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの cmux-tui デーモンを利用できません。マシンを起動するか、`cmux vm workspace new` を再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.agentFeed.question.answer": {
       "extractionState": "manual",
       "localizations": {
@@ -643162,951 +644481,7 @@
       }
     }
   }
-},
-    "cli.versionSkew.header": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ is not supported by the app on %2$@. The CLI and the app come from different builds."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ wird von der App an %2$@ nicht unterstützt. CLI und App stammen aus unterschiedlichen Builds."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ n’est pas pris en charge par l’app sur %2$@. La CLI et l’app proviennent de builds différents."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ غير مدعوم من التطبيق على %2$@. واجهة سطر الأوامر والتطبيق من إصدارين مختلفين."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La app en %2$@ no admite %1$@. La CLI y la app proceden de compilaciones distintas."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ 上的 App 不支援 %1$@。CLI 與 App 來自不同的建置版本。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ 上的 App 不支持 %1$@。CLI 与 App 来自不同的构建版本。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@의 앱은 %1$@을(를) 지원하지 않습니다. CLI와 앱의 빌드가 서로 다릅니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ のアプリは %1$@ に対応していません。CLI とアプリのビルドが異なります。"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.cliLine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This CLI: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese CLI: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette CLI : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "واجهة سطر الأوامر هذه: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta CLI: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 CLI：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 CLI：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 CLI: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この CLI: %@"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.appLine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected app: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbundene App: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App connectée : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التطبيق المتصل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App conectada: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已連線的 App：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已连接的 App：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결된 앱: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続先アプリ: %@"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.fixLine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fix: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lösung: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solution : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الحل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solución: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "解決方式：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "解决方法：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "해결 방법: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "対処: %@"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.fix.otherProduct": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This socket belongs to %1$@, which has its own CLI. Run %2$@, or put its directory first on PATH."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Socket gehört zu %1$@, das eine eigene CLI hat. Führe %2$@ aus oder setze dessen Verzeichnis an den Anfang von PATH."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce socket appartient à %1$@, qui a sa propre CLI. Exécutez %2$@ ou placez son dossier en tête du PATH."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينتمي هذا المقبس إلى %1$@، وله واجهة سطر أوامر خاصة به. شغّل %2$@، أو ضع مجلده أولًا في PATH."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este socket pertenece a %1$@, que tiene su propia CLI. Ejecuta %2$@ o pon su carpeta al principio de PATH."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 socket 屬於 %1$@，它有自己的 CLI。請執行 %2$@，或將其目錄放在 PATH 的最前面。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 socket 属于 %1$@，它有自己的 CLI。请运行 %2$@，或将其目录放在 PATH 的最前面。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 소켓은 자체 CLI가 있는 %1$@의 것입니다. %2$@을(를) 실행하거나 해당 디렉터리를 PATH 맨 앞에 두세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このソケットは独自の CLI を持つ %1$@ のものです。%2$@ を実行するか、そのディレクトリを PATH の先頭に置いてください。"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.fix.otherProductNoPath": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This socket belongs to %@, which has its own CLI. Run the cmux CLI inside that app's bundle (Contents/Resources/bin/cmux)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Socket gehört zu %@, das eine eigene CLI hat. Führe die cmux-CLI im Bundle dieser App aus (Contents/Resources/bin/cmux)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce socket appartient à %@, qui a sa propre CLI. Exécutez la CLI cmux incluse dans le bundle de cette app (Contents/Resources/bin/cmux)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينتمي هذا المقبس إلى %@، وله واجهة سطر أوامر خاصة به. شغّل واجهة cmux الموجودة داخل حزمة ذلك التطبيق (Contents/Resources/bin/cmux)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este socket pertenece a %@, que tiene su propia CLI. Ejecuta la CLI de cmux incluida en el paquete de esa app (Contents/Resources/bin/cmux)."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 socket 屬於 %@，它有自己的 CLI。請執行該 App 套件內的 cmux CLI（Contents/Resources/bin/cmux）。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 socket 属于 %@，它有自己的 CLI。请运行该 App 包内的 cmux CLI（Contents/Resources/bin/cmux）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 소켓은 자체 CLI가 있는 %@의 것입니다. 해당 앱 번들 안의 cmux CLI(Contents/Resources/bin/cmux)를 실행하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このソケットは独自の CLI を持つ %@ のものです。そのアプリのバンドル内の cmux CLI（Contents/Resources/bin/cmux）を実行してください。"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.fix.cliOlder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This CLI is older than the app. Run the app's CLI, %@, or remove the older cmux from PATH."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese CLI ist älter als die App. Führe die CLI der App aus (%@) oder entferne die ältere cmux-CLI aus PATH."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette CLI est plus ancienne que l’app. Exécutez la CLI de l’app, %@, ou retirez l’ancienne cmux du PATH."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "واجهة سطر الأوامر هذه أقدم من التطبيق. شغّل واجهة التطبيق %@، أو أزل نسخة cmux الأقدم من PATH."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta CLI es más antigua que la app. Ejecuta la CLI de la app, %@, o quita la cmux antigua de PATH."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 CLI 比 App 舊。請執行 App 的 CLI（%@），或從 PATH 移除較舊的 cmux。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 CLI 比 App 旧。请运行 App 的 CLI（%@），或从 PATH 中移除较旧的 cmux。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 CLI는 앱보다 오래되었습니다. 앱의 CLI(%@)를 실행하거나 PATH에서 이전 cmux를 제거하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この CLI はアプリより古いです。アプリの CLI（%@）を実行するか、古い cmux を PATH から外してください。"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.fix.appOlder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The running app is older than this CLI. Quit and reopen cmux to finish an installed update, or update it with cmux > Check for Updates."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die laufende App ist älter als diese CLI. Beende cmux und öffne es erneut, um ein installiertes Update abzuschließen, oder aktualisiere es über cmux > Nach Updates suchen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’app en cours d’exécution est plus ancienne que cette CLI. Quittez puis rouvrez cmux pour terminer une mise à jour installée, ou mettez-la à jour via cmux > Rechercher les mises à jour."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التطبيق قيد التشغيل أقدم من واجهة سطر الأوامر هذه. أغلق cmux وأعد فتحه لإكمال تحديث مثبّت، أو حدّثه من cmux > التحقق من وجود تحديثات."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La app en ejecución es más antigua que esta CLI. Cierra y vuelve a abrir cmux para terminar una actualización instalada, o actualízala con cmux > Buscar actualizaciones."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "執行中的 App 比此 CLI 舊。請結束並重新開啟 cmux 以完成已安裝的更新，或透過 cmux > 檢查更新 進行更新。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在运行的 App 比此 CLI 旧。请退出并重新打开 cmux 以完成已安装的更新，或通过 cmux > 检查更新 进行更新。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실행 중인 앱이 이 CLI보다 오래되었습니다. 설치된 업데이트를 마치려면 cmux를 종료했다가 다시 열거나, cmux > 업데이트 확인으로 업데이트하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中のアプリはこの CLI より古いです。インストール済みのアップデートを完了するには cmux を終了して開き直すか、cmux > アップデートを確認 で更新してください。"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.fix.unknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not read the app's version. Compare it in cmux > About cmux with this CLI, then relaunch or update the older one."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Version der App konnte nicht gelesen werden. Vergleiche sie unter cmux > Über cmux mit dieser CLI und starte dann die ältere neu oder aktualisiere sie."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de lire la version de l’app. Comparez-la dans cmux > À propos de cmux avec cette CLI, puis relancez ou mettez à jour la plus ancienne."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo leer la versión de la app. Compárala en cmux > Acerca de cmux con esta CLI y luego reinicia o actualiza la más antigua."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリのバージョンを取得できませんでした。cmux > cmuxについて でこの CLI と比較し、古い方を再起動または更新してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "앱 버전을 읽을 수 없습니다. cmux > cmux에 관하여에서 이 CLI와 비교한 다음 오래된 쪽을 다시 실행하거나 업데이트하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法读取 App 的版本。请在 cmux > 关于 cmux 中与此 CLI 比较，然后重新启动或更新较旧的一方。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法讀取 App 的版本。請在 cmux > 關於 cmux 中與此 CLI 比較，然後重新啟動或更新較舊的一方。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّرت قراءة إصدار التطبيق. قارنه في cmux > حول cmux مع واجهة سطر الأوامر هذه، ثم أعد تشغيل الأقدم أو حدّثه."
-          }
-        }
-      }
-    },
-    "cli.versionSkew.app.unknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "unknown (it does not answer system.identify)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "unbekannt (antwortet nicht auf system.identify)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "inconnue (elle ne répond pas à system.identify)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غير معروف (لا يستجيب لـ system.identify)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "desconocida (no responde a system.identify)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知（不回應 system.identify）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知（不响应 system.identify）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알 수 없음(system.identify에 응답하지 않음)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明（system.identify に応答しません）"
-          }
-        }
-      }
-    },
-    "cli.versionSkew.app.noVersion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, a build that does not report its version"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, ein Build, der seine Version nicht meldet"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, un build qui n’indique pas sa version"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@، إصدار لا يُبلغ عن رقم نسخته"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, una compilación que no indica su versión"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@，此建置版本不回報其版本號"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@，此构建版本不报告其版本号"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, 버전을 보고하지 않는 빌드"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（バージョンを報告しないビルド）"
-          }
-        }
-      }
-    },
-    "computerUse.onboarding.helperUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このdevビルドではComputer Useを使用できません。使用するにはcmux NIGHTLYをインストールしてください。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Use ist in diesem Dev-Build nicht verfügbar. Installiere cmux NIGHTLY, um es zu nutzen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Use no está disponible en esta compilación de desarrollo. Instala cmux NIGHTLY para usarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Use n’est pas disponible dans cette version de développement. Installez cmux NIGHTLY pour l’utiliser."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 개발 빌드에서는 Computer Use를 사용할 수 없습니다. 사용하려면 cmux NIGHTLY를 설치하세요."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استخدام الكمبيوتر غير متاح في إصدار التطوير هذا. ثبّت cmux NIGHTLY لاستخدامه."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此开发版本无法使用 Computer Use。请安装 cmux NIGHTLY 后使用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此開發版本無法使用 Computer Use。請安裝 cmux NIGHTLY 後使用。"
-          }
-        }
-      }
-    },
-    "cli.vm.list.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nList your Cloud VMs, their state, provider, image, and plan usage."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwendung:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nIhre Cloud-VMs mit Status, Anbieter, Image und Planauslastung auflisten."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation :\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nLister vos VM Cloud, leur état, leur fournisseur, leur image et l’utilisation du forfait."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nاعرض أجهزة Cloud VM وحالتها وموفّرها وصورتها واستخدام خطتك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nMuestra tus VM de Cloud, su estado, proveedor, imagen y uso del plan."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\n列出您的 Cloud VM、狀態、提供者、映像檔與方案用量。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\n列出你的 Cloud VM、状态、提供商、镜像和套餐用量。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법:\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nCloud VM의 상태, 제공업체, 이미지 및 요금제 사용량을 표시합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使い方：\n  cmux vm ls [--json]\n  cmux vm list [--json]\n\nCloud VM の状態、プロバイダ、イメージ、プラン使用量を一覧表示します。"
-          }
-        }
-      }
-    },
-    "cli.vm.new.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 32g; 64g requires Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 32g; 64g erfordert Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 32g ; 64g nécessite Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 32g؛ ويتطلب 64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 32g; 64g requiere Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 32g 的大小；64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 32g 的大小；64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 32g 크기를 지원하며 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 32g まで対応し、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
-          }
-        }
-      }
-    },
-    "cli.vm.ports.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage:\n  cmux vm ports <machine> [--json]\n\nShow listening TCP ports inside a Cloud VM."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwendung:\n  cmux vm ports <machine> [--json]\n\nZeigt die lauschenden TCP-Ports in einer Cloud-VM."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation :\n  cmux vm ports <machine> [--json]\n\nAfficher les ports TCP en écoute dans une VM Cloud."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام:\n  cmux vm ports <machine> [--json]\n\nاعرض منافذ TCP المستمعة داخل Cloud VM."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso:\n  cmux vm ports <machine> [--json]\n\nMuestra los puertos TCP en escucha dentro de una VM de Cloud."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：\n  cmux vm ports <machine> [--json]\n\n顯示 Cloud VM 內正在監聽的 TCP 連接埠。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：\n  cmux vm ports <machine> [--json]\n\n显示 Cloud VM 内正在监听的 TCP 端口。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법:\n  cmux vm ports <machine> [--json]\n\nCloud VM에서 수신 대기 중인 TCP 포트를 표시합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使い方：\n  cmux vm ports <machine> [--json]\n\nCloud VM 内で待ち受けている TCP ポートを表示します。"
-          }
-        }
-      }
-    },
-    "socket.cloudVM.tuiDaemonUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der cmux-tui-Daemon der Maschine ist nicht verfügbar. Wecken Sie die Maschine auf oder versuchen Sie `cmux vm workspace new` erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le daemon cmux-tui de la machine est indisponible. Réveillez la machine ou réessayez `cmux vm workspace new`."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "برنامج cmux-tui الخفي على الجهاز غير متاح. أيقظ الجهاز أو أعد محاولة `cmux vm workspace new`."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El daemon cmux-tui de la máquina no está disponible. Activa la máquina o vuelve a intentar `cmux vm workspace new`."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "機器的 cmux-tui daemon 無法使用。喚醒機器，或重試 `cmux vm workspace new`。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "机器的 cmux-tui 守护进程不可用。唤醒机器，或重试 `cmux vm workspace new`。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "머신의 cmux-tui 데몬을 사용할 수 없습니다. 머신을 깨운 후 `cmux vm workspace new`를 다시 시도하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンの cmux-tui デーモンを利用できません。マシンを起動するか、`cmux vm workspace new` を再試行してください。"
-          }
-        }
-      }
-    }
+}
   },
   "version": "1.0"
 }

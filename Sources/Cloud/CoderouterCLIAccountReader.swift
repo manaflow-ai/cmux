@@ -1,60 +1,165 @@
+import Darwin
 import Foundation
 import OSLog
 
 /// Reads the same CodeRouter Cloud account view shown by `cmux cr accounts`.
-/// CodeRouter organizations have their own IDs, so the cmux team UUID is never
-/// passed to CodeRouter directly.
+/// CodeRouter's organization catalog is keyed by the Stack team UUID. Newer
+/// CLI versions accept that ID on the account read, so a sidebar refresh does
+/// not need to mutate the user's active organization.
 enum CoderouterCLIAccountReader {
     typealias Run = @Sendable (_ arguments: [String]) async throws -> Data
+
+    struct Snapshot {
+        let organizationID: String
+        let accounts: [CloudTreeNode.CoderouterAccount]
+        let supportsTeamOption: Bool
+    }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
 
     static func accounts(
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        run: Run = runCLI
+        run: Run? = nil
     ) async throws -> [CloudTreeNode.CoderouterAccount] {
-        guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cmuxTeamName.isEmpty,
-              let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run) else {
+        let snapshot = try await snapshot(for: cmuxTeamID, name: cmuxTeamName, run: run)
+        return snapshot.accounts
+    }
+
+    /// Reads the selected team's CodeRouter organization and account rows in
+    /// one operation. The organization ID is retained by the sidebar so an
+    /// account created from a team row can carry an explicit destination.
+    static func snapshot(
+        for cmuxTeamID: String?,
+        name cmuxTeamName: String?,
+        knownOrganizationID: String? = nil,
+        run: Run? = nil
+    ) async throws -> Snapshot {
+        try Task.checkCancellation()
+        let invoke = run ?? runCLI
+        guard let teamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty,
+              let organizationID = try await resolvedOrganizationID(
+                  for: teamID,
+                  name: cmuxTeamName,
+                  knownOrganizationID: knownOrganizationID,
+                  run: invoke
+              ) else {
             logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
 
-        // `accounts` reads the CLI's active organization, which the user's terminal
-        // shares. Its payload names that organization as `teamId`, so trust only the
-        // payload and switch only when the selected team's organization is not active.
-        var payload = try await readAccounts(run: run)
-        if payload.organizationID != organizationID {
-            _ = try await run(["org", "switch", organizationID])
-            payload = try await readAccounts(run: run)
+        // Prefer the team-scoped read. It sends the selected organization in the
+        // request and leaves the terminal's shared active organization untouched.
+        try Task.checkCancellation()
+        let payload: (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount])
+        let supportsTeamOption: Bool
+        do {
+            payload = try await readAccounts(for: organizationID, run: invoke)
+            supportsTeamOption = true
+        } catch {
+            // CodeRouter 0.3.15 and earlier predate `accounts --team`. The app
+            // bundles 0.3.16, but `resolvedExecutable` can still pick an older
+            // CLI from PATH or the installer, so keep this fallback.
+            guard isUnsupportedTeamOption(error, command: "accounts") else { throw error }
+            logger.info("Using an isolated CodeRouter configuration for the legacy CLI")
+            payload = try await withLegacyCLI(run: run) { legacyRun in
+                try Task.checkCancellation()
+                _ = try await legacyRun(["org", "switch", organizationID])
+                try Task.checkCancellation()
+                return try await readAccounts(run: legacyRun)
+            }
+            supportsTeamOption = false
         }
         guard payload.organizationID == organizationID else {
             logger.error("CodeRouter accounts were for org ID \(payload.organizationID ?? "<nil>", privacy: .public), expected \(organizationID, privacy: .public)")
-            throw accountError("coderouter organization did not switch to the selected team.")
+            throw accountError("coderouter returned accounts for a different team.")
         }
         logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
-        return payload.accounts
+        return Snapshot(organizationID: organizationID, accounts: payload.accounts, supportsTeamOption: supportsTeamOption)
     }
 
-    /// Removes one account from the CodeRouter organization of the selected cmux
-    /// team, selecting that organization first exactly as `accounts` reads it.
+    private static func resolvedOrganizationID(
+        for cmuxTeamID: String?,
+        name cmuxTeamName: String?,
+        knownOrganizationID: String?,
+        run: Run
+    ) async throws -> String? {
+        if let cmuxTeamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cmuxTeamID.isEmpty,
+           UUID(uuidString: cmuxTeamID) != nil {
+            return cmuxTeamID
+        }
+        if let knownOrganizationID = knownOrganizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !knownOrganizationID.isEmpty,
+           UUID(uuidString: knownOrganizationID) != nil {
+            return knownOrganizationID
+        }
+        guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cmuxTeamName.isEmpty else { return nil }
+        return try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run)
+    }
+
+    /// Removes one account from the selected team. The CLI already reads the
+    /// account list to select the provider, so no sidebar preflight is needed.
     static func remove(
         accountID: String,
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        run: Run = runCLI
+        knownOrganizationID: String? = nil,
+        run: Run? = nil
     ) async throws {
+        try Task.checkCancellation()
         guard UUID(uuidString: accountID) != nil else {
             throw accountError("That coderouter account ID is not valid.")
         }
-        _ = try await accounts(for: cmuxTeamID, name: cmuxTeamName, run: run)
-        _ = try await run(["remove", accountID, "--yes"])
+        guard let cmuxTeamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines), !cmuxTeamID.isEmpty else {
+            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
+        }
+        let invoke = run ?? runCLI
+        guard let organizationID = try await resolvedOrganizationID(
+            for: cmuxTeamID,
+            name: cmuxTeamName,
+            knownOrganizationID: knownOrganizationID,
+            run: invoke
+        ) else {
+            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
+        }
+        do {
+            _ = try await invoke(["remove", accountID, "--yes", "--team", organizationID])
+        } catch {
+            // Compatibility with the pre-team-scoped CLI. This legacy path is
+            // only used when the direct command is not understood.
+            guard isUnsupportedTeamOption(error, command: "remove") else { throw error }
+            try await withLegacyCLI(run: run) { legacyRun in
+                try Task.checkCancellation()
+                _ = try await legacyRun(["org", "switch", organizationID])
+                try Task.checkCancellation()
+                _ = try await legacyRun(["remove", accountID, "--yes"])
+            }
+        }
         logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
     }
 
+    private static func readAccounts(
+        for organizationID: String,
+        run: Run
+    ) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
+        try await readAccounts(
+            arguments: ["accounts", "--json", "--team", organizationID],
+            run: run
+        )
+    }
+
     private static func readAccounts(run: Run) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
-        let output = try await run(["accounts", "--json"])
+        try await readAccounts(arguments: ["accounts", "--json"], run: run)
+    }
+
+    private static func readAccounts(
+        arguments: [String],
+        run: Run
+    ) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
+        let output = try await run(arguments)
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
         let accounts = object?["accounts"] as? [[String: Any]] ?? []
         let result: [CloudTreeNode.CoderouterAccount] = accounts.compactMap { account in
@@ -74,6 +179,52 @@ enum CoderouterCLIAccountReader {
         return (object?["teamId"] as? String, result)
     }
 
+    /// The bundled pre-team-scoped CLI reports a command usage string that
+    /// does not mention `--team`. A newer CLI can fail for auth, network, or
+    /// membership reasons; those failures must be returned to the sidebar and
+    /// must never mutate the user's shared active organization.
+    private static func isUnsupportedTeamOption(_ error: Error, command: String) -> Bool {
+        let failure = error as NSError
+        guard failure.domain == "CoderouterCLI", failure.code == 1 else { return false }
+        let usage = command == "accounts"
+            ? "coderouter: usage: coderouter accounts [--watch | --json]"
+            : "coderouter: usage: coderouter remove [account-id-or-label] [--yes]"
+        return failure.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines) == usage
+    }
+
+    private static func withLegacyCLI<T>(run: Run?, body: (Run) async throws -> T) async throws -> T {
+        if let run { return try await body(run) }
+        return try await withIsolatedConfiguration { environment in
+            try await body { arguments in
+                try await runCLI(arguments, environment: environment)
+            }
+        }
+    }
+
+    /// Legacy CLI operations share a private config for their whole sequence.
+    /// An intervening terminal `org switch` cannot redirect a read or removal.
+    static func withIsolatedConfiguration<T>(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        body: ([String: String]) async throws -> T
+    ) async throws -> T {
+        let fileManager = FileManager.default
+        let home = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+        let sourceRoot = environment["CODEROUTER_DATA_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? URL(fileURLWithPath: home).appendingPathComponent("Library/Application Support").path
+        let directory = fileManager.temporaryDirectory.appendingPathComponent("cmux-coderouter-\(UUID().uuidString)")
+        let configDirectory = directory.appendingPathComponent("coderouter")
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? fileManager.removeItem(at: directory) }
+        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: false)
+        try fileManager.copyItem(
+            at: URL(fileURLWithPath: sourceRoot).appendingPathComponent("coderouter/config.json"),
+            to: configDirectory.appendingPathComponent("config.json")
+        )
+        var isolatedEnvironment = environment
+        isolatedEnvironment["CODEROUTER_DATA_DIR"] = directory.path
+        return try await body(isolatedEnvironment)
+    }
+
     /// The share of the account's current rate-limit window still unused, the
     /// "93% left" `cr accounts` prints. Nil when the provider reports no window.
     private static func remainingPercent(usage: Any?) -> Int? {
@@ -87,17 +238,19 @@ enum CoderouterCLIAccountReader {
     private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String, run: Run) async throws -> String? {
         let output = try await run(["org", "list"])
         let wanted = normalized(cmuxTeamName)
-        for rawLine in String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline) {
+        let organizations = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { rawLine -> (id: String, name: String)? in
             let tokens = rawLine.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard let candidateID = tokens.last,
-                  UUID(uuidString: String(candidateID)) != nil else { continue }
-            if String(candidateID) == cmuxTeamID { return String(candidateID) }
+                  UUID(uuidString: String(candidateID)) != nil else { return nil }
             let candidateName = tokens.dropLast().joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "*"))
-            if normalized(candidateName) == wanted {
-                return String(candidateID)
-            }
+            return (String(candidateID), normalized(candidateName))
         }
-        return nil
+        if let exact = organizations.first(where: { $0.id == cmuxTeamID }) { return exact.id }
+        let matches = organizations.filter { $0.name == wanted }
+        guard matches.count <= 1 else {
+            throw accountError("More than one CodeRouter organization matches the selected team.")
+        }
+        return matches.first?.id
     }
 
     private static func normalized(_ value: String) -> String {
@@ -141,37 +294,149 @@ enum CoderouterCLIAccountReader {
     }
 
     @Sendable private static func runCLI(_ arguments: [String]) async throws -> Data {
-        guard let executable = resolvedExecutable() else {
+        try await runCLI(arguments, environment: ProcessInfo.processInfo.environment)
+    }
+
+    @Sendable private static func runCLI(_ arguments: [String], environment: [String: String]) async throws -> Data {
+        guard let executable = resolvedExecutable(environment: environment) else {
             throw accountError("coderouter is not installed. Run cmux cr in a terminal to install it.")
         }
+        // Same isolation as `cmux cr`: CodeRouter never sees cmux's CMUX_* context.
+        let environment = environment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
+        let result = try await runProcess(
+            executable: executable,
+            arguments: arguments,
+            environment: environment
+        )
+        return result.stdout
+    }
+
+    /// Runs a CLI while draining stdout and stderr concurrently. Waiting for
+    /// termination before reading either pipe deadlocks once a chatty command
+    /// fills the kernel pipe buffer (the old sidebar reader did exactly that).
+    /// This remains internal so the large-output behavior can be covered without
+    /// depending on a real CodeRouter installation.
+    static func runProcess(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]? = nil
+    ) async throws -> (stdout: Data, stderr: Data) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        // Same isolation as `cmux cr`: CodeRouter never sees cmux's CMUX_* context.
-        process.environment = ProcessInfo.processInfo.environment.filter { key, _ in
-            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
-        }
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output
         process.standardError = error
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { process in
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                guard process.terminationStatus == 0 else {
-                    let message = String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    logger.error("coderouter \(arguments.joined(separator: " "), privacy: .public) failed: \(message, privacy: .public)")
-                    continuation.resume(throwing: NSError(domain: "CoderouterCLI", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message]))
-                    return
+        let stdoutFileDescriptor = output.fileHandleForReading.fileDescriptor
+        let stderrFileDescriptor = error.fileHandleForReading.fileDescriptor
+
+        let stdoutRead = Task.detached(priority: .utility) {
+            Self.drain(fileDescriptor: stdoutFileDescriptor)
+        }
+        let stderrRead = Task.detached(priority: .utility) {
+            Self.drain(fileDescriptor: stderrFileDescriptor)
+        }
+        let cancellation = CoderouterProcessCancellation(
+            process: process,
+            stdout: output.fileHandleForReading,
+            stderr: error.fileHandleForReading
+        )
+
+        let status: Int32
+        do {
+            status = try await withTaskCancellationHandler(operation: {
+                try Task.checkCancellation()
+                return try await withCheckedThrowingContinuation { continuation in
+                    process.terminationHandler = { process in
+                        continuation.resume(returning: process.terminationStatus)
+                    }
+                    do {
+                        try process.run()
+                        // Cancellation may arrive between the check above and
+                        // Process.run(); do not leave that child behind.
+                        if Task.isCancelled {
+                            cancellation.cancel()
+                        }
+                    } catch {
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: error)
+                    }
                 }
-                continuation.resume(returning: data)
+            }, onCancel: {
+                cancellation.cancel()
+            })
+            try Task.checkCancellation()
+        } catch {
+            cancellation.cancel()
+            stdoutRead.cancel()
+            stderrRead.cancel()
+            _ = await stdoutRead.value
+            _ = await stderrRead.value
+            throw error
+        }
+
+        let stdout = await stdoutRead.value
+        let stderr = await stderrRead.value
+        guard status == 0 else {
+            let message = String(decoding: stderr, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            logger.error("coderouter \(arguments.joined(separator: " "), privacy: .public) failed: \(message, privacy: .public)")
+            throw NSError(domain: "CoderouterCLI", code: Int(status), userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        return (stdout, stderr)
+    }
+
+    /// Reads one pipe until EOF without blocking the task that waits for the
+    /// child process. The descriptor is the only value crossing the detached
+    /// task boundary, so Foundation pipe objects remain actor-local.
+    private static func drain(fileDescriptor: Int32) -> Data {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(fileDescriptor, bytes.baseAddress, bytes.count)
             }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
+            if count > 0 {
+                data.append(contentsOf: buffer[0..<count])
+            } else if count == 0 {
+                return data
+            } else if errno == EINTR {
+                continue
+            } else {
+                return data
             }
         }
+    }
+}
+
+/// Process and pipe handles captured by the cancellation handler. Closing the
+/// readers wakes the drain tasks, while SIGKILL guarantees a child that ignores
+/// SIGTERM cannot keep a team refresh alive after the user switches teams.
+private final class CoderouterProcessCancellation: @unchecked Sendable {
+    private let process: Process
+    private let stdout: FileHandle
+    private let stderr: FileHandle
+
+    init(process: Process, stdout: FileHandle, stderr: FileHandle) {
+        self.process = process
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
+    func cancel() {
+        let identifier = process.processIdentifier
+        if process.isRunning, identifier > 1 {
+            process.terminate()
+            if process.isRunning {
+                _ = Darwin.kill(identifier, SIGKILL)
+            }
+        }
+        try? stdout.close()
+        try? stderr.close()
     }
 }
