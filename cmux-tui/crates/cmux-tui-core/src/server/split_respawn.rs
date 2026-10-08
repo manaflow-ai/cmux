@@ -24,7 +24,15 @@ pub(super) fn split_tab(
         None => mux.move_tab_to_split(surface, pane, edge, ratio, transaction),
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
-            mux.move_tab_to_split_respawning(surface, pane, edge, ratio, respawn, transaction)
+            mux.move_tab_to_split_respawning_as(
+                &origin_gate::connection_actor(mux, client),
+                surface,
+                pane,
+                edge,
+                ratio,
+                respawn,
+                transaction,
+            )
         }
     }
 }
