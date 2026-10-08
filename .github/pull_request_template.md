@@ -32,8 +32,11 @@ Left empty or deleted, /release falls back to the PR title and flags the PR for 
 ## Checklist
 
 - [ ] Behavior changes have added or updated tests, or Testing says why not
+- [ ] An independent reviewer will approve this pull request before merge
+- [ ] If this pull request documents a historical or incident exception, the Summary/Testing section records the specific exception, approver, reason, and compensating verification or release-review evidence; that record does not replace the required approval
 - [ ] UI, settings, menu, schema, help-text or user-facing docs change: [localization audited](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-localization/SKILL.md), and the result is stated above
 - [ ] New or changed v2 socket method allowlisted for `cmux ssh`: the [relay authorization questions](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-socket-policy/references/remote-relay-authorization.md) are answered above
 - [ ] iOS connectivity, auth, lifecycle, workspace action, terminal I/O or mobile RPC contract change: [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) updated, or explained why existing coverage still applies, with the affected workload result recorded
+- [ ] Changes to `.github/workflows/`, `/ios/Config/`, or `/ios/scripts/upload-testflight.sh` have the required CODEOWNER review before merge
 - [ ] User-facing docs updated if needed
 - [ ] Reviewed with a subagent before merge ([cmux-review](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-review/SKILL.md)), and all bot and human review comments resolved
