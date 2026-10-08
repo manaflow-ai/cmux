@@ -46637,6 +46637,268 @@
         }
       }
     },
+    "settings.sidebar.spacesVisibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スペースを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار المساحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis rum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra spazi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញលំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis områder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż przestrzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar espaços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanları Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện không gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示空間"
+          }
+        }
+      }
+    },
+    "settings.sidebar.spacesVisibility.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「ポインタを置いたとき」を選ぶと、ポインタがサイドバー上にあるときだけ、ほかのボタンと同じようにスペースを表示します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض خيار «عند التمرير» المساحات فقط أثناء وجود المؤشر فوق الشريط الجانبي، مثل أزراره الأخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pri prelasku prikazuje prostore samo dok je pokazivač iznad bočne trake, kao i njena ostala dugmad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved markør viser rummene kun, mens markøren er over sidepanelet, ligesom dets andre knapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Beim Darüberfahren“ zeigt die Bereiche nur, solange der Zeiger über der Seitenleiste ist, wie ihre anderen Tasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pasar el puntero muestra los espacios solo mientras el puntero está sobre la barra lateral, como sus otros botones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au survol affiche les espaces uniquement lorsque le pointeur est sur la barre latérale, comme ses autres boutons."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al passaggio mostra gli spazi solo mentre il puntatore è sulla barra laterale, come gli altri pulsanti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញលំហតែពេលទស្សន៍ទ្រនិចនៅលើរបារចំហៀងប៉ុណ្ណោះ ដូចប៊ូតុងផ្សេងទៀតរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 올렸을 때를 선택하면 다른 버튼처럼 포인터가 사이드바 위에 있을 때만 스페이스를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved peker viser områdene bare mens pekeren er over sidefeltet, som de andre knappene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po najechaniu pokazuje przestrzenie tylko wtedy, gdy wskaźnik jest nad paskiem bocznym, tak jak jego pozostałe przyciski."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao passar o cursor mostra os espaços apenas enquanto o ponteiro está sobre a barra lateral, como os outros botões."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведении» показывает пространства только когда указатель над боковой панелью, как и её другие кнопки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อวางเมาส์จะแสดงสเปซเฉพาะขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง เหมือนปุ่มอื่นๆ ของแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine gelince seçeneği, alanları yalnızca işaretçi kenar çubuğunun üzerindeyken, diğer düğmeleri gibi gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведенні» показує простори лише тоді, коли вказівник над бічною панеллю, як і її інші кнопки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi di chuột chỉ hiện các không gian khi con trỏ ở trên thanh bên, giống các nút khác của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“悬停时”仅在指针位于边栏上方时显示空间，与边栏的其他按钮一样。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「懸停時」僅在指標位於側邊欄上方時顯示空間，與側邊欄的其他按鈕一樣。"
+          }
+        }
+      }
+    },
     "settings.group.picker": {
       "extractionState": "manual",
       "localizations": {

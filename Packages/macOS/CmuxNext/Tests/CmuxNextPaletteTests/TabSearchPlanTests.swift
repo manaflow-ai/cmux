@@ -4,7 +4,7 @@ import Testing
 
 /// Search Tabs rows and ranking (pure): order, sections, visibility and
 /// which fields a query matches.
-@Suite struct TabSearchPlanTests {
+@Suite(.paletteRanker) struct TabSearchPlanTests {
     let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
     let ranker = TabSearchRanker()
 
