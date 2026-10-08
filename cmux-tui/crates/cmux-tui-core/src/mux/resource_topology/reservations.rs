@@ -15,13 +15,12 @@ fn stored_reservation_mutation(
     stored: &Map<String, Value>,
     what: &str,
 ) -> anyhow::Result<WorkspaceMutation> {
-    let field = |name: &str| {
-        stored[name].as_str().with_context(|| format!("{what} omitted its {name}"))
-    };
-    let actor = stored.get("mutation_actor").and_then(Value::as_str).map_or(
-        crate::Actor::Legacy,
-        crate::Actor::from_wire,
-    );
+    let field =
+        |name: &str| stored[name].as_str().with_context(|| format!("{what} omitted its {name}"));
+    let actor = stored
+        .get("mutation_actor")
+        .and_then(Value::as_str)
+        .map_or(crate::Actor::Legacy, crate::Actor::from_wire);
     WorkspaceMutation::new(field("mutation_id")?, field("mutation_origin")?, actor)
 }
 
@@ -85,5 +84,4 @@ impl Mux {
             env: terminal_env_field(&intent["fields"]),
         })
     }
-
 }

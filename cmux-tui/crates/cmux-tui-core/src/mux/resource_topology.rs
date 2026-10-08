@@ -2616,10 +2616,7 @@ impl Mux {
                     operation,
                     &selectors,
                     &fields,
-                    ResourceEffectIntentContext {
-                        expected_revision,
-                        mutation,
-                    },
+                    ResourceEffectIntentContext { expected_revision, mutation },
                     &mut state,
                     &registry,
                 )?;
@@ -3672,10 +3669,7 @@ impl Mux {
                         operation,
                         selectors,
                         &effect_fields,
-                        ResourceEffectIntentContext {
-                            expected_revision,
-                            mutation,
-                        },
+                        ResourceEffectIntentContext { expected_revision, mutation },
                         &mut state,
                         &registry,
                     )?;

@@ -157,7 +157,8 @@ fn rows_a_creation_reserves_are_the_callers() {
     let created = send(&mux, &plain, &v2("workspace.create", params, Some("reserve-1"), None));
     assert_eq!(created["ok"], true, "{created}");
     let registry = mux.workspace_registry.lock().unwrap();
-    let sql = "SELECT idempotency_key, actor FROM resource_mutations WHERE actor != 'user:user_local'";
+    let sql =
+        "SELECT idempotency_key, actor FROM resource_mutations WHERE actor != 'user:user_local'";
     let mut statement = registry.connection.prepare(sql).unwrap();
     let others = statement
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
