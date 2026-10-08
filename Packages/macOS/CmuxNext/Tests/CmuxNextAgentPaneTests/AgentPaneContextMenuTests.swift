@@ -23,6 +23,15 @@ import WebKit
         return menu
     }
 
+    /// Sends the item's action to its target, as AppKit does when the person picks it (a test
+    /// process has no running NSApplication to route `performActionForItem`).
+    static func choose(_ menu: NSMenu, _ title: String) {
+        let item = menu.items.first { $0.title == title }
+        #expect(item != nil, "no \(title) item")
+        guard let item, let action = item.action, let target = item.target as? NSObject else { return }
+        _ = target.perform(action, with: item)
+    }
+
     static func titles(_ menu: NSMenu) -> [String] {
         menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
     }
@@ -76,7 +85,7 @@ import WebKit
     @Test func choosingAnItemActsOnTheReportedMessage() throws {
         let (menu, copies, forks) = rebuilt(target: Self.reply, devTools: false)
         for title in [AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.copyAsMarkdown, AgentPaneMenuStrings.forkFromHere] {
-            menu.performActionForItem(at: try #require(menu.items.firstIndex { $0.title == title }))
+            Self.choose(menu, title)
         }
         #expect(copies() == ["Done. See the diff.", "**Done.** See the `diff`."])
         #expect(forks() == [7])
@@ -108,9 +117,9 @@ import WebKit
         let menu = Self.webKitMenu()
         openMenu(menu)
         #expect(!Self.titles(menu).contains("WKMenuItemIdentifierReload"))
-        menu.performActionForItem(at: try #require(menu.items.firstIndex { $0.title == AgentPaneMenuStrings.copyMessage }))
+        Self.choose(menu, AgentPaneMenuStrings.copyMessage)
         #expect(pasteboard.string(forType: .string) == "Done. See the diff.")
-        menu.performActionForItem(at: try #require(menu.items.firstIndex { $0.title == AgentPaneMenuStrings.forkFromHere }))
+        Self.choose(menu, AgentPaneMenuStrings.forkFromHere)
         #expect(scripts.contains { $0.contains("chat.fork") && $0.contains("throughSeq: 7") })
 
         let next = Self.webKitMenu()
