@@ -22,6 +22,8 @@ use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(all(test, unix))]
 mod journal_failure_tests;
 #[cfg(unix)]
+mod journal_reconnect;
+#[cfg(unix)]
 mod prelaunch;
 #[cfg(unix)]
 mod rehost;
@@ -3380,28 +3382,9 @@ impl Surface {
                             continue;
                         }
                         // Bytes the host wrote while no daemon tap existed are
-                        // not in the journal. Record that gap in the terminal
-                        // lane before any new output; the journal retention
-                        // worker coalesces one checkpoint for the whole wave
-                        // (mux/journal_retention.rs). Capturing a session
-                        // checkpoint here made a wave of N reconnects O(N^2).
-                        // The capture gate orders the gap before a shutdown's
-                        // final terminal barrier, as for output.
-                        let journal_gate = pty
-                            .journal_capture_gate
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        if reconnect_mux.terminal_journal_enabled()
-                            && pty.journal_capture_supported
-                            && pty.journal_capture_open.load(Ordering::Acquire)
-                            && let Some(terminal_id) = pty.terminal_public_id.clone()
-                        {
-                            reconnect_mux.journal_terminal_host_reconnect(
-                                terminal_id,
-                                pty.journal_generation.clone(),
-                            );
-                        }
-                        drop(journal_gate);
+                        // not in the journal: record that gap before any new
+                        // output (surface/journal_reconnect.rs).
+                        pty.journal_host_reconnect_gap(&reconnect_mux);
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,

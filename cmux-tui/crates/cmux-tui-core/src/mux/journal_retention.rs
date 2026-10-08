@@ -201,9 +201,9 @@ fn configured_interval() -> (Duration, Duration) {
 
 enum CaptureOutcome {
     Captured,
-    /// The daemon is shutting down or handing off: no capture.
+    /// The daemon is shutting down: no capture.
     Skipped,
-    /// A teardown started after the batch was taken: capture later.
+    /// A teardown or handoff is in progress: capture later.
     Deferred,
     Failed,
 }
@@ -226,27 +226,25 @@ impl Drop for TerminalTeardown<'_> {
 }
 
 impl Mux {
-    /// O(1) reconnect bookkeeping, called by the hosted reader after it
-    /// installed the host's replacement snapshot and before it reads new
-    /// output. The gap record precedes that output in the terminal lane.
-    pub(crate) fn journal_terminal_host_reconnect(
-        self: &Arc<Self>,
-        terminal_id: Arc<TerminalPublicId>,
-        generation: Arc<str>,
-    ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id: terminal_id.clone(),
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason: "host_reconnect",
-        });
+    /// Non-blocking enqueue of one terminal-lane event (a reconnect gap).
+    pub(crate) fn try_journal_terminal_event(
+        &self,
+        event: crate::journal_ingress::JournalIngressEvent,
+    ) -> Result<(), crate::journal_ingress::JournalIngressTrySendError> {
+        self.journal_ingress.try_send(event)
+    }
+
+    /// O(1) reconnect bookkeeping, called by the hosted reader after its
+    /// gap record is enqueued (surface/journal_reconnect.rs): mark the
+    /// terminal for the next coalesced checkpoint.
+    pub(crate) fn note_terminal_host_reconnect(self: &Arc<Self>, terminal_id: TerminalPublicId) {
         let retention = &self.journal_retention;
         retention
             .shared
             .schedule
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .note(TerminalPublicId::clone(&terminal_id), Instant::now());
+            .note(terminal_id, Instant::now());
         retention.shared.changed.notify_all();
         if !retention.worker_started.swap(true, Ordering::AcqRel) {
             let shared = retention.shared.clone();
@@ -282,12 +280,13 @@ impl Mux {
     fn capture_coalesced_checkpoint(&self, batch: &[TerminalPublicId]) -> CaptureOutcome {
         // A daemon that is shutting down or handing off its hosts (also right
         // after shutdown-daemon end_terminals) captures nothing more.
-        if self.shutting_down.load(Ordering::Acquire)
-            || self.control_clients.daemon_handoff_in_progress()
-        {
+        if self.shutting_down.load(Ordering::Acquire) {
             return CaptureOutcome::Skipped;
         }
-        if self.journal_retention.teardown_active() {
+        // A handoff can still be cancelled: keep the batch pending.
+        if self.journal_retention.teardown_active()
+            || self.control_clients.daemon_handoff_in_progress()
+        {
             return CaptureOutcome::Deferred;
         }
         let Some(first) = batch.first() else { return CaptureOutcome::Skipped };
