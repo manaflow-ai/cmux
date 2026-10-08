@@ -29,6 +29,16 @@ export default agentPaneEntry({
   height: 640,
   widths: { narrow: 300, normal: 400, wide: 480 },
   anchors: [{ selector: ".acpmux-scroll" }],
+  checks: {
+    anchorMovePx: {
+      value: 128,
+      reason: "Typing a wrapping dock draft intentionally grows the composer and resizes the transcript viewport.",
+    },
+    layoutShiftMax: {
+      value: 0.05,
+      reason: "The dock composer grows in flow while the typed draft wraps, producing a bounded layout shift.",
+    },
+  },
   covers: ["page:cmux.agent", "agent-session/acpmux/App.tsx#AcpmuxApp"],
   variants: {
     "new-chat": {
@@ -49,7 +59,7 @@ export default agentPaneEntry({
       }),
     },
     "typing-in-dock": {
-      note: "A two-line draft typed at dock width: the composer grows, the transcript stays put.",
+      note: "A two-line draft typed at dock width: the composer grows and the transcript viewport resizes.",
       snapshot: chat(turn),
       play: async (ctx) => {
         await ctx.click({ selector: PROMPT });
