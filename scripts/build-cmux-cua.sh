@@ -10,6 +10,9 @@ CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CMUX_CUA_PATCH_FILE="$REPO_ROOT/$CMUX_CUA_PATCH_RELATIVE_PATH"
+CMUX_CUA_PATCH_DIGEST="$(shasum -a 256 "$CMUX_CUA_PATCH_FILE" | awk '{print $1}')"
+CMUX_CUA_BUILD_SOURCE_OWNER_FILE=".cmux-cua-managed-build-source"
+CMUX_CUA_BUILD_SOURCE_OWNER_VALUE="cmux-cua-build-source-v1 $CMUX_CUA_PINNED_SHA $CMUX_CUA_PATCH_DIGEST"
 
 # Xcode build phases do not inherit a login-shell PATH, so fall back to
 # rustup's conventional bin directory, then the standard Homebrew prefixes.
@@ -162,9 +165,11 @@ mkdir -p "$CACHE_DIR"
 SRC_LOCK_DIR=""
 TMPDIR_BUILD=""
 TMPDIR_CLONE=""
+TMPDIR_SNAPSHOT=""
 cleanup() {
   [[ -n "$TMPDIR_BUILD" ]] && rm -rf "$TMPDIR_BUILD"
   [[ -n "$TMPDIR_CLONE" ]] && rm -rf "$TMPDIR_CLONE"
+  [[ -n "$TMPDIR_SNAPSHOT" ]] && rm -rf "$TMPDIR_SNAPSHOT"
   [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
   # Without an explicit success status the EXIT trap can propagate 1 under
   # set -e and fail the Xcode phase script even though the build succeeded.
@@ -266,6 +271,41 @@ adopt_legacy_source_cache() {
   printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE"
 }
 
+prepare_cached_build_source() {
+  local snapshot="$1"
+  local owner_value
+
+  if [[ -L "$snapshot" ]]; then
+    echo "error: refusing symlinked cmux-cua build source cache: $snapshot" >&2
+    exit 1
+  fi
+  if [[ -e "$snapshot" ]]; then
+    if [[ ! -d "$snapshot" ]]; then
+      echo "error: refusing non-directory cmux-cua build source cache: $snapshot" >&2
+      exit 1
+    fi
+    owner_value="$(cat "$snapshot/$CMUX_CUA_BUILD_SOURCE_OWNER_FILE" 2>/dev/null || true)"
+    if [[ "$owner_value" != "$CMUX_CUA_BUILD_SOURCE_OWNER_VALUE" ]]; then
+      echo "error: refusing unmanaged cmux-cua build source cache: $snapshot" >&2
+      echo "  move it aside or remove it manually, then rerun the build" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  TMPDIR_SNAPSHOT="$(mktemp -d "$CACHE_DIR/.cmux-cua-build-source.XXXXXX")"
+  rsync -a --delete \
+    --exclude '.git' \
+    --exclude "$CMUX_CUA_SOURCE_OWNER_FILE" \
+    --exclude '.cmux-last-used' \
+    --exclude '.cmux-cargo-target' \
+    "$SRC_ROOT/" "$TMPDIR_SNAPSHOT/"
+  printf '%s\n' "$CMUX_CUA_BUILD_SOURCE_OWNER_VALUE" \
+    > "$TMPDIR_SNAPSHOT/$CMUX_CUA_BUILD_SOURCE_OWNER_FILE"
+  /bin/mv "$TMPDIR_SNAPSHOT" "$snapshot"
+  TMPDIR_SNAPSHOT=""
+}
+
 if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
   SRC_ROOT="$(cd "$CMUX_CUA_SRC" && pwd)"
   # rev-parse instead of testing .git's file type: linked git worktrees store
@@ -336,18 +376,23 @@ TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 # lock still protects the shared checkout.
 "$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$CMUX_CUA_PATCH_FILE"
 
-# Snapshot the verified source while the materialization lock is held. The
-# pinned checkout is shared by tagged builds, so compiling directly from it
-# would let a later checkout reset the compatibility patch mid-build. A
-# per-build copy keeps the lock short and gives Cargo an immutable input tree.
-BUILD_SOURCE="$TMPDIR_BUILD/source"
-mkdir -p "$BUILD_SOURCE"
-rsync -a --delete \
-  --exclude '.git' \
-  --exclude "$CMUX_CUA_SOURCE_OWNER_FILE" \
-  --exclude '.cmux-last-used' \
-  --exclude '.cmux-cargo-target' \
-  "$SRC_ROOT/" "$BUILD_SOURCE/"
+if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
+  # A caller-supplied checkout can contain intentional local edits, so keep
+  # its immutable build snapshot scoped to this invocation.
+  BUILD_SOURCE="$TMPDIR_BUILD/source"
+  mkdir -p "$BUILD_SOURCE"
+  rsync -a --delete \
+    --exclude '.git' \
+    --exclude "$CMUX_CUA_SOURCE_OWNER_FILE" \
+    --exclude '.cmux-last-used' \
+    --exclude '.cmux-cargo-target' \
+    "$SRC_ROOT/" "$BUILD_SOURCE/"
+else
+  # The managed source is pinned and the patch digest is part of this cache
+  # key, so the stable snapshot can retain Cargo's incremental target tree.
+  BUILD_SOURCE="$CACHE_DIR/build-src-$CMUX_CUA_PINNED_SHA-$CMUX_CUA_PATCH_DIGEST"
+  prepare_cached_build_source "$BUILD_SOURCE"
+fi
 release_src_lock
 
 CARGO_ROOT="$BUILD_SOURCE/libs/cmux-cua/rust"
@@ -385,10 +430,9 @@ for arch in "${ARCHS[@]}"; do
   esac
 
   ensure_rust_target "$target"
-  # Keep Cargo's target dir inside this build's immutable source snapshot. It
-  # cannot be shared across revisions or source paths: a "fresh" build of pin
-  # A must never leave pin B's (or a dirty CMUX_CUA_SRC checkout's) binary in
-  # place, and independent tagged builds must not contend on one target dir.
+  # Keep Cargo's target dir inside this immutable source snapshot. The managed
+  # pinned snapshot is stable across builds, so it retains Cargo's incremental
+  # artifacts without exposing the mutable checkout to Cargo.
   target_dir="$BUILD_SOURCE/.cmux-cargo-target"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
