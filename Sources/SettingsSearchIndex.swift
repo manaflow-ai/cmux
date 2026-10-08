@@ -249,6 +249,7 @@ enum SettingsSearchIndex {
 
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
+        "feed.blockingQuestions": settingID(for: .betaFeatures, idSuffix: "feed-blockingQuestions"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .themes, idSuffix: "appearance"),
         "app.accentColor": settingID(for: .themes, idSuffix: "accent-color"),

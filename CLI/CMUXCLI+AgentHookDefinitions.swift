@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxSettings
 import Foundation
 
 extension CMUXCLI {
@@ -6,8 +7,19 @@ extension CMUXCLI {
 
     // The client deadline must fire before the generated agent-hook timeout.
     static let feedHookProcessTimeoutMilliseconds = 120_000
+    /// Provider hook guard used so the opt-in blocking mode can wait for a
+    /// human decision. Feed itself still applies the normal 120-second soft
+    /// wait when the setting is off.
+    static let feedHookBlockingProcessTimeoutMilliseconds = 86_400_000
     static let feedHookClientDeadlineSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2
     static let feedHookDecisionWaitSeconds = feedHookClientDeadlineSeconds - 3
+    static let feedHookBlockingClientDeadlineSeconds = Double(feedHookBlockingProcessTimeoutMilliseconds) / 1_000 - 2
+
+    static var feedBlockingQuestionsEnabled: Bool {
+        UserDefaultsSettingsClient(defaults: .standard).value(
+            for: SettingCatalog().feed.blockingQuestions
+        )
+    }
     /// Configuration for a hook-based agent integration.
     struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.

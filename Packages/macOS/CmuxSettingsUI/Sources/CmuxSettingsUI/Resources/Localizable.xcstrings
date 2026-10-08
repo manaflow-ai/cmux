@@ -14341,6 +14341,242 @@
           }
         }
       }
+    },
+    "settings.feed.blockingQuestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Feed requests blocking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء طلبات Feed معلّقة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed-Anfragen blockieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener bloqueadas las solicitudes de Feed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les demandes Feed bloquées"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed リクエストをブロックし続ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed 요청 계속 대기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 Feed 请求保持阻塞"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 Feed 請求保持阻塞"
+          }
+        }
+      }
+    },
+    "settings.feed.blockingQuestions.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questions and permissions use the default 120-second soft wait."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم الأسئلة والأذونات مهلة الانتظار المرنة الافتراضية البالغة 120 ثانية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragen und Berechtigungen verwenden die standardmäßige weiche Wartezeit von 120 Sekunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las preguntas y los permisos usan la espera flexible predeterminada de 120 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les questions et autorisations utilisent l’attente souple standard de 120 secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問と権限は既定の 120 秒ソフト待機を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문과 권한은 기본 120초 소프트 대기를 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问题和权限使用默认的 120 秒软等待。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題和權限使用預設的 120 秒軟等待。"
+          }
+        }
+      }
+    },
+    "settings.feed.blockingQuestions.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questions and permissions stay pending until you answer or dismiss them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى الأسئلة والأذونات معلّقة حتى تجيب عنها أو تستبعدها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragen und Berechtigungen bleiben offen, bis du antwortest oder sie verwirfst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las preguntas y los permisos permanecen pendientes hasta que respondas o los descartes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les questions et autorisations restent en attente jusqu’à votre réponse ou leur abandon."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問と権限は回答または閉じるまで保留されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문과 권한은 답변하거나 닫을 때까지 계속 대기합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问题和权限会保持待处理，直到你回答或关闭它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題和權限會保持待處理，直到你回答或關閉它們。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.feed.blockingQuestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions feed questions permissions blocking pending timeout soft wait"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed أسئلة أذونات حظر معلّق مهلة انتظار مرنة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed Fragen Berechtigungen blockieren ausstehend Timeout weiche Wartezeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed preguntas permisos bloquear pendientes tiempo de espera flexible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed questions autorisations blocage attente délai attente souple"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed 質問 権限 ブロック 保留 タイムアウト ソフト待機"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed 질문 권한 차단 대기 시간 초과 소프트 대기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed 问题 权限 阻塞 待处理 超时 软等待"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.blockingQuestions Feed 問題 權限 阻塞 待處理 逾時 軟等待"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

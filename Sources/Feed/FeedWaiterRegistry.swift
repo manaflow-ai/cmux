@@ -11,6 +11,7 @@ final class FeedWaiterRegistry: Sendable {
         let token: UUID
         let semaphore: DispatchSemaphore
         let isOwner: Bool
+        let waitUntilResolved: Bool
     }
     struct Reply: Sendable {
         let requestID: String
@@ -27,6 +28,7 @@ final class FeedWaiterRegistry: Sendable {
     private struct Group: Sendable {
         let id: UUID
         var event: WorkstreamEvent
+        var waitUntilResolved = false
         var subscribers: [UUID: DispatchSemaphore] = [:]
         var itemID: UUID?
         var decision: WorkstreamDecision?
@@ -37,18 +39,25 @@ final class FeedWaiterRegistry: Sendable {
     }
     private let groups = OSAllocatedUnfairLock(initialState: [String: Group]())
 
-    func register(requestID: String, event: WorkstreamEvent) -> Registration? {
+    func register(
+        requestID: String,
+        event: WorkstreamEvent,
+        waitUntilResolved: Bool = false
+    ) -> Registration? {
         let token = UUID()
         let semaphore = DispatchSemaphore(value: 0)
         return groups.withLock { groups in
             let existing = groups[requestID]
             if let existing, !Self.matches(existing.event, event) { return nil }
             var group = existing ?? Group(id: UUID(), event: event)
+            if let existing, existing.waitUntilResolved != waitUntilResolved { return nil }
+            group.waitUntilResolved = waitUntilResolved
             group.subscribers[token] = semaphore
             groups[requestID] = group
             if group.terminalResult != nil || (group.itemID != nil && group.decision != nil) { semaphore.signal() }
             return Registration(requestID: requestID, groupID: group.id, token: token,
-                semaphore: semaphore, isOwner: existing == nil)
+                semaphore: semaphore, isOwner: existing == nil,
+                waitUntilResolved: waitUntilResolved)
         }
     }
 
@@ -173,6 +182,35 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
+    /// Dismisses opted-in waiters when their agent process exits. The normal
+    /// soft-wait path remains on its existing deadline so the setting does not
+    /// change default timeout behavior.
+    func invalidateOptInWaiters(forPpid ppid: Int) -> [(Reply, UUID?)] {
+        guard ppid > 0 else { return [] }
+        return groups.withLock { groups in
+            var invalidated: [(Reply, UUID?)] = []
+            for (requestID, var group) in groups {
+                guard group.waitUntilResolved,
+                      group.event.ppid == ppid,
+                      group.decision == nil,
+                      group.terminalResult == nil,
+                      !group.cleanupClaimed else { continue }
+                invalidated.append((Reply(
+                    requestID: requestID,
+                    groupID: group.id,
+                    event: group.event,
+                    target: group.target
+                ), group.itemID))
+                group.target = nil
+                group.cleanupClaimed = true
+                group.terminalResult = .unavailable
+                groups[requestID] = group
+                for semaphore in group.subscribers.values { semaphore.signal() }
+            }
+            return invalidated
+        }
+    }
+
     /// Retires every undecided request the agent provably moved past: one from
     /// the same agent context (source, session, and subagent) whose hook was
     /// sent before `event`. Requests or events without a send stamp never match.
@@ -206,6 +244,14 @@ final class FeedWaiterRegistry: Sendable {
         groups.withLock { groups in
             guard let group = groups[requestID] else { return false }
             return group.decision == nil && group.terminalResult == nil && !group.subscribers.isEmpty
+        }
+    }
+
+    func isAccepted(_ registration: Registration) -> Bool {
+        groups.withLock { groups in
+            guard let group = groups[registration.requestID],
+                  group.id == registration.groupID else { return false }
+            return group.itemID != nil
         }
     }
 

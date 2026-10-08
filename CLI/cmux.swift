@@ -34267,10 +34267,9 @@ struct CMUXCLI {
         Self.hookCommandString(for: def, event: event)
     }
 
-    /// Shell command the agent runs for a Feed bridge event. 120s timeout
-    /// inside the shell is applied via the agent's `timeout` field in the
-    /// nested hook config (see `buildHooksDict`); the shell command
-    /// itself just dispatches.
+    /// Shell command the agent runs for a Feed bridge event. The provider hook
+    /// guard is long enough for the opt-in blocking mode; Feed applies its
+    /// normal soft wait when that mode is off.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         Self.feedHookCommandString(for: def, agentEvent: agentEvent)
     }
@@ -34377,7 +34376,7 @@ struct CMUXCLI {
                 $0.agentEvent == agentEvent
             }?.timeoutMs ?? 5_000
         }
-        return Self.feedHookProcessTimeoutMilliseconds
+        return Self.feedHookBlockingProcessTimeoutMilliseconds
     }
 
     private static func timeoutSecondsFromMilliseconds(_ timeoutMs: Int) -> Int {
@@ -42079,22 +42078,30 @@ export default {
         if let value = Self.semanticOccurredAtMs(stdinObj) { eventDict["occurred_at_ms"] = value }
         if let value = firstString(in: stdinObj, keys: ["agent_id", "agentId"]) { eventDict["agent_id"] = value }
 
-        // Sync. For actionable events we block within the agent's shortest
-        // declared 120s hook deadline while waiting for the user's Feed click.
+        // Sync. For actionable events we block within the default soft-wait
+        // window, or until a Feed answer when the opt-in setting is enabled.
         // The hook's stdout is then a proper hookSpecificOutput that Claude
         // honors directly (no keystroke injection, no guessing the TUI layout).
         // If the user doesn't click in time the hook emits {}
         // and Claude falls back to its native TUI prompt.
         //
-        // The response deadline stays below the generated 120s process
-        // timeout, so a stalled daemon still returns neutral output before
-        // the agent kills (and may deny) the hook subprocess.
+        // The response deadline stays below the provider hook guard, so a
+        // stalled daemon still returns neutral output before the agent kills
+        // (and may deny) the hook subprocess.
+        let waitUntilResolved = isActionable && Self.feedBlockingQuestionsEnabled
         var waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
+        func feedPushParams() -> [String: Any] {
+            var params: [String: Any] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+            if waitUntilResolved {
+                params["wait_until_resolved"] = true
+            }
+            return params
+        }
         let shouldAwaitTelemetryIngestion = source == "pi"
-        let params: [String: Any] = [
-            "event": eventDict,
-            "wait_timeout_seconds": waitTimeout,
-        ]
+        let params = feedPushParams()
 
         var request: [String: Any] = [
             "method": "feed.push",
@@ -42108,10 +42115,7 @@ export default {
         ].contains(hookEventName)
         if isOrderedCodexProgress {
             eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
-            request["params"] = [
-                "event": eventDict,
-                "wait_timeout_seconds": waitTimeout,
-            ]
+            request["params"] = feedPushParams()
         }
         if waitTimeout > 0 || shouldAwaitTelemetryIngestion || isOrderedCodexProgress {
             request["id"] = UUID().uuidString
@@ -42176,7 +42180,11 @@ export default {
         defer { ownedClient?.close() }
         let decisionWaitStartedAt = Date()
         let clientDeadline = Date().addingTimeInterval(
-            shouldAwaitTelemetryIngestion ? 4 : Self.feedHookClientDeadlineSeconds
+            shouldAwaitTelemetryIngestion
+                ? 4
+                : (waitUntilResolved
+                    ? Self.feedHookBlockingClientDeadlineSeconds
+                    : Self.feedHookClientDeadlineSeconds)
         )
 
         func remainingResponseTime() throws -> TimeInterval {
@@ -42245,10 +42253,7 @@ export default {
                     clientDeadline.timeIntervalSinceNow
                 )
             )
-            request["params"] = [
-                "event": eventDict,
-                "wait_timeout_seconds": waitTimeout,
-            ]
+            request["params"] = feedPushParams()
         }
 
         if shouldAwaitTelemetryIngestion {
@@ -42257,10 +42262,7 @@ export default {
                     eventDict["workspace_id"] = workspaceId
                 }
                 eventDict["surface_id"] = target.surfaceId
-                request["params"] = [
-                    "event": eventDict,
-                    "wait_timeout_seconds": waitTimeout,
-                ]
+                request["params"] = feedPushParams()
             }
         }
         let payload = try JSONSerialization.data(withJSONObject: request)

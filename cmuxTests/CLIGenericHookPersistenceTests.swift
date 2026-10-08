@@ -2317,7 +2317,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             preToolUse.contains {
                 ($0["command"] as? String)?.contains("hooks feed --source kiro --event preToolUse") == true
-                    && ($0["timeout_ms"] as? Int) == 120_000
+                    && ($0["timeout_ms"] as? Int) == 86_400_000
                     && (($0["command"] as? String)?.contains("|| echo '{}'") == false)
                     && (($0["command"] as? String)?.contains("status=$?") == true)
                     && (($0["command"] as? String)?.contains("exit 2") == true)

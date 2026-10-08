@@ -156,6 +156,7 @@ final class FeedCoordinator: @unchecked Sendable {
         src.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                self.dismissBlockingWaiters(forPpid: ppid)
                 self.store?.expireItems(forPpid: ppid)
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
@@ -235,12 +236,14 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestBlocking(
         event: WorkstreamEvent,
         waitTimeout: TimeInterval,
+        waitUntilResolved: Bool = false,
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingResult {
         ingestBlockingWithOutcome(
             event: event,
             waitTimeout: waitTimeout,
+            waitUntilResolved: waitUntilResolved,
             onAcceptedOnMainActor: onAcceptedOnMainActor,
             onAccepted: onAccepted
         ).result
@@ -251,6 +254,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestBlockingWithOutcome(
         event: WorkstreamEvent,
         waitTimeout: TimeInterval,
+        waitUntilResolved: Bool = false,
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingOutcome {
@@ -310,17 +314,31 @@ final class FeedCoordinator: @unchecked Sendable {
             }
         }
 
-        guard let registration = waiterRegistry.register(requestID: requestId, event: event) else {
+        guard let registration = waiterRegistry.register(
+            requestID: requestId,
+            event: event,
+            waitUntilResolved: waitUntilResolved
+        ) else {
             return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
         }
-        if !registration.isOwner { return awaitRegisteredDecision(registration, until: deliveryDeadline) }
+        if !registration.isOwner {
+            return awaitRegisteredDecision(
+                registration,
+                until: deliveryDeadline,
+                waitUntilResolved: waitUntilResolved
+            )
+        }
         // Duplicate hooks join before any session lookup or UI insertion.
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTargetSynchronously(event: event) : nil
         let remainingDeliveryTimeout = Self.remainingIngressTime(until: deliveryDeadline)
         guard remainingDeliveryTimeout > 0 else {
             waiterRegistry.fail(registration, result: .unavailable)
-            return awaitRegisteredDecision(registration, until: deliveryDeadline)
+            return awaitRegisteredDecision(
+                registration,
+                until: deliveryDeadline,
+                waitUntilResolved: waitUntilResolved
+            )
         }
 
         let acceptance = performAcceptedEventDelivery(
@@ -388,7 +406,11 @@ final class FeedCoordinator: @unchecked Sendable {
         }
         guard let acceptance else {
             waiterRegistry.fail(registration, result: .unavailable)
-            return awaitRegisteredDecision(registration, until: deliveryDeadline)
+            return awaitRegisteredDecision(
+                registration,
+                until: deliveryDeadline,
+                waitUntilResolved: waitUntilResolved
+            )
         }
         switch acceptance {
         case .accepted(let event, _):
@@ -398,12 +420,27 @@ final class FeedCoordinator: @unchecked Sendable {
         case .unavailable:
             waiterRegistry.fail(registration, result: .unavailable)
         }
-        return awaitRegisteredDecision(registration, until: deliveryDeadline)
+        return awaitRegisteredDecision(
+            registration,
+            until: deliveryDeadline,
+            waitUntilResolved: waitUntilResolved
+        )
     }
 
     private func awaitRegisteredDecision(_ registration: FeedWaiterRegistry.Registration,
-                                         until deadline: ContinuousClock.Instant) -> IngestBlockingOutcome {
-        _ = registration.semaphore.wait(timeout: .now() + max(Self.remainingIngressTime(until: deadline), 0))
+                                         until deadline: ContinuousClock.Instant,
+                                         waitUntilResolved: Bool) -> IngestBlockingOutcome {
+        let firstWait = registration.semaphore.wait(
+            timeout: .now() + max(Self.remainingIngressTime(until: deadline), 0)
+        )
+        if firstWait == .timedOut,
+           waitUntilResolved,
+           waiterRegistry.isAccepted(registration) {
+            // The short deadline only covers delivery into the main-actor
+            // store. Once accepted, an opted-in request remains parked until a
+            // reply or process dismissal wakes this semaphore.
+            registration.semaphore.wait()
+        }
         let finished = waiterRegistry.finish(registration)
         if finished.shouldCancel {
             cancelNotification(requestId: registration.requestID)
@@ -412,6 +449,16 @@ final class FeedCoordinator: @unchecked Sendable {
             waiterRegistry.cleanupStored(requestID: registration.requestID, groupID: registration.groupID)
         }
         return finished.outcome
+    }
+
+    @MainActor
+    private func dismissBlockingWaiters(forPpid ppid: Int) {
+        for (reply, itemID) in waiterRegistry.invalidateOptInWaiters(forPpid: ppid) {
+            cancelNotification(requestId: reply.requestID)
+            concludeBlockingDecisionAttention(reply.target)
+            expireTimedOutItem(itemID)
+            waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
+        }
     }
 
     func invalidateSemanticRequest(requestId: String, source: String, sessionId: String) {

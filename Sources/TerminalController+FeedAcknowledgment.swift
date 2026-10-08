@@ -138,12 +138,14 @@ extension TerminalController {
     nonisolated func v2IngestFeedEvent(
         _ event: WorkstreamEvent,
         waitTimeout: TimeInterval,
+        waitUntilResolved: Bool = false,
         automationOrigin: CmuxAutomationEventOrigin? = nil
     ) -> V2CallResult {
         let waitsForDecision = waitTimeout > 0 && event.requestId != nil
         let outcome = FeedCoordinator.shared.ingestBlockingWithOutcome(
             event: event,
             waitTimeout: waitTimeout,
+            waitUntilResolved: waitUntilResolved,
             onAcceptedOnMainActor: { authoritativeEvent in
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
                 self.v2NoteAcceptedFeedEvents([authoritativeEvent])
