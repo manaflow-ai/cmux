@@ -198,7 +198,7 @@ describe("devbox image template", () => {
     }
   });
 
-  test("reserves an isolated, preallocated cmux-tui state filesystem without resizing the VM", () => {
+  test("reserves an isolated, preallocated cmux-tui state filesystem with bounded growth", () => {
     const mount = read("cmux-tui-state-mount");
     const freestyle = readScript("build-devbox-freestyle.ts");
     const upgrade = readScript("upgrade-fleet-cmux-tui.ts");
@@ -209,7 +209,7 @@ describe("devbox image template", () => {
     expect(mount).toContain("resize2fs");
     expect(mount).toContain("ROOT_MIN_FREE_KB");
     expect(upgrade).toContain('writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript)');
-    expect(upgrade).toContain(CMUX_TUI_STATE_MOUNT_HELPER_PATH);
+    expect(upgrade).toContain("CMUX_TUI_STATE_MOUNT_HELPER_PATH");
     expect(mount).toContain("fallocate -l \"$STATE_SIZE_BYTES\"");
     expect(mount).toContain("mkfs.ext4 -F -m 0");
     expect(mount).toContain("mount -o loop");
