@@ -33,9 +33,10 @@ public struct SSHTmuxPaneOutputRouter: Sendable {
         }
 
         public let paneID: String
-        /// Nondecreasing per-pane sequence assigned when bytes enter the
-        /// bounded queue. A delivery may split one sequence when the caller
-        /// asks `drain` for a smaller budget. It resets on reconnect.
+        /// Nondecreasing per-pane sequence assigned to each bounded chunk as
+        /// bytes enter the queue. A delivery may split one chunk when the
+        /// caller asks `drain` for a smaller budget and retains that chunk's
+        /// sequence. It resets on reconnect.
         public let sequence: UInt64
         public let kind: Kind
         public let bytes: Data
@@ -146,7 +147,7 @@ public struct SSHTmuxPaneOutputRouter: Sendable {
     }
 
     /// Enqueues a complete parser snapshot for a pane. The bytes are split
-    /// into bounded deliveries, preserving one sequence across the snapshot.
+    /// into bounded deliveries, with one increasing sequence per chunk.
     public mutating func hydrate(identity: Identity, paneID: String, snapshot: Data) throws {
         try validate(identity, paneID: paneID)
         guard !snapshot.isEmpty else { throw Error.emptyInput }
