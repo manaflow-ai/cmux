@@ -35,7 +35,7 @@ import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
-import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
+import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalReader } from "./integrations/approval-route.ts"
 
@@ -111,11 +111,6 @@ const cloudNotLive = (owner: string, op: string) =>
   owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
-/** The sign-in policy gate could not reach a TeamDO or UserDO (cx-44j.51): logged here, a fixed retryable answer out. */
-const gateUnreachable = (e: unknown) => {
-  console.error(JSON.stringify({ msg: "sign-in policy unreachable", error: String(e) }))
-  return new OwnerUnreachable({ code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", retryable: true })
-}
 
 /** Principal for a given owner: TeamDO calls carry the grant classes UserDO resolved. */
 const principalFor = (owner: string, p: Principal) =>
