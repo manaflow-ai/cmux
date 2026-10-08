@@ -225,6 +225,17 @@ Notes from the slice 2 review:
 - The acpmux dashboard reads a request head up to 32 KiB (large localhost
   cookies); a larger head is refused.
 
+Known residuals for the agent-chat sidecar (cx-e3l1, 2026-10-08): the
+one-time open code that `cmux-chat` passes to `cmux open` is in argv, so a
+process that can read that argv (the same user on macOS; `/proc/<pid>/cmdline`
+on Linux) can race the browser surface to `/o/<code>` and read the token from
+the redirect. The code is single use, so the real open then fails visibly. The
+full fix is an app verb that takes the URL over its socket from stdin (`cmux
+open -`); the CmuxNext app also does not serve `browser.open_split` yet, so
+`cmux open <url>` opens nothing there today. Agents the sidecar starts run as
+the same user and can read its 0600 token file; they are inside this trust
+boundary.
+
 Raw TCP listeners (no HTTP) follow the same intent: loopback bind by default, a
 per-launch token before any frame, and an immediate close when the first bytes
 look like an HTTP request (a cross-protocol POST from a web page). The remote

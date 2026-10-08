@@ -113,4 +113,3 @@ code_body=$(printf '%s' "$page" | python3 -c 'import json, sys; print(json.dumps
 code_url=$(curl_url "$BASE/api/open-code" -fsS -X POST -H 'content-type: application/json' -d "$code_body" |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["url"])')
 cmux open "$code_url" >/dev/null
-echo "$url"

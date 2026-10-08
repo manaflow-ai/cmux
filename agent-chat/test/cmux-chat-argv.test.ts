@@ -93,6 +93,7 @@ for (const [mode, args, page] of [
     // cmux opens only the one-time code URL.
     const opens = calls.filter((call) => call.tool === "cmux");
     expect(opens.map((call) => call.argv)).toEqual([["open", `http://127.0.0.1:${PORT}/o/${CODE}`]]);
-    expect(stdout.trim()).toContain(`/${TOKEN}/`);
+    // The tokened URL is printed only with --no-open (asked for explicitly).
+    expect(stdout.includes(TOKEN)).toBe(false);
   });
 }

@@ -25,7 +25,7 @@ import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
 import { OpenCodes } from "./open-codes";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
-import { closeSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
+import { closeSync, readFileSync, readSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -54,11 +54,19 @@ function givenToken(): string {
   }
   const raw = argValue("--token-fd");
   if (raw === undefined) return "";
+  if (!/^[0-9]+$/.test(raw ?? "") || Number(raw) < 3) throw new Error(`--token-fd needs a descriptor number of 3 or more, got ${JSON.stringify(raw)}`);
   const fd = Number(raw);
-  if (!Number.isInteger(fd) || fd < 3) throw new Error(`--token-fd needs a descriptor number of 3 or more, got ${JSON.stringify(raw)}`);
-  // Reads to end of file: the launcher closes its end of the pipe.
-  const token = readFileSync(fd, "utf8").trim();
+  // One line of at most 512 bytes: a launcher that keeps its end of the pipe
+  // open does not stall the start once the newline is written.
+  const buf = Buffer.alloc(512);
+  let len = 0;
+  while (len < buf.length && !buf.subarray(0, len).includes(10)) {
+    const n = readSync(fd, buf, len, buf.length - len, null);
+    if (n === 0) break;
+    len += n;
+  }
   closeSync(fd);
+  const token = buf.subarray(0, len).toString("utf8").split("\n")[0].trim();
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) throw new Error("--token-fd: the token must be 32-256 characters of [A-Za-z0-9_-]");
   return token;
 }
