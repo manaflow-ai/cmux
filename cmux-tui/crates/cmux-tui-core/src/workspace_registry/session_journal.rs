@@ -983,7 +983,9 @@ fn append_resource_journal_record_at(
     // A migrated legacy revision has no actor (and its ledgers may predate the
     // column); a fresh record is its ledger row's, else the daemon's own.
     let actor = match with_current_state {
-        true => Some(ledger_actor(transaction, idempotency_key)?.unwrap_or_else(|| crate::Actor::Daemon.wire())),
+        true => Some(
+            ledger_actor(transaction, idempotency_key)?.unwrap_or_else(|| Actor::Daemon.wire()),
+        ),
         false => None,
     };
     append_journal_record(

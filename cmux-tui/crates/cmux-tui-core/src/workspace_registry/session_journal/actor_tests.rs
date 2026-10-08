@@ -196,11 +196,12 @@ fn a_sealed_segment_keeps_actors_out_of_the_record_json() {
     let through = checkpoint.checkpoint.source_sequence;
     mux.seal_journal_segments(through, "client_test", "segment_1").unwrap();
     let registry = mux.workspace_registry.lock().unwrap();
-    let mut statement = registry.connection.prepare("SELECT content FROM journal_segments").unwrap();
+    let mut statement =
+        registry.connection.prepare("SELECT content FROM journal_segments").unwrap();
     let contents = statement.query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap();
     for content in contents {
         let mut json = String::new();
-        std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(&content.unwrap()[..]), &mut json)
+        Read::read_to_string(&mut flate2::read::GzDecoder::new(&content.unwrap()[..]), &mut json)
             .unwrap();
         assert!(!json.contains("\"actor\""), "a sealed record carries an actor field");
     }
