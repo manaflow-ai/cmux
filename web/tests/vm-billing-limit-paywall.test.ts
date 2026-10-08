@@ -119,6 +119,13 @@ describe("Cloud VM memory allowance", () => {
     });
   });
 
+  test("free provisioning upgrades to Pro before Max for the first locked sizes", () => {
+    expect(lockedMemoryOptionsMbForPlan("free", {})).toEqual({
+      memoryOptionsMb: [16384, 24576, 32768, 65536],
+      upgradePlanId: "pro",
+    });
+  });
+
   test("an operator ceiling on Max leaves nothing to upgrade to", () => {
     // A lower Max ceiling can still advertise Max as the next tier for Pro.
     const env = { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "8192", CMUX_VM_PLAN_MAX_MAX_MEMORY_MB: "16384" };
