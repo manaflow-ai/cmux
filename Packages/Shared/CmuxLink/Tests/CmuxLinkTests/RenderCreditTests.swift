@@ -1,9 +1,33 @@
-import CmuxLink
+@testable import CmuxLink
 import Foundation
 import Testing
 
 @Suite("Adaptive render credit")
 struct RenderCreditTests {
+    @Test("RTT preserves custom declared and directional render budgets", arguments: [8 * 1024, 1024 * 1024], [false, true])
+    func customRenderBudget(budget: Int, promotedFromInput: Bool) async throws {
+        let pair = try await SessionTestPair()
+        let hostSession = try await pair.nextHostSession()
+        let descriptor = ChannelDescriptor(
+            stream: "custom-render", reliability: .reliableOrdered,
+            priority: promotedFromInput ? .input : .render,
+            budgetBytes: promotedFromInput ? nil : budget
+        )
+        let (channel, _) = try await pair.openPair(descriptor, hostSession: hostSession)
+        if promotedFromInput {
+            await channel.setSendPriority(.render, budgetBytes: budget)
+        }
+        await pair.network.reportRTT(.seconds(2))
+        // The state event proves the RTT sample reached the session before
+        // checking its send limit; no timer or transport jitter is involved.
+        try await SessionTestPair.waitFor(pair.dialer) {
+            if case .degraded(_, .highLatency) = $0 { true } else { false }
+        }
+        let record = try #require(await pair.dialer.channels[channel.id])
+        #expect(await pair.dialer.effectiveBudget(for: record) == budget)
+        await pair.shutdown()
+    }
+
     @Test("keeps the baseline until RTT can fill a larger bounded window")
     func boundedRTTWindow() {
         let configuration = LinkConfiguration(
