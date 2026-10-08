@@ -21,6 +21,7 @@ class ReverseTestImpactRouteTests(unittest.TestCase):
 
     def test_app_source_diff_runs_the_report(self) -> None:
         self.assertTrue(route.should_report(["Sources/App.swift"]))
+        self.assertTrue(route.should_report(["CLI/cmux.swift"]))
         self.assertTrue(route.should_report(["Packages/macOS/Shared/Sources/Thing.swift"]))
 
     def test_known_empty_diff_skips_the_report(self) -> None:
