@@ -68,6 +68,15 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
+    /// The message the page reported under the pointer for the next context menu, and where the
+    /// menu's copies go (tests record them instead).
+    var messageMenuTarget: AgentPaneMessageTarget?
+    var copyText: @MainActor (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
+    let loadingView = AgentPaneLoadingView()
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -123,7 +132,7 @@ public final class AgentPaneView: NSView {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = WKWebView(frame: .zero, configuration: configuration)
+            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             page = nil
             pageEvents = nil
             dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
@@ -169,12 +178,14 @@ public final class AgentPaneView: NSView {
             return event
         }
         installTransport()
+        installContextMenu()
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
             addSubview(webView)
             source.load(into: webView)
         }
+        beginLoadingState()
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
@@ -226,6 +237,7 @@ public final class AgentPaneView: NSView {
     public override func layout() {
         super.layout()
         if let page { page.frame = bounds } else { webView.frame = bounds }
+        if loadingView.superview === self { loadingView.frame = bounds }
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor
@@ -304,6 +316,7 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         transportPacer?.stop()
+        removeContextMenu()
         if let page {
             page.close()
         } else {
@@ -359,6 +372,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
+        themeLoadingState(tokens)
         page?.themeSurface = surface
         deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
                 scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])

@@ -113,6 +113,7 @@ public final class AgentPaneModel {
     @ObservationIgnored private(set) var handshakeCwd: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    @ObservationIgnored private let draftStore: any AgentPaneDraftStoring
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored private let seed: AgentPaneSeedSource?
 
@@ -122,10 +123,12 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        draftStore: any AgentPaneDraftStoring = UserDefaultsAgentPaneDraftStore()
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.draftStore = draftStore
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -134,10 +137,6 @@ public final class AgentPaneModel {
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
         transport.agentHome = { [weak self] in self?.workspaceAgentHome?() }
-        transport.requestRoot = { [weak self] folder, answer in
-            guard let onRequestRoot = self?.onRequestRoot else { return answer(false) }
-            onRequestRoot(folder, answer)
-        }
         if let sessionId { transport.sessions.add(sessionId) }
         transport.requestModeConfirmation = { [weak self] asked, answer in
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
@@ -149,14 +148,11 @@ public final class AgentPaneModel {
         }
     }
 
-    /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
+    /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Asks the user to enable a folder harness profile (the view's native Enable harness sheet).
     @ObservationIgnored public var onConfirmHarness: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
-
-    /// Asks the user to add a folder the page named outside every root (the view's native sheet).
-    @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
@@ -248,6 +244,11 @@ public final class AgentPaneModel {
                 newTab = nil
                 onSessionChange?(id)
             }
+            return AgentPaneReply.success()
+        case .readDraft(let id):
+            return AgentPaneReply.success(await draftStore.draft(for: id) ?? NSNull())
+        case .writeDraft(let id, let text):
+            await draftStore.setDraft(text, for: id)
             return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)

@@ -11,6 +11,7 @@ import {
   deleteApproval,
   describeRequest,
   endApproval,
+  endForMember,
   expireDue,
   insertApproval,
   MAX_PENDING_PER_CONNECTION,
@@ -28,6 +29,7 @@ import type { ExternalReply } from "./external.ts"
 import type { Env } from "../env.ts"
 import { ProviderError } from "./providers.ts"
 import { withGrantClasses } from "../auth.ts"
+import type { ApprovalSource } from "../domains/feed-approvals.ts"
 
 /** A gate answer: a final refusal or pending state for the caller, or a replay of the approved run. */
 export type GateAnswer =
@@ -43,6 +45,10 @@ export interface GateHost {
   readonly newRequestId?: () => string
   /** Arms the alarm for the new request's expiry. */
   readonly armAlarm: () => void
+  /** What the per-bucket flood guard counts: the connection by default; CloudDO uses one bucket per team. */
+  readonly bucket?: (params: Record<string, unknown>) => string
+  /** Ask or block for this op: the integrations policy by default; CloudDO always asks (chief decision, cx-wb5.65). */
+  readonly action?: (def: CloudOpDef) => "ask" | "block" | "allow"
 }
 
 /**
@@ -96,7 +102,7 @@ const stateAnswer = (row: ApprovalRow): GateAnswer => {
  * result), and never posts a second feed request.
  */
 export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Principal, params: Record<string, unknown>, identity: string, key: string, now: number): Promise<GateAnswer> => {
-  const action = resolveEffectivePolicy(def.name, [], defaultActionFor(def.risk as Parameters<typeof defaultActionFor>[0])).action
+  const action = host.action ? host.action(def) : resolveEffectivePolicy(def.name, [], defaultActionFor(def.risk as Parameters<typeof defaultActionFor>[0])).action
   if (action === "block") return { kind: "refuse", code: "policy.denied", message: `${def.name} is blocked for agents, automations and apps` }
   const paramsHash = approvalDigest(def.name, params)
   const prior = approvalByKey(host.sql, identity, key)
@@ -111,7 +117,7 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
     if (e instanceof ProviderError) return { kind: "refuse", code: e.code === "needs_reauth" ? "integration.unavailable" : e.code, message: e.message }
     throw e
   }
-  const connection = String(params.connection)
+  const connection = host.bucket ? host.bucket(params) : String(params.connection)
   if (pendingCount(host.sql, connection, now) >= MAX_PENDING_PER_CONNECTION || pendingCountFor(host.sql, identity, now) >= MAX_PENDING_PER_IDENTITY) {
     return { kind: "refuse", code: "approval.too_many_pending", message: `too many requests wait for approval (at most ${MAX_PENDING_PER_IDENTITY} per caller and ${MAX_PENDING_PER_CONNECTION} per connection)`, retryable: true }
   }
@@ -123,7 +129,7 @@ export const gateRiskyOp = async (host: GateHost, def: CloudOpDef, principal: Pr
     action: {
       type: "tool",
       tool: def.name,
-      summary: `${def.name} to ${target || "this connection"}${summary ? `: ${summary}` : ""}`.slice(0, 500),
+      summary: `${def.name} ${host.bucket ? "for" : "to"} ${target || "this connection"}${summary ? `: ${summary}` : ""}`.slice(0, 500),
       risk: def.risk,
       input: { approval: { team: principal.team ?? "", request, digest }, connection, target, summary }
     },
@@ -146,6 +152,22 @@ export type AnswerOutcome = { readonly kind: "ignore"; readonly reason: string }
 /** Requests whose provider call is awaiting in this object instance (lost on eviction, which is the point). */
 const running = new WeakMap<SqlStorage, Set<string>>()
 const inFlight = (sql: SqlStorage) => running.get(sql) ?? running.set(sql, new Set()).get(sql)!
+/** CloudDO's in-flight runs, counted (two overlapping runs of one request must not clear each other's mark). */
+const cloudRuns = new WeakMap<SqlStorage, Map<string, number>>()
+const runsOf = (sql: SqlStorage) => cloudRuns.get(sql) ?? cloudRuns.set(sql, new Map()).get(sql)!
+/** True while this instance awaits a run of `request` (CloudDO settles only runs that are not). */
+export const isInFlight = (sql: SqlStorage, request: string) => inFlight(sql).has(request) || (runsOf(sql).get(request) ?? 0) > 0
+/** Runs `fn` with `request` counted in flight in this instance (released on return or throw). */
+export const withInFlight = async <T>(sql: SqlStorage, request: string, fn: () => Promise<T>): Promise<T> => {
+  runsOf(sql).set(request, (runsOf(sql).get(request) ?? 0) + 1)
+  try {
+    return await fn()
+  } finally {
+    const n = (runsOf(sql).get(request) ?? 1) - 1
+    if (n > 0) runsOf(sql).set(request, n)
+    else runsOf(sql).delete(request)
+  }
+}
 
 /** The derived ledger key of an approved run. */
 export const approvalLedger = (row: ApprovalRow) => ({ identity: `${row.identity}#approval`, key: `approval:${row.request}` })
@@ -169,7 +191,7 @@ export const expireApprovals = (sql: SqlStorage, now: number) => {
   const stuck = sql.exec<{ request: string }>(`SELECT request FROM integration_approvals WHERE state = 'running' AND expires_at <= ?`, now).toArray()
   for (const { request } of stuck) {
     const row = approvalByRequest(sql, request)
-    if (row && !inFlight(sql).has(request)) settleRunning(sql, row, now)
+    if (row && !isInFlight(sql, request)) settleRunning(sql, row, now)
   }
 }
 
@@ -184,7 +206,7 @@ export const takeAnswer = (sql: SqlStorage, source: string, params: { request?: 
   if (source !== `feed:${row.user}`) return { kind: "ignore", reason: "not the requesting user's feed" }
   const current = settleExpiry(sql, row, now)
   // A run cut off by a restart (not in flight in this instance) is settled from the ledger, never run again.
-  if (current.state === "running" && !inFlight(sql).has(row.request)) return { kind: "settle", row }
+  if (current.state === "running" && !isInFlight(sql, row.request)) return { kind: "settle", row }
   if (current.state !== "pending") return { kind: "ignore", reason: `request is ${current.state}` }
   if (params.decision !== "allow") {
     endApproval(sql, row.request, "denied", now)
@@ -203,13 +225,25 @@ export const takeAnswer = (sql: SqlStorage, source: string, params: { request?: 
 export const deliverAnswers = async (
   sql: SqlStorage,
   source: string,
-  items: ReadonlyArray<{ readonly id: number; readonly params: unknown }>,
-  run: (row: ApprovalRow) => Promise<ExternalReply | "refused">
+  items: ReadonlyArray<{ readonly id: number; readonly op?: string; readonly params: unknown }>,
+  run: (row: ApprovalRow) => Promise<ExternalReply | "refused">,
+  /** Answer-time checks (membership, team SSO; approval-route.ts answerAdmitted); false ends it denied and runs nothing. */
+  admit?: (row: ApprovalRow, params: unknown) => Promise<boolean>,
+  /** This ConnectionDO's team: a member_left counts only from that team's own TeamDO stream. */
+  team?: string
 ): Promise<Array<number>> => {
   const done: Array<number> = []
   for (const item of items) {
+    if (item.op === "connections.member_left") {
+      const v = (item.params ?? {}) as { team?: unknown; user?: unknown; at?: unknown }
+      if (team !== undefined && v.team === team && source === `team:${team}` && typeof v.user === "string") endForMember(sql, v.user, typeof v.at === "number" ? v.at : Date.now(), Date.now())
+      else console.warn(JSON.stringify({ msg: "member_left ignored", source }))
+      done.push(item.id)
+      continue
+    }
     const outcome = takeAnswer(sql, source, (item.params ?? {}) as Record<string, unknown>, Date.now())
     if (outcome.kind === "settle") settleRunning(sql, outcome.row, Date.now())
+    else if (outcome.kind === "run" && admit && !(await admit(outcome.row, item.params))) endApproval(sql, outcome.row.request, "denied", Date.now())
     else if (outcome.kind === "run" && startRun(sql, outcome.row.request)) {
       let reply: ExternalReply | "refused"
       inFlight(sql).add(outcome.row.request)
@@ -235,12 +269,18 @@ export const deliverAnswers = async (
   return done
 }
 
-/** The FeedDO RPC that posts an integration approve request to `user`'s feed (G8); returns the item id. */
-export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<string> => {
+/** Outbox items the ConnectionDO handles itself (DO-local approvals table), not through its engine. */
+export const APPROVAL_ITEM_OPS: ReadonlySet<string> = new Set(["integration.approval.answered", "connections.member_left"])
+
+/**
+ * The FeedDO RPC that posts an approve request to `user`'s feed (G8); returns the item id. `source`
+ * names the posting owner of `team`: its ConnectionDO (integrations) or its CloudDO (cx-wb5.65).
+ */
+export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource = "connections"): Promise<string> => {
   const feed = env.FEED_DO.get(env.FEED_DO.idFromName(user)) as unknown as {
-    integrationApproval(user: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<{ ok: true; item: string } | { ok: false; message: string }>
+    integrationApproval(user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource): Promise<{ ok: true; item: string } | { ok: false; message: string }>
   }
-  const r = await feed.integrationApproval(user, team, prompt, expiresInMs, key)
+  const r = await feed.integrationApproval(user, team, prompt, expiresInMs, key, source)
   if (!r.ok) throw new Error(r.message)
   return r.item
 }

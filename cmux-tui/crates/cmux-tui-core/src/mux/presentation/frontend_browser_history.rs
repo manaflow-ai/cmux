@@ -16,12 +16,22 @@ impl Mux {
         title: Option<String>,
         favicon_url: Option<Option<String>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
-        self.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, None)
+        let owner = None;
+        self.update_frontend_browser_tab_with_owner_as(
+            &Actor::Daemon,
+            surface,
+            url,
+            title,
+            favicon_url,
+            owner,
+        )
     }
 
-    /// Record a frontend-rendered browser's location and optional hosting app owner.
-    pub fn update_frontend_browser_tab_with_owner(
+    /// Record a frontend-rendered browser's location and optional hosting app
+    /// owner; `actor` sets the owner.
+    pub fn update_frontend_browser_tab_with_owner_as(
         &self,
+        actor: &Actor,
         surface: SurfaceId,
         url: Option<String>,
         title: Option<String>,
@@ -57,7 +67,7 @@ impl Mux {
                 .resource_identity()
                 .map(|identity| identity.tab_id.to_string())
                 .ok_or_else(|| anyhow::anyhow!("surface {surface} has no public tab id"))?;
-            self.commit_browser_owner(&tab, &owner)?;
+            self.commit_browser_owner(actor, &tab, &owner)?;
             record.owner = Some(owner);
             changed = true;
         }

@@ -29,6 +29,7 @@ extension SettingsSchema {
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
+        .union(WorkspaceListSettingsSchema.agentSettableKeys) // new workspace position, computer headers (list shape)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
@@ -46,7 +47,7 @@ extension SettingsSchema {
         "sidebar.minimalMode",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
-        "sidebar.spacesPosition",
+        "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",

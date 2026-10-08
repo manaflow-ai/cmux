@@ -88,16 +88,20 @@ if [[ "$mode" == release-compile-green ]]; then
   exit 0
 fi
 
-# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit has
-# this tree key. Runs are newest first; promotion only moves forward.
-runs="$(gh api --paginate --slurp \
-  "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
+# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit
+# descends from <sha> and has this tree key. Runs are newest first; promotion
+# only moves forward. One fetch of the branch's recent history covers every
+# candidate (a fetch per commit took over 5 minutes in run 37820762809); a
+# commit it does not reach is older than <sha> or off the branch.
+git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
+  || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
+# One page holds the window (at most 99): paginating walked every push run ever made.
+runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
 while read -r run_id run_sha; do
   [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
-    git cat-file -e "$run_sha^{commit}" 2>/dev/null \
-      || git fetch -q --no-tags --depth=1 origin "$run_sha" 2>/dev/null \
-      || { echo "skipping ${run_sha:0:12}: could not fetch it" >&2; continue; }
+    git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
+    git merge-base --is-ancestor "$sha" "$run_sha" 2>/dev/null || continue
     run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)" || continue
     [[ "$run_key" == "$key" ]] || continue
   fi
@@ -117,7 +121,8 @@ sys.exit(0 if ok else 1)
 done < <(python3 -c '
 import json, sys
 seen = set()
-for page in json.loads(sys.stdin.read()):
+data = json.loads(sys.stdin.read())
+for page in data if isinstance(data, list) else [data]:
     for run in page.get("workflow_runs", []):
         sha = run.get("head_sha")
         if run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push" and sha not in seen:

@@ -61,6 +61,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let filtering = o.filterMatches != nil
         // One machine needs no machine header: its name adds nothing.
         let machineCount = sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
+        // One list: an empty computer shows nothing, unless no computer has a
+        // row (the first one keeps its empty placeholder, a drop target).
+        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
+        var previousWasMachine = false
+        var shownEmptyMachine = false
+        // One list sits under one "Projects" header (the first computer's),
+        // which collapses the whole list.
+        var machineShown = false
+        var listCollapsed = false
 
         func visible(_ ws: SidebarWorkspace) -> Bool {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
@@ -107,17 +116,28 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty && filtering { continue }
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
 
-            if !firstSection { y += m.sectionSpacing }
+            let flat = o.flattensMachines && section.machine != nil
+            if flat && (listCollapsed || nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine)) { continue }
+            let leadsList = flat && !machineShown
+            if section.machine != nil { machineShown = true }
+            if flat && nodes.isEmpty { shownEmptyMachine = true }
+            // Consecutive computers in one list read as one list: no gap.
+            if !firstSection && !(flat && previousWasMachine) { y += m.sectionSpacing }
             firstSection = false
-            let showsHeader = section.machine == nil || machineCount > 1 || o.showsSoleMachineHeader
+            previousWasMachine = section.machine != nil
+            let showsHeader = section.machine == nil
+                || (flat ? leadsList && o.showsSoleMachineHeader : machineCount > 1 || o.showsSoleMachineHeader)
+            // The computer a row names in one list (never this Mac).
+            let machineLabel = flat && section.machine?.kind != .local ? section.machine?.name : nil
             // Without a header there is nothing to expand it from.
             let collapsed = showsHeader && section.isCollapsed && !filtering
+            if flat && collapsed { listCollapsed = true }
             if showsHeader {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1
+                    titlesProjects: section.machine != nil && (machineCount == 1 || flat)
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
@@ -141,7 +161,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now)
+                    let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -172,7 +192,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     guard !groupCollapsed else { continue }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now)
+                        let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
                     let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,

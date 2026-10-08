@@ -26246,7 +26246,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "newRow",
+              "id" : "newColumn",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -26259,7 +26259,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitLeft",
+              "id" : "newRow",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -26272,7 +26272,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitUp",
+              "id" : "splitLeft",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -26285,7 +26285,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "newColumn",
+              "id" : "splitUp",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {

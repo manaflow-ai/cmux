@@ -15,6 +15,7 @@ const LAYOUT_UNDO_COMMIT_ATTEMPTS: u32 = 3;
 impl Mux {
     pub(super) fn commit_confirmed_layout_undo(
         self: &Arc<Self>,
+        actor: &Actor,
         selectors: crate::ResourceSelectors,
         fields: Map<String, Value>,
         confirmed_close: bool,
@@ -36,7 +37,7 @@ impl Mux {
                 selectors.clone(),
                 fields.clone(),
                 expected_resource_revision,
-                &WorkspaceMutation::daemon_local("cmux-tui-layout-undo"),
+                &WorkspaceMutation::local("cmux-tui-layout-undo", actor.clone()),
             );
             let conflict =
                 result.as_ref().err().is_some_and(crate::resource_router::is_revision_conflict);

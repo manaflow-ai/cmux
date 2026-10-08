@@ -341,17 +341,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [next_resource_revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                &mutation.origin,
-                &mutation.id,
-                &fingerprint_json,
-                &result_json,
-                sqlite_terminal_revision,
-            ],
+        super::mutation_ledger::insert_keyed_mutation(
+            &tx,
+            super::mutation_ledger::KeyedLedger::Terminal,
+            &mutation,
+            &fingerprint_json,
+            &result_json,
+            sqlite_terminal_revision,
         )?;
         tx.execute(
             "INSERT INTO terminal_events(
