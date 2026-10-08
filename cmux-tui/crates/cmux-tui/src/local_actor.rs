@@ -20,6 +20,7 @@ pub(crate) fn me() -> &'static Actor {
 /// Tests keep the key-less op names; each acts as the local user.
 #[cfg(test)]
 pub(crate) trait TuiMuxOps {
+    fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> bool;
     fn new_browser_tab(&self, url: String, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
     fn close_surface(&self, target: SurfaceId) -> anyhow::Result<bool>;
     fn new_workspace(
@@ -64,6 +65,10 @@ pub(crate) trait TuiMuxOps {
 
 #[cfg(test)]
 impl TuiMuxOps for Arc<Mux> {
+    fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> bool {
+        self.set_viewport_pane_width_as(me(), pane, width)
+    }
+
     fn new_browser_tab(&self, url: String, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         self.new_browser_tab_as(me(), url, pane, size)
     }
