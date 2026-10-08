@@ -32,7 +32,10 @@ class PollNotarySubmissionTests(unittest.TestCase):
 
     def run_status(self, status: str, http_status: int = 200) -> tuple[int, dict]:
         with patch.object(MODULE, "_token", return_value="fixture-token"), patch.object(
-            MODULE, "_api", return_value=(http_status, {"id": "fixture-id", "status": status})
+            MODULE, "_api", return_value=(
+                http_status,
+                {"data": {"id": "fixture-id", "attributes": {"status": status}}},
+            )
         ):
             result = MODULE.main([str(self.state), "--output", str(self.output)])
         return result, json.loads(self.output.read_text(encoding="utf-8"))
