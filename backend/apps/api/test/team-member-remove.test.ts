@@ -3,7 +3,8 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { Principal } from "@cmux/ownership"
-import { memberUpsert } from "../src/domains/team-members.ts"
+import { hostOf, hostUpsert, memberUpsert } from "../src/domains/team-members.ts"
+import { ensureSshTables } from "../src/team-ssh-ca.ts"
 import { approvalDigest } from "../src/integrations/approval-gate.ts"
 import { approvalByRequest, insertApproval, APPROVAL_TTL_MS } from "../src/integrations/approvals.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -39,11 +40,11 @@ const connections = (id: string) => testEnv.CONNECTION_DO.get(testEnv.CONNECTION
 const join = (teamId: string, user: string) => inDO(team(teamId), async (instance) => instance.boundEngine.rows.apply([memberUpsert({ user, role: "member", display_name: user })]))
 
 /** A server install of `user` bound to `bound` (as pairing creates it); returns its id. */
-const boundInstall = (user: string, bound: string | undefined, name: string) =>
+const boundInstall = (user: string, bound: string | undefined, name: string, ssoTeam?: string) =>
   inDO(userDO(user), async (instance) => {
     const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
     const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
-    const principal: Principal = { identity: `system:pairing:${bound ?? "none"}`, kind: "system", user, ...(bound ? { team: bound } : {}) }
+    const principal: Principal = { identity: `system:pairing:${bound ?? "none"}`, kind: "system", user, ...(bound ? { team: bound } : {}), ...(ssoTeam ? { sso_team: ssoTeam } : {}) }
     const frames: Array<any> = []
     instance.boundEngine.submit(principal, { t: "op", op: "install.register_server", params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "daemon", name, device_name: name, platform: "linux", op_classes: ["read", "mutate-own"], ...(bound ? { bound_team: bound } : {}) }, idempotency_key: crypto.randomUUID(), origin: "script" }, (_t: unknown, f: any) => frames.push(f))
     const result = frames.find((f) => f.t === "result")
@@ -163,5 +164,55 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
       return frames.find((f) => f.t === "reject")?.code
     })
     expect(delivered).toBe("auth.forbidden")
+  })
+
+  it("revokes the member's installs that the team's SSO authorized, even when not bound to the team", async () => {
+    const owner = await signIn("rm-owner6")
+    const member = await signIn("rm-member6")
+    await join(owner.team, member.user)
+    const viaSso = await boundInstall(member.user, undefined, "laptop via team sso", owner.team)
+    const viaOtherSso = await boundInstall(member.user, undefined, "laptop via other sso", member.team)
+    // Bound to another team (that team's VM) while carrying this team's SSO: the other team's authority stays.
+    const otherTeamVm = await boundInstall(member.user, member.team, "other team box", owner.team)
+    await removeMember(owner.team, member.user)
+    expect((await installOf(member.user, viaSso)).revoked_at).not.toBeNull()
+    expect((await installOf(member.user, viaOtherSso)).revoked_at).toBeNull()
+    expect((await installOf(member.user, otherTeamVm)).revoked_at).toBeNull()
+  })
+
+  it("puts every live team SSH certificate of the member on the revocation list at once and orphans their hosts", async () => {
+    const owner = await signIn("rm-owner7")
+    const member = await signIn("rm-member7")
+    const other = await signIn("rm-other7")
+    await join(owner.team, member.user)
+    await join(owner.team, other.user)
+    const now = Date.now()
+    const hostId = `host_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+    const otherHost = `host_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+    const laterHost = `host_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+    await inDO(team(owner.team), async (instance, st) => {
+      ensureSshTables(st.storage.sql)
+      // Two live certificates of the member (one from an install not bound to the team), one expired, one of another member.
+      for (const [serial, user, install, validBefore] of [[9001, member.user, "inst_mac", now + 3_600_000], [9002, member.user, null, now + 600_000], [9003, member.user, "inst_mac", now - 3_600_000], [9004, other.user, "inst_x", now + 3_600_000]] as const)
+        st.storage.sql.exec(`INSERT INTO ssh_certs (serial, identity, user, install, key_id, class, generation, issued_at, valid_before) VALUES (?, ?, ?, ?, ?, 'shell', 1, ?, ?)`, serial, `id-${serial}`, user, install, `${user}/k/${serial}`, now - 60_000, validBefore)
+      instance.boundEngine.rows.apply([
+        ...hostUpsert({ id: hostId, name: "member box", platform: "linux", owner_user: member.user, enrolled_by: "inst_box", enrolled_at: now, kind: "server" }),
+        ...hostUpsert({ id: otherHost, name: "other box", platform: "linux", owner_user: other.user, enrolled_by: "inst_box2", enrolled_at: now, kind: "server" }),
+        // Enrolled after the removal time (a clock or race edge): not the removed membership's host.
+        ...hostUpsert({ id: laterHost, name: "later box", platform: "linux", owner_user: member.user, enrolled_by: "inst_box3", enrolled_at: now + 3_600_000, kind: "server" })
+      ])
+    })
+    const krlBefore = await inDO(team(owner.team), async (instance) => instance.boundEngine.currentState.ssh_krl?.version ?? 0)
+    await removeMember(owner.team, member.user)
+    const after = await inDO(team(owner.team), async (instance) => ({ krl: instance.boundEngine.currentState.ssh_krl?.version ?? 0, pending: instance.boundEngine.currentState.member_cleanup ?? {}, revoked: Object.keys(instance.boundEngine.currentState.ssh_revoked ?? {}), host: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, hostId), other: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, otherHost), later: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, laterHost) }))
+    expect(after.revoked.sort()).toEqual(["9001", "9002"])
+    // A new KRL version is out for the team's hosts, and the cleanup is finished.
+    expect(after.krl).toBe(krlBefore + 1)
+    expect(after.pending).toEqual({})
+    expect(after.later?.orphaned).toBeUndefined()
+    expect(after.host?.orphaned?.at).toBeGreaterThanOrEqual(now)
+    // The host stays for an owner to reassign; it says whose it was.
+    expect(after.host).toMatchObject({ id: hostId, owner_user: member.user, orphaned: { former_owner: member.user } })
+    expect(after.other?.orphaned).toBeUndefined()
   })
 })
