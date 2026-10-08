@@ -56,8 +56,10 @@ mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
+mod web_token;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
+pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -245,6 +247,8 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// The token the web listener checks now (`web_token.rs`).
+    pub web_token: WebToken,
 }
 
 impl Hub {
@@ -290,6 +294,7 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            web_token: WebToken::new(String::new()),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

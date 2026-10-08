@@ -1,5 +1,5 @@
-const port = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
-const base = `http://127.0.0.1:${port}`;
+import { E2E_HTTP } from "./e2e-base";
+const base = E2E_HTTP;
 
 const page = await fetch(`${base}/gallery`);
 if (!page.ok) throw new Error(`/gallery returned ${page.status}`);

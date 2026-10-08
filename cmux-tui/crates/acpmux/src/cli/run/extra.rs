@@ -325,9 +325,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             println!("# home: {}", home().display());
             Ok(())
         }
-        Command::Web { no_open } => {
+        Command::Web { no_open, rotate_token } => {
             let client = connect(true).await?;
-            let v = client.request(method::MUX_STATUS, json!({})).await?;
+            let m = if rotate_token { method::MUX_WEB_TOKEN_ROTATE } else { method::MUX_STATUS };
+            let v = client.request(m, json!({})).await?;
             let url = v
                 .get("webUrl")
                 .and_then(Value::as_str)

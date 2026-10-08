@@ -1,5 +1,9 @@
 import Foundation
 
+// CMUX_NO_PASSWORD_IMPORT (set only by the cx-f58x notary test build,
+// nightly.yml input notary_test_without_password_import) compiles out the
+// browser password readers. Default builds include them.
+#if !CMUX_NO_PASSWORD_IMPORT
 /// The small part of DER that Firefox's NSS blobs use: SEQUENCE, OCTET
 /// STRING, INTEGER and OBJECT IDENTIFIER, definite lengths only. The
 /// encrypted blobs it reads hold no plaintext; decrypted bytes never pass
@@ -84,3 +88,4 @@ struct NSSDER: Sendable {
         return content.reduce(0) { $0 << 8 | Int($1) }
     }
 }
+#endif
