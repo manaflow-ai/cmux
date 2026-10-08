@@ -743,7 +743,6 @@ export function Composer({
             ) : null}
           </span>
         </div>
-      </div>
       <ComposerContext
         projectChoices={projectChoices}
         onBrowseProject={onBrowseProject}
@@ -771,6 +770,7 @@ export function Composer({
           })
         }
       />
+      </div>
     </form>
   );
 }
