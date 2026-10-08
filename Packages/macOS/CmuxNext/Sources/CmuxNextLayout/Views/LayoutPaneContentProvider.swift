@@ -44,11 +44,15 @@ final class LayoutViewContext {
     var overlayNeedsSync: () -> Void = {}
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
-    /// Where the pointer is now, in `window`'s coordinates, when it may hover
-    /// that window's dividers; nil when it may not (another window or panel
-    /// is on top there, the window is not key). Read with no event at hand,
-    /// because the layout can move under a still pointer.
+    /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
+    /// hover there (the window is not key). Cheap: read on every frame that
+    /// moves the layout, with no event at hand, because the layout can move
+    /// under a still pointer.
     var hoverPointer: (NSWindow) -> NSPoint? = { _ in nil }
+    /// Whether the window is on top under the pointer (no other window or
+    /// panel covers that point, except pass-through panels). A window server
+    /// round trip: asked only when a handle is under the pointer.
+    var hoverReachesWindow: (NSWindow) -> Bool = { _ in false }
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
@@ -57,18 +61,35 @@ final class LayoutViewContext {
         self.model = model
         self.provider = provider
         self.scrollbarClock = scrollbarClock
-        hoverPointer = { [unowned self] window in Self.systemPointer(in: window, passThrough: self.hoverPassThroughWindows()) }
+        hoverPointer = { window in Self.systemPointer(in: window) }
+        hoverReachesWindow = { [unowned self] window in Self.isTopmost(window, passThrough: self.hoverPassThroughWindows()) }
     }
 
-    /// The real pointer in `window`'s coordinates, when it may hover there:
-    /// the window is key and the topmost window under the pointer is this
-    /// window or one that passes hover through. Nil otherwise (another app,
-    /// a panel or menu above, the pointer outside every window).
-    static func systemPointer(in window: NSWindow, passThrough: Set<Int>) -> NSPoint? {
+    #if DEBUG
+    /// DEBUG: the pointer `debug.mouse` synthesized per window, in window
+    /// coordinates; `.some(nil)` is a pointer outside the window.
+    nonisolated(unsafe) static var debugPointers: [ObjectIdentifier: NSPoint?] = [:]
+    #endif
+
+    /// The real pointer in `window`'s coordinates while the window is key and
+    /// visible (`debug.mouse`'s synthesized pointer in DEBUG builds).
+    static func systemPointer(in window: NSWindow) -> NSPoint? {
+        #if DEBUG
+        // `debug.mouse` drives a still real pointer: its synthesized pointer wins.
+        if let synthetic = debugPointers[ObjectIdentifier(window)] { return synthetic }
+        #endif
         guard window.isKeyWindow, window.isVisible else { return nil }
-        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
-        guard top == window.windowNumber || passThrough.contains(top) else { return nil }
         return window.mouseLocationOutsideOfEventStream
+    }
+
+    /// The topmost window under the real pointer is `window` or a
+    /// pass-through panel.
+    static func isTopmost(_ window: NSWindow, passThrough: Set<Int>) -> Bool {
+        #if DEBUG
+        if debugPointers[ObjectIdentifier(window)] != nil { return true }
+        #endif
+        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        return top == window.windowNumber || passThrough.contains(top)
     }
 
     var style: LayoutStyle { model.style }

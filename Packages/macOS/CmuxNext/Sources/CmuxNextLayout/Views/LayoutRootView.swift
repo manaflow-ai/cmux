@@ -86,6 +86,7 @@ public final class LayoutRootView: NSView {
     isolated deinit {
         observationTask?.cancel()
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        for token in keyObservers { NotificationCenter.default.removeObserver(token) }
         driver.detach()
     }
 

@@ -31,4 +31,17 @@ extension LayoutRootView {
             })
         }
     }
+
+    #if DEBUG
+    /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
+    /// coordinates; nil: outside the window), then every layout in the window
+    /// recomputes its hover from it.
+    public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
+        LayoutViewContext.debugPointers[ObjectIdentifier(window)] = .some(point)
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            if let root = view as? LayoutRootView { root.refreshDividerHover() } else { stack.append(contentsOf: view.subviews) }
+        }
+    }
+    #endif
 }

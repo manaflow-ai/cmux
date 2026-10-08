@@ -21,6 +21,7 @@ struct DividerHoverTests {
         let view = LayoutRootView(model: model, contentProvider: HoverStubProvider.shared)
         view.context.reduceMotionOverride = true
         view.context.hoverPointer = { (_: NSWindow) -> NSPoint? in pointer.location }
+        view.context.hoverReachesWindow = { (_: NSWindow) -> Bool in true }
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -111,6 +112,55 @@ struct DividerHoverTests {
         var frames = 0
         while frames < 600, view.driver.onFrame?(1.0 / 60) == true { frames += 1 }
         #expect(frames < 600, "the display link comes to rest")
+    }
+
+    /// A cancelled drag sends nothing more for its transaction: its coalesced
+    /// width intent drops and the App is told the gesture is over.
+    @Test func aCancelledDragDropsItsPendingIntent() {
+        let pointer = Pointer()
+        let (view, window) = makeRoot(pointer)
+        defer { window.close() }
+        var intents: [LayoutIntent] = []
+        view.model.intentHandler = { intents.append($0) }
+        let screen = view.screenViews["s"]!
+        let edge = edges(screen).first { $0.kind == .columnEdge("ca") }!
+        let start = screen.convert(NSPoint(x: edge.frame.midX, y: edge.frame.midY), to: nil)
+        screen.handleDrag(kind: edge.kind, event: .began(start))
+        screen.handleDrag(kind: edge.kind, event: .moved(NSPoint(x: start.x - 40, y: start.y)))
+        #expect(view.model.hasPendingGestureIntents)
+        screen.endDrag()
+        #expect(!view.model.hasPendingGestureIntents)
+        view.model.flushPendingGestureIntents()
+        #expect(!intents.contains { if case .setColumnWidth = $0 { true } else { false } })
+        #expect(intents.contains { if case .cancelGesture = $0 { true } else { false } })
+    }
+
+    /// While a drag runs, only the dragged handle is lit, even when the
+    /// pointer crosses another handle.
+    @Test func onlyTheDraggedHandleIsLitDuringADrag() {
+        let pointer = Pointer()
+        let (view, window) = makeRoot(pointer)
+        defer { window.close() }
+        let screen = view.screenViews["s"]!
+        let sorted = edges(screen).sorted { $0.frame.minX < $1.frame.minX }
+        let dragged = sorted[0], other = sorted[1]
+        screen.handleDrag(kind: dragged.kind, event: .began(screen.convert(NSPoint(x: dragged.frame.midX, y: 10), to: nil)))
+        pointer.location = screen.convert(NSPoint(x: other.frame.midX, y: other.frame.midY), to: nil)
+        screen.refreshDividerHover()
+        #expect(dragged.isHovered)
+        #expect(!other.isHovered)
+    }
+
+    /// A pointer outside the screen's visible area hovers nothing, even over
+    /// a handle's frame that extends past it.
+    @Test func aPointerOutsideTheScreenHoversNothing() {
+        let pointer = Pointer()
+        let (view, window) = makeRoot(pointer)
+        defer { window.close() }
+        let screen = view.screenViews["s"]!
+        pointer.location = screen.convert(NSPoint(x: screen.bounds.maxX + 3, y: 10), to: nil)
+        screen.refreshDividerHover()
+        #expect(edges(screen).allSatisfy { !$0.isHovered })
     }
 }
 

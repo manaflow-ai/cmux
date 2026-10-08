@@ -98,7 +98,7 @@ extension ScreenContentView {
         guard let drag = activeDrag else { return }
         activeDrag = nil
         rowDragPreview = nil
-        context.model.rejectTransaction(drag.transaction)
+        context.model.cancelGesture(drag.transaction)
         context.model.setGestureActive(false)
     }
 

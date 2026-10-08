@@ -245,13 +245,21 @@ final class ScreenContentView: NSView {
     /// topmost visible handle under the pointer is hovered; every other one
     /// is not.
     func refreshDividerHover() {
-        let point = window.flatMap { context.hoverPointer($0) }.map { convert($0, from: nil) }
-        let hit = point.flatMap { point in
-            subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
-                !$0.isHidden && $0.alphaValue > 0.01 && $0.frame.contains(point)
-            }
+        let hovered = hoveredHandle()
+        for view in dividerViews.values { view.setHovered(view === hovered) }
+    }
+
+    private func hoveredHandle() -> DividerHandleView? {
+        // During a drag only the dragged handle shows (its line is the drag's).
+        if let drag = activeDrag { return dividerViews[drag.kind] }
+        guard let window, !isHiddenOrHasHiddenAncestor,
+              let point = context.hoverPointer(window).map({ convert($0, from: nil) }),
+              visibleRect.contains(point) else { return nil }
+        let hit = subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
+            !$0.isHidden && $0.alphaValue > 0.01 && $0.frame.contains(point)
         }
-        for view in dividerViews.values { view.setHovered(view === hit) }
+        guard let hit, context.hoverReachesWindow(window) else { return nil }
+        return hit
     }
 
     /// Hosts this screen displays now.
@@ -364,6 +372,8 @@ final class ScreenContentView: NSView {
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
+        // A drag on a screen that goes away gets no release either.
+        endDrag()
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
