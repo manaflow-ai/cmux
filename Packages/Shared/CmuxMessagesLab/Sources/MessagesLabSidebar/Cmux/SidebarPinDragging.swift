@@ -59,10 +59,8 @@ extension SidebarController {
         mouseMoved(nil)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         state.ghost?.removeFromSuperlayer()
-        let ghost = CALayer()
-        ghost.contents = SidebarDraw.tile(c, emphasized: false, ctx: renderContext, avatars: avatars)
-        ghost.contentsScale = renderContext.scale
-        ghost.contentsGravity = .topLeft
+        let ghost: CALayer
+        if case let .tile(t) = h { ghost = copyOfTile(tileLayers[t]) } else { ghost = avatarGhost(c) }
         ghost.frame = frame
         ghost.zPosition = 20
         ghost.shadowOpacity = 0.22
@@ -80,6 +78,39 @@ extension SidebarController {
         ghost.transform = CATransform3DMakeScale(SidebarPinDragState.lift, SidebarPinDragState.lift, 1)
         ghost.add(lift, forKey: "cmux.pinDrag.lift")
         return true
+    }
+
+    /// The dragged tile as drawn (no selection), from its parts: one bitmap per tile, or the
+    /// layered tile's avatar, name and bubble.
+    private func copyOfTile(_ tile: SidebarRowLayer) -> CALayer {
+        let ghost = CALayer()
+        ghost.bounds = tile.bounds
+        for part in [tile.avatar, tile.dot, tile.content, tile.time] where !part.isHidden && (part.contents != nil || part.backgroundColor != nil) {
+            let copy = CALayer()
+            copy.frame = part.frame
+            copy.contents = part.contents
+            copy.contentsGravity = part.contentsGravity
+            copy.contentsScale = part.contentsScale
+            copy.minificationFilter = part.minificationFilter
+            copy.backgroundColor = part.backgroundColor
+            copy.cornerRadius = part.cornerRadius
+            ghost.addSublayer(copy)
+        }
+        return ghost
+    }
+
+    /// A row lifted toward the grid: its avatar at the tile's avatar place.
+    private func avatarGhost(_ c: ConversationSummary) -> CALayer {
+        let ghost = CALayer()
+        ghost.bounds = CGRect(origin: .zero, size: tileSize)
+        let avatar = CALayer()
+        avatar.frame = SidebarDraw.tileAvatar(metrics)
+        avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
+        avatar.contentsGravity = .resize
+        avatar.contentsScale = renderContext.scale
+        avatar.minificationFilter = .trilinear
+        ghost.addSublayer(avatar)
+        return ghost
     }
 
     /// The pointer moved to `p`: the ghost follows, the grid makes room where it would land.
@@ -207,19 +238,22 @@ extension SidebarController {
         guard let ghost = state.ghost else { return }
         state.ghost = nil
         if landedAsTile { ghost.removeFromSuperlayer(); return }
-        // Unpinned, or a row that stayed a row: the ghost shrinks into the row's avatar and fades.
-        let to: CGPoint
+        // Unpinned, or a row that stayed a row: the ghost's avatar shrinks onto the row's avatar and fades.
+        let ar = SidebarDraw.tileAvatar(metrics)
+        let scale = SidebarMetrics.avatar / max(1, ar.width)
+        var to = ghost.position
         if let id = landingID, case let .row(r)? = position(of: id) {
-            to = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2, y: rowRect(r).midY)
-        } else {
-            to = ghost.position
+            let offset = CGPoint(x: ar.midX - tileSize.width / 2, y: ar.midY - tileSize.height / 2)
+            to = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2 - offset.x * scale, y: rowRect(r).midY - offset.y * scale)
         }
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.22)
+        CATransaction.setDisableActions(false) // this runs inside the drop's no-animation transaction
         CATransaction.setCompletionBlock { ghost.removeFromSuperlayer() }
         ghost.position = to
         ghost.opacity = 0
-        ghost.transform = CATransform3DMakeScale(0.5, 0.5, 1)
+        ghost.shadowOpacity = 0
+        ghost.transform = CATransform3DMakeScale(scale, scale, 1)
         CATransaction.commit()
     }
 
