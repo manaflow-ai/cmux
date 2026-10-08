@@ -46,6 +46,47 @@ struct BenchHarnessTests {
         #expect(await calls.value == 1)
     }
 
+    @Test("fixture setup cancellation tears down the rig")
+    func fixtureSetupCancellationCleansUp() async {
+        let harness = CancellationHarness()
+        let task = Task {
+            do {
+                _ = try await BenchFixture.connect(harness, limit: .seconds(30))
+                return "returned"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return "error: \(error)"
+            }
+        }
+        await harness.tracker.waitForMake()
+        task.cancel()
+
+        #expect(await task.value == "cancelled")
+        #expect(await harness.tracker.teardownCount == 1)
+    }
+
+    @Test("raw benchmark cancellation tears down the rig")
+    func rawBenchmarkCancellationCleansUp() async {
+        let harness = CancellationHarness()
+        let runner = BenchRunner(spec: BenchSpec(rig: .v3, quick: true), rig: harness)
+        let task = Task {
+            do {
+                _ = try await runner.rawDownload(recordBytes: 1_024)
+                return "returned"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return "error: \(error)"
+            }
+        }
+        await harness.tracker.waitForMake()
+        task.cancel()
+
+        #expect(await task.value == "cancelled")
+        #expect(await harness.tracker.teardownCount == 1)
+    }
+
     @Test("percentiles use nearest rank")
     func distribution() {
         let distribution = Distribution(milliseconds: (1...100).map(Double.init))
@@ -124,5 +165,63 @@ private actor CallCounter {
 
     func increment() {
         value += 1
+    }
+}
+
+private actor CleanupTracker {
+    private var made = false
+    private(set) var teardownCount = 0
+
+    func markMade() {
+        made = true
+    }
+
+    func waitForMake() async {
+        while !made {
+            await Task.yield()
+        }
+    }
+
+    func recordTeardown() {
+        teardownCount += 1
+    }
+}
+
+private final class BlockingCarrier: LinkCarrier, @unchecked Sendable {
+    let kind: CarrierKind = .direct
+    let candidatePaths: [PathKind] = [.direct]
+
+    func connect(to _: LinkPeer) async throws -> any LinkTransport {
+        try await Task.sleep(for: .seconds(3_600))
+        throw CancellationError()
+    }
+}
+
+private final class BlockingAcceptor: LinkAcceptor, @unchecked Sendable {
+    let incoming: AsyncStream<any LinkTransport>
+    private let continuation: AsyncStream<any LinkTransport>.Continuation
+
+    init() {
+        (incoming, continuation) = AsyncStream.makeStream(of: (any LinkTransport).self)
+    }
+
+    deinit {
+        continuation.finish()
+    }
+}
+
+private final class CancellationHarness: ConformanceHarness, @unchecked Sendable {
+    let name = "cancellation"
+    let tracker = CleanupTracker()
+    private let carrier = BlockingCarrier()
+    private let acceptor = BlockingAcceptor()
+
+    func makeEndpoints() async throws -> ConformanceEndpoints {
+        await tracker.markMade()
+        return ConformanceEndpoints(carriers: [carrier], acceptor: acceptor)
+    }
+
+    func tearDown() async {
+        await tracker.recordTeardown()
     }
 }
