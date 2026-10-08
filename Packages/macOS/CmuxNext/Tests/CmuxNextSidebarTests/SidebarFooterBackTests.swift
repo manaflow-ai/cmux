@@ -58,6 +58,14 @@ import Testing
         #expect(runs == 1)
     }
 
+    @Test func backButtonCanReceiveKeyboardFocus() async {
+        let view = await sidebar()
+        view.model.showsBack = true
+        await settle(view)
+        #expect(!view.backButton.refusesFirstResponder, "Back is a navigation control, so keyboard focus must reach it")
+        #expect(view.backButton.acceptsFirstResponder)
+    }
+
     /// Drawing must not dirty the button again: setting its image or title in
     /// `updateLayer` redraws it every frame, which hung the whole test run.
     @Test func drawingTheBackButtonLeavesItClean() async {

@@ -157,6 +157,16 @@ pub(crate) fn migrate_add_actor_columns(connection: &Connection) -> anyhow::Resu
             ))?;
         }
     }
+    // Nullable, no default: a record or segment without one is legacy.
+    for (table, column) in [("session_journal", "actor"), ("journal_segments", "actors_json")] {
+        let columns = connection
+            .prepare(&format!("PRAGMA table_info({table})"))?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if !columns.iter().any(|name| name == column) {
+            connection.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT;"))?;
+        }
+    }
     Ok(())
 }
 
