@@ -197,7 +197,7 @@ struct ManagedPolicyCloudGateTests {
             // reaches the URL protocol; timeout metadata is the assertion.
         }
         let listRequest = try #require(RecordingCloudURLProtocol.recorder.requests.first)
-        #expect(listRequest.timeoutInterval == 15)
+        #expect(listRequest.timeoutInterval == 30)
     }
 
     // MARK: - Helpers
