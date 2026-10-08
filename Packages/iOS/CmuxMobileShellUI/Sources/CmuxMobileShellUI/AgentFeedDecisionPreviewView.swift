@@ -11,7 +11,6 @@ public struct AgentFeedDecisionPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .feed
     @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .feed)
     @State private var path: [String] = []
-    @State private var result = ""
     @State private var stressMonitor = AgentFeedScrollStressFrameMonitor()
     @State private var stressMetrics = "state=idle"
     @State private var referenceDate: Date
@@ -74,17 +73,6 @@ public struct AgentFeedDecisionPreviewView: View {
                 )
             } destination: { _ in EmptyView() }
         }
-        .overlay(alignment: .bottom) {
-            if !result.isEmpty {
-                Text(result)
-                    .font(.footnote.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.thinMaterial, in: Capsule())
-                    .padding(.bottom, 12)
-                    .accessibilityIdentifier("MobileAgentFeedDecisionResult")
-            }
-        }
         .background {
             if UITestConfig.agentFeedDecisionPreviewScrollStressEnabled {
                 Color.clear
@@ -94,7 +82,7 @@ public struct AgentFeedDecisionPreviewView: View {
                     .accessibilityValue(stressMetrics)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(UITestConfig.agentFeedDecisionPreviewLightAppearanceEnabled ? .light : .dark)
         .task {
             await runScrollStressIfEnabled()
         }
@@ -102,17 +90,28 @@ public struct AgentFeedDecisionPreviewView: View {
 
     private var actions: AgentFeedActions {
         AgentFeedActions(
-            permissionReply: { _, mode in result = "Permission reply: \(mode)" },
-            questionReply: { _, _ in result = "Question reply accepted" },
+            permissionReply: { item, mode in
+                resolve(item, decision: MobileAgentFeedDecision(kind: "permission", mode: mode))
+            },
+            questionReply: { item, answers in
+                resolve(item, decision: MobileAgentFeedDecision(kind: "question", selections: answers))
+            },
             openDestination: { item in path = [item.remoteSurfaceID == nil ? "workspace" : "tab"] },
-            viewFullText: { _ in result = "Full text opened" }
+            loadFullText: { item in item.fullTextPreview ?? item.stopReason ?? "" }
         )
+    }
+
+    private func resolve(_ item: MobileAgentFeedItem, decision: MobileAgentFeedDecision) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index] = item.updating(status: .resolved(decision))
+        itemsRevision &+= 1
     }
 
     private static func makeItems(
         referenceDate now: Date,
         longRowCount: Int
     ) -> [MobileAgentFeedItem] {
+        let richText = UITestConfig.agentFeedQuestionMarkdownPreviewEnabled
         let question = MobileAgentFeedItem(
             macDeviceID: "preview-mac",
             macDisplayName: "Preview Mac",
@@ -128,12 +127,12 @@ public struct AgentFeedDecisionPreviewView: View {
                 MobileAgentFeedQuestion(
                     id: "deploy",
                     header: "Deploy target",
-                    prompt: "Where should this deploy?",
+                    prompt: richText ? "Where should **this release** deploy?" : "Where should this deploy?",
                     options: [
                         MobileAgentFeedQuestionOption(
                             id: "production",
-                            label: "Production",
-                            description: "Deploy the current release to production."
+                            label: richText ? "**Production**" : "Production",
+                            description: richText ? "Deploy the `release` to production." : "Deploy the current release to production."
                         ),
                         MobileAgentFeedQuestionOption(
                             id: "staging",
@@ -165,7 +164,7 @@ public struct AgentFeedDecisionPreviewView: View {
                         ),
                     ]
                 ),
-            ],
+            ].filter { !richText || $0.id == "deploy" },
             context: MobileAgentFeedContext(lastUserMessage: "Deploy target and event settings"),
             connectionStatus: .connected
         )
