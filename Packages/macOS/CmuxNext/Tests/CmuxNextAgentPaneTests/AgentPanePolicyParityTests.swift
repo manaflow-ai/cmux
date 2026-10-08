@@ -206,12 +206,12 @@ import Testing
             let sessions = AcpmuxPaneSessions()
             for case let s as String in state["sessions"] as? [Any] ?? [] { sessions.add(s) }
             let options = AcpmuxPermissionOptions()
-            Self.seedQuestions(c, state, options)
             for case let deny as [String] in state["denies"] as? [Any] ?? [] {
                 options.observe(["method": "_acpmux/permission_pending",
                                  "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
                                 replyTo: nil)
             }
+            Self.seedQuestions(c, state, options)
             let snapshot = AgentPaneTransport.Snapshot(
                 isFirst: state["first"] as? Bool ?? false, localAppToken: state["token"] as? String,
                 modeFields: (state["mode_fields"] as? [String]).map(Set.init), sessions: sessions, options: options)
