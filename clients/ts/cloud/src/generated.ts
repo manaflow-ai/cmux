@@ -995,6 +995,13 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmAccountUser = {
+  readonly user: string
+  readonly uid: number
+  readonly class: SshCertClass
+  readonly principals: ReadonlyArray<string>
+}
+
 export type TeamVmError = {
   readonly code: string
   readonly message: string
@@ -2594,6 +2601,14 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). */
+  readonly "team_vm.accounts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly users: ReadonlyArray<TeamVmAccountUser>
+    }
+  }
   /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
   readonly "team_vm.ensure_awake": {
     readonly params: {
@@ -3182,6 +3197,7 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.accounts": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
   "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
