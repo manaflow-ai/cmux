@@ -1,5 +1,5 @@
 {
-  "//": "Files not yet on src/ui and their count of raw widget roles, tab indexes, key handlers and portals (test/ui-rules.ts). The count may only go down; migrate a file, then delete its line. Order and owners: plans/cmux-next/a11y-foundation.md.",
+  "//": "Files not yet on src/ui and their count of raw widget roles, tab indexes, key handlers and portals (test/ui-rules.ts). The count may only go down; migrate a file, then delete its line. Inspector.tsx stays pending because its Escape listener and legacy clipboard fallback need migration behind shared UI and clipboard helpers. Order and owners: plans/cmux-next/a11y-foundation.md.",
   "agent-session/acpmux/changeIcons.tsx": 1,
   "agent-session/acpmux/changes/ChangedFilesTree.tsx": 1,
   "agent-session/acpmux/changes/FileMenu.tsx": 5,
@@ -18,6 +18,7 @@
   "agent-session/acpmux/EffortPicker.tsx": 1,
   "agent-session/acpmux/EffortTrack.tsx": 1,
   "agent-session/acpmux/FileSearch.tsx": 5,
+  "agent-session/acpmux/Inspector.tsx": 2,
   "agent-session/acpmux/MenuRow.tsx": 1,
   "agent-session/acpmux/ModelPicker.tsx": 1,
   "agent-session/acpmux/ModelPickerDrill.tsx": 3,
