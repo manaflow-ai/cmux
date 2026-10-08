@@ -11,7 +11,7 @@ extension VMClient {
         }
         return try await withOperation(.list, foreground: false) {
             let (data, http) = try await request(
-                "GET", path: "/api/vm", timeoutSeconds: 15,
+                "GET", path: "/api/vm", timeoutSeconds: 30,
                 allowWhenCloudDisabled: allowWhenCloudDisabled,
                 expectedTeamScope: expectedTeamScope
             )
