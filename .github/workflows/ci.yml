@@ -936,7 +936,7 @@ jobs:
                 if [ "$release_only" = true ]; then
                   echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","release-ios","release-notary","release-tooling"]'
                 else
-                echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","app-host-execution","app-host-watchdog","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                  echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","app-host-execution","app-host-watchdog","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
                 fi
               else
                 echo 'linux_guard_test_groups=["ci"]'
