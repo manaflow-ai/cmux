@@ -87,8 +87,15 @@ struct DeviceDirectoryMerge {
             candidate.directoryEndpoint != nil && existing.directoryEndpoint == nil
         }
 
+        // Account presence is subscribed independently of the selected team.
+        // The owner collection is the authentication proof for those rows;
+        // raw presence remains non-authoritative until that proof arrives.
+        let accountOwned = Set(hostPresence.keys.filter { id in
+            guard let currentUserID = input.currentUserID, input.ownersKnown else { return false }
+            return input.owners[cmxCanonicalDeviceID(id.deviceID)] == currentUserID
+        })
         let ids = SurfaceDeviceDirectoryAdmission(requiresAuthenticatedDiscovery: input.requiresAuthenticatedDiscovery)
-            .admittedInstances(authenticated: Set(accountMacs.keys),
+            .admittedInstances(authenticated: Set(accountMacs.keys), accountOwned: accountOwned,
                 legacySources: [Set(registryInstances.keys), Set(presenceMacs.keys), Set(pairedByID.keys), Set(previousByID.keys)],
                 local: input.selfInstance)
 
@@ -140,7 +147,7 @@ struct DeviceDirectoryMerge {
                 .max()
             // The `devices` collection pins owners by host device id.
             let ownerIDs = [id] + (hostIDsByRow[id] ?? []).sorted { $0.wireValue < $1.wireValue }
-            let pinnedOwner = ownerIDs.lazy.compactMap { input.owners[$0.deviceID] }.first
+            let pinnedOwner = ownerIDs.lazy.compactMap { input.owners[cmxCanonicalDeviceID($0.deviceID)] }.first
             let ownerUserID = pinnedOwner ?? (input.ownersKnown ? nil : previous?.ownerUserID)
             let trust: SurfaceDevicePresence.AccountTrust
             if accountMac != nil || paired != nil {

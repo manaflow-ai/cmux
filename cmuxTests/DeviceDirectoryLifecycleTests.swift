@@ -309,6 +309,35 @@ struct DeviceDirectoryLifecycleTests {
         await clock.waitUntilIdle()
     }
 
+    @Test("Changing teams does not rebuild the account-owned device directory")
+    func teamChangeKeepsDirectoryLifetime() async throws {
+        let suite = "DevicesRegistryTeamScope-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let center = NotificationCenter()
+        let clock = SidebarTestManualClock()
+        var teamID = "team-a"
+        var directoryCreations = 0
+        let registry = DeviceSurfaceProviderRegistry(
+            notificationCenter: center,
+            sessionScope: { _ in (AuthenticatedSessionIdentity(generation: 1, accountID: "test"), teamID) },
+            makeDirectory: { _, _, _, _, _ in
+                directoryCreations += 1
+                return makeDirectory(defaults: defaults, clock: clock, serviceURL: { nil })
+            },
+            isFeatureEnabled: { true }
+        )
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
+        #expect(directoryCreations == 1)
+
+        teamID = "team-b"
+        registry.evaluate()
+
+        #expect(directoryCreations == 1)
+        #expect(registry.directory != nil)
+        registry.directory?.stop()
+    }
+
     private final class UnpairedDevices: DeviceLinkAuthorizationSource {
         var pairedDevices: [DevicePairedDevice] = []
         let authorizationDidChangeNotification = Notification.Name("DeviceDirectoryLifecycle-\(UUID().uuidString)")

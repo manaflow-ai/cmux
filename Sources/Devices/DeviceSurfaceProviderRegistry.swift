@@ -28,8 +28,9 @@ final class DeviceSurfaceProviderRegistry {
     private(set) var directory: DeviceDirectory?
     private var runtime: DeviceLinkRuntime?
     private var authorization: (any DeviceLinkAuthorizationSource)?
-    /// The account generation and team scope the running directory was built
-    /// for; a change tears it down and builds a fresh one.
+    /// The account generation the running directory was built for. Device
+    /// membership is account-owned, so the selected team is not a lifecycle
+    /// key for this registry.
     private var identity: AuthenticatedSessionIdentity?
     private var teamID: String?
     private var providers: [SurfaceDeviceInstanceID: DeviceSurfaceProvider] = [:]
@@ -144,7 +145,7 @@ final class DeviceSurfaceProviderRegistry {
         let (identity, teamID) = sessionScope(auth)
         let shouldRun = isFeatureEnabled() && identity != nil
         let automatic = allowsAutomaticConnections()
-        let scopeChanged = identity != self.identity || teamID != self.teamID || automatic != activeAutomaticConnections
+        let scopeChanged = identity != self.identity || automatic != activeAutomaticConnections
         if directory != nil, !shouldRun || scopeChanged {
             if let directoryObserver { notificationCenter.removeObserver(directoryObserver) }
             directoryObserver = nil

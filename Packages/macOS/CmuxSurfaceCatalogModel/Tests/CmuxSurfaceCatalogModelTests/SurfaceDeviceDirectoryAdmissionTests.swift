@@ -15,4 +15,18 @@ struct SurfaceDeviceDirectoryAdmissionTests {
         #expect(policy.admittedInstances(authenticated: [], legacySources: sources, local: local)
             == (required ? [] : [host, hidden]))
     }
+
+    @Test("owner-proven account presence is admitted independently of the selected team")
+    func accountOwnedPresenceIsAdmittedWhenAuthenticatedDirectoryIsTeamScoped() {
+        let local = SurfaceDeviceInstanceID(deviceID: "local", tag: "test")
+        let accountMac = SurfaceDeviceInstanceID(deviceID: "account-mac", tag: "test")
+        let policy = SurfaceDeviceDirectoryAdmission(requiresAuthenticatedDiscovery: true)
+
+        #expect(policy.admittedInstances(
+            authenticated: [],
+            accountOwned: [accountMac],
+            legacySources: [],
+            local: local
+        ) == [accountMac])
+    }
 }
