@@ -126,7 +126,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         checkpointID: String? = nil
     ) -> SurfaceResumeBindingSnapshot {
         let checkpointID = checkpointID ?? sessionID
-        SurfaceResumeBindingSnapshot(
+        return SurfaceResumeBindingSnapshot(
             name: "Claude Code",
             kind: "claude",
             command: "claude --resume \(checkpointID) --permission-mode auto",
