@@ -1100,6 +1100,7 @@ final class SidebarDocumentView: NSView {
         default: interpretKeyEvents([event])
         }
     }
+    override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
     override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
     override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
     /// Typing a letter in the list starts a search (as a source list's type-select would).

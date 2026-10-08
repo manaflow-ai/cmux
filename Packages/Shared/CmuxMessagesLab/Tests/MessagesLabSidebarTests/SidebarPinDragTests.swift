@@ -120,6 +120,16 @@ final class OrderingHost: SidebarDataSource, SidebarDelegate, SidebarPinPlacing 
         for t in sidebar.tileLayers.indices { #expect(sidebar.tileLayers[t].frame == sidebar.tileRect(t), "every tile back in its slot") }
     }
 
+    @Test func escapeThroughTheResponderChainCancelsADrag() {
+        let host = OrderingHost(count: 8, pinned: ["c0", "c1", "c2"])
+        let sidebar = Self.sidebar(host)
+        #expect(sidebar.beginPinDrag(at: Self.center(sidebar.tileRect(0))))
+        sidebar.movePinDrag(to: Self.center(sidebar.tileRect(2)))
+        sidebar.document.cancelOperation(nil)
+        #expect(sidebar.pinDragOrder == nil && host.placed.isEmpty)
+        #expect(Self.tileIDs(sidebar) == ["c0", "c1", "c2"])
+    }
+
     @Test func draggingATileOntoTheListUnpinsIt() {
         let host = OrderingHost(count: 8, pinned: ["c0", "c1", "c2"])
         let sidebar = Self.sidebar(host)
