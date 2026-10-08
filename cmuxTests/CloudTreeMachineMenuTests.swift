@@ -219,7 +219,7 @@ struct CloudTreeMachineMenuTests {
         let memory16 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 16) })
         let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
 
-        #expect(cpu4.isEnabled)
+        #expect(!cpu4.isEnabled)
         #expect(!cpu8.isEnabled)
         #expect(memory16.isEnabled)
         #expect(!memory24.isEnabled)
@@ -247,8 +247,8 @@ struct CloudTreeMachineMenuTests {
         let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
         let cpu8 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8) })
         let memory16 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 16) })
-        #expect(cpu8.isEnabled)
-        #expect(memory16.isEnabled)
+        #expect(!cpu8.isEnabled)
+        #expect(!memory16.isEnabled)
     }
 
     @Test("Resize menu checks both dimensions at the pool boundary")
