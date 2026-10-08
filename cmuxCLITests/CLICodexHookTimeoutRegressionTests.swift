@@ -128,7 +128,7 @@ struct CLICodexHookTimeoutRegressionTests {
         let emittedArguments = emit.stdout.split(separator: "\0").map(String.init)
         #expect(Array(emittedArguments.prefix(3)) == [
             "--enable",
-            "hooks",
+            "codex_hooks",
             "--dangerously-bypass-hook-trust",
         ])
         let expectedInjectedEvents: Set<String> = [
