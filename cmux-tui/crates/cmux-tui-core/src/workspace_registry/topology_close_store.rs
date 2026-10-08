@@ -12,6 +12,10 @@ use super::resource_store::{
 };
 use super::*;
 
+/// A write a batch close makes in its own transaction before the patch
+/// applies (a space delete: the space's rows and its closed group).
+pub(crate) type BeforePatch<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+
 #[derive(Debug, Clone)]
 pub(crate) struct TopologyCloseCommit {
     pub resource: ResourcePatchCommit,
@@ -39,6 +43,7 @@ impl WorkspaceRegistry {
         workspace_close: Option<&ResourceWorkspaceClose>,
         tab_groups: Option<&TabGroupState>,
         record_closed: bool,
+        before_patch: Option<BeforePatch<'_>>,
     ) -> anyhow::Result<TopologyCloseCommit> {
         validate_identifier("resource operation", operation)?;
         validate_terminal_batch_close(mutation, terminals)?;
@@ -95,28 +100,31 @@ impl WorkspaceRegistry {
         }
         let terminal_batch =
             close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
+        // A close that is part of another change (a space delete) writes that
+        // change and announces its closed group first, in this transaction.
+        if let Some(before_patch) = before_patch {
+            before_patch(&tx)?;
+        }
         // A session-end close (`close-reason-v1`) stays out of the closed history.
         let patch = if record_closed {
             apply_resource_patch(&tx, &patch, sqlite_revision)?
         } else {
             apply_resource_patch_unrecorded(&tx, &patch, sqlite_revision)?
         };
+        if before_patch.is_some() {
+            crate::state::closed_history_store::flush_pending_group(&tx)?;
+        }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,

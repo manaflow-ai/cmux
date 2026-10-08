@@ -466,6 +466,22 @@ fn tabs_open_drops_agent_chosen_profile_and_workspace() {
     assert_eq!(open, json!({"url": "https://b.test/", "engine": "cef"}));
 }
 
+/// Private data P1: an incognito tab opens only in a non-persistent store.
+/// The app has no incognito store yet, so the host refuses the call and
+/// never falls back to a persistent tab of the person's profile.
+#[test]
+fn an_incognito_tab_is_refused_when_the_app_has_no_private_store() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    for kind in ["cef", "webkit"] {
+        let session = engine(&provider, kind);
+        let error = session
+            .call("tabs.open", &json!({"url": "https://b.test/", "incognito": true}))
+            .unwrap_err();
+        assert_eq!(error.code, crate::protocol::ErrorCode::Unsupported, "{kind}: {error}");
+    }
+    assert_eq!(calls(&app, "tabs.open"), 0, "a persistent tab was opened instead");
+}
+
 #[test]
 fn tabs_open_goes_to_the_app_with_the_session_engine() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);

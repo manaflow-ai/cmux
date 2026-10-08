@@ -5,6 +5,8 @@ import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
@@ -55,6 +57,12 @@ export function EffortPicker({
       }),
     [label],
   );
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  useEscapeCloses(open, close);
+  const press = usePopoverTrigger(open, setOpen);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -79,7 +87,7 @@ export function EffortPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        onClick={() => setOpen(!open)}
+        {...press}
       >
         <span>{chip}</span>
         {chevron}
@@ -96,16 +104,7 @@ export function EffortPicker({
         >
           <div className="acpmux-effort-title">{name}</div>
           {model && <div className="acpmux-effort-model">{model}</div>}
-          <EffortTrack
-            efforts={efforts}
-            current={current}
-            onPick={onPick}
-            autoFocus
-            onEscape={() => {
-              setOpen(false);
-              root.current?.querySelector("button")?.focus();
-            }}
-          />
+          <EffortTrack efforts={efforts} current={current} onPick={onPick} autoFocus onEscape={close} />
         </div>
       )}
     </span>

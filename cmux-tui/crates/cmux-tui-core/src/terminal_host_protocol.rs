@@ -53,6 +53,20 @@ pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
 /// from the protocol version so older persistent hosts and renderers can keep
 /// using the exact v4 snapshot layout.
 pub const FLAG_TERMINAL_METADATA: u32 = 1 << 4;
+/// ClientHello opt-in and HostHello acknowledgement for viewer-size priority.
+/// The host echoes it only to a renderer granted `RESIZE`. While any such
+/// renderer holds a viewer size, the canonical grid is the per-dimension
+/// minimum over those renderers alone; every other viewer crops or pans.
+/// Hosts that predate the bit reject the whole hello, so peers send it only
+/// when the host record advertises support.
+pub const FLAG_VIEWER_SIZE_PRIORITY: u32 = 1 << 5;
+/// Protocol-v4 ClientHello opt-in and HostHello acknowledgement for PTY
+/// custody. Only the durable owner (role admin, rights exactly
+/// `ADMIN | CLIPBOARD_READ`) may set it, and only toward a host whose record
+/// advertises `supports_pty_custody`. The host then sends one `PtyCustody`
+/// frame carrying a duplicate of its PTY master descriptor and closes the
+/// connection; the owner keeps the PTY open if the host dies.
+pub const FLAG_PTY_CUSTODY: u32 = 1 << 6;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -420,6 +434,13 @@ pub enum MessageKind {
     /// The host refused the open read itself (timeout or terminal end):
     /// token:u64, request id and sequence zero. Never sent after a reply.
     ClipboardReadCancel = 25,
+    /// Answer to a `FLAG_PTY_CUSTODY` hello: version:u16=1, child_pid:u32,
+    /// session_id:u32, with the PTY master descriptor attached as
+    /// `SCM_RIGHTS`. The host closes the connection after it.
+    PtyCustody = 26,
+    /// Private-pipe launch of a replacement host that adopts an inherited
+    /// PTY master and its running session instead of spawning a child.
+    LaunchAdopt = 27,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -482,6 +503,8 @@ impl TryFrom<u16> for MessageKind {
             23 => Ok(Self::InputAck),
             24 => Ok(Self::ClipboardReadRequest),
             25 => Ok(Self::ClipboardReadCancel),
+            26 => Ok(Self::PtyCustody),
+            27 => Ok(Self::LaunchAdopt),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),

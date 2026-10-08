@@ -19,10 +19,23 @@ pub struct AdoptRequest {
     pub harness: Option<String>,
     /// The harness's own session id.
     pub agent_session_id: String,
+    /// What to do when the session is live in another process (`adopt_live`).
+    pub if_live: IfLive,
+}
+
+/// `adopt.ifLive`: a chat live in another process is refused (the
+/// default), forked into a new chat (Claude Code only), or opened anyway.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IfLive {
+    #[default]
+    Refuse,
+    Fork,
+    Open,
 }
 
 impl AdoptRequest {
-    /// Reads `{harness, agentSessionId}`; `None` when absent, an error when malformed.
+    /// Reads `{harness, agentSessionId, ifLive?}`; `None` when absent, an
+    /// error when malformed.
     pub fn from_meta(meta: Option<&Value>) -> Result<Option<Self>, String> {
         let Some(adopt) = meta.and_then(|m| m.get("adopt")) else { return Ok(None) };
         let id = adopt
@@ -30,12 +43,21 @@ impl AdoptRequest {
             .and_then(Value::as_str)
             .ok_or("adopt needs agentSessionId")?;
         let harness = adopt.get("harness").and_then(Value::as_str).map(str::to_owned);
-        Ok(Some(Self { harness, agent_session_id: id.to_owned() }))
+        let if_live = match adopt.get("ifLive").and_then(Value::as_str) {
+            None | Some("refuse") => IfLive::Refuse,
+            Some("fork") => IfLive::Fork,
+            Some("open") => IfLive::Open,
+            Some(other) => {
+                return Err(format!("adopt ifLive {other:?} is not refuse, fork or open"));
+            }
+        };
+        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live }))
     }
 }
 
 /// Where the harnesses keep their sessions: `CLAUDE_CONFIG_DIR` (else
-/// `~/.claude`) and `CODEX_HOME` (else `~/.codex`).
+/// `~/.claude`) and `CODEX_HOME` (else `~/.codex`), from the daemon's
+/// environment, else the imported login shell environment.
 #[derive(Debug, Clone)]
 pub struct HarnessHomes {
     pub claude: PathBuf,
@@ -46,12 +68,32 @@ impl HarnessHomes {
     pub fn from_env() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         let dir = |key: &str, default: &str| {
-            std::env::var_os(key)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(default))
+            crate::chats::login_var(key).map(PathBuf::from).unwrap_or_else(|| home.join(default))
         };
         Self { claude: dir("CLAUDE_CONFIG_DIR", ".claude"), codex: dir("CODEX_HOME", ".codex") }
+    }
+
+    /// These homes with the `CLAUDE_CONFIG_DIR` / `CODEX_HOME` of spawn env
+    /// layers on top, later layers winning: the store a profile's harness
+    /// really uses. A value that is not an absolute path (a `${...}`
+    /// template, a relative path) is skipped.
+    pub fn with_env(&self, layers: &[&std::collections::BTreeMap<String, String>]) -> Self {
+        let mut out = self.clone();
+        for env in layers {
+            let path = |key: &str| {
+                env.get(key)
+                    .filter(|v| !v.contains('$'))
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+            };
+            if let Some(claude) = path("CLAUDE_CONFIG_DIR") {
+                out.claude = claude;
+            }
+            if let Some(codex) = path("CODEX_HOME") {
+                out.codex = codex;
+            }
+        }
+        out
     }
 }
 
@@ -164,10 +206,18 @@ mod tests {
         let req = AdoptRequest::from_meta(Some(&meta)).unwrap().unwrap();
         assert_eq!(
             req,
-            AdoptRequest { harness: Some("claude".into()), agent_session_id: CLAUDE_ID.into() }
+            AdoptRequest {
+                harness: Some("claude".into()),
+                agent_session_id: CLAUDE_ID.into(),
+                if_live: IfLive::Refuse,
+            }
         );
         assert_eq!(AdoptRequest::from_meta(Some(&json!({}))).unwrap(), None);
         assert!(AdoptRequest::from_meta(Some(&json!({"adopt": {"harness": "claude"}}))).is_err());
+        let fork = json!({"adopt": {"agentSessionId": CLAUDE_ID, "ifLive": "fork"}});
+        assert_eq!(AdoptRequest::from_meta(Some(&fork)).unwrap().unwrap().if_live, IfLive::Fork);
+        let bad = json!({"adopt": {"agentSessionId": CLAUDE_ID, "ifLive": "steal"}});
+        assert!(AdoptRequest::from_meta(Some(&bad)).is_err());
     }
 
     #[test]

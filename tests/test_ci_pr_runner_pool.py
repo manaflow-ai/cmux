@@ -376,6 +376,23 @@ class JanitorSnapshot(unittest.TestCase):
         # queued, so the run rolls over to the idle macOS 15 pool.
         self.assertEqual(choose(snap).runner, OLD)
 
+    def test_ci_run_name_metadata_does_not_reserve_release_slots(self):
+        # CI's run name carries matrix metadata such as release=arm64. Only
+        # the release/nightly workflow path is a reservation.
+        runs = [
+            {"id": 1, "name": "v1;release=arm64", "path": ".github/workflows/ci.yml"},
+            {"id": 2, "name": "Release macOS app", "path": ".github/workflows/release.yml"},
+            {"id": 3, "name": "Nightly macOS build", "path": ".github/workflows/nightly.yml"},
+        ]
+        jobs = {
+            1: [self.job(LARGE, "queued")],
+            2: [self.job(LARGE, "queued")],
+            3: [self.job(LARGE, "queued")],
+        }
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        self.assertEqual(snap["pools"][LARGE]["queued"], 3)
+        self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 2)
+
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
         self.assertTrue(janitor.is_macos_job(mini))
@@ -993,6 +1010,23 @@ class OwnedPools(unittest.TestCase):
             self.assertIn("names side runners", pool.slot_problems('{"%s": 11, "%s": 4}' % (MINI, side))[0])
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
+
+    def test_namespaced_aws_pool_labels_are_valid_and_keep_role_family(self):
+        aws = "glaeda-aws-std-xcode-26.3"
+        root = "glaeda-aws-root-std-xcode-26.3"
+        side = "glaeda-aws-side-std-xcode-26.3"
+        self.assertEqual(pool.slot_problems(json.dumps({aws: 25, root: 10})), [])
+        self.assertEqual(pool.root_label(aws), root)
+        self.assertEqual(pool.side_label(aws), side)
+        self.assertEqual(pool.pool_label(root), aws)
+
+    def test_namespaced_role_labels_are_not_pools_or_pool_inputs(self):
+        aws = "glaeda-aws-std-xcode-26.3"
+        root = "glaeda-aws-root-std-xcode-26.3"
+        side = "glaeda-aws-side-std-xcode-26.3"
+        gui = "glaeda-aws-gui-std-xcode-26.3"
+        self.assertEqual((pool.root_label(root), pool.side_label(side), pool.gui_label(gui)), ("", "", ""))
+        self.assertIn("names side runners", pool.slot_problems(json.dumps({aws: 8, side: 2}))[0])
 
     def test_main_flags_bad_slots_only_on_same_repo_prs_while_owned_pools_are_on(self):
         cases = (("1", "pull_request", "manaflow-ai/cmux", True), ("", "pull_request", "manaflow-ai/cmux", False),
@@ -1695,6 +1729,9 @@ class RootRunners(unittest.TestCase):
         self.assertEqual((pool.side_label(ROOT_MINI), pool.side_label(SIDE_MINI), pool.side_label(SMALL)), ("", "", ""))
         rooted = pool.Choice(MINI, PR_XCODE, "", LARGE, 5, root_runner=ROOT_MINI, root_budget=3)
         self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16}), SIDE_MINI)
+        # A live listing records a missing side label as zero, so side lanes
+        # fall back to the pool label rather than queueing on an absent label.
+        self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16, SIDE_MINI: 0}), MINI)
         self.assertEqual(pool.side_runner(pool.Choice(LIGHT, PR_XCODE, "", LARGE, 2,
                                                       root_runner=pool.root_label(LIGHT), root_budget=1),
                                           {LIGHT: 4, pool.root_label(LIGHT): 2}), pool.side_label(LIGHT))
@@ -1703,6 +1740,14 @@ class RootRunners(unittest.TestCase):
         # No root count (root routing off) or a Blacksmith pick: the pool label as before.
         self.assertEqual(pool.side_runner(pool.Choice(MINI, PR_XCODE, "", LARGE, 5), {MINI: 36}), "")
         self.assertEqual(pool.side_runner(pool.Choice(LARGE, "", ""), {MINI: 36, ROOT_MINI: 16}), "")
+
+    def test_live_routing_records_missing_side_label(self):
+        runners = [{"status": "online", "busy": False,
+                     "labels": [{"name": MINI}, {"name": ROOT_MINI}]}]
+        routed = pool.routing_slots("{}", PR_XCODE, runners)
+        self.assertEqual(routed[MINI], 1)
+        self.assertEqual(routed[ROOT_MINI], 1)
+        self.assertEqual(routed[SIDE_MINI], 0)
 
     def test_gui_jobs_take_the_gui_label_beside_a_root_and_gui_count(self):
         gui = "glaeda-gui-std-xcode-26.6"
@@ -2216,9 +2261,11 @@ class LiveCapacity(unittest.TestCase):
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-a", 1, gui),
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, MINI)]
         # Live: a label routes while an online runner carries it; the variable's counts and omissions do not count.
-        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners), {MINI: 2, ROOT_MINI: 1, gui: 1})
+        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners),
+                         {MINI: 2, ROOT_MINI: 1, gui: 1, SIDE_MINI: 0, pool.side_label(LIGHT): 0})
         self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19, "gui-std": 10}', PR_XCODE,
-                                            [mini_runner("mini-c", 0, MINI)]), {MINI: 1})
+                                            [mini_runner("mini-c", 0, MINI)]),
+                         {MINI: 1, SIDE_MINI: 0, pool.side_label(LIGHT): 0})
         # Unreadable runners: the variable, as before.
         self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19}', PR_XCODE, None),
                          {MINI: 40, ROOT_MINI: 19})

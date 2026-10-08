@@ -262,12 +262,10 @@ impl TurnFold {
             }
             ("mux", kind @ ("turn_end" | "turn_error")) => {
                 self.finish_talk(&mut out);
+                // The shared rule (cmux_chief::acp::turn_error_text): the same
+                // text the TypeScript brain posts; an empty error is none.
                 let error = if kind == "turn_error" {
-                    Some(match event.msg.get("error") {
-                        Some(Value::String(text)) => text.clone(),
-                        Some(Value::Null) | None => Value::Object(event.msg.clone()).to_string(),
-                        Some(other) => other.to_string(),
-                    })
+                    cmux_chief::acp::turn_error_text(&event.msg)
                 } else {
                     event
                         .msg

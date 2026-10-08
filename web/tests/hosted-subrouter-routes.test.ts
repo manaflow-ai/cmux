@@ -76,6 +76,7 @@ let calls: Array<{
   readonly body: unknown;
 }> = [];
 let listedAccounts: unknown[] = [];
+let listTeamQueries: string[] = [];
 let exchangeStatus = 200;
 let accountListStatus = 200;
 
@@ -100,6 +101,7 @@ beforeEach(() => {
   authJsonError = null;
   calls = [];
   listedAccounts = [];
+  listTeamQueries = [];
   hostedCutoverReady = true;
   exchangeStatus = 200;
   accountListStatus = 200;
@@ -733,6 +735,7 @@ describe("hosted Subrouter account routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ selectedTeamId: "team-b" });
     expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-b" });
+    expect(listTeamQueries).toEqual(["team-b", "team-a"]);
 
     const unauthorized = await teamsRoute.PATCH(
       request("/api/subrouter/teams", {
@@ -771,10 +774,13 @@ function stackUser() {
     displayName: "User One",
     primaryEmail: "user@example.com",
     selectedTeam: { id: "team-a", displayName: "Team A" },
-    listTeams: async () => [
+    listTeams: async (options?: { query?: string }) => {
+      if (options?.query) listTeamQueries.push(options.query);
+      return [
       { id: "team-a", displayName: "Team A" },
       { id: "team-b", displayName: "Team B" },
-    ],
+      ];
+    },
     update: updateUser,
   };
 }

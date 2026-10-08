@@ -27,6 +27,7 @@ mod emptied_workspace;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
+mod reservations;
 mod screen_create;
 mod structural_move;
 mod unpublished_creation;
@@ -47,7 +48,7 @@ struct LayoutMutationContext<'a> {
 #[derive(Clone, Copy)]
 struct ResourceEffectIntentContext<'a> {
     expected_revision: Option<u64>,
-    mutation_origin: &'a str,
+    mutation: &'a WorkspaceMutation,
 }
 
 struct PaneAddOptions<'a> {
@@ -330,9 +331,9 @@ impl Mux {
             "workspace_key":Self::new_workspace_key()?,
             "name":reserved_name,
         });
-        let preparation = registry.prepare_resource_creation(
+        let preparation = registry.prepare_resource_creation_for(
             correlation_key,
-            &mutation.id,
+            mutation,
             "workspace.create",
             &fingerprint,
             &proposed_intent,
@@ -1174,7 +1175,7 @@ impl Mux {
             selectors,
             false,
             None,
-            &WorkspaceMutation::local("cmux-tui"),
+            &WorkspaceMutation::daemon_local("cmux-tui"),
             &fingerprint,
         )
     }
@@ -1535,7 +1536,7 @@ impl Mux {
             workspace.is_some() || !self.workspaces_are_provider_managed(),
             "managed workspace creation is not supported by tab moves"
         );
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
             "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
@@ -1940,7 +1941,7 @@ impl Mux {
                     root: Node::Leaf(target_pane),
                     active_pane: target_pane,
                     zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![target_pane]),
+                    creation_order_auto_layout: Some(vec![target_pane]),
                     viewport_splits: Default::default(),
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
@@ -2450,7 +2451,7 @@ impl Mux {
                         let target = &mut state.workspaces[workspace].screens[screen];
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
-                        target.zellij_auto_layout = layout.zellij_auto_layout;
+                        target.creation_order_auto_layout = layout.creation_order_auto_layout;
                         target.viewport_splits = layout.viewport_splits;
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
@@ -2615,15 +2616,12 @@ impl Mux {
                     operation,
                     &selectors,
                     &fields,
-                    ResourceEffectIntentContext {
-                        expected_revision,
-                        mutation_origin: &mutation.origin,
-                    },
+                    ResourceEffectIntentContext { expected_revision, mutation },
                     &mut state,
                     &registry,
                 )?;
-                registry.prepare_resource_effect(
-                    &mutation.id,
+                registry.prepare_resource_effect_for(
+                    mutation,
                     &operation_name,
                     fingerprint,
                     &intent,
@@ -3609,7 +3607,7 @@ impl Mux {
             delta.workspace_revision = None;
         }
         Ok(ResourceClosePlan {
-            state: projected,
+            state: dock_columns::close_keeping_permanent(operation, state, projected)?,
             removed,
             terminal_runtime,
             closed_terminal_public_id: terminal_public_id,
@@ -3648,9 +3646,9 @@ impl Mux {
                 true,
             )? {
                 Some(ResourceCreationPreparation::Execute { intent, .. }) => registry
-                    .prepare_resource_creation(
+                    .prepare_resource_creation_for(
                         correlation_key,
-                        &mutation.id,
+                        mutation,
                         &operation_name,
                         fingerprint,
                         &intent,
@@ -3671,16 +3669,13 @@ impl Mux {
                         operation,
                         selectors,
                         &effect_fields,
-                        ResourceEffectIntentContext {
-                            expected_revision,
-                            mutation_origin: &mutation.origin,
-                        },
+                        ResourceEffectIntentContext { expected_revision, mutation },
                         &mut state,
                         &registry,
                     )?;
-                    registry.prepare_resource_creation(
+                    registry.prepare_resource_creation_for(
                         correlation_key,
-                        &mutation.id,
+                        mutation,
                         &operation_name,
                         fingerprint,
                         &intent,
@@ -4093,15 +4088,16 @@ impl Mux {
                 }
                 None => TerminalId::random()?.to_hex(),
             };
-            let mutation = WorkspaceMutation::local(context.mutation_origin);
+            let mutation = context.mutation.reservation();
             intent["terminal_reservation"] = json!({
                 "terminal_id":terminal_id,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+                "mutation_actor":mutation.actor.wire(),
             });
         }
         if topology_effect_may_create_workspace(operation) {
-            let mutation = WorkspaceMutation::local(context.mutation_origin);
+            let mutation = context.mutation.reservation();
             let workspace_key = fields
                 .get("workspace_key")
                 .and_then(Value::as_str)
@@ -4113,6 +4109,7 @@ impl Mux {
                 "workspace_public_id":WorkspacePublicId::random()?,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+                "mutation_actor":mutation.actor.wire(),
             });
         }
         if creates == Some(CreatedIdentityKind::Browser) {
@@ -4602,80 +4599,6 @@ impl Mux {
         })
     }
 
-    fn effect_workspace_reservation(
-        &self,
-        intent: &Value,
-    ) -> anyhow::Result<(String, WorkspacePublicId, WorkspaceMutation)> {
-        let reservation = intent["workspace_reservation"]
-            .as_object()
-            .context("stored topology intent omitted its workspace reservation")?;
-        let key = reservation["workspace_key"]
-            .as_str()
-            .context("stored workspace reservation omitted its key")?
-            .to_string();
-        let public_id = WorkspacePublicId::parse(
-            reservation["workspace_public_id"]
-                .as_str()
-                .context("stored workspace reservation omitted its public id")?
-                .to_string(),
-        )?;
-        let mutation = WorkspaceMutation::new(
-            reservation["mutation_id"]
-                .as_str()
-                .context("stored workspace reservation omitted its mutation id")?,
-            reservation["mutation_origin"]
-                .as_str()
-                .context("stored workspace reservation omitted its mutation origin")?,
-        )?;
-        Ok((key, public_id, mutation))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn effect_terminal_reservation(
-        &self,
-        intent: &Value,
-        workspace_key: &str,
-        argv: Option<&[String]>,
-        cwd: Option<&str>,
-        name: Option<&str>,
-        size: Option<(u16, u16)>,
-        on_exit: Option<TerminalOnExit>,
-    ) -> anyhow::Result<TerminalReservationRequest> {
-        let stored = intent["terminal_reservation"]
-            .as_object()
-            .context("stored topology intent omitted its terminal reservation")?;
-        let terminal_hex = stored["terminal_id"]
-            .as_str()
-            .context("stored terminal reservation omitted its terminal id")?;
-        let terminal_id = TerminalId::from_hex(terminal_hex)
-            .context("stored terminal reservation has an invalid terminal id")?;
-        let mutation = WorkspaceMutation::new(
-            stored["mutation_id"]
-                .as_str()
-                .context("stored terminal reservation omitted its mutation id")?,
-            stored["mutation_origin"]
-                .as_str()
-                .context("stored terminal reservation omitted its mutation origin")?,
-        )?;
-        Ok(TerminalReservationRequest {
-            terminal_id,
-            mutation,
-            fingerprint: terminal_create_fingerprint(
-                workspace_key,
-                Some(terminal_hex),
-                argv,
-                cwd,
-                name,
-                size,
-                on_exit,
-            )?,
-            expected_generation: None,
-            expected_revision: None,
-            on_exit: on_exit.unwrap_or_default(),
-            env: terminal_env_field(&intent["fields"]),
-        })
-    }
-
     fn effect_browser_reservation(&self, intent: &Value) -> anyhow::Result<TabResourceIdentity> {
         let stored = intent["browser_reservation"]
             .as_object()
@@ -4930,7 +4853,7 @@ impl Mux {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -4955,7 +4878,7 @@ impl Mux {
                 if in_viewport_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             } else if screen.layout_columns_active() {
                 let column = screen
@@ -4968,7 +4891,7 @@ impl Mux {
             } else {
                 append_to_auto_layout(
                     &mut screen.root,
-                    &mut screen.zellij_auto_layout,
+                    &mut screen.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -5503,7 +5426,7 @@ fn parse_resource_layout_document(
         root,
         active_pane,
         zoomed_pane,
-        zellij_auto_layout: None,
+        creation_order_auto_layout: None,
         viewport_splits: Default::default(),
         viewport_base_width,
         layout_columns,
@@ -6204,7 +6127,7 @@ fn registry_screen_from_layout(
     };
     let layout_node = registry_layout_node(state, &layout.root)?;
     let auto_layout = layout
-        .zellij_auto_layout
+        .creation_order_auto_layout
         .as_ref()
         .map(|panes| {
             panes.iter().map(|pane| public_pane(*pane)).collect::<anyhow::Result<Vec<_>>>()
@@ -6224,7 +6147,7 @@ fn registry_screen_from_layout(
                 width: column.width,
                 layout: registry_layout_node(state, &column.root)?,
                 auto_layout: column
-                    .zellij_auto_layout
+                    .creation_order_auto_layout
                     .as_ref()
                     .map(|panes| {
                         panes
@@ -6343,7 +6266,7 @@ fn set_layout_split_ratio(
         changed
     };
     anyhow::ensure!(changed, "unknown split");
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     Ok(())
 }
 
@@ -6368,13 +6291,13 @@ fn swap_layout_panes(
     for column in &mut layout.layout_columns {
         if column.root.contains(first) || column.root.contains(second) {
             column.root.swap_leaf_ids(first, second);
-            column.zellij_auto_layout = None;
+            column.creation_order_auto_layout = None;
         }
     }
     if !layout.layout_columns.is_empty() {
         sync_layout_column_projection(layout);
     }
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if !both_present {
         if layout.active_pane == first {
             layout.active_pane = second;
@@ -6400,7 +6323,7 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.root = layout.root;
     screen.active_pane = layout.active_pane;
     screen.zoomed_pane = layout.zoomed_pane;
-    screen.zellij_auto_layout = layout.zellij_auto_layout;
+    screen.creation_order_auto_layout = layout.creation_order_auto_layout;
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
@@ -6458,7 +6381,7 @@ mod creation_recovery_tests {
         let operation = ResourceOperation::TabCreateBrowser;
         let operation_name = operation_name(operation);
         let correlation_key = "correlation";
-        let mutation = WorkspaceMutation::new("attempt-one", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("attempt-one", "test").unwrap();
         let fingerprint = json!({"operation":operation_name});
         let intent = json!({
             "browser_reservation":{
@@ -6469,9 +6392,9 @@ mod creation_recovery_tests {
         mux.workspace_registry
             .lock()
             .unwrap()
-            .prepare_resource_creation(
+            .prepare_resource_creation_for(
                 correlation_key,
-                &mutation.id,
+                &mutation,
                 &operation_name,
                 &fingerprint,
                 &intent,
@@ -6484,7 +6407,7 @@ mod creation_recovery_tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("concurrent-test"),
+            &WorkspaceMutation::daemon_local("concurrent-test"),
         )
         .unwrap();
 

@@ -18,10 +18,13 @@ use super::personal_store::{
 };
 use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
+pub(crate) mod group_archive;
+mod group_marks;
 mod inputs;
 mod mixed_order;
 #[cfg(test)]
 mod mixed_order_tests;
+pub(crate) mod room_archive;
 pub use inputs::{PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate};
 
 pub fn new_profile_id() -> String {
@@ -929,13 +932,6 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<(PersonalGroup, bool)> {
         let tx = self.connection.transaction()?;
         let output = Self::update_personal_group_in(&tx, id, name, color, collapsed, profile)?;
-        tx.commit()?;
-        Ok(output)
-    }
-
-    pub fn delete_personal_group(&mut self, id: &str) -> anyhow::Result<Vec<(String, String)>> {
-        let tx = self.connection.transaction()?;
-        let output = Self::delete_personal_group_in(&tx, id)?;
         tx.commit()?;
         Ok(output)
     }

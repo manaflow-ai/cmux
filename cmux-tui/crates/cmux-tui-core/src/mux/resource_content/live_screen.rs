@@ -27,7 +27,7 @@ pub(super) fn registry_screen_from_live(
                         column.width,
                         registry_layout_node(state, &column.root)?,
                         column
-                            .zellij_auto_layout
+                            .creation_order_auto_layout
                             .as_ref()
                             .map(|panes| pane_public_ids(state, panes))
                             .transpose()?,
@@ -47,7 +47,7 @@ pub(super) fn registry_screen_from_live(
         active_pane: pane_public_id(state, screen.active_pane)?,
         zoomed_pane: screen.zoomed_pane.map(|pane| pane_public_id(state, pane)).transpose()?,
         auto_layout: screen
-            .zellij_auto_layout
+            .creation_order_auto_layout
             .as_ref()
             .map(|panes| pane_public_ids(state, panes))
             .transpose()?,

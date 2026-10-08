@@ -9,6 +9,8 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     case conversation
     /// A conversation tab on an acpmux session (an agent chat tab).
     case agentChat
+    /// An agent session tab still on the New Tab page.
+    case newTab
     case other(String)
 
     /// The kind's cmux icon.
@@ -18,6 +20,7 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
         case .browser: .browser
         case .remoteTerminal: .network
         case .conversation, .agentChat: .agentChat
+        case .newTab: .tabNew
         case .other: .placeholder
         }
     }

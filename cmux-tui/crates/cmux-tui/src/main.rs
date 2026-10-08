@@ -25,6 +25,7 @@ mod cloud_conversations_backend;
 mod coderouter_usage;
 mod config;
 mod headless;
+mod private_mode;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -71,6 +72,7 @@ mod remote_cli {
         1
     }
 }
+mod owner_start;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -1374,7 +1376,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             }
             "-h" | "--help" => return,
             scope
-                if cli::canonical_scope(scope) == "server"
+                if cli::is_lifecycle_scope(scope)
                     && args.get(index + 1).map(String::as_str) == Some("start") =>
             {
                 let start_args = &args[index + 2..];
@@ -1670,9 +1672,8 @@ fn run_main() {
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
-    #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        client_log::exit(agent_browser_provider::run());
+    if let Some(code) = private_mode::run(&raw_args) {
+        client_log::exit(code);
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
@@ -1686,18 +1687,18 @@ fn run_main() {
         }
         return;
     }
-    // `cmux acp …` runs acpmux in this process. It needs none of the mux's
-    // provider credentials or signal handlers.
+    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux
+    // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("acp") {
+    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
-        let args = std::env::args_os().skip(2).collect();
+        let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run(args));
     }
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("link") {
+    if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(link::run(&raw_args[1..]));
+        client_log::exit(run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -1762,9 +1763,9 @@ fn run_main() {
         }
         return;
     }
-    // `server start` is the canonical spelling for the existing foreground
-    // headless owner. Keep startup in the established Args/run_server path so
-    // lifecycle aliases cannot drift into a second server launcher.
+    // `daemon start` (`server start` on cmux-tui; pre-D1 `cmux server start`, rewritten first) is
+    // the foreground headless owner, on the one Args/run_server path: no second server launcher.
+    cli::rewrite_deprecated_server_lifecycle(&mut raw_args);
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
@@ -2103,9 +2104,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    if args.ephemeral && args.state.is_some() {
-        anyhow::bail!("--ephemeral and --state are mutually exclusive");
-    }
+    owner_start::prepare(args.ephemeral, args.state.is_some())?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2156,7 +2155,6 @@ fn run_server(
     ) {
         return start_detached_owner_session(args, config, socket_path);
     }
-
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
         let relays =
@@ -2182,6 +2180,7 @@ fn run_server(
         (Vec::new(), None, None)
     };
 
+    localization::terminal_respawn::install();
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     surface_options.scrollback = config.scrollback_limit_bytes();

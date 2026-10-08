@@ -53,6 +53,10 @@ impl Hub {
                     }
                     self.cancel_pending_permissions(&session);
                     self.revoke_permission_chat(&session);
+                    // A new agent holds no grant and no undeclared mode.
+                    session.floor.harness_grant.store(false, Ordering::SeqCst);
+                    session.floor.unsandboxed.store(false, Ordering::SeqCst);
+                    *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -76,6 +80,14 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // A subagent's messages and settings are not the session's own.
+        let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
+        let owned = sid.is_some_and(|sid| {
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
+        });
+        if owned {
+            return;
+        }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
@@ -177,7 +189,14 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
-        let path = Self::fs_path(session, &params)?;
+        let mut path = Self::fs_path(session, &params)?;
+        // The remote floor: never through a symlink, the question names the
+        // resolved path, and only that file is written (`write_approved`).
+        let web_turn = Self::web_turn(session);
+        if web_turn {
+            path = super::remote_floor::write_target(&path)
+                .map_err(|e| RpcError::new(-32000, format!("write refused: {e}")))?;
+        }
         let content = params
             .get("content")
             .and_then(Value::as_str)
@@ -211,8 +230,12 @@ impl Hub {
             std::fs::create_dir_all(parent)
                 .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
         }
-        std::fs::write(&path, content.as_bytes())
-            .map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
+        let written = if web_turn {
+            super::remote_floor::write_approved(&path, content.as_bytes())
+        } else {
+            std::fs::write(&path, content.as_bytes())
+        };
+        written.map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
         Ok(Value::Null)
     }
 
@@ -223,7 +246,26 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
-        let path = Self::fs_path(session, &params)?;
+        let mut path = Self::fs_path(session, &params)?;
+        // A read from a turn that ended (or was cancelled) is refused, as a
+        // permission request from it is cancelled.
+        if session.permission_epoch.load(Ordering::SeqCst) != epoch
+            || session.turn().map(|t| t.turn_id) != turn_id
+        {
+            return Err(RpcError::new(-32000, "the turn of this read ended"));
+        }
+        // The remote floor: a Web turn judges, asks about and reads the
+        // resolved file; outside its folder it asks first.
+        let target = if Self::web_turn(session) {
+            let t = super::remote_floor::read_target(&path, &session.meta().cwd);
+            if let Some(t) = &t {
+                path.clone_from(&t.real);
+            }
+            Some(t)
+        } else {
+            None
+        };
+        let outside = target.as_ref().is_some_and(|t| !t.as_ref().is_some_and(|t| t.inside));
         let config_policy = self.config.read().await.permission_policy;
         let policy = self.policy_for(session, config_policy);
         let probe = json!({"toolCall": {"title": format!("Read {}", path.display()), "kind": "read", "rawInput": {"path": path}}});
@@ -231,7 +273,7 @@ impl Hub {
             session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));
         let mut denied = matches!(rule, Some(super::rules::RuleDecision::Deny))
             || (rule.is_none() && policy == PermissionPolicy::DenyAll);
-        if matches!(rule, Some(super::rules::RuleDecision::Ask)) {
+        if !denied && (outside || matches!(rule, Some(super::rules::RuleDecision::Ask))) {
             // An `ask` rule prompts for the read like any other tool call.
             let request = json!({
                 "sessionId": session.meta().agent_session_id.clone().unwrap_or_else(|| session.id.clone()),
@@ -250,8 +292,19 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| RpcError::new(-32000, format!("read {}: {e}", path.display())))?;
+        let read =
+            |e: std::io::Error| RpcError::new(-32000, format!("read {}: {e}", path.display()));
+        let text = match target {
+            Some(Some(t)) => {
+                use std::io::Read;
+                let mut text = String::new();
+                let mut file = super::remote_floor::open_read_target(&t).map_err(read)?;
+                file.read_to_string(&mut text).map_err(read)?;
+                text
+            }
+            Some(None) => return Err(read(std::io::Error::other("the path cannot be resolved"))),
+            None => std::fs::read_to_string(&path).map_err(read)?,
+        };
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
@@ -296,17 +349,33 @@ impl Hub {
     pub(super) async fn handle_permission_for(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        request: Value,
+        mut request: Value,
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
     ) -> Value {
+        // One harness-neutral copy of any questions, before rules and the
+        // record see the request (questions.rs).
+        super::questions::normalize(&mut request);
+        let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
                 || session.turn().map(|t| t.turn_id) != turn_id
             {
+                return json!({"outcome":{"outcome":"cancelled"}});
+            }
+            // The remote floor (`remote_floor.rs`): a Web turn whose mode left
+            // the asking table is cancelled, and nothing in it approves itself.
+            let web_turn = Self::web_turn(session);
+            if web_turn && let Some(reason) = self.remote_floor_breach(session) {
+                self.append(session,"mux","permission_auto",json!({"permissionId":uuid::Uuid::now_v7().to_string(),"request":request,"cancelled":true,"reason":reason}));
+                drop(state);
+                drop(cfg);
+                // The turn ends too (a config reload can end the asking
+                // mode with no mode write).
+                self.remote_floor_cancel(session, reason);
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
             let policy = self.policy_for(session, cfg.permission_policy);
@@ -368,13 +437,20 @@ impl Hub {
             } else {
                 None
             };
+            let floored = web_turn && !denied && auto.is_some();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
+            } else if needs_person || web_turn {
+                // Policy never answers a question: only a person does.
+                None
             } else {
                 chat_option.clone().or(auto)
             };
             let permission_id = uuid::Uuid::now_v7().to_string();
             if let Some(option_id) = auto {
+                if option_kind(&options, &option_id) == Some("allow_always") {
+                    session.floor.harness_grant.store(true, Ordering::SeqCst);
+                }
                 self.append(
                 session,
                 "mux",
@@ -410,7 +486,7 @@ impl Hub {
                 permission_id.clone(),
                 PendingPermission { request: request.clone(), reply: tx },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id}));
+            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
             let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
@@ -494,7 +570,11 @@ impl Hub {
                     return Err(RpcError::new(-32000, "policy_changed")
                         .with_data(json!({"reason":"policy_changed"})));
                 }
+                if kind == Some("allow_always") {
+                    session.floor.harness_grant.store(true, Ordering::SeqCst);
+                }
             }
+            super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
@@ -532,6 +612,14 @@ impl Hub {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
     }
+}
+
+/// The kind of the offered option `id`.
+fn option_kind<'a>(options: &'a [Value], id: &str) -> Option<&'a str> {
+    options
+        .iter()
+        .find(|o| o.get("optionId").and_then(Value::as_str) == Some(id))
+        .and_then(|o| o.get("kind").and_then(Value::as_str))
 }
 
 /// Whether a permission outcome selected an allow option.

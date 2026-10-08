@@ -123,6 +123,33 @@ describe("revealed reply", () => {
     view.root.unmount();
   });
 
+  // hqacp-v4: a reply that echoed escaped markdown showed only "See \" after its turn. While
+  // streaming, `\(` and `[` read as math and a link still arriving, so safeTail holds the tail;
+  // once the row stops streaming (direct.ts publishes that, #18123) the whole reply shows.
+  test("a reply with backslashes, quotes and escaped markdown shows in full once it ends", () => {
+    const replies = [
+      String.raw`See \[notes]\(./notes.md) and http\://127.0.0.1:47931/preview\.html`,
+      String.raw`Path C:\Users\dev\x.txt, a "quoted" word, it's \*not bold\* and a trailing \ `.trimEnd(),
+      String.raw`Unbalanced "quote and \(paren and [bracket`,
+    ];
+    for (const reply of replies) {
+      const view = mount();
+      view.render(createElement(RevealedMarkdown, { text: "", streaming: true }));
+      view.render(createElement(RevealedMarkdown, { text: reply, streaming: true }));
+      step(90);
+      view.render(createElement(RevealedMarkdown, { text: reply, streaming: false }));
+      step(5);
+      const shown = view.host.textContent ?? "";
+      // Markdown drops escaping backslashes; every word of the reply draws.
+      for (const word of ["notes", "preview", "Users", "quoted", "not bold", "paren", "bracket"].filter((w) =>
+        reply.includes(w),
+      ))
+        expect(shown).toContain(word);
+      expect(shown.length).toBeGreaterThan(reply.length / 2);
+      view.root.unmount();
+    }
+  });
+
   test("when the stream ends, the same element keeps showing the reply (no remount)", () => {
     const view = mount();
     view.render(createElement(RevealedMarkdown, { text: "Para one.\n\nTwo", streaming: true }));

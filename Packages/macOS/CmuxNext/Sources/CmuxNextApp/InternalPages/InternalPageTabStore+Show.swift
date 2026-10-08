@@ -6,12 +6,16 @@ extension InternalPageTabStore {
     /// `openDebugSettings`, `appStore.show`): selects `page`'s tab in
     /// `window`, else opens one after the focused pane's selected tab: a
     /// store tab where the pane's daemon holds page tabs, else an app-only one.
-    /// A user run selects and focuses it; automation (`ActionInvocation.allowsViewChange`
-    /// false) opens it without changing the selection or focus. Returns the
-    /// tab's view, or nil when `window` has no pane to hold it.
+    /// A user run selects and focuses it, and a window on a top page leaves
+    /// the page so the tab shows (SIDEBAR-SELECTION-ONE-MODEL); automation
+    /// (`ActionInvocation.allowsViewChange` false) opens it without changing
+    /// the selection, focus or page (under a page, in the parked workspace).
+    /// Returns the tab's view, or nil when `window` has no pane to hold it.
     @discardableResult
     func show(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
-        guard let window, let content = window.content else { return nil }
+        guard let window else { return nil }
+        if focus { window.leaveTopPage() }
+        guard let content = window.workspaceContent else { return nil }
         let panes = content.panes.values
         for pane in panes {
             guard let tab = pane.pane.tabs.first(where: { $0.page == page.rawValue }) else { continue }
@@ -23,7 +27,7 @@ extension InternalPageTabStore {
             if focus { reveal(found.key, in: pane) }
             return view(for: found.key)
         }
-        guard let pane = window.focusedPane ?? panes.first else { return nil }
+        guard let pane = content.focusedPane ?? panes.first else { return nil }
         if let view = openStoreTab(page, in: pane, window: window, focus: focus) { return view }
         let key = open(page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue, window: window)
         pane.apply(pane.snapshot())

@@ -79,6 +79,13 @@ struct ForkApi {
   // API version 18: profile (Touch ID) passkeys, metadata only.
   int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 18: password manager core (shim_password_core.mm).
+  int (*password_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
+  int (*password_remove)(const char*, const char* const*, int, void (*)(void*, int), void*) = nullptr;
+  int (*password_exception_remove)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
+  int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
 };
 
 struct Host {
@@ -167,6 +174,8 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url);
 // page agents may not reach (AgentURLPolicy.swift).
 bool NavigationRefusedForAgent(int browser_id, const std::string& url);
 void ForgetNavigationGuard(int browser_id);
+// True when url is the sign-in callback of browser_id (cmux_shim_set_auth_callback).
+bool NavigationIsAuthCallback(int browser_id, const std::string& url);
 
 // One client per Chromium window. The first OnAfterCreated through it reports
 // `request`; later tabs of the window (cmux_tab_add, chrome.tabs.create,

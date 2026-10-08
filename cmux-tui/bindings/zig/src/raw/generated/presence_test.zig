@@ -21,6 +21,7 @@ fn expectExplicitNullRejected(
 test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
+    try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
@@ -65,6 +66,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudMuxWakeEvent, "account");
     try expectExplicitNullRejected(protocol.CloudSubscriptionStateEvent, "account");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
@@ -156,6 +159,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
+    try expectExplicitNullRejected(protocol.MintTerminalRendererResult, "supports_viewer_size_priority");
     try expectExplicitNullRejected(protocol.NewRowResult, "transaction");
     try expectExplicitNullRejected(protocol.NotificationMarker, "source");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");

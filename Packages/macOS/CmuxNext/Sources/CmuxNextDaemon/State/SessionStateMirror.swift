@@ -27,24 +27,31 @@ public struct SessionStateMirror: Sendable, Hashable {
         public var zoom: Double?
         public var back: [String] = []
         public var forward: [String] = []
+        /// The user's icon for the tab (the shared icon wire string, `IconValue`), or nil.
+        public var icon: String?
 
-        public init(zoom: Double? = nil, back: [String] = [], forward: [String] = []) {
+        public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
+            self.icon = icon
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty }
+        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil }
     }
 
     /// Newest first, at most `closedLimit`.
     public var closed: [ClosedItem] = []
     public var workspaceStatus: [ResourceID: WorkspaceStatus] = [:]
     public var ephemeralWorkspaces: Set<ResourceID> = []
+    /// Each workspace's agent folder (`extra.agent_folder`), where its new agent chats start.
+    public var agentFolders: [ResourceID: String] = [:]
     public var screens: [ResourceID: ScreenState] = [:]
     public var screenGroups: [String: StateScreenGroup] = [:]
     public var tabs: [ResourceID: TabRecord] = [:]
     public var terminalProgress: [ResourceID: TerminalProgressReport] = [:]
+    /// OSC 7501 records per terminal; a terminal without records is absent.
+    public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -58,17 +65,20 @@ public struct SessionStateMirror: Sendable, Hashable {
 
     public mutating func apply(_ change: SessionStateChange) {
         switch change {
-        case .workspace(let id, let ephemeral):
+        case .workspace(let id, let ephemeral, let agentFolder):
             if ephemeral { ephemeralWorkspaces.insert(id) } else { ephemeralWorkspaces.remove(id) }
+            agentFolders[id] = agentFolder
         case .workspaceRemoved(let id):
             ephemeralWorkspaces.remove(id)
+            agentFolders[id] = nil
             workspaceStatus[id] = nil
         case .screen(let id, let state):
             screens[id] = state
         case .tab(let id, let record):
             tabs[id] = record.flatMap { $0.isEmpty ? nil : $0 }
-        case .terminal(let id, let progress):
+        case .terminal(let id, let progress, let programStatus):
             terminalProgress[id] = progress
+            terminalProgramStatus[id] = programStatus.isEmpty ? nil : programStatus
         case .closed(let item):
             closed.removeAll { $0.id == item.id }
             let index = closed.firstIndex { $0.closedAtMs < item.closedAtMs } ?? closed.endIndex

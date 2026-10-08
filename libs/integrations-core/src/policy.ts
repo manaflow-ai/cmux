@@ -142,7 +142,17 @@ const restriction: Record<ToolAction, number> = { allow: 1, ask: 2, block: 3 }
 /** The more restrictive of two actions. */
 export const stricter = (a: ToolAction, b: ToolAction): ToolAction => (restriction[b] > restriction[a] ? b : a)
 
-const byPrecedence = (a: PolicyRule, b: PolicyRule) => patternSpecificity(b.pattern) - patternSpecificity(a.pattern) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+/** A pattern without a `*` segment names one exact tool. */
+const isExact = (pattern: string): boolean => !pattern.split(".").includes("*")
+
+/**
+ * Most specific first. A one-segment wildcard (`a.*.c`) scores the same as an
+ * exact rule of the same length (`a.b.c`), so at equal specificity an exact
+ * rule comes first: a rule id never decides between an exact and a wildcard
+ * rule. The id only orders two equally specific wildcards.
+ */
+const byPrecedence = (a: PolicyRule, b: PolicyRule) =>
+  patternSpecificity(b.pattern) - patternSpecificity(a.pattern) || Number(isExact(b.pattern)) - Number(isExact(a.pattern)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 export const resolveToolPolicy = (address: string, rules: readonly PolicyRule[]): EffectivePolicy | undefined => {
   const firstByOwner = new Map<string, PolicyRule>()
@@ -169,10 +179,8 @@ export const resolveEffectivePolicy = (address: string, rules: readonly PolicyRu
   if (defaultAction !== "block") return resolveToolPolicy(address, rules) ?? { action: defaultAction, source: "default" }
   const byOwner = new Map<string, PolicyRule>()
   for (const rule of [...rules].sort(byPrecedence)) {
-    if (!matchPattern(rule.pattern, address)) continue
-    const cur = byOwner.get(rule.owner)
-    // An exact rule of an owner beats that owner's equally specific wildcard.
-    if (!cur || (rule.pattern === address && cur.pattern !== address)) byOwner.set(rule.owner, rule)
+    // byPrecedence puts an owner's exact rule before its equally specific wildcard.
+    if (!byOwner.has(rule.owner) && matchPattern(rule.pattern, address)) byOwner.set(rule.owner, rule)
   }
   let selected: EffectivePolicy | undefined
   for (const rule of byOwner.values()) {

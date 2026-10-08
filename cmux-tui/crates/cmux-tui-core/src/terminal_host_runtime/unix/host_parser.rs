@@ -12,6 +12,38 @@ pub(super) struct ParserSignals {
     pub(super) bell: Arc<AtomicBool>,
 }
 
+impl ParserSignals {
+    pub(super) fn new() -> Self {
+        Self {
+            pending_responses: Arc::new(Mutex::new(Vec::new())),
+            title_changed: Arc::new(AtomicBool::new(false)),
+            bell: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// The callbacks of the host's authoritative terminal. The host keeps no
+    /// program status records (the daemon's mirror keeps them), but it is
+    /// the only parser that may answer the `OSC 7501 ; ?` support query.
+    pub(super) fn callbacks(&self, clipboard: &ClipboardReads) -> Callbacks {
+        Callbacks {
+            on_pty_write: Some(Box::new({
+                let pending = self.pending_responses.clone();
+                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
+            })),
+            on_title_changed: Some(Box::new({
+                let title_changed = self.title_changed.clone();
+                move || title_changed.store(true, Ordering::Release)
+            })),
+            on_bell: Some(Box::new({
+                let bell = self.bell.clone();
+                move || bell.store(true, Ordering::Release)
+            })),
+            on_clipboard_read: Some(clipboard.callback()),
+            on_program_status: Some(crate::program_status::query_only_sink()),
+        }
+    }
+}
+
 /// How long a host whose parser panicked waits for its exit to be
 /// published before it ends anyway: the termination escalation (SIGHUP,
 /// grace, SIGKILL, child wait) plus the launch-owner deadline.

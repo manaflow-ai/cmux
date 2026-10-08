@@ -36,7 +36,7 @@ SwiftUI is allowed only for low-frequency, form-like surfaces: Settings, onboard
 | Surface | Implementation |
 | --- | --- |
 | Window, titlebar, toolbar | `NSWindow` full-size content, custom titlebar view |
-| Sidebar | custom layer-backed view, row view reuse (only visible rows exist), CALayer-based selection pill and drag gaps |
+| Sidebar | custom layer-backed view, row view reuse (only visible rows exist), selection painted in place by each row (no moving pill), CALayer-based drag gap |
 | Tab strip | one `NSView` per strip; tabs are CALayers (text via `CATextLayer` or pre-rendered glyph layers), not NSViews, so 100 tabs cost 100 layers, not 100 views with constraints |
 | Layout (splits, columns) | manual frame layout in `layout()`, no Auto Layout in panes, one `CADisplayLink` per window for animations |
 | Palette | `NSPanel` + custom list with row reuse; search runs off-main on a snapshot of the index, results delivered by generation number |

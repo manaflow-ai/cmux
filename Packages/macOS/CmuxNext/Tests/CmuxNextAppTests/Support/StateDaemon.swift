@@ -27,6 +27,8 @@ nonisolated final class StateDaemon: Sendable {
     }
 
     init(state: String, entities: String = "", tabs: String = #"{"surface":1,"kind":"pty","tab_resource_id":"tab_a","terminal_resource_id":"term_a","title":"a"}"#,
+         capabilities: [String] = [],
+         failure: @escaping @Sendable (String) -> String? = { _ in nil },
          reply: @escaping @Sendable (String, [String: JSONValue]) -> String = { _, _ in "{}" }) throws {
         let log = log
         socket = try ScriptedDaemonSocket(handler: { request in
@@ -42,13 +44,17 @@ nonisolated final class StateDaemon: Sendable {
                     let snapshot = #"{"protocol":"cmux.protocol/2","type":"stream_item","stream_id":"\#(stream)","sequence":"1","item":{"kind":"snapshot","cursor":{"generation":"g","revision":"1"},"snapshot":{\#(extra)"cursor":{"generation":"g","revision":"1"},"extra":{"state":\#(state)}}}}"#
                     return [#"{"protocol":"cmux.protocol/2","type":"response","id":"\#(id)","ok":true,"result":{"stream_id":"\#(stream)"}}"#, snapshot]
                 }
+                // A failure is a protocol/2 error object: `{"code", "message", "details"?, "retryable"}`.
+                if let error = failure(operation) {
+                    return [#"{"protocol":"cmux.protocol/2","type":"response","id":"\#(id)","ok":false,"error":\#(error)}"#]
+                }
                 let value = reply(operation, params)
                 return [#"{"protocol":"cmux.protocol/2","type":"response","id":"\#(id)","ok":true,"result":{"value":\#(value),"generation":"g","revision":"2","replayed":false}}"#]
             }
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             switch request["cmd"]?.stringValue {
             case "identify":
-                let caps = (DaemonCapabilities.shared.required + [DaemonCapabilities.shared.stateResources]).map { "\"\($0)\"" }.joined(separator: ",")
+                let caps = (DaemonCapabilities.shared.required + [DaemonCapabilities.shared.stateResources] + capabilities).map { "\"\($0)\"" }.joined(separator: ",")
                 return [#"{"id":\#(id),"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":1}}"#]
             case "list-workspaces":
                 return [#"{"id":\#(id),"ok":true,"data":{"generation":"g1","registry_id":"r","workspace_revision":1,"workspaces":[{"id":1,"key":"\#(Self.workspaceKey)","name":"w","resource_id":"ws_w","screens":[{"id":4,"resource_id":"screen_s","layout":{"type":"leaf","pane":3},"panes":[{"id":3,"resource_id":"pane_p","active_tab":0,"tabs":[\#(tabs)]}]}]}]}}"#]

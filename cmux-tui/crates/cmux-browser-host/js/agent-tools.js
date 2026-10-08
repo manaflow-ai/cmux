@@ -236,6 +236,15 @@
   function markdownOfFrame(opts) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
     const frames = [];
+    // As the snapshot walk (page-agent.js MAX_DEPTH), the walk reads at
+    // most MAX_NEST levels of blocks, inline runs and display:contents boxes;
+    // a deeper subtree is left out and `nestCut` says so. Inline runs recurse
+    // one call per level and blocks two (block, blocks), which Chromium's
+    // stack holds at this bound (scenario 30-stress); display:contents boxes
+    // are flattened without recursion.
+    const MAX_NEST = 1000;
+    let nest = 0;
+    let nestCut = false;
     const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "META", "LINK", "TITLE", "SVG", "CANVAS", "VIDEO", "AUDIO", "OBJECT", "EMBED", "MAP", "DIALOG"]);
     const OUTSIDE_MAIN = new Set(["navigation", "banner", "contentinfo", "complementary", "search"]);
     const styles = new Map();
@@ -266,9 +275,18 @@
     // and the children of display:contents boxes in their place.
     const kids = (el) => {
       const out = [];
-      for (const c of ownKids(el)) {
-        if (c.nodeType === 1 && !SKIP.has(tag(c)) && style(c).display === "contents") out.push(...kids(c));
-        else out.push(c);
+      const stack = [{ list: ownKids(el), i: 0, level: 0 }];
+      while (stack.length) {
+        const f = stack[stack.length - 1];
+        if (f.i >= f.list.length) {
+          stack.pop();
+          continue;
+        }
+        const c = f.list[f.i++];
+        if (c.nodeType === 1 && !SKIP.has(tag(c)) && style(c).display === "contents") {
+          if (nest + f.level >= MAX_NEST) nestCut = true;
+          else stack.push({ list: ownKids(c), i: 0, level: f.level + 1 });
+        } else out.push(c);
       }
       return out;
     };
@@ -316,43 +334,54 @@
     function inline(node, ctx) {
       if (node.nodeType === 3) return ctx.hidden ? "" : collapse(node.data);
       if (node.nodeType !== 1 || skipped(node, ctx)) return "";
-      ctx = sub(node, ctx);
-      const t = tag(node);
-      if (t === "BR") return "\n";
-      if (t === "IFRAME" || t === "FRAME") return "";
-      if (t === "IMG") {
-        if (ctx.hidden) return "";
-        const alt = collapse(node.getAttribute("alt") || "").trim();
-        if (opts.images && node.getAttribute("src")) return `![${esc(alt)}](${absURL(node.getAttribute("src"))})`;
+      if (nest >= MAX_NEST) {
+        nestCut = true;
         return "";
       }
-      if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") {
-        if (ctx.hidden) return "";
-        const v = fieldValue(node);
-        if (!v) return "";
-        return v === "[x]" || v === "[ ]" ? v + " " : t === "INPUT" && /^(submit|button|reset)$/i.test(node.type) ? v : "`" + collapse(v) + "`";
-      }
-      const inner = kids(node).map((c) => inline(c, ctx)).join("");
-      const trimmed = inner.trim();
-      if (!trimmed && t === "A" && opts.links && node.getAttribute("href") && !ctx.hidden) {
-        // An icon link is named by its label, its SVG title or its image's alt.
-        const svgTitle = node.querySelector("svg title");
-        const img = node.querySelector("img[alt]");
-        const label = collapse(node.getAttribute("aria-label") || (svgTitle && svgTitle.textContent) || (img && img.getAttribute("alt")) || node.getAttribute("title") || "").trim();
-        if (label && !/^(javascript:|#$)/i.test(node.getAttribute("href").trim())) return `[${esc(label)}](${absURL(node.getAttribute("href"))})`;
-      }
-      if (!trimmed) return inner && /\s/.test(inner) ? " " : "";
-      const pad = (s) => (/^\s/.test(inner) ? " " : "") + s + (/\s$/.test(inner) ? " " : "");
-      if (t === "A") {
-        const href = node.getAttribute("href");
-        if (opts.links && href && !/^(javascript:|#$)/i.test(href.trim())) return pad(`[${trimmed.replace(/\n+/g, " ")}](${absURL(href)})`);
+      nest++;
+      try {
+        ctx = sub(node, ctx);
+        const t = tag(node);
+        if (t === "BR") return "\n";
+        if (t === "IFRAME" || t === "FRAME") return "";
+        if (t === "IMG") {
+          if (ctx.hidden) return "";
+          const alt = collapse(node.getAttribute("alt") || "").trim();
+          if (opts.images && node.getAttribute("src")) return `![${esc(alt)}](${absURL(node.getAttribute("src"))})`;
+          return "";
+        }
+        if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") {
+          if (ctx.hidden) return "";
+          const v = fieldValue(node);
+          if (!v) return "";
+          return v === "[x]" || v === "[ ]" ? v + " " : t === "INPUT" && /^(submit|button|reset)$/i.test(node.type) ? v : "`" + collapse(v) + "`";
+        }
+        // A loop, not map: one stack frame per level.
+        let inner = "";
+        for (const c of kids(node)) inner += inline(c, ctx);
+        const trimmed = inner.trim();
+        if (!trimmed && t === "A" && opts.links && node.getAttribute("href") && !ctx.hidden) {
+          // An icon link is named by its label, its SVG title or its image's alt.
+          const svgTitle = node.querySelector("svg title");
+          const img = node.querySelector("img[alt]");
+          const label = collapse(node.getAttribute("aria-label") || (svgTitle && svgTitle.textContent) || (img && img.getAttribute("alt")) || node.getAttribute("title") || "").trim();
+          if (label && !/^(javascript:|#$)/i.test(node.getAttribute("href").trim())) return `[${esc(label)}](${absURL(node.getAttribute("href"))})`;
+        }
+        if (!trimmed) return inner && /\s/.test(inner) ? " " : "";
+        const pad = (s) => (/^\s/.test(inner) ? " " : "") + s + (/\s$/.test(inner) ? " " : "");
+        if (t === "A") {
+          const href = node.getAttribute("href");
+          if (opts.links && href && !/^(javascript:|#$)/i.test(href.trim())) return pad(`[${trimmed.replace(/\n+/g, " ")}](${absURL(href)})`);
+          return inner;
+        }
+        if (t === "STRONG" || t === "B") return pad(`**${trimmed}**`);
+        if (t === "EM" || t === "I") return pad(`*${trimmed}*`);
+        if (t === "CODE" || t === "KBD" || t === "SAMP") return pad("`" + trimmed + "`");
+        if (t === "S" || t === "DEL") return pad(`~~${trimmed}~~`);
         return inner;
+      } finally {
+        nest--;
       }
-      if (t === "STRONG" || t === "B") return pad(`**${trimmed}**`);
-      if (t === "EM" || t === "I") return pad(`*${trimmed}*`);
-      if (t === "CODE" || t === "KBD" || t === "SAMP") return pad("`" + trimmed + "`");
-      if (t === "S" || t === "DEL") return pad(`~~${trimmed}~~`);
-      return inner;
     }
     const tidy = (s) => s.split("\n").map((l) => l.replace(/ +/g, " ").trim()).filter(Boolean).join("\n");
 
@@ -407,30 +436,39 @@
       return caption ? [caption, lines.join("\n")] : [lines.join("\n")];
     }
     function block(el, ctx) {
-      const t = tag(el);
-      const h = /^H([1-6])$/.exec(t);
-      if (h) {
-        const text = tidy(inline(el, ctx)).replace(/\n/g, " ");
-        return text ? ["#".repeat(Number(h[1])) + " " + text] : [];
+      if (nest >= MAX_NEST) {
+        nestCut = true;
+        return [];
       }
-      if (t === "PRE") return ctx.hidden ? [] : ["```\n" + el.textContent.replace(/\n$/, "") + "\n```"];
-      if (t === "UL" || t === "OL") return list(el, ctx);
-      if (t === "TABLE") return table(el, ctx);
-      if (t === "HR") return ["---"];
-      if (t === "BLOCKQUOTE") {
-        const inner = blocks(el, ctx);
-        return inner.length ? [inner.join("\n\n").split("\n").map((l) => "> " + l).join("\n")] : [];
+      nest++;
+      try {
+        const t = tag(el);
+        const h = /^H([1-6])$/.exec(t);
+        if (h) {
+          const text = tidy(inline(el, ctx)).replace(/\n/g, " ");
+          return text ? ["#".repeat(Number(h[1])) + " " + text] : [];
+        }
+        if (t === "PRE") return ctx.hidden ? [] : ["```\n" + el.textContent.replace(/\n$/, "") + "\n```"];
+        if (t === "UL" || t === "OL") return list(el, ctx);
+        if (t === "TABLE") return table(el, ctx);
+        if (t === "HR") return ["---"];
+        if (t === "BLOCKQUOTE") {
+          const inner = blocks(el, ctx);
+          return inner.length ? [inner.join("\n\n").split("\n").map((l) => "> " + l).join("\n")] : [];
+        }
+        if (t === "IFRAME" || t === "FRAME") {
+          if (ctx.hidden) return [];
+          frames.push(A.handleFor(el));
+          return [`\u0000F${frames.length - 1}\u0000`];
+        }
+        if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || t === "IMG") {
+          const s = tidy(inline(el, ctx));
+          return s ? [s] : [];
+        }
+        return blocks(el, ctx);
+      } finally {
+        nest--;
       }
-      if (t === "IFRAME" || t === "FRAME") {
-        if (ctx.hidden) return [];
-        frames.push(A.handleFor(el));
-        return [`\u0000F${frames.length - 1}\u0000`];
-      }
-      if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || t === "IMG") {
-        const s = tidy(inline(el, ctx));
-        return s ? [s] : [];
-      }
-      return blocks(el, ctx);
     }
 
     let rootEl = document.body || document.documentElement;
@@ -444,7 +482,7 @@
       else main = true;
     }
     const out = rootEl ? blocks(rootEl, { hidden: false, main }) : [];
-    return { blocks: out, frames };
+    return { blocks: out, frames, nestCut };
   }
 
   // Structured data by selectors (Playwright syntax: CSS, text=, role=, ...;
@@ -787,7 +825,7 @@
     const contextConfig = {};
     async function configure(options) {
       if (options === null || typeof options !== "object" || Array.isArray(options)) throw new Error(`session.configure: options: expected an object, got ${JSON.stringify(options)}`);
-      const known = ["userAgent", "extraHTTPHeaders", "permissions", "proxy"];
+      const known = ["userAgent", "extraHTTPHeaders", "permissions", "proxy", "incognito"];
       const unknown = Object.keys(options).filter((k) => !known.includes(k));
       if (unknown.length) throw new Error(`session.configure: unknown option ${unknown.map((k) => JSON.stringify(k)).join(", ")}; expected ${known.join(", ")}`);
       const params = {};
@@ -810,9 +848,13 @@
         if (px !== null && (typeof px !== "object" || typeof px.server !== "string" || !px.server)) throw new Error("session.configure: proxy: expected { server, username?, password?, bypass? } or null");
         params.proxy = px;
       }
+      if ("incognito" in options) {
+        if (options.incognito !== null && typeof options.incognito !== "boolean") throw new Error("session.configure: incognito: expected a boolean or null");
+        params.incognito = options.incognito;
+      }
       const result = await session.driver.call("session.configure", params);
       for (const [k, v] of Object.entries(params)) {
-        if (v === null || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
+        if (v === null || v === false || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
         else contextConfig[k] = k === "proxy" ? Object.fromEntries(["server", "username", "bypass"].filter((f) => v[f] !== undefined).map((f) => [f, v[f]])) : v;
       }
       const out = { ...contextConfig };
@@ -1016,8 +1058,10 @@
         return policyHost("set", { blockIPs: !!on, lock: !!(options && options.lock), title: "session.blockIPAddresses" }).blockIPs;
       },
       // cmux-next: the host blocks a navigation before its request and keeps
-      // the log (policy op "log").
-      blockedNavigations: () => policyHost("log"),
+      // the log (policy op "log"). The log also records the session's
+      // cookie clears and restores (entries with an `op`, no `blocked`),
+      // which are not navigations.
+      blockedNavigations: () => policyHost("log").filter((entry) => entry && entry.blocked),
       // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,
@@ -1142,6 +1186,7 @@
 
   async function frameMarkdown(page, frame, opts, depth, budget) {
     const r = await agentCall(frame, markdownOfFrame, opts);
+    if (r.nestCut) budget.nestCut = true;
     let text = r.blocks.join("\n\n");
     if (!r.frames.length) return text;
     let children = null;
@@ -1167,7 +1212,11 @@
     if (options === null || typeof options !== "object") throw new Error(`page.markdown: options: expected an object, got ${JSON.stringify(options)}`);
     const opts = { main: !!options.main, links: options.links !== false, images: !!options.images };
     await this._syncInfo().catch(() => {});
-    const full = (await frameMarkdown(this, this._mainFrame, opts, 0, { frames: 100 })) + "\n";
+    const budget = { frames: 100, nestCut: false };
+    let full = (await frameMarkdown(this, this._mainFrame, opts, 0, budget)) + "\n";
+    // Parts nested deeper than the walk reads (markdownOfFrame MAX_NEST) are
+    // left out where they are; the rest of the page is read.
+    if (budget.nestCut) full += "\n<!-- not read: parts of the page nested deeper than 1000 elements -->\n";
     const start = options.start || 0;
     const max = options.maxChars === undefined ? Infinity : options.maxChars;
     if (!Number.isInteger(start) || start < 0) throw new Error(`page.markdown: start: expected a non-negative integer, got ${JSON.stringify(options.start)}`);

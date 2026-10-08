@@ -102,6 +102,27 @@ test("the field has the keyboard when the screen appears, and the cards show rec
   await act(async () => root.unmount());
 });
 
+test("Tools cards use host shortcuts and run their catalog action", async () => {
+  const { container, root, calls } = await mount({
+    tools: [
+      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌘G", menu: [] },
+      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight"] },
+    ],
+    onRunAction: (id: string) => calls.push(`action:${id}`),
+  });
+  expect(container.querySelector(".nt-tools h2")?.textContent).toBe("Tools");
+  expect([...container.querySelectorAll(".nt-tool-main")].map((button) => button.textContent)).toEqual([
+    "±Changes⌘G",
+    "›_Terminal⌘T",
+  ]);
+  await act(async () => {
+    container.querySelector<HTMLButtonElement>(".nt-tool-main")!.click();
+    container.querySelector<HTMLButtonElement>(".nt-tool-menu-popover button")!.click();
+  });
+  expect(calls).toEqual(["action:openDiffViewer", "action:splitRight"]);
+  await act(async () => root.unmount());
+});
+
 test("! puts the field in shell mode in place: no terminal, no rows, the cards stay", async () => {
   const { container, root, field, type, calls } = await mount();
   await type("!");
@@ -166,6 +187,25 @@ test("an address opens on Enter; Down then Enter picks the next row", async () =
   await key("ArrowDown");
   await key("Enter");
   expect(calls).toEqual(["open:http://localhost:3000", "search:localhost:3000"]);
+  await act(async () => root.unmount());
+});
+
+test("a matching workspace row switches on Return", async () => {
+  const { root, type, key, calls } = await mount({
+    omnibar: {
+      tabs: [],
+      workspaces: [{ id: "w1", name: "Docs", detail: "~/src/docs" }],
+      folders: [],
+      commands: [],
+      history: [],
+    },
+  });
+  await type("Docs");
+  await key("ArrowDown");
+  await key("ArrowDown");
+  await key("ArrowDown");
+  await key("Enter");
+  expect(calls).toEqual(["jump:workspace:w1"]);
   await act(async () => root.unmount());
 });
 
@@ -257,5 +297,18 @@ test("typed text offers no app action rows", async () => {
   await type("Keyboard");
   const titles = [...container.querySelectorAll(".nt-row-title")].map((row) => row.textContent);
   expect(titles).not.toContain("Keyboard Shortcuts");
+  await act(async () => root.unmount());
+});
+
+test("New Tab acknowledges the input generation only after the field has focus", async () => {
+  const seen: string[] = [];
+  const { root } = await mount({
+    inputToken: "opening-1",
+    onInputReady: (token: string) => {
+      expect(dom.window.document.activeElement?.className).toBe("nt-field");
+      seen.push(token);
+    },
+  });
+  expect(seen).toEqual(["opening-1"]);
   await act(async () => root.unmount());
 });

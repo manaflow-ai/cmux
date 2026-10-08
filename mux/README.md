@@ -12,4 +12,12 @@ answer), `CMUX_SOCKET_PATH`, `MUX_HARNESS` (claude-sr), `CMUX_MCP_COMMAND`.
 A second launch for the same MUX_HOME exits 0. `mux --help` lists the CLI the
 mux uses from its shell (`mux agents`, `mux memory`, `mux hook`, `mux compact`).
 
-Tests: `bun test` (fake daemon and fake acpmux under host/tests/fakes).
+The host is a thin I/O shell: every decision (wake rule, catch-up, turns,
+replies, outbox, child agents) is the sans-I/O core in
+`packages/brain/src/core` (`core.step(input, now) -> effects`). The shared
+behavior corpus `packages/brain/conformance/chief-cases.json` is generated from
+it (`bun packages/brain/conformance/generate.ts`); the Rust Chief
+(`cmux-tui/crates/cmux-chief`) must pass the same file.
+
+Tests: `bun test` (fake daemon and fake acpmux under host/tests/fakes, and the
+corpus against the core).

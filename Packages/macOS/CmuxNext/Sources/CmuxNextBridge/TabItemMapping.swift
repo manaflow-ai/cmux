@@ -12,9 +12,10 @@ public struct TabItemMapping {
     /// page, whose recorded title is that page's address.
     /// A conversation tab (conversation-tabs-v1) rides a frontend browser
     /// record titled with the blank page's address: it shows `fallbackTitle`
-    /// (the conversation's) and the agent chat icon.
+    /// (the conversation's) and the agent chat icon. `isNewTabPage` marks a
+    /// tab still on the New Tab page, which draws the new-tab icon instead.
 
-    public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
+    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
@@ -28,15 +29,23 @@ public struct TabItemMapping {
             id: StripTabID(tab.id),
             title: title,
             subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: icon(tab, isBrowser: isBrowser, isConversation: isConversation),
+            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
-        if busy.state.isLoading { item.indicator = busy.state }
+        if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
+        applyUserIcon(tab, to: &item)
         return item
+    }
+
+    /// The icon the user set on the tab record replaces every derived icon (kind, agent
+    /// mark, page icon, favicon). Callers that set a derived icon after ``item(_:fallbackTitle:isNewTabPage:)``
+    /// apply it again last. A busy indicator still covers it while the tab loads.
+    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem) {
+        if let icon = TabUserIcon.shared.icon(tab.userIcon) { item.icon = icon }
     }
 
     /// A tab's kind icon from the cmux icon registry. A live agent terminal, and an agent chat
@@ -71,7 +80,11 @@ public struct TabItemMapping {
     }
 
     func status(_ tab: TabModel) -> TabStatus {
-        switch tab.agent?.state {
+        // An agent chat's acpmux turn or an OSC 7501 program waits for the user.
+        if StatusMapping.shared.needsInput(tab) { return .needsInput }
+        // An OSC 7501 error or done the user has not seen yet.
+        if let outcome = StatusMapping.shared.outcome(tab) { return outcome }
+        return switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success
         default: tab.dead || tab.progress?.state == .error ? .failure : .none

@@ -73,9 +73,15 @@ export function stripe(): Stripe {
   return stripeClient;
 }
 
+/** Pro is the only plan sold yearly as well as monthly. */
 export async function resolveProPrice(interval: BillingInterval): Promise<string> {
-  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
-  return resolvePlanPrice(PRO_PRICING_USD.month, interval, env.STRIPE_PRO_MONTHLY_50_PRICE_ID, resolvedProPriceIds, "pro");
+  return resolvePlanPrice(
+    PRO_PRICING_USD[interval],
+    interval,
+    interval === "year" ? env.STRIPE_PRO_YEARLY_480_PRICE_ID : env.STRIPE_PRO_MONTHLY_50_PRICE_ID,
+    resolvedProPriceIds,
+    "pro",
+  );
 }
 
 /** Max is sold monthly only; there is no yearly Price to resolve. */

@@ -50,6 +50,14 @@ extension AppActions {
             }
             registry.track(work)
         })
+        // Cmd-Shift-[ / ] on Home: the previous or next conversation in the list; stops at the ends.
+        for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
+            registry.bind(id) {
+                guard let page = homePage(services) else { return }
+                guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
+                page.show(next)
+            }
+        }
         registry.bind("home.openConversation", invoke: { invocation in
             guard let id = invocation["conversation"]?.stringValue, !id.isEmpty else {
                 registry.refuse(RefusalStrings.homeNotReady)
@@ -61,8 +69,13 @@ extension AppActions {
     }
 
     /// The Home page of the active window, shown (nil, refused, when no
-    /// window may show it).
+    /// window may show it). A run that may not change the view (a socket
+    /// run without focus) is told so, not that Home is not ready.
     static func homePage(_ services: AppServices) -> TopHomePageView? {
+        guard ActionRunScope.viewChangeAllowed() else {
+            services.registry.refuse(RefusalStrings.homeNeedsFocus)
+            return nil
+        }
         guard TopPages.show(.home, services: services) != nil,
               let page = services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             services.registry.refuse(RefusalStrings.homeNotReady)

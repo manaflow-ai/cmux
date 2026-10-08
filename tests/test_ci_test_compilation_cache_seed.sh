@@ -45,11 +45,12 @@ echo "PASS: admission and the seeder build the app-host test product through one
 
 # Pools may differ: the executable canonical recipe test checks absolute paths.
 
-# The build paths are part of every cache entry, so both jobs must use the
-# same ones.
+# The build paths are part of every cache entry, so both jobs must derive the
+# same per-runner root before cleanup and export it for later steps.
 for line in \
-  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission' \
-  'CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas'; do
+  'root="$(scripts/ci/canonical-build-root.sh --print-root)"' \
+  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission' \
+  'CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas'; do
   if ! grep -Fq "$line" <<<"$ADMISSION" || ! grep -Fq "$line" <<<"$SEEDER"; then
     echo "FAIL: admission and the seeder must both set $line"
     exit 1
@@ -193,6 +194,10 @@ fi
 echo "PASS: the fingerprint follows the build path and the toolchain"
 
 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+canonical_root="$("$ROOT_DIR/scripts/ci/canonical-build-root.sh" --print-root)"
+printf -v prefix_map_flags \
+  'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend %s=/private/tmp/cmux-test-source -Xfrontend -debug-prefix-map -Xfrontend %s=/private/tmp/cmux-test-source $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
+  "$canonical_root" "$canonical_root"
 for expected in \
   cmux \
   build \

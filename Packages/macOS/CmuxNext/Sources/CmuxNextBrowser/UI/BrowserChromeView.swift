@@ -89,6 +89,8 @@ public final class BrowserChromeView: NSView {
     /// Modified commits (Cmd-Enter) open elsewhere, nil: here; `loadOverride` true: the host served it (`cmux://history`).
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)?
     public var loadOverride: ((URL) -> Bool)?
+    /// A committed URL loads in this tab (a typed navigation).
+    public var onTypedCommit: (() -> Void)?
 
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?
@@ -101,6 +103,9 @@ public final class BrowserChromeView: NSView {
     public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } } // remote localhost
     var recordedURL: URL?
     var recordedTitle: String?
+    /// Each page that finished loading, once per URL (the App's cookie import offer).
+    public var onPageFinished: ((URL) -> Void)?
+    var finishedURL: URL?
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
@@ -327,6 +332,7 @@ public final class BrowserChromeView: NSView {
         addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()
         recordHistory(state)
+        reportFinishedLoad(state)
         progressLine.set(progress: state.progress, visible: loading)
 
         pageStatus.render(state)
@@ -357,7 +363,8 @@ public final class BrowserChromeView: NSView {
     /// bar, prompt bar, and error page cover them.
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let bars = ([findBar, promptBar] + [currentNotice].compactMap { $0 }).filter { !$0.isHidden && $0.superview != nil }
+        let cards = ([currentNotice, currentCookieImportCard] as [NSView?]).compactMap { $0 }
+        let bars = ([findBar, promptBar] + cards).filter { !$0.isHidden && $0.superview != nil }
         let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }

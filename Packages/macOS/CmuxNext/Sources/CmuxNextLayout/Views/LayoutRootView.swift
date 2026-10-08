@@ -345,6 +345,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        observeKeyWindow()
         guard window != nil else {
             updateVisibility()
             return

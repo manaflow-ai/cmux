@@ -25,7 +25,8 @@ import Testing
         Motion.reduceMotionOverride = true
         Motion.reduceMotionOverride = false
         var sections = fixture()
-        sections[1].nodes[0] = .workspace({ var ws = w("a"); ws.activity = .busy; return ws }())
+        // An agent turn: rows show busy work only for an agent (`working`) or with `progress` on.
+        sections[1].nodes[0] = .workspace({ var ws = w("a"); ws.activity = .busy; ws.agentWorking = true; return ws }())
         let sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 400), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
