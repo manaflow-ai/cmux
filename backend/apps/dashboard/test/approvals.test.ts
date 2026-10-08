@@ -6,6 +6,7 @@ import { canonicalJson } from "../../../packages/ownership/src/engine.ts"
 import { ApprovalCard } from "../src/lib/approval-card.tsx"
 import { approvalStatus, canApprove, checkDigest, parseApproval, requestDigest, type ApprovalView } from "../src/lib/approvals.ts"
 import { approvalText, pickLocale } from "../src/lib/approval-strings.ts"
+import { expiryStore } from "../src/lib/expiry.ts"
 
 /** The digest exactly as the API Worker computes it (integrations/approval-gate.ts approvalDigest). */
 const serverDigest = (op: string, params: Record<string, unknown>) => `sha256:${createHash("sha256").update(canonicalJson({ op, params })).digest("hex")}`
@@ -184,5 +185,53 @@ describe("approval card", () => {
     const html = render({ locale: "ja", open: true })
     expect(html).toContain(">承認<")
     expect(html).toContain(">拒否<")
+  })
+})
+
+describe("expiry at render time", () => {
+  const fakeScheduler = (start: number) => {
+    const timers: Array<{ fn: () => void; ms: number }> = []
+    const state = { clock: start, cleared: 0 }
+    return {
+      timers,
+      state,
+      scheduler: {
+        now: () => state.clock,
+        setTimeout: (fn: () => void, ms: number) => timers.push({ fn, ms }),
+        clearTimeout: () => void state.cleared++
+      }
+    }
+  }
+  it("schedules one timeout to the exact expiry, flips to expired when it fires, and clears it on unsubscribe", () => {
+    const f = fakeScheduler(1_000)
+    const store = expiryStore(5_000, f.scheduler)
+    let changes = 0
+    const unsubscribe = store.subscribe(() => changes++)
+    expect(f.timers.map((t) => t.ms)).toEqual([4_000])
+    expect(store.getSnapshot()).toBe(false)
+    f.state.clock = 5_000
+    f.timers[0]!.fn()
+    expect(changes).toBe(1)
+    expect(store.getSnapshot()).toBe(true)
+    unsubscribe()
+    // A card that unmounts before the expiry clears its timer.
+    const g = fakeScheduler(1_000)
+    expiryStore(5_000, g.scheduler).subscribe(() => {})()
+    expect(g.timers).toHaveLength(1)
+    expect(g.state.cleared).toBe(1)
+  })
+  it("schedules nothing for a request that already expired", () => {
+    const f = fakeScheduler(9_000)
+    const store = expiryStore(5_000, f.scheduler)
+    store.subscribe(() => {})
+    expect(f.timers).toHaveLength(0)
+    expect(store.getSnapshot()).toBe(true)
+  })
+  it("an expired card never shows Approve, even when the page's render time is older", () => {
+    const past = Date.now() - 1_000
+    const html = render({ open: true, now: past - HOUR, approval: approval({ expires_at: past }), view: view({ expires_at: past }) })
+    expect(html).not.toContain(">Approve<")
+    expect(html).not.toContain(">Deny<")
+    expect(html).toContain('data-status="expired"')
   })
 })
