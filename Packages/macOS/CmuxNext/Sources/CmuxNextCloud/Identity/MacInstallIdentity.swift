@@ -10,6 +10,11 @@ import os
 /// install and forgets its key and record, so the next sign-in registers a
 /// new install. The credential relay (cx-wb5.63) sends Cloud ops with these
 /// tokens; a Stack bearer never leaves the app.
+///
+/// Every bind has a generation: a registration that is still in flight when
+/// the user signs out (or another user signs in) never writes its record, so
+/// nothing on disk can mint for it afterwards. Its install may stay on the
+/// server, unusable (its key is rotated away).
 public actor MacInstallIdentity {
     public enum Failure: Error, Equatable {
         /// No user is signed in.
@@ -22,6 +27,7 @@ public actor MacInstallIdentity {
     private let clientVersion: String?
     private var client: InstallAuthClient?
     private var user: String?
+    private var generation: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
@@ -31,18 +37,10 @@ public actor MacInstallIdentity {
         self.clientVersion = clientVersion
     }
 
-    /// Binds `stackUser` at launch from the stored record, without a network
-    /// call. `session` is nil when the session is not restored yet: tokens are
-    /// still minted from the key, registration waits for ``signedIn``.
-    public func restore(stackUser: String, session: InstallAuthClient.SessionToken?) {
-        guard user != stackUser else { return }
-        bind(stackUser: stackUser, session: session)
-    }
-
     /// The user signed in: binds them and registers (or reuses) the install
     /// at once by minting one token, so a later relay call does not wait.
     public func signedIn(stackUser: String, session: @escaping InstallAuthClient.SessionToken) async throws {
-        bind(stackUser: stackUser, session: session)
+        if user != stackUser || client == nil { bind(stackUser: stackUser, session: session) }
         _ = try await installToken()
     }
 
@@ -55,32 +53,49 @@ public actor MacInstallIdentity {
     /// The owner refused the current token (401): the next call mints again.
     public func invalidate() async { await client?.invalidate() }
 
-    /// Sign-out (needs the Stack session still): revokes the install on the
-    /// server, rotates the key and forgets the record. A failed revoke is
-    /// logged; the key and record are forgotten anyway, so this Mac never
-    /// mints for that install again.
-    public func signOut() async {
-        guard let client else { return }
-        self.client = nil
-        let signedOutUser = user
+    /// The session ended without a sign-out here (expired, or signed out
+    /// elsewhere): stop minting. The key and record stay, so a sign-in of the
+    /// same user reuses the install and a later sign-out can still revoke it.
+    public func unbind() {
+        generation &+= 1
+        client = nil
         user = nil
+    }
+
+    /// Sign-out (needs the Stack session still): revokes the install on the
+    /// server, then always rotates the user's key and forgets the record, so
+    /// this Mac never mints for that install again, also when the revoke
+    /// failed or a registration was still in flight.
+    public func signOut() async {
+        guard let client, let signedOutUser = user else { return }
+        unbind()
         do {
             try await client.revoke()
         } catch {
             logger.error("install revoke failed: \(String(describing: error), privacy: .public)")
-            await client.reset()
-            if let signedOutUser { store.saveRecord(nil, for: signedOutUser) }
-            try? await store.signer.rotate()
+        }
+        await client.reset()
+        store.saveRecord(nil, for: signedOutUser)
+        do {
+            try await store.signer(for: signedOutUser).rotate()
+        } catch {
+            logger.error("install key rotation failed: \(String(describing: error), privacy: .public)")
         }
     }
 
     private func bind(stackUser: String, session: InstallAuthClient.SessionToken?) {
+        generation &+= 1
+        let bound = generation
         user = stackUser
-        let store = store
         client = InstallAuthClient(
-            transport: transport, signer: store.signer, sessionToken: session, stackUser: stackUser,
+            transport: transport, signer: store.signer(for: stackUser), sessionToken: session, stackUser: stackUser,
             deviceName: deviceName, clientVersion: clientVersion, record: store.record(for: stackUser),
-            profile: .mac, onRecord: { record in store.saveRecord(record, for: stackUser) }
+            profile: .mac, onRecord: { [weak self] record in await self?.recordChanged(record, for: stackUser, generation: bound) }
         )
+    }
+
+    private func recordChanged(_ record: InstallRecord?, for stackUser: String, generation bound: UInt64) {
+        guard bound == generation else { return }
+        store.saveRecord(record, for: stackUser)
     }
 }

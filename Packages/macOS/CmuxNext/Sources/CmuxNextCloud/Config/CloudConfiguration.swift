@@ -104,6 +104,15 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     /// This process's configuration.
+    /// The API Worker (`/v1/read`, `/v1/ops`, `/v1/auth/*`): production
+    /// auth uses cloud-api.cmux.dev, everything else the staging Worker. The
+    /// `CMUX_NEXT_FEED_API_URL` override is honored in debug builds only, so
+    /// a release build never sends a credential to another origin.
+    public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
+        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
+    }
+
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
