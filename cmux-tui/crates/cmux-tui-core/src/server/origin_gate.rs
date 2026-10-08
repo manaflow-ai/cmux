@@ -84,7 +84,7 @@ pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
 /// other local connection (an agent in a pane, a script, the CLI) is the
 /// plain local user to the daemon and may only deny.
 pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
-    matches!(connection_actor(mux, client), crate::workspace_registry::Actor::Frontend { .. })
+    matches!(connection_actor(mux, client), Actor::Frontend { .. })
 }
 
 /// The v2 form of [`may_approve_pairing`]: `pairing_request.resolve` with
@@ -94,13 +94,13 @@ fn check_pairing_accept(
     mux: &Mux,
     client: u64,
     envelope: &RequestEnvelope,
-    actor: &crate::workspace_registry::Actor,
+    actor: &Actor,
 ) -> Result<(), ResourceError> {
     let accept = envelope.operation == ResourceOperation::PairingRequestResolve
         && envelope.params.get("decision").and_then(Value::as_str) == Some("accept");
     if !accept
         || !mux.control_clients.is_unix(client)
-        || matches!(actor, crate::workspace_registry::Actor::Frontend { .. })
+        || matches!(actor, Actor::Frontend { .. })
     {
         return Ok(());
     }
