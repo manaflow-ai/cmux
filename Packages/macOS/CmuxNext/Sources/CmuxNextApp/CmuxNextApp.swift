@@ -25,13 +25,9 @@ public struct CmuxNextApp {
         // cannot pick this app's socket, tag, or daemon session.
         // A debug build's sign-in choice (CMUX_AUTH_CREDENTIALS_FILE and friends) is kept for CloudAuth only.
         CloudAuth.captureLaunchEnvironment()
-        LaunchIdentity.stripInheritedEnvironment()
-        // The last environment writes of this process, still before any
-        // thread starts: libghostty keeps a slice of `environ` from
-        // `ghostty_init`, so a later setenv or unsetenv crashes it
-        // (check: crash_ratchet.py env_write, env-write-allowlist.json).
-        GhosttyRuntime.prepareProcessEnvironment()
-        _ = LaunchMarkSink.shared
+        // This process's only environment writes, then the freeze: a write
+        // after it stops a debug build (ProcessEnvironmentGuard).
+        Self.prepareLaunchEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
         var environment = AppEnvironment.current()

@@ -46,4 +46,40 @@ export const LONG_NAMES: TurnFile[] = [
   changedFile("docs/architecture/2026-10-07-decision-record-for-the-agent-pane-changes-tree.md", 210, 0),
   changedFile("README.md", 4, 2),
   changedFile("src/very_long_snake_case_module_name_that_keeps_going_and_going.py", 77, 41),
+  // Names far wider than any pane, to test the fade and the marquee at their limits.
+  changedFile(
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyLinkChipOutsideRootsConfirmationSheetPresentationController+AccessibilityAndKeyboardNavigation.swift",
+    1204,
+    388,
+  ),
+  changedFile(
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneReplyLinkChipOutsideRootsConfirmationSheetPresentationControllerAccessibilityAndKeyboardNavigationTests.swift",
+    96,
+    0,
+  ),
+  changedFile(
+    "webviews/src/agent-session/acpmux/changes/an-extremely-long-folder-name-that-is-wider-than-the-whole-changes-column-on-purpose/and-another-nested-folder-with-an-even-longer-descriptive-name-for-testing/component.tsx",
+    15,
+    7,
+  ),
+  changedFile(
+    "fixtures/screenshots/2026-10-07T21-43-12.884Z-agent-pane-transcript-long-reply-with-many-tool-calls-and-edited-files-card-dark-theme-monokai-classic-1280x800@2x.png",
+    0,
+    0,
+  ),
+  changedFile(
+    "src/ReallyLongCamelCaseNameWithoutAnySeparatorsOrSpacesSoTheBrowserCannotBreakItAnywhereAtAll.ts",
+    33,
+    2,
+  ),
+  changedFile(
+    "docs/日本語のとても長いファイル名でフェードとマーキーが正しく動くかを確認するためのテスト用ドキュメント.md",
+    8,
+    1,
+  ),
+  changedFile(
+    "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z/deeply-nested-file-at-the-end-of-twenty-six-folders.rs",
+    1,
+    1,
+  ),
 ];

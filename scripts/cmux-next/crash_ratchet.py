@@ -23,7 +23,8 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       env-write-allowlist.json (path, call, count, reason) pass. libghostty
                       keeps a slice of environ from ghostty_init, so a write after launch
                       left it reading a NULL or freed entry (SIGSEGV, cx-9dh7). Children
-                      get their variables through their spawn environment.
+                      get their variables through their spawn environment. At run time,
+                      ProcessEnvironmentGuard.write refuses an allowed write after its freeze.
   Rust (cmux-tui/crates/*/src, code before an inline #[cfg(test)] module, no tests/ folders):
     unwrap            .unwrap()
     expect            .expect(
