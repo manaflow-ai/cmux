@@ -49,6 +49,13 @@ struct CloudWelcomeTests {
         #expect(Set(CloudWelcomeSlide.all.map(\.id)).count == CloudWelcomeSlide.all.count)
     }
 
+    @Test("the multiplayer feature keeps a bundled clip")
+    func multiplayerClipIsBundled() {
+        let multiplayer = CloudWelcomeSlide.all.first { $0.id == "team" }
+        #expect(multiplayer != nil)
+        #expect(multiplayer.flatMap(CloudWelcomeMediaCarousel.bundledMediaURL) != nil)
+    }
+
     @Test("short clips dwell long enough to read before autoplay advances")
     func shortMovieDwell() {
         #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
