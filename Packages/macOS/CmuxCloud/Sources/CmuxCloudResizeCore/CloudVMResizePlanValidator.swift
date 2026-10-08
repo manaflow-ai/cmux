@@ -241,7 +241,9 @@ public struct CloudVMResizePlanValidator: Sendable {
     /// Converts a JSON-compatible numeric value to a nonnegative integer.
     private func nonNegativeLimit(_ raw: Any?) -> Int? {
         let value: Int?
-        if let raw = raw as? NSNumber,
+        if raw is Bool {
+            value = nil
+        } else if let raw = raw as? NSNumber,
                   CFGetTypeID(raw) != CFBooleanGetTypeID(),
                   raw.doubleValue.isFinite {
             value = Int(exactly: raw.doubleValue)

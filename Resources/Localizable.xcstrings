@@ -527036,7 +527036,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 ГБ RAM"
+            "value": "16 ГБ RAM"
           }
         },
         "th": {
@@ -527054,7 +527054,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 ГБ RAM"
+            "value": "16 ГБ RAM"
           }
         },
         "en": {
@@ -527072,13 +527072,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 Go de RAM"
+            "value": "16 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 غيغابايت من الذاكرة"
+            "value": "16 غيغابايت من الذاكرة"
           }
         },
         "es": {

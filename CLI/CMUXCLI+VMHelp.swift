@@ -175,15 +175,17 @@ extension CMUXCLI {
 
     /// Returns the localized display name for a normalized plan identifier.
     private static func cloudVMResizePlanName(_ planID: String) -> String {
+        let localizedName: String
         switch planID.lowercased() {
-        case "pro": return String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
-        case "max": return String(localized: "pricing.native.plan.max", defaultValue: "Max")
-        case "team": return String(localized: "pricing.native.plan.team", defaultValue: "Team")
-        case "founders", "founders-edition": return String(localized: "cli.vm.resize.planName.founders", defaultValue: "Founder's Edition")
-        case "go": return String(localized: "pricing.native.plan.go", defaultValue: "Go")
-        case "free": return String(localized: "pricing.native.plan.free", defaultValue: "Free")
+        case "pro": localizedName = String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
+        case "max": localizedName = String(localized: "pricing.native.plan.max", defaultValue: "Max")
+        case "team": localizedName = String(localized: "pricing.native.plan.team", defaultValue: "Team")
+        case "founders", "founders-edition": localizedName = String(localized: "cli.vm.resize.planName.founders", defaultValue: "Founder's Edition")
+        case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Go")
+        case "free": localizedName = String(localized: "pricing.native.plan.free", defaultValue: "Free")
         default: return planID
         }
+        return "cmux \(localizedName)"
     }
 
     /// Builds the localized error for a target above the shared compute pool.

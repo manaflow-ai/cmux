@@ -169,7 +169,7 @@ describe("VM defaults and pricing copy", () => {
       expect(row).toBeDefined();
       expect(row!.max).toBe("64 GB RAM");
       for (const plan of ["pro", "team"] as const) {
-        expect(row![plan]).toBe("32 GB RAM");
+        expect(row![plan]).toBe("16 GB RAM");
       }
       // Free accounts include no Cloud VM at all.
       expect(row!.free).toBe("false");
@@ -206,6 +206,9 @@ describe("VM defaults and pricing copy", () => {
       for (const quantity of ["5", "20", "40"]) expect(picker.pro.join("\n")).toContain(quantity);
       for (const quantity of ["5", "80", "160"]) expect(picker.max.join("\n")).toContain(quantity);
       expect(JSON.stringify(picker)).not.toMatch(/(?:^|\D)(?:4 vCPU|8 GB|16 vCPU|32 GB)/);
+      const sizeError = messages.docs.cloudTroubleshooting.fixSize;
+      expect(sizeError).toContain("16");
+      expect(sizeError).not.toContain("32 GB");
       const pool = messages.vmErrors.resourcePool;
       for (const key of ["memoryMessage", "vcpuMessage"] as const) {
         for (const placeholder of ["{used}", "{pool}", "{requested}"]) {

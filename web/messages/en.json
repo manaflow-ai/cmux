@@ -1887,9 +1887,9 @@
         {
           "label": "Largest Cloud VM",
           "free": "false",
-          "pro": "32 GB RAM",
+          "pro": "16 GB RAM",
           "max": "64 GB RAM",
-          "team": "32 GB RAM",
+          "team": "16 GB RAM",
           "enterprise": "Custom",
           "go": "4 GiB RAM"
         },

@@ -148,6 +148,8 @@ struct CloudVMResourcePoolTests {
     func booleanCapacityValuesAreRejected() {
         #expect(CloudVMResizePlanValidator().positiveLimit(true) == nil)
         #expect(CloudVMResizePlanValidator().positiveLimit(false) == nil)
+        #expect(CloudVMResizePlanValidator().positiveLimit(NSNumber(value: true)) == nil)
+        #expect(CloudVMResizePlanValidator().positiveLimit(NSNumber(value: false)) == nil)
         #expect(CloudVMResourcePool(limits: ["poolVcpus": true, "poolMemoryMb": 40960]) == nil)
         #expect(CloudVMResourcePool(limits: ["poolVcpus": 20, "poolMemoryMb": false]) == nil)
     }
