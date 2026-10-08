@@ -15,6 +15,8 @@ import Testing
 /// @Sendable block can call it. (A captured `var` can't be mutated there.)
 private final class SettingsChromeNotificationFlag: @unchecked Sendable {
     private(set) var isSet = false
+
+    /// Records that the observed Settings command notification was delivered.
     func set() { isSet = true }
 }
 
@@ -52,6 +54,7 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
+        /// Verifies the AppKit-owned window preserves the native Settings chrome contract.
         @Test func presenterBuildsNativeSplitViewChrome() async throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
@@ -104,6 +107,7 @@ extension SettingsWindowSharedStateSuites {
             )
         }
 
+        /// Verifies the toolbar button routes through the shared sidebar command notification.
         @Test func toolbarToggleSharesTheMenuCommandNotificationPath() throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
@@ -138,6 +142,7 @@ extension SettingsWindowSharedStateSuites {
             #expect(received.isSet)
         }
 
+        /// Closes all Settings windows and clears their saved frame for test isolation.
         private func closeSettingsWindows() {
             for window in NSApp.windows
             where window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier {
