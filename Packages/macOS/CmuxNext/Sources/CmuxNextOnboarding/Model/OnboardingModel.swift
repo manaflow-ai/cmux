@@ -81,7 +81,7 @@ public final class OnboardingModel {
 
     private func foundNothing(_ step: Step) -> Bool {
         switch step {
-        case .classicSessions: classicSessions.scanned && classicSessions.workspaces.isEmpty
+        case .classicSessions: classicSessions.scanned && classicSessions.scanError == nil && classicSessions.workspaces.isEmpty
         case .chats: chats.scanned && chats.chats.isEmpty
         default: false
         }

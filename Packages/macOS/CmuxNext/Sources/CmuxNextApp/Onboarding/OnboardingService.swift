@@ -22,6 +22,9 @@ final class OnboardingService {
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
+    /// The classic snapshot is read once per app launch and shared by the
+    /// onboarding step and the background project-folder scan.
+    private let classicSessionReadTask: Task<[ClassicSessionWorkspace], Error>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
@@ -52,9 +55,20 @@ final class OnboardingService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
+        classicSessionReadTask = Task.detached(priority: .utility) {
+            try ClassicSessionImporter().read()
+        }
+        let classicSessionReadTask = self.classicSessionReadTask
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
         // once in the background while the app is starting.
-        projectScanTask = Task { [weak self] in
+        projectScanTask = Task { [weak self, classicSessionReadTask] in
+            let classic: [ClassicSessionWorkspace]
+            do {
+                classic = try await classicSessionReadTask.value
+            } catch {
+                self?.logger.error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
+                classic = []
+            }
             let folders = await Task.detached {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200
@@ -65,11 +79,11 @@ final class OnboardingService {
                     case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
                     }
                 }
-                let classic = (try? ClassicSessionImporter().read())?.flatMap { workspace in
+                let classicFolders = classic.flatMap { workspace in
                     [workspace.workingDirectory] + classicDirectories(workspace.layout)
-                } ?? []
+                }
                 var seen = Set<String>()
-                return (agent + classic).compactMap { path in
+                return (agent + classicFolders).compactMap { path in
                     let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
                     return seen.insert(normalized).inserted ? normalized : nil
                 }
@@ -77,6 +91,12 @@ final class OnboardingService {
             guard let self else { return }
             projectFolders = folders
         }
+    }
+
+    /// Returns the launch-cached classic snapshot, preserving read errors for
+    /// the onboarding step to display instead of silently dropping the step.
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
+        try await classicSessionReadTask.value
     }
 
     /// The last state file write; each write waits for the one before.

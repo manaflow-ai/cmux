@@ -48,7 +48,7 @@ public protocol OnboardingServices: AnyObject {
     func resumeChats(_ chats: [AgentChat])
     // Classic cmux session import
     var canImportClassicSessions: Bool { get }
-    func scanClassicSessions() async -> [ClassicSessionWorkspace]
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace]
     /// The chat ids (`AgentChat.id`) classic cmux had open in its terminals.
     func scanClassicOpenChats() async -> Set<String>
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace])
@@ -118,8 +118,8 @@ public extension OnboardingServices {
     func scanAgentChats() async -> [AgentChat] { [] }
     func resumeChats(_ chats: [AgentChat]) {}
     var canImportClassicSessions: Bool { false }
-    func scanClassicSessions() async -> [ClassicSessionWorkspace] {
-        await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
+        try await Task.detached { try ClassicSessionImporter().read() }.value
     }
     func scanClassicOpenChats() async -> Set<String> {
         await Task.detached { (try? ClassicSessionImporter().readOpenChats()) ?? [] }.value

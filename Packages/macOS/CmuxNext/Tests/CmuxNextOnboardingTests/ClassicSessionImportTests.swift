@@ -130,6 +130,31 @@ import Testing
         #expect(ClassicSessionImporter(applicationSupport: support).fileURL == stable)
     }
 
+    @Test func readsTaggedDevAndRCSnapshots() throws {
+        let support = FileManager.default.temporaryDirectory.appending(path: "classic-tagged-\(UUID().uuidString)")
+        let folder = support.appending(path: "cmux")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let dev = folder.appending(path: "session-com.cmuxterm.app.debug.gallery.json")
+        let rc = folder.appending(path: "session-com.cmuxterm.app.rc.candidate.json")
+        try Data("{}".utf8).write(to: dev)
+        try Data("{}".utf8).write(to: rc)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: dev.path)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL == rc)
+    }
+
+    @Test func rejectsSnapshotsOverTheReadLimit() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "classic-large-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: "session.json")
+        try Data(repeating: 0, count: ClassicSessionImporter.maximumSnapshotBytes + 1).write(to: file)
+        #expect(throws: ClassicSessionImportError.snapshotTooLarge(
+            actualBytes: ClassicSessionImporter.maximumSnapshotBytes + 1,
+            maximumBytes: ClassicSessionImporter.maximumSnapshotBytes
+        )) {
+            try ClassicSessionImporter(fileURL: file).read()
+        }
+    }
+
     @Test func missingSnapshotIsAnEmptyRead() throws {
         let importer = ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/cmux-classic-fixture-that-does-not-exist"))
         #expect(try importer.read().isEmpty)
