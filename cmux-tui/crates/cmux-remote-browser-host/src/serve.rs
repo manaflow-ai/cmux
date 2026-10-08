@@ -15,17 +15,16 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, TryLockError};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::service::negotiate;
 use cmux_rd_engine::EngineConfig;
 use cmux_rd_proto::control::Control as RdControl;
 use cmux_rd_proto::{
-    MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer,
+    MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     encode_stream_frame,
 };
 use cmux_remote_browser::proto::{Control, ScreenInfo, SurfaceKind, ViewerCaps};
@@ -37,7 +36,7 @@ use crate::ffi::{
 };
 use crate::pump::{FrameEncoder, Pump, PumpOut};
 use crate::shim_ui;
-use crate::tab::{DEFAULT_SCREEN, HostTab, SurfaceOut};
+use crate::tab::{DEFAULT_SCREEN, HostTab, PageChange, SurfaceOut};
 
 const FPS: u32 = 60;
 const START_KBPS: u32 = 8000;
@@ -53,6 +52,12 @@ pub struct Options {
     pub url: String,
     /// Exit after the first viewer leaves.
     pub once: bool,
+    /// Quit when stdin reaches end of file (`--lifeline`, the app's launch
+    /// contract in `launch.rs`).
+    pub lifeline: bool,
+    /// The per-launch secret a viewer's rd hello must carry as its token (the first
+    /// lifeline line). `main` refuses to start without one; `None` admits nobody.
+    pub secret: Option<String>,
 }
 
 /// One capture lease; dropping it gives the frame back to Viz (UI thread).
@@ -198,9 +203,10 @@ impl Host {
             eprintln!("serve: release_all: {keys} keys, {buttons} buttons");
             self.tab.release_all(&mut p);
         }
-        for event in &out.input {
+        for (i, event) in out.input.iter().enumerate() {
+            let seq = out.input_seqs.get(i).copied().flatten();
             // A refused event (Blink would drop it) is not an error here.
-            let _ = self.tab.input(event, &mut p);
+            let _ = self.tab.input_seq(event, seq, &mut p);
         }
         if out.refresh {
             self.refresh_wanted = true;
@@ -374,10 +380,26 @@ unsafe extern "C" fn on_timer(_: *mut c_void) {
     });
 }
 
+unsafe extern "C" fn on_quit(_: *mut c_void) {
+    // SAFETY: UI thread (posted through `rb_shim_post`).
+    unsafe { rb_shim_quit() }
+}
+
 unsafe extern "C" fn on_ready(_: *mut c_void) {
-    let Some(addr) = HOST.lock().ok().and_then(|g| g.as_ref().map(|h| h.opts.listen)) else {
+    let Some((addr, lifeline)) =
+        HOST.lock().ok().and_then(|g| g.as_ref().map(|h| (h.opts.listen, h.opts.lifeline)))
+    else {
         return;
     };
+    if lifeline {
+        std::thread::spawn(|| {
+            crate::launch::watch_lifeline(std::io::stdin().lock(), || {
+                eprintln!("serve: lifeline closed, quitting");
+                // SAFETY: `on_quit` runs on the UI thread and takes no context.
+                unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
+            });
+        });
+    }
     std::thread::spawn(move || {
         if let Err(e) = listen(addr) {
             eprintln!("serve: {e}");
@@ -392,17 +414,78 @@ unsafe extern "C" fn on_tab_created(_: *mut c_void, _request: c_int, browser: c_
     });
 }
 
-/// Title and URL changes come once the tab has its view: a capture the shim
-/// refused before starts now.
-unsafe extern "C" fn on_page_text(_: *mut c_void, _browser: c_int, text: *const c_char) {
-    if !text.is_null() {
-        // SAFETY: NUL-terminated for the call.
-        let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
-        eprintln!("serve: page {text}");
-    }
-    dispatch(|h| {
+/// A page fact for the viewer (`rb.page`). Title and URL changes come once
+/// the tab has its view: a capture the shim refused before starts now.
+fn page_changed(change: PageChange) {
+    dispatch(move |h| {
         h.tab.retry_capture(&mut ShimPresentation);
         h.refresh();
+        let out = h.tab.page_changed(change);
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
+unsafe extern "C" fn on_title(_: *mut c_void, _browser: c_int, title: *const c_char) {
+    page_changed(PageChange::Title(text(title).unwrap_or_default()));
+}
+
+unsafe extern "C" fn on_url(_: *mut c_void, _browser: c_int, url: *const c_char) {
+    let url = text(url).unwrap_or_default();
+    eprintln!("serve: page {url}");
+    page_changed(PageChange::Url(url));
+}
+
+unsafe extern "C" fn on_loading_state(
+    _: *mut c_void,
+    _browser: c_int,
+    loading: c_int,
+    can_go_back: c_int,
+    can_go_forward: c_int,
+) {
+    page_changed(PageChange::Loading {
+        loading: loading != 0,
+        can_go_back: can_go_back != 0,
+        can_go_forward: can_go_forward != 0,
+    });
+}
+
+unsafe extern "C" fn on_cursor(_: *mut c_void, _browser: c_int, cef_type: c_int) {
+    dispatch(move |h| {
+        let out = h.tab.cursor_changed(cef_type);
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
+/// A key the page did not handle: the viewer runs its own action for it
+/// (`rb.key_unhandled` names the last key-down's input seq).
+unsafe extern "C" fn on_key_unhandled(
+    _: *mut c_void,
+    _browser: c_int,
+    _code: *const c_char,
+    _modifiers: c_int,
+) {
+    dispatch(|h| {
+        let out = h.tab.key_unhandled();
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
+/// The page asked for a new tab or window (the shim cancelled the native
+/// popup): the App opens it as a remote tab of its own (`rb.open_tab`).
+unsafe extern "C" fn on_open_tab(
+    _: *mut c_void,
+    _browser: c_int,
+    url: *const c_char,
+    disposition: c_int,
+    user_gesture: c_int,
+) {
+    let url = text(url).unwrap_or_default();
+    dispatch(move |h| {
+        let out = h.tab.popup_requested(&url, disposition, user_gesture != 0);
+        if out.is_none() {
+            eprintln!("serve: page open with disposition {disposition} opens no tab");
+        }
+        h.send_rb(out.into_iter().collect());
     });
 }
 
@@ -606,10 +689,27 @@ fn frame_damage(f: &RbFrame, width: u32, height: u32) -> Rect {
 
 fn listen(addr: SocketAddr) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr)?;
-    eprintln!("serve: listening on {addr} (service {SERVICE_REMOTE_BROWSER})");
+    let bound = listener.local_addr()?;
+    eprintln!("serve: listening on {bound} (service {SERVICE_REMOTE_BROWSER})");
+    // The readiness line the app waits for (launch.rs): one flushed stdout line.
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{}", crate::launch::listening_line(bound))?;
+    stdout.flush()?;
+    drop(stdout);
     for conn in listener.incoming() {
-        let conn = conn?;
-        conn.set_nodelay(true)?;
+        // A failed accept or a peer that reset before setsockopt ends only
+        // that connection, never the listener.
+        let conn = match conn {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("serve: accept failed: {e}");
+                continue;
+            }
+        };
+        if let Err(e) = conn.set_nodelay(true) {
+            eprintln!("serve: connection dropped: {e}");
+            continue;
+        }
         match session(conn) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
             Err(e) => eprintln!("serve: session failed: {e}"),
@@ -619,36 +719,24 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
 }
 
 fn write_rd(stream: &mut TcpStream, control: &RdControl) -> std::io::Result<()> {
-    let json = serde_json::to_vec(control).map_err(std::io::Error::other)?;
-    let mut out = Vec::with_capacity(json.len() + 5);
-    encode_stream_frame(STREAM_CONTROL, &json, &mut out)
-        .map_err(|e| std::io::Error::other(format!("{e:?}")))?;
-    stream.write_all(&out)
+    crate::launch::write_control(stream, control)
 }
 
 /// One viewer: the rd handshake here, then frames to the UI thread until EOF.
 fn session(mut stream: TcpStream) -> std::io::Result<String> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut deframer = StreamDeframer::default();
     let mut buf = vec![0u8; 64 * 1024];
-    let hello = loop {
-        if let Ok(Some((kind, payload))) = deframer.next_frame() {
-            if kind == STREAM_CONTROL {
-                break serde_json::from_slice::<RdControl>(&payload)
-                    .map_err(std::io::Error::other)?;
-            }
-            continue;
-        }
-        let n = stream.read(&mut buf)?;
-        if n == 0 {
-            return Ok("left before hello".into());
-        }
-        deframer.extend(&buf[..n]);
+    // The viewer is admitted (its hello carries the secret) before the
+    // welcome: a refused viewer never opens the tab or sends input.
+    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
+    let (hello, mut deframer) = match crate::launch::admit(&mut stream, secret.as_deref())? {
+        crate::launch::Admission::Admitted { hello, deframer } => (hello, deframer),
+        crate::launch::Admission::Refused(reason) => return Ok(reason),
     };
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
         return Ok("the first control message is not hello".into());
     };
-    let negotiated = match negotiate(&service, &caps, &[SERVICE_REMOTE_BROWSER], &[]) {
+
+    let negotiated = match crate::handshake::negotiate_hello(&service, &caps) {
         Ok(n) => n,
         Err(refusal) => {
             write_rd(&mut stream, &RdControl::Refused { reason: refusal.reason().into() })?;
@@ -719,10 +807,10 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_ready: Some(on_ready),
         on_tab_created: Some(on_tab_created),
         on_tab_closed: None,
-        on_title: Some(on_page_text),
-        on_url: Some(on_page_text),
+        on_title: Some(on_title),
+        on_url: Some(on_url),
         on_frame: Some(on_frame),
-        on_key_unhandled: None,
+        on_key_unhandled: Some(on_key_unhandled),
         on_context_menu: Some(on_context_menu),
         on_popup_menu: Some(on_popup_menu),
         on_needs_begin_frames: None,
@@ -730,6 +818,9 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_dialog_reset: Some(on_dialog_reset),
         on_surface: Some(on_surface),
         on_surface_frame: Some(on_surface_frame),
+        on_loading_state: Some(on_loading_state),
+        on_cursor: Some(on_cursor),
+        on_open_tab: Some(on_open_tab),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

@@ -204,6 +204,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
         "ghostty",
         "ghostty-next",
         "scripts/cmux-next/build-layout-reducer-ffi.sh",
+        "scripts/ci/cmux-tui-darwin-builder",
+        "scripts/ci/macos-cross.sh",
+        "scripts/ci/macos_stubs.py",
+        "scripts/ci/macho_weaken.py",
+        "scripts/ci/macos-stubs/**",
     ]
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
@@ -299,7 +304,7 @@ def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
         if not line or line.startswith("#"):
             continue
         kind, path = line.split(maxsplit=1)
-        key_paths.append("cmux-tui/**" if kind == "tree" and path == "cmux-tui" else path)
+        key_paths.append(f"{path}/**" if kind == "tree" else path)
     triggers = workflow_triggers(workflow("cmux-tui-artifacts.yml"))
     assert triggers["pull_request_target"]["paths"] == key_paths
     assert "cmux_tui_tree_key.py" in workflow("cmux-tui-artifacts.yml")

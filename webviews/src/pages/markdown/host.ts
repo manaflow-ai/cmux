@@ -51,6 +51,8 @@ export interface MarkdownConfig {
   text: string;
   /** The SHA-256 of the file's bytes, hex. */
   hash: string;
+  /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
+  githubRepository?: string;
   /** The page may not save: the file is outside every workspace root (or not writable). */
   readOnly?: boolean;
   /**
@@ -110,6 +112,8 @@ export interface MarkdownFile {
   path: string;
   text: string;
   hash: string;
+  /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
+  githubRepository?: string;
   readOnly?: boolean;
   assetBase?: string;
 }

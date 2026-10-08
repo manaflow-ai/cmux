@@ -12,6 +12,10 @@ nonisolated final class CompletionProcess: Sendable {
         var exited = false
         var continuation: CheckedContinuation<Data?, Never>?
         var answered = false
+        /// The pipe's read end. Held until EOF, not until the shell is reaped: the shell can exit
+        /// before its output ends (a background job still holds stdout, or the reaper wins the
+        /// race under load), and releasing the handle then closes the pipe before EOF is read.
+        var reader: FileHandle?
     }
 
     private let pid: pid_t
@@ -46,12 +50,13 @@ nonisolated final class CompletionProcess: Sendable {
 
     private func start(reading descriptor: Int32) {
         let reader = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        state.withLock { $0.reader = reader }
         reader.readabilityHandler = { [self] handle in
             // concurrency-allow: the readability handler runs on a background queue once data is ready.
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
-                finish { $0.closed = true }
+                finish { $0.closed = true; $0.reader = nil }
             } else {
                 let full = state.withLock { state in
                     state.output.append(data)
@@ -67,7 +72,6 @@ nonisolated final class CompletionProcess: Sendable {
             // wakeup-allow: a blocking wait for the completion shell's exit, retried only when a signal interrupts it.
             repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
             finish { $0.exited = true }
-            withExtendedLifetime(reader) {}
         }
     }
 
@@ -85,11 +89,15 @@ nonisolated final class CompletionProcess: Sendable {
     /// The deadline passed (`timedOut`) or the output is too long (what was read so far): kills the group.
     private func give(up timedOut: Bool) {
         kill(-pid, SIGKILL)
-        let ready = state.withLock { state -> (CheckedContinuation<Data?, Never>, Data?)? in
-            guard !state.answered, let continuation = state.continuation else { return nil }
+        let (ready, reader) = state.withLock { state -> ((CheckedContinuation<Data?, Never>, Data?)?, FileHandle?) in
+            // The answer is final: stop reading, so a holder outside the killed group cannot keep the pipe open.
+            let reader = state.reader
+            state.reader = nil
+            guard !state.answered, let continuation = state.continuation else { return (nil, reader) }
             state.answered = true
-            return (continuation, timedOut ? nil : state.output)
+            return ((continuation, timedOut ? nil : state.output), reader)
         }
+        reader?.readabilityHandler = nil
         ready?.0.resume(returning: ready?.1)
     }
 

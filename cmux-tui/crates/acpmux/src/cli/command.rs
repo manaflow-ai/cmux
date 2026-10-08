@@ -99,7 +99,7 @@ pub enum Command {
     #[command(alias = "guide")]
     Skill,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
     /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
@@ -200,6 +200,10 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Replace the dashboard token now: the old link, `ws://` peers that
+        /// were given it and open dashboard connections stop working.
+        #[arg(long)]
+        rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
     #[command(subcommand, alias = "hosts")]
@@ -217,6 +221,9 @@ pub enum Command {
     /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
+    /// Serve the local CodeRouter in a separate process.
+    #[command(subcommand)]
+    Router(RouterCmd),
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -694,6 +701,13 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
         Command::Host(pc) => Command::Peer(pc),
+        Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
+}
+
+#[derive(Subcommand)]
+pub enum RouterCmd {
+    /// Start the phase-one local router listeners.
+    Serve,
 }
