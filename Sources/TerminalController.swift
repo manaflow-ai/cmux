@@ -449,11 +449,6 @@ class TerminalController {
     let controlCommandCoordinator = ControlCommandCoordinator()
     nonisolated let codexRestoreHookEvidence = CodexRestoreHookEvidence(storeURL: RestorableAgentKind.codex.hookStoreFileURL())
 
-    private struct V2BrowserElementRefEntry {
-        let surfaceId: UUID
-        let selector: String
-    }
-
     private struct V2BrowserPendingDialog {
         let type: String
         let message: String
@@ -468,9 +463,7 @@ class TerminalController {
     private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
     private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
-    private var v2BrowserNextElementOrdinal: Int = 1
-    private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
-    private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
+    private var v2BrowserDocumentState = BrowserAutomationDocumentState()
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
@@ -506,12 +499,11 @@ class TerminalController {
         }
         for surfaceId in uniqueSurfaceIds {
             removeLocalSizingHost(surfaceID: surfaceId)
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDocumentState.removeSurface(surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
         for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
@@ -6825,10 +6817,7 @@ class TerminalController {
 
     private nonisolated func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
         v2MainSync {
-            let ref = "@e\(v2BrowserNextElementOrdinal)"
-            v2BrowserNextElementOrdinal += 1
-            v2BrowserElementRefs[ref] = V2BrowserElementRefEntry(surfaceId: surfaceId, selector: selector)
-            return ref
+            v2BrowserDocumentState.allocateElementRef(selector: selector, surfaceID: surfaceId)
         }
     }
 
@@ -6843,14 +6832,13 @@ class TerminalController {
         }()
 
         if let refKey {
-            guard let entry = v2MainSync({ v2BrowserElementRefs[refKey] }), entry.surfaceId == surfaceId else { return nil }
-            return entry.selector
+            return v2MainSync { v2BrowserDocumentState.selector(forElementRef: refKey, surfaceID: surfaceId) }
         }
         return trimmed
     }
 
     private nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
-        v2MainSync { v2BrowserFrameSelectorBySurface[surfaceId] }
+        v2MainSync { v2BrowserDocumentState.frameSelector(surfaceID: surfaceId) }
     }
 
     /// A WKWebView that has never committed a navigation has no JavaScript context, so the
@@ -9941,7 +9929,7 @@ class TerminalController {
                    let ok = dict["ok"] as? Bool,
                    ok {
                     v2MainSync {
-                        v2BrowserFrameSelectorBySurface[surfaceId] = selector
+                        v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId)
                     }
                     return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
                 }
@@ -9957,7 +9945,7 @@ class TerminalController {
 
     private func v2BrowserFrameMain(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, _ in
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDocumentState.selectMainFrame(surfaceID: surfaceId)
             return .ok([
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
@@ -11313,7 +11301,7 @@ class TerminalController {
             let stateSnapshot = v2MainSync {
                 (
                     url: ctx.browserPanel.currentURL?.absoluteString ?? "",
-                    frameSelector: v2BrowserFrameSelectorBySurface[ctx.surfaceId]
+                    frameSelector: v2BrowserDocumentState.frameSelector(surfaceID: ctx.surfaceId)
                 )
             }
 
@@ -11359,12 +11347,7 @@ class TerminalController {
             let targetURL = (raw["url"] as? String)
                 .flatMap { $0.isEmpty ? nil : URL(string: $0) }
             let context = v2MainSync {
-                if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
-                    v2BrowserFrameSelectorBySurface[ctx.surfaceId] = frameSelector
-                } else {
-                    v2BrowserFrameSelectorBySurface.removeValue(forKey: ctx.surfaceId)
-                }
-                return (
+                (
                     store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
                     fallbackURL: targetURL ?? ctx.browserPanel.currentURL,
                     browserPanel: ctx.browserPanel,
@@ -11374,6 +11357,15 @@ class TerminalController {
 
             let result = BrowserStateLoadTransaction().run(
                 hasNavigation: targetURL != nil,
+                restoreFrameSelection: {
+                    v2MainSync {
+                        if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
+                            v2BrowserDocumentState.selectFrame(frameSelector, surfaceID: ctx.surfaceId)
+                        } else {
+                            v2BrowserDocumentState.selectMainFrame(surfaceID: ctx.surfaceId)
+                        }
+                    }
+                },
                 installCookies: {
                     guard let cookieRows = raw["cookies"] as? [[String: Any]] else {
                         return true

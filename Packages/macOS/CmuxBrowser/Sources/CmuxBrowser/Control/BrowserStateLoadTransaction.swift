@@ -17,10 +17,12 @@ public struct BrowserStateLoadTransaction: Sendable {
     /// Restores cookies before navigation and page storage after its commit.
     public func run(
         hasNavigation: Bool,
+        restoreFrameSelection: () -> Void,
         installCookies: () -> Bool,
         navigateAndWait: () -> BrowserAutomationNavigationOutcome?,
         applyStorage: () -> Bool
     ) -> BrowserStateLoadTransactionResult {
+        restoreFrameSelection()
         guard installCookies() else { return .cookieWriteFailed }
 
         if hasNavigation {

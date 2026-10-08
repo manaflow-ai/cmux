@@ -12,6 +12,7 @@ struct BrowserStateLoadTransactionTests {
 
         let result = BrowserStateLoadTransaction().run(
             hasNavigation: true,
+            restoreFrameSelection: {},
             installCookies: {
                 events.append("cookies")
                 return true
@@ -37,6 +38,7 @@ struct BrowserStateLoadTransactionTests {
 
         let result = BrowserStateLoadTransaction().run(
             hasNavigation: true,
+            restoreFrameSelection: {},
             installCookies: { true },
             navigateAndWait: { .failed("offline") },
             applyStorage: {
