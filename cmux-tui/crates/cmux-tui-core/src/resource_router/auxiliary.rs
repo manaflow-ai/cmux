@@ -797,7 +797,12 @@ mod tests {
         selected.pairing_request = Some(id);
         let resolve_request = || ParsedResourceRequest {
             actor: crate::Actor::Frontend { install_id: "test".into() },
-            ..request(ResourceOperation::PairingRequestResolve, Some("pairing-resolve-once"), selected.clone(), json!({"decision":"accept"}))
+            ..request(
+                ResourceOperation::PairingRequestResolve,
+                Some("pairing-resolve-once"),
+                selected.clone(),
+                json!({"decision":"accept"}),
+            )
         };
         let first = dispatch_trusted_local(&mux, resolve_request()).unwrap();
         assert_eq!(first["replayed"], false);
