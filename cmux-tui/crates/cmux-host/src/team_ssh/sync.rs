@@ -49,7 +49,7 @@ pub fn sync_once<H: Http>(
         Answer::Transport => Err("team_vm.ssh_ca: no answer (token or network)".into()),
         Answer::Http { status: 200, body } => {
             let value = body.get("value").cloned().unwrap_or(Value::Null);
-            if false /* RED: the team is not checked */ && value["team"] != client.bound().team.as_str() {
+            if value["team"] != client.bound().team.as_str() {
                 return Err("team_vm.ssh_ca answered for another team".into());
             }
             let snapshot: Snapshot =
