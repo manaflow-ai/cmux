@@ -358,7 +358,11 @@ fn a_foreign_origin_is_refused_even_with_the_token() {
     ] {
         let extra = format!("{bearer}Origin: {origin}\r\n");
         for path in ["/api/status", "/api/ticket", "/"] {
-            assert_eq!(get(addr, "GET", path, &host, &extra).status, 403, "{origin} {path}");
+            assert_eq!(
+                get(addr, "GET", path, &host, &extra).status,
+                403,
+                "{origin} {path}"
+            );
         }
     }
     for origin in [
@@ -367,9 +371,17 @@ fn a_foreign_origin_is_refused_even_with_the_token() {
         format!("http://[::1]:{port}"),
     ] {
         let extra = format!("{bearer}Origin: {origin}\r\n");
-        assert_eq!(get(addr, "GET", "/api/status", &host, &extra).status, 200, "{origin}");
+        assert_eq!(
+            get(addr, "GET", "/api/status", &host, &extra).status,
+            200,
+            "{origin}"
+        );
     }
-    assert_eq!(get(addr, "GET", "/api/status", &host, &bearer).status, 200, "no Origin");
+    assert_eq!(
+        get(addr, "GET", "/api/status", &host, &bearer).status,
+        200,
+        "no Origin"
+    );
 }
 
 /// Every endpoint, called on a quiet memory, leaves the database as it was.
