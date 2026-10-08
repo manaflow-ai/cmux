@@ -32,25 +32,6 @@ const fallbackDark = {
 /// The pane's colors, each a theme variable with a dark fallback behind it. The diffs sit on
 /// the page background, so the changes view is one surface with the transcript. Additions and
 /// deletions read `--acpmux-add` and `--acpmux-del` (styles.css), which a theme can set.
-/**
- * The mask of a clipped tree name (changes/treeTitles.ts): opaque across the name, fading over
- * --cmux-title-lead at its start and --cmux-title-fade at its end. The end fades on a cosine (ease-in)
- * curve, so the glyphs there stay readable almost to the edge and the fade has no visible start;
- * the start mirrors it. Eight stops each make the curve smooth at any fade length.
- */
-const TITLE_MASK = (() => {
-  const steps = 8;
-  const alpha = (p: number) => Math.round(Math.cos((p * Math.PI) / 2) * 1000) / 1000;
-  const lead = Array.from({ length: steps + 1 }, (_, i) => {
-    const p = i / steps;
-    return `rgb(0 0 0 / ${alpha(1 - p)}) calc(var(--cmux-title-lead, 0px) * ${p})`;
-  });
-  const tail = Array.from({ length: steps + 1 }, (_, i) => {
-    const p = i / steps;
-    return `rgb(0 0 0 / ${alpha(p)}) calc(100% - var(--cmux-title-fade, 20px) * ${1 - p})`;
-  });
-  return `linear-gradient(to right, ${[...lead, ...tail].join(", ")})`;
-})();
 const addition = `var(--acpmux-add, ${fallbackDark.addition})`;
 const deletion = `var(--acpmux-del, ${fallbackDark.deletion})`;
 export const diffColors = {
@@ -248,8 +229,8 @@ export const treeUnsafeCSS = /* css */ `
 [data-type="item"] [data-item-section="content"] :is([data-truncate-content="overflow"], [data-truncate-marker-cell], [data-truncate-fill]) { display: none; }
 [data-type="item"] [data-item-section="content"] [data-truncate-content="visible"] { white-space: pre; }
 [data-type="item"] [data-item-section="content"][data-cmux-clipped] {
-  -webkit-mask-image: ${TITLE_MASK};
-  mask-image: ${TITLE_MASK};
+  -webkit-mask-image: var(--cmux-title-mask);
+  mask-image: var(--cmux-title-mask);
 }
 [data-type="item"] [data-item-section="decoration"] { flex: 0 0 auto; margin-inline-start: auto; }
 ${PIERRE_TREES_SCROLLER_CSS}`;

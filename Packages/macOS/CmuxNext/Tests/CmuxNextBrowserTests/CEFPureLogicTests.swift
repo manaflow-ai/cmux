@@ -5,21 +5,16 @@ import Testing
 @Suite struct CEFSwitchesTests {
     @Test func forkBuildGetsTabbedWindowsAndNoFieldTrials() {
         let switches = CEFSwitches(forkAPIVersion: 2, useMockKeychain: false, loadExtensions: [])
-        #expect(switches.arguments == [
-            "cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications",
-            "disable-features=MacAppCodeSignClone",
-        ])
+        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications"])
     }
 
-    /// Chromium's code-sign clone makes CefShutdown spawn a
-    /// `--type=code-sign-clone-cleanup` helper that outlives the app (cx-dj33).
-    @Test func everyBundleDisablesTheCodeSignClone() {
+    /// The code-sign clone protects running helpers during an update; its
+    /// cleanup helper exits by itself after quit (cx-dj33).
+    @Test func codeSignCloneStaysEnabled() {
         for bundle in ["com.cmuxterm.app", "com.cmuxterm.app.debug.x"] {
             let switches = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: bundle, environment: [:])
-            #expect(switches.arguments.contains("disable-features=MacAppCodeSignClone"))
+            #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") && $0.contains("MacAppCodeSignClone") })
         }
-        #expect(CEFSwitches(forkAPIVersion: 0, useMockKeychain: false, loadExtensions: [])
-            .arguments.contains("disable-features=MacAppCodeSignClone"))
     }
 
     @Test func stockCEFHasNoTabbedWindows() {
@@ -38,8 +33,8 @@ import Testing
         #expect(switches.arguments.contains("load-extension=/tmp/a,/tmp/b"))
         // The shim merges disable-features into CEF's own list (GlicActorUi,
         // ...; CEFShim/src/command_line_switches.h); replacing that list
-        // crashes in ActorUiContentsContainerController. cmux adds one entry.
-        #expect(switches.arguments.filter { $0.hasPrefix("disable-features") } == ["disable-features=MacAppCodeSignClone"])
+        // crashes in ActorUiContentsContainerController. cmux adds none.
+        #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") })
     }
 
     @Test func releaseBundleUsesRealKeychain() {
