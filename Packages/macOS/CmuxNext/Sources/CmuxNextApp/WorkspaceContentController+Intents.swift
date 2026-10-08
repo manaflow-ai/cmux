@@ -59,6 +59,9 @@ extension WorkspaceContentController {
             services.windows.recordSaver.stateDidChange(state)
         case .scrollTo:
             services.windows.recordSaver.stateDidChange(state)
+        case .cancelGesture(let transaction):
+            // No `.ended` will come for this gesture (its target went away).
+            gestureTransactions[transaction] = nil
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):

@@ -6,7 +6,18 @@
 #
 # `gitlink ghostty` counts only for the v1 key (cmux_tui_tree_key.py
 # V1_ONLY_INPUTS); the v2 key leaves the classic submodule out.
+#
+# MACOS-CROSS-COMPILE-ON-LINUX: scripts/ci/cmux-tui-darwin-builder (mac or
+# linux) selects where the macOS targets build, and the Linux build reads the
+# cross scripts and framework stubs below. The two builders give byte-different
+# binaries, so both the switch and the Linux recipe are key inputs: a switch
+# back to mac never reuses a Linux-built tree, nor the reverse.
 tree cmux-tui
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
+blob scripts/ci/cmux-tui-darwin-builder
+blob scripts/ci/macos-cross.sh
+blob scripts/ci/macos_stubs.py
+blob scripts/ci/macho_weaken.py
+tree scripts/ci/macos-stubs

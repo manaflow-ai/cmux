@@ -812,7 +812,7 @@ impl Mux {
             index,
             None,
             None,
-            &WorkspaceMutation::local("cmux-tui-tab-groups"),
+            &WorkspaceMutation::daemon_local("cmux-tui-tab-groups"),
         )?;
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
@@ -927,7 +927,7 @@ impl Mux {
     /// Delete a saved group. A live group linked to it stays, unlinked.
     pub fn delete_saved_tab_group(&self, saved_id: &str) -> anyhow::Result<bool> {
         let commit = self.saved_tab_group_delete(
-            &WorkspaceMutation::local("cmux-tui-tab-groups"),
+            &WorkspaceMutation::daemon_local("cmux-tui-tab-groups"),
             None,
             saved_id,
             true,
