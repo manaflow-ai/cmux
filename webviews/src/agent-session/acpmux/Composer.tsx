@@ -664,8 +664,9 @@ export function Composer({
           className="acpmux-import-input"
           type="file"
           accept=".jsonl,.json,text/plain,application/json"
-          tabIndex={-1}
-          aria-hidden="true"
+          // The /import picker: never shown or focused; the label is the command's language-neutral name.
+          hidden
+          aria-label="/import"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
             event.currentTarget.value = "";
