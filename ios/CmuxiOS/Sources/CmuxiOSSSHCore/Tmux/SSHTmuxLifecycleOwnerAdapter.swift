@@ -73,7 +73,19 @@ public actor SSHTmuxLifecycleOwnerAdapter: SSHTmuxLifecycleMutating {
                                                    value: execution.value, revision: execution.revision) else {
             throw SSHTmuxLifecycleOwnerError.malformedRecord
         }
-        try await store.put(applied)
+        // The executor may have been in flight while another owner resolved
+        // the pending record from a tmux readback. Never overwrite that
+        // receipt: commit only if the reservation is still ours, then replay
+        // the winning record on a conflict.
+        guard try await store.replace(applied, ifCurrent: pending) else {
+            guard let current = try await store.record(for: idempotencyKey) else {
+                throw SSHTmuxLifecycleOwnerError.noPendingRecord
+            }
+            guard current.phase == .applied else {
+                throw SSHTmuxLifecycleOwnerError.indeterminate
+            }
+            return try replay(current, mutation: mutation, idempotencyKey: idempotencyKey)
+        }
         return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: mutation,
                                        value: execution.value, revision: execution.revision, replayed: false)
     }

@@ -216,6 +216,34 @@ import Testing
         #expect(await executor.callCount() == 1)
     }
 
+    @Test func reconcileDuringExecutionWinsTheReceiptCommit() async throws {
+        let store = Store()
+        let execution = try #require(SSHTmuxLifecycleExecution(value: .string("executor"), revision: "r-executor"))
+        let readback = try #require(SSHTmuxLifecycleExecution(value: .string("readback"), revision: "r-readback"))
+        let executor = BlockingExecutor(result: execution)
+        let submittingOwner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: executor)
+        let reconcilingOwner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: executor)
+
+        let submit = Task {
+            try await submittingOwner.submit(mutation(), idempotencyKey: "rename-reconcile-in-flight")
+        }
+        await executor.waitUntilCalled()
+
+        let reconciled = try await reconcilingOwner.reconcilePending(
+            mutation(), idempotencyKey: "rename-reconcile-in-flight", readback: readback)
+        #expect(reconciled.replayed)
+        #expect(reconciled.value == readback.value)
+        #expect(reconciled.revision == readback.revision)
+
+        await executor.release()
+        let submitted = try await submit.value
+        #expect(submitted.replayed)
+        #expect(submitted.value == readback.value)
+        #expect(submitted.revision == readback.revision)
+        #expect(await store.phase(for: "rename-reconcile-in-flight") == .applied)
+        #expect(await executor.callCount() == 1)
+    }
+
     @Test func invalidInputNeverCreatesARecordOrCallsExecutor() async throws {
         let store = Store()
         let execution = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-1"))
