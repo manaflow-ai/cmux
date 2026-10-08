@@ -6,9 +6,10 @@ import type { Env } from "./env.ts"
  * lowered or a presence key is added, UserDO commits a `mail.security_notice` outbox item with
  * target class `Mail` (not an object). The owner's drain sends it here through Resend to the
  * user's verified address, with the item key as the provider idempotency key (a retried drain
- * never sends twice). Not configured or no address: dead letter at once with a reason. A refused
- * request (4xx) is dead; a rate limit, server error or network error throws, which the drain counts
- * as poison, so retries are capped (dead letter after OUTBOX_MAX_ATTEMPTS, replayed a day later).
+ * never sends twice). Not configured, no address, or a refused request (4xx): `dead`, which the
+ * drain drops at once with a logged reason (never retried). A rate limit, server error or network
+ * error throws, which the drain counts as poison, so retries are capped (dead letter after
+ * OUTBOX_MAX_ATTEMPTS, replayed a day later).
  */
 export const SECURITY_MAIL_CLASS = "Mail"
 

@@ -119,11 +119,11 @@ describe("presence keys and the text confirmation level", { timeout: 60_000 }, (
       const items = (await call("/v1/read", session, { op: "feed.list", params: {} })).json.value.items as Array<{ type: string; title: string; body: string; poster: { kind: string } }>
       const notice = items.find((i) => i.type === "notice" && i.poster.kind === "system")
       expect(notice?.body).toContain("Off")
-      // The email notice never waits on a missing object: without a Resend key it is dead-lettered at once.
+      // The email notice never waits on a missing object: without a Resend key it leaves the queue at once, never retried.
       const outbox = await runInDurableObject(stub, async (i) => ({ pending: JSON.stringify(i.boundEngine.outbox.allPending(500)), dead: i.boundEngine.outbox.deadCount() as number }))
       expect(outbox.pending).not.toContain("mail.security_notice")
       expect(outbox.pending).not.toContain("MailerDO")
-      expect(outbox.dead).toBeGreaterThan(0)
+      expect(outbox.dead).toBe(0)
     }
   })
 

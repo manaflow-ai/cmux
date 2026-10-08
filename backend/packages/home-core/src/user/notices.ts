@@ -20,6 +20,8 @@ const LEVEL_KEY: Readonly<Record<ConfirmLevel, string>> = { strict: "level.stric
 
 /** Outbox target class of the security email: not an object; the owner's drain sends it through Resend. */
 export const SECURITY_MAIL_TARGET = "Mail"
+/** At most one "presence key added" feed item and email per user in this window. */
+export const KEY_ADDED_WINDOW_MS = 3_600_000
 
 export const securityNotice = (
   env: { readonly user: string; readonly locale?: string; readonly email?: string | null },
@@ -33,15 +35,26 @@ export const securityNotice = (
   const title = t(`${prefix}.title`, locale, vars)
   const body = t(`${prefix}.body`, locale, vars)
   const key = `${kind}:${env.user}:${seq}`
+  // A new presence key needs no Face ID, so a broken or stolen client could add keys in a loop:
+  // those notices collapse to one feed item and one email per user per hour (feed dedupe key,
+  // outbox coalesce key, and the same Resend idempotency key). Each lowering needs a device proof
+  // and keeps its own notice.
+  const hourly = kind === "key_added" ? `${kind}:${env.user}:${Math.floor(info.at / KEY_ADDED_WINDOW_MS)}` : null
+  const mailKey = hourly ?? key
   return [
-    { kind: "feed.post", entity: `notice:${key}`, payload: { type: "notice", kind: "notice", title, body, priority: "high" }, target: { class: "FeedDO", name: env.user } },
+    {
+      kind: "feed.post",
+      entity: `notice:${key}`,
+      payload: { type: "notice", kind: "notice", title, body, priority: "high", ...(hourly ? { dedupe_key: hourly } : {}) },
+      target: { class: "FeedDO", name: env.user }
+    },
     // Only to a verified address; without one the feed notice is the only one.
     ...(env.email
       ? [{
           kind: "mail.security_notice",
-          entity: `mail:${key}`,
+          entity: `mail:${mailKey}`,
           payload: { user: env.user, to: env.email, template: `text_confirm_${kind}`, locale, title, body, install: info.install, at: info.at },
-          target: { class: SECURITY_MAIL_TARGET, name: env.user }
+          target: { class: SECURITY_MAIL_TARGET, name: env.user, ...(hourly ? { coalesce: `mail:${hourly}` } : {}) }
         }]
       : [])
   ]

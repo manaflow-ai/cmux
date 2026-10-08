@@ -95,6 +95,21 @@ describe("per-user level and lowering with a device proof", () => {
     expect(feed.body).toContain("Off")
   })
 
+  it("collapses presence key notices to one feed item and one email per hour", async () => {
+    const { securityNotice } = await import("../src/user/notices.ts")
+    const env = { user: USER, email: "owner@example.com" }
+    const a = securityNotice(env, "key_added", 1, { install: "i1", at: 7_200_000 })
+    const b = securityNotice(env, "key_added", 2, { install: "i2", at: 7_200_000 + 60_000 })
+    const mail = (n: typeof a) => n.find((o) => o.kind === "mail.security_notice")!
+    expect(mail(a).entity).toBe(mail(b).entity)
+    expect(mail(a).target?.coalesce).toBe(mail(b).target?.coalesce)
+    const feed = (n: typeof a) => (n.find((o) => o.kind === "feed.post")!.payload as { dedupe_key?: string }).dedupe_key
+    expect(feed(a)).toBe(feed(b))
+    const lowered = securityNotice(env, "lowered", 3, { from: "strict", to: "off", install: "i1", at: 7_200_000 })
+    expect(mail(lowered).target?.coalesce).toBeUndefined()
+    expect(securityNotice({ user: USER }, "lowered", 4, { from: "strict", to: "off", install: "i1", at: 1 }).some((o) => o.kind === "mail.security_notice")).toBe(false)
+  })
+
   it("refuses: no proof, a stale proof, a replayed nonce, a proof for another op or level, and spends the nonce each time", () => {
     const { h, macKey, later, challenge } = ready()
     let p = challenge(mac, "off")!

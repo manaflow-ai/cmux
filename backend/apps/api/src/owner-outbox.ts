@@ -59,9 +59,10 @@ export const drainOutboxChannels = async <S>(
           outbox.markSent(batch.superseded, Date.now())
           if (batch.class === SECURITY_MAIL_CLASS) {
             const res = await mail(env, batch.items)
-            outbox.markSent(res.done, Date.now())
-            for (const id of res.dead) outbox.deadLetter(id, Date.now())
-            if (res.dead.length > 0) console.error(JSON.stringify({ msg: "security mail dead-lettered", stream: engine.stream, count: res.dead.length, reason: res.reason ?? "mail.refused" }))
+            // Not configured, no address, or refused (4xx): retrying cannot help and dead letters
+            // replay every day, so these leave the queue with a logged reason (no address logged).
+            outbox.markSent([...res.done, ...res.dead], Date.now())
+            if (res.dead.length > 0) console.error(JSON.stringify({ msg: "security mail dropped", stream: engine.stream, count: res.dead.length, reason: res.reason ?? "mail.refused" }))
             outbox.succeeded(channel)
             continue
           }
