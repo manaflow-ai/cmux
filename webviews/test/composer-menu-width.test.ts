@@ -103,7 +103,18 @@ ${css}
 
       test("in a 200px pane the Model menu still fits inside the pane's margins", async () => {
         const page = await open(200);
-        expect((await box(page, ".acpmux-model .acpmux-menu")).width).toBeLessThanOrEqual(200 - 16);
+        const menu = await box(page, ".acpmux-model .acpmux-menu");
+        expect(menu.width).toBeLessThanOrEqual(200 - 16);
+        const columns = await page.$eval(".acpmux-mp-columns", (node) => {
+          const element = node as HTMLElement;
+          return {
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+            tracks: getComputedStyle(element).gridTemplateColumns.split(/\s+/).filter(Boolean),
+          };
+        });
+        expect(columns.scrollWidth).toBeLessThanOrEqual(columns.clientWidth);
+        expect(columns.tracks).toHaveLength(1);
         await page.close();
       });
 
