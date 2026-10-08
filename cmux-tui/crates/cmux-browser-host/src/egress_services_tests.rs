@@ -5,7 +5,9 @@ use super::*;
 
 #[test]
 fn cmux_executables_are_services() {
-    for name in ["cmux", "acpmux", "chatmux-relay", "cmux-browser-host", "cmux-tui (deleted)"] {
+    for name in
+        ["cmux", "acpmux", "chatmux-relay", "cmux-browser-host", "cmux-tui (deleted)", "chrome"]
+    {
         assert!(is_service_name(name), "{name}");
     }
     for name in ["node", "bun", "python3", "postgres", "cmux_browser_host-0123abcd"] {

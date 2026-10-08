@@ -271,7 +271,10 @@ impl EgressRule {
                 Some(format!("{} is a link-local or cloud metadata address", addr.ip()))
             }
             Range::Private if literal && self.allow.contains(&addr) => None,
-            Range::Private if literal && is_loopback(addr.ip()) => (self.services)(addr),
+            // The machine's own loopback; whose port it is, is checked
+            // separately (`service_refusal`): before an agent call, and by the
+            // listener on the connected peer.
+            Range::Private if literal && is_loopback(addr.ip()) => None,
             Range::Private => Some(format!(
                 "{} is a loopback, private or local-network address, which browsing on a Cloud machine may not reach",
                 addr.ip()
@@ -316,9 +319,17 @@ impl EgressRule {
         Ok(addrs)
     }
 
+    /// Why a loopback address is a cmux service's (crate::egress_services),
+    /// or `None` (also for any address that is not loopback).
+    pub fn service_refusal(&self, addr: SocketAddr) -> Option<String> {
+        let addr = canonical(addr);
+        is_loopback(addr.ip()).then(|| (self.services)(addr)).flatten()
+    }
+
     /// The rule for a URL's literal host only (an IP, `localhost`, a
-    /// metadata name), with no lookup: the request filter's check, which
-    /// runs on a driver thread for every request. Names go to the listener.
+    /// metadata name), with no lookup and no service check: the request
+    /// filter's check, which runs on a driver thread for every request.
+    /// Names and the service check go to the listener.
     pub fn literal_refusal(&self, url: &Url) -> Option<String> {
         let host = url.host()?;
         if let Host::Domain(name) = &host {
@@ -327,12 +338,17 @@ impl EgressRule {
                 return None;
             }
         }
-        self.url_refusal(url)
+        self.url_check(url, false)
     }
 
     /// The rule for a URL the agent opens or fetches (its host, literal or
-    /// resolved); `None` for URLs without a network host.
+    /// resolved, and whose loopback port it is); `None` for URLs without a
+    /// network host.
     pub fn url_refusal(&self, url: &Url) -> Option<String> {
+        self.url_check(url, true)
+    }
+
+    fn url_check(&self, url: &Url, services: bool) -> Option<String> {
         if !matches!(url.scheme(), "http" | "https" | "ws" | "wss" | "ftp") {
             return None;
         }
@@ -343,6 +359,7 @@ impl EgressRule {
             Host::Domain(name) => Target::Name(name.to_owned(), port),
         };
         match self.resolve(&target) {
+            Ok(addrs) if services => addrs.iter().find_map(|addr| self.service_refusal(*addr)),
             Ok(_) => None,
             Err(Refusal::Blocked(reason)) => Some(reason),
             // Unresolved here is the engine's own error to report.

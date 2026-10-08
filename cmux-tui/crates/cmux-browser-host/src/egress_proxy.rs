@@ -154,6 +154,15 @@ fn serve(mut client: TcpStream, rule: &EgressRule, own: SocketAddr) -> io::Resul
             return send_reply(&mut client, code);
         }
     };
+    // Whose loopback port it is, checked on the connected peer: a listener
+    // existed at connect time, so a cmux service that (re)binds between a
+    // check and the connect cannot slip through.
+    if let Ok(peer) = upstream.peer_addr()
+        && (is_self(peer, own) || rule.service_refusal(peer).is_some())
+    {
+        drop(upstream);
+        return send_reply(&mut client, reply::NOT_ALLOWED);
+    }
     send_reply(&mut client, reply::OK)?;
     client.set_read_timeout(None)?;
     let _ = upstream.set_nodelay(true);

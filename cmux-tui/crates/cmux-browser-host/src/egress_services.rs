@@ -18,7 +18,18 @@ use std::sync::Arc;
 pub type ServiceCheck = Arc<dyn Fn(SocketAddr) -> Option<String> + Send + Sync>;
 
 /// Executable names of cmux services. Anything named `cmux-*` counts too.
-const SERVICE_NAMES: &[&str] = &["cmux", "acpmux", "chatmux-relay"];
+/// Chrome counts: the daemon's CDP browsers listen on a loopback DevTools
+/// port (`--remote-debugging-port=0`), whose HTTP endpoints a page could
+/// read; an agent's own dev servers are never Chrome.
+const SERVICE_NAMES: &[&str] = &[
+    "cmux",
+    "acpmux",
+    "chatmux-relay",
+    "chrome",
+    "chromium",
+    "chromium-browser",
+    "chrome-headless-shell",
+];
 
 /// Whether an executable file name is a cmux service.
 pub fn is_service_name(name: &str) -> bool {
@@ -33,7 +44,11 @@ pub fn system_check() -> ServiceCheck {
 
 #[cfg(target_os = "linux")]
 fn service_refusal(port: u16) -> Option<String> {
-    let inodes = listening_inodes(port);
+    let Some(inodes) = listening_inodes(port) else {
+        return Some(format!(
+            "loopback port {port} cannot be checked: the kernel's socket tables are unreadable"
+        ));
+    };
     if inodes.is_empty() {
         return None;
     }
@@ -56,17 +71,20 @@ fn service_refusal(port: u16) -> Option<String> {
     Some(format!("loopback port {port} cannot be checked on this system"))
 }
 
-/// The inodes of TCP sockets in LISTEN on `port` (any address).
+/// The inodes of TCP sockets in LISTEN on `port` (any address); `None`
+/// when neither table can be read (the caller refuses: fail closed).
 #[cfg(target_os = "linux")]
-fn listening_inodes(port: u16) -> Vec<u64> {
+fn listening_inodes(port: u16) -> Option<Vec<u64>> {
     let mut inodes = Vec::new();
+    let mut read = false;
     for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
         let Ok(text) = std::fs::read_to_string(table) else { continue };
+        read = true;
         inodes.extend(parse_listening(&text, port));
     }
     inodes.sort_unstable();
     inodes.dedup();
-    inodes
+    read.then_some(inodes)
 }
 
 /// `/proc/net/tcp{,6}` rows in LISTEN (`0A`) whose local port is `port`.

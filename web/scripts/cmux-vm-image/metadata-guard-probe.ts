@@ -14,6 +14,7 @@
  *   --snapshot <snapshot id> [--name cmuxnp-dev-metaguard-<tag>] [--out-dir <dir>]
  */
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run } from "./guest";
 import {
@@ -64,7 +65,7 @@ export async function main(argv = process.argv): Promise<number> {
   return problems.length === 0 ? 0 : 1;
 }
 
-if (import.meta.main) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().then(
     (code) => process.exit(code),
     (error) => {

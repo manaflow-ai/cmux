@@ -12,6 +12,10 @@ fn isolated_gate() -> (Gate, Arc<FakeDriver>) {
 
 fn isolated_gate_allowing(allow: Vec<std::net::SocketAddr>) -> (Gate, Arc<FakeDriver>) {
     let (_, driver) = make_gate(Value::Null, false);
+    // Port 1337 stands for a cmux service (the daemon's control port).
+    let services: crate::egress_services::ServiceCheck = Arc::new(|addr: std::net::SocketAddr| {
+        (addr.port() == 1337).then(|| "loopback port 1337 is the cmux service cmux".to_owned())
+    });
     let rule = EgressRule::new(
         allow,
         Arc::new(|host: &str, _| match host {
@@ -20,7 +24,8 @@ fn isolated_gate_allowing(allow: Vec<std::net::SocketAddr>) -> (Gate, Arc<FakeDr
             "public.test" => vec!["93.184.216.34".parse().unwrap()],
             _ => Vec::new(),
         }),
-    );
+    )
+    .with_service_check(services);
     let grants =
         Grants { isolated: Some(Arc::new(IsolatedEgress::new(rule))), ..Grants::default() };
     (Gate::new(driver.clone(), grants), driver)
@@ -137,5 +142,41 @@ fn the_owner_allow_list_reaches_fetch_and_the_request_filter() {
         ["http://10.0.0.1/", "http://169.254.169.254/", "http://metadata.google.internal/"]
     {
         assert!(decide(refused).is_some(), "{refused}");
+    }
+}
+
+/// An agent call to a cmux service port is refused with a clear reason; the
+/// request filter leaves it to the listener (no /proc walk per request).
+#[test]
+fn a_cmux_service_port_is_refused_before_dispatch() {
+    let (gate, driver) = isolated_gate();
+    for url in ["http://127.0.0.1:1337/", "http://localhost:1337/", "http://[::1]:1337/"] {
+        let refused = gate.driver_call("tabs.open", json!({"url": url})).unwrap_err();
+        assert!(refused.message.contains("cmux service"), "{url}: {refused}");
+    }
+    assert!(!methods(&driver).contains(&"tabs.open".to_owned()));
+    policy(&gate, "set", json!({"prohibited": ["peer.test"]})).unwrap();
+    let filter = driver.filter.lock().unwrap().clone().expect("a policy installs the filter");
+    let info = crate::driver::RequestInfo {
+        target: "T",
+        url: "http://127.0.0.1:1337/",
+        kind: crate::driver::RequestKind::Subresource,
+    };
+    assert_eq!(filter(&info), None, "the listener checks the connected peer");
+}
+
+/// A loopback answer that is not the listener's went around it.
+#[test]
+fn a_loopback_response_outside_the_listener_stops_the_load() {
+    let (gate, driver) = isolated_gate();
+    gate.grants.isolated.as_ref().unwrap().listener().expect("the listener starts");
+    gate.mask_event(
+        "response",
+        &json!({"targetId": "T", "url": "http://localhost:3000/", "remoteIPAddress": "[::1]"}),
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !methods(&driver).contains(&"tab.stop".to_owned()) {
+        assert!(std::time::Instant::now() < deadline, "the load was never stopped");
+        std::thread::yield_now();
     }
 }

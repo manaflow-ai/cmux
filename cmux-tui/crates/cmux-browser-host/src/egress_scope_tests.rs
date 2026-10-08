@@ -328,3 +328,25 @@ fn a_changing_answer_is_resolved_once_per_connection() {
     assert_eq!(code, 0x02);
     assert_eq!(lookups.load(Ordering::SeqCst), 2);
 }
+
+/// The service check runs on the connected peer (after the dial), so a cmux
+/// service that binds between a check and the connect is still refused.
+#[test]
+fn the_listener_refuses_a_cmux_service_port_after_connecting() {
+    let (service, dev) = (echo_server(), echo_server());
+    let rule = EgressRule::new(Vec::new(), no_names()).with_service_check(Arc::new(move |addr| {
+        (addr.port() == service)
+            .then(|| format!("loopback port {service} is the cmux service test"))
+    }));
+    let proxy = crate::egress_proxy::start(Arc::new(rule)).unwrap();
+    for target in [
+        Target::Address(SocketAddr::from(([127, 0, 0, 1], service))),
+        Target::Name("localhost".into(), service),
+    ] {
+        let (code, _) = socks(proxy, &target, 1);
+        assert_eq!(code, 0x02, "{target}");
+    }
+    let (code, mut stream) = socks(proxy, &Target::Name("localhost".into(), dev), 1);
+    assert_eq!(code, 0x00, "a dev server");
+    assert_eq!(echo(&mut stream), b"ping");
+}
