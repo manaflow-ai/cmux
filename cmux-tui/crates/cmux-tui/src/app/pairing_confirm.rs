@@ -7,7 +7,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// `Some(true)` approves, `Some(false)` denies, `None` leaves the dialog.
 pub(super) fn decision(key: &KeyEvent) -> Option<bool> {
-    let chord = key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
+    let chord =
+        key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
     match key.code {
         KeyCode::Char('y' | 'Y') if !chord => Some(true),
         KeyCode::Esc => Some(false),
@@ -54,7 +55,10 @@ mod tests {
                 Some(challenge.id),
                 "{code:?} {modifiers:?} closed the pairing dialog"
             );
-            assert!(decision.try_recv().is_err(), "{code:?} {modifiers:?} approved a pairing request");
+            assert!(
+                decision.try_recv().is_err(),
+                "{code:?} {modifiers:?} approved a pairing request"
+            );
         }
 
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
