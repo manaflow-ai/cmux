@@ -189,7 +189,7 @@ final class AppOnboardingServices: OnboardingServices {
             return mock
         }
         #endif
-        let source = AppComputerUsePermissionSource(setup: services.computerUseSetup)
+        let source = AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
         resolvedComputerUseSource = source
         return source
     }

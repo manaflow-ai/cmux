@@ -48,11 +48,11 @@ enum AgentHandlers {
         // Settings card and the onboarding step. Setup opens the guided step; the two grant
         // actions open their Privacy & Security list.
         registry.bind("palette.computerUse.setup", run: { _ in
-            context.services.computerUseSetup.recheck()
+            context.services.onboarding.computerUseSetup.recheck()
             context.services.onboarding.show(step: .computerUse)
         })
-        registry.bind("palette.computerUse.accessibility", run: { _ in context.services.computerUseSetup.open(.accessibility) })
-        registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.computerUseSetup.open(.screenRecording) })
+        registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
+        registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
             if let pane = context.scope(invocation).pane,
                openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
