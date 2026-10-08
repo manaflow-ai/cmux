@@ -94,6 +94,7 @@ jobs:
       unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       coverage_fingerprint: ${{ steps.coverage-fingerprint.outputs.fingerprint }}
+      reverse_test_impact: ${{ steps.reverse-impact.outputs.reverse_test_impact }}
       ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -1037,6 +1038,24 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+      # Route the report-only reverse impact job from a trusted base helper.
+      # A missing base helper or changed-path list fails open, so this optional
+      # report can never suppress required test routing.
+      - name: Route reverse test impact report
+        id: reverse-impact
+        run: |
+          set -euo pipefail
+          route="$RUNNER_TEMP/reverse_test_impact_route.py"
+          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+          if [ -z "$base" ] || ! git show "$base:scripts/ci/reverse_test_impact_route.py" > "$route"; then
+            echo "Trusted reverse-impact router unavailable; keeping the report enabled."
+            echo "reverse_test_impact=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 "$route" \
+            --files-from /tmp/cmux-ci-changed-files.txt \
+            --github-output "$GITHUB_OUTPUT"
+
   # Report only. choose_ci_suite.py in `changes` already adds the suites
   # reverse_test_impact.py names to the changed-suites run; this job records
   # the full answer, what was considered and what it would cost, in the step
@@ -1054,7 +1073,7 @@ jobs:
   reverse-test-impact:
     name: Reverse test impact (report only)
     needs: [changes]
-    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.reverse_test_impact == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     continue-on-error: true
