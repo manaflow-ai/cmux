@@ -3855,7 +3855,7 @@ def platform_gate_needs(
     }
 
 
-def test_platform_workflow_results_gate_tests_status() -> None:
+def test_platform_workflow_results_gate_ci_status() -> None:
     assert run_platform_gate(platform_gate_needs()).returncode == 0
     assert run_platform_gate(platform_gate_needs(macos_result="failure")).returncode == 1
     assert run_platform_gate(platform_gate_needs(macos_result="skipped")).returncode == 1
@@ -3870,7 +3870,7 @@ def test_platform_workflow_results_gate_tests_status() -> None:
     assert run_platform_gate(platform_gate_needs(web_result="failure")).returncode == 1
 
 
-def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
+def test_linux_failure_still_blocks_ci_status_after_macos_succeeds() -> None:
     for outcome in ("failure", "cancelled", "skipped"):
         needs = platform_gate_needs(macos_result="success")
         needs["linux-preflight"]["result"] = outcome
