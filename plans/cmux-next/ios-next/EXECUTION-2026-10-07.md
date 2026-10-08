@@ -50,6 +50,13 @@ and standalone host reject V1/V2 until HostDO accepting-side signaling is wired;
 deployment, real signaling credentials, and
 device/WAN/power measurements remain open.
 
+The final entry-point slice is verified at `25fd969882a86eaebc9924fe64c121a939f3320`:
+the hosted `CmuxLinkBench` job `037cdbf47deff3c578b76dde` passed all 12 harness tests, and
+the exact-head iOS archive job `7f39698f263f879374d652cf` completed the device archive and
+simulator build with artifact `sha256:3427e8b4c0c7995bd6697b8e52b9a926983d209239f1e418975786b0c5673806`.
+These are compile and package-test receipts only; no install, UI, authenticated signaling,
+real-phone, WAN or power evidence is claimed.
+
 The remaining work separates independent implementation from shared runtime dependencies:
 
 | Workstream | Depends on | First deliverable | Verification gate |
