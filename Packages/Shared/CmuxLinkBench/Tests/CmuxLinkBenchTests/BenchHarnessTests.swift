@@ -186,6 +186,58 @@ struct BenchHarnessTests {
         #expect(v2.map(\.kind) == [.webrtcWireGuard])
     }
 
+    @Test("accepting host constructs and owns V1 and V2 listeners")
+    func acceptingHostWiring() async throws {
+        let hub = InMemorySignalingHub()
+        let deviceWebRTC = SoftwareWebRTCIdentity()
+        let deviceWireGuard = WireGuardPrivateKey()
+        let host = try BenchAcceptingHost(
+            hostID: "accept-host",
+            router: SignalRouter(channel: hub.endpoint(id: "accept-host")),
+            iceServers: StaticICEServerProvider(.hostOnly),
+            webrtcIdentity: SoftwareWebRTCIdentity(),
+            wireGuardIdentity: WireGuardPrivateKey(),
+            allowedWebRTCDevices: [deviceWebRTC.publicKey],
+            allowedWireGuardDevices: [deviceWireGuard.publicKey],
+            webrtcConfiguration: .init(network: .loopbackOnly)
+        )
+        #expect(!host.webrtcHostKey.isEmpty)
+        #expect(!host.wireGuardHostKey.isEmpty)
+
+        let v1 = try host.makeAcceptor(for: .v1)
+        await v1.start()
+        await v1.stop()
+        let v2 = try host.makeAcceptor(for: .v2WebRTC)
+        await v2.start()
+        await v2.stop()
+    }
+
+    @Test("accepting host refuses unpaired devices and unsupported rigs")
+    func acceptingHostRequiresTrustAndRig() throws {
+        let hub = InMemorySignalingHub()
+        #expect(throws: BenchSplitError.self) {
+            try BenchAcceptingHost(
+                hostID: "accept-host",
+                router: SignalRouter(channel: hub.endpoint(id: "accept-host")),
+                iceServers: StaticICEServerProvider(),
+                webrtcIdentity: SoftwareWebRTCIdentity(),
+                wireGuardIdentity: WireGuardPrivateKey(),
+                allowedWebRTCDevices: [],
+                allowedWireGuardDevices: []
+            )
+        }
+        let host = try BenchAcceptingHost(
+            hostID: "accept-host",
+            router: SignalRouter(channel: hub.endpoint(id: "accept-host-2")),
+            iceServers: StaticICEServerProvider(),
+            webrtcIdentity: SoftwareWebRTCIdentity(),
+            wireGuardIdentity: WireGuardPrivateKey(),
+            allowedWebRTCDevices: [SoftwareWebRTCIdentity().publicKey],
+            allowedWireGuardDevices: []
+        )
+        #expect(throws: BenchSplitError.self) { try host.makeAcceptor(for: .v3) }
+    }
+
     @Test("signaling descriptor rejects a missing selected host key")
     func signalingDescriptorRequiresPinnedKey() throws {
         let descriptor = BenchServeDescriptor(
