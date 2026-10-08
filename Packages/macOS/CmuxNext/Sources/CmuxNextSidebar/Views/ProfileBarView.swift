@@ -37,8 +37,8 @@ final class ProfileBarView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.profiles)
-        indicator.onDraw = { [unowned self] _ in drawIndicator() }
-        marks.onDraw = { [unowned self] _ in drawMarks() }
+        indicator.onDraw = { [weak self] _ in self?.drawIndicator() }
+        marks.onDraw = { [weak self] _ in self?.drawMarks() }
         indicator.isHidden = true
         marks.autoresizingMask = [.width, .height]
         addSubview(indicator)
