@@ -234,7 +234,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.windows.contentDidAppear(self)
-        services.locationTrail.pageHistoryDidChange()  // a top page left: the arrows stop reading its history
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
