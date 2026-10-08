@@ -37,6 +37,8 @@ jobs:
           # the merge-base comparison, and keep this guard shallow like the
           # neighboring history guard.
           fetch-depth: 2
+          # The guard initializes only changed gitlinks after comparing them.
+          submodules: false
           persist-credentials: false
 
       - name: Bind submodule guard to synthetic merge parent
