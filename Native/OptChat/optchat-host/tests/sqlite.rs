@@ -176,6 +176,61 @@ fn a_crash_inside_an_append_leaves_the_batch_and_its_state_or_neither() {
     }
 }
 
+/// The child of the checkpoint crash test: 120 settled messages, the view
+/// they make written to `pre.txt`, then one more message, aborted right
+/// after its transaction commits.
+#[test]
+fn checkpoint_crash_child() {
+    let Some(dir) = crash_dir() else { return };
+    let chat = open(&dir, 128_000, instant(200));
+    for n in 0..120u64 {
+        let text = if n % 3 == 0 { long(n) } else { format!("short {n}") };
+        chat.append(Kind::User, &text).unwrap();
+        assert!(chat.wait_idle(None, WAIT));
+    }
+    std::fs::write(dir.join("pre.txt"), chat.render_view().text).unwrap();
+    chat.append(Kind::User, "the last word").unwrap();
+}
+
+/// Spec 3.2 (gist 3c190e0): the view is saved and loaded, never rebuilt. The
+/// checkpoint commits in the message's own transaction, so a crash right
+/// after a message leaves the view that includes it: the start resumes it
+/// as saved, replays nothing, and the cached prefix of the view is the one
+/// the last call before the crash sent.
+#[test]
+fn a_crash_after_a_message_commits_resumes_its_saved_view_without_a_replay() {
+    if crash_dir().is_some() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    assert!(crash_child(
+        "checkpoint_crash_child",
+        "append:after-commit#121",
+        dir.path()
+    ));
+    let saved = {
+        let db = optchat_host::db::Db::open(&dir.path().join(DB_FILE)).unwrap();
+        assert_eq!(db.len(), 121);
+        let text = db
+            .state(optchat_host::db::checkpoint::CHECKPOINT_KEY)
+            .unwrap()
+            .expect("a checkpoint");
+        optchat_host::db::checkpoint::decode(&text).unwrap()
+    };
+    assert_eq!(saved.t, 121, "the checkpoint commits with the message");
+    let pre = std::fs::read_to_string(dir.path().join("pre.txt")).unwrap();
+    let chat = open(dir.path(), 128_000, instant(200));
+    assert_eq!(chat.loaded(), optchat_host::db::checkpoint::Loaded::Resumed);
+    let resumed = chat.render_view();
+    assert_eq!(resumed.parts, saved.view, "resumed as saved, not replayed");
+    // Every 4-line block of the view before the crash is still there, byte
+    // for byte: the next call reads it from the cache.
+    let cuts = optchat_core::block_cuts(&pre);
+    let last = *cuts.last().unwrap();
+    assert_eq!(optchat_core::block_cuts(&resumed.text)[..cuts.len()], cuts[..]);
+    assert_eq!(resumed.text[..last], pre[..last]);
+}
+
 /// The child of the node crash test: one message that needs a model node.
 #[test]
 fn node_crash_child() {
