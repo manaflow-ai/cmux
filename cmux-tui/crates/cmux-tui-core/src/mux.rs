@@ -2710,6 +2710,8 @@ pub struct Mux {
     /// Typed ends (`TerminalEnd::wire_json`) of ended terminals that have no
     /// runtime surface, keyed by public terminal id. A leaf lock.
     terminal_ends: Mutex<HashMap<String, Value>>,
+    /// Cause text of each terminal's last host loss, by public id (cx-0tgl).
+    terminal_loss_causes: Mutex<HashMap<String, String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -3156,6 +3158,7 @@ impl Mux {
             terminal_adoptions: Mutex::new(HashSet::new()),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
+            terminal_loss_causes: Mutex::new(HashMap::new()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")

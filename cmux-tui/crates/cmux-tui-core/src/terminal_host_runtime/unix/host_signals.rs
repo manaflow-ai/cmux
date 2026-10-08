@@ -268,6 +268,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
 /// Name the breadcrumb file once the host knows its identity, and write any
 /// signal recorded before that.
 pub(crate) fn set_breadcrumb_path(path: PathBuf, terminal_id: String, incarnation: String) {
+    super::host_crash::install(path.with_extension("crash"), &terminal_id, &incarnation);
     let _ = BREADCRUMBS.set(Breadcrumbs { path, terminal_id, incarnation });
     flush();
 }
@@ -285,11 +286,15 @@ fn flush() {
         if slot.ready.load(Ordering::Acquire) == 0 {
             break;
         }
+        let sender_pid = slot.sender_pid.load(Ordering::Relaxed);
         let line = serde_json::json!({
             "terminal_id": breadcrumbs.terminal_id,
             "incarnation": breadcrumbs.incarnation,
             "signal": slot.signal.load(Ordering::Relaxed),
-            "sender_pid": slot.sender_pid.load(Ordering::Relaxed),
+            "sender_pid": sender_pid,
+            // Who sent it (cx-0tgl LA), read while the sender usually still
+            // runs: an external killer is named in the loss line.
+            "sender": u32::try_from(sender_pid).ok().and_then(crate::process_resources::describe_process),
             "at_ms": slot.at_ms.load(Ordering::Relaxed),
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),

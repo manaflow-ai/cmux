@@ -83,7 +83,9 @@ final class TerminalLinkWatch {
     /// `host_lost` end; a revived or normally ended terminal clears it.
     private func forwardHostLoss() {
         let tab = store?.tab(surface: surface)
-        session?.hostLoss = (tab?.dead ?? false) ? Self.hostLoss(tab?.end) : nil
+        let loss = (tab?.dead ?? false) ? Self.hostLoss(tab?.end) : nil
+        session?.hostLossCause = loss == nil ? nil : tab?.end?.cause
+        session?.hostLoss = loss
     }
 
     /// The banner's reason for a tab `end` (nil unless the host was lost).

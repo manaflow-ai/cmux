@@ -139,8 +139,25 @@ unsafe extern "C" {
     static mut environ: *mut *mut libc::c_char;
 }
 
+/// The first termination signal and its sender (cx-0tgl LA), for the
+/// owner's `daemon_signal` loss-log line. 0 until a signal arrives.
 #[cfg(unix)]
-extern "C" fn handle_signal(_: libc::c_int) {
+static SHUTDOWN_SIGNAL: AtomicI32 = AtomicI32::new(0);
+#[cfg(unix)]
+static SHUTDOWN_SIGNAL_SENDER: AtomicI32 = AtomicI32::new(0);
+
+#[cfg(unix)]
+extern "C" fn handle_signal(
+    signal: libc::c_int,
+    info: *mut libc::siginfo_t,
+    _context: *mut libc::c_void,
+) {
+    // SAFETY: the kernel passes a valid siginfo for an SA_SIGINFO handler;
+    // reading si_pid is async-signal-safe.
+    let sender = if info.is_null() { 0 } else { unsafe { (*info).si_pid() } };
+    if SHUTDOWN_SIGNAL.compare_exchange(0, signal, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        SHUTDOWN_SIGNAL_SENDER.store(sender, Ordering::Release);
+    }
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
     let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
     if writer >= 0 {
@@ -155,6 +172,13 @@ extern "C" fn handle_signal(_: libc::c_int) {
 
 pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
+}
+
+/// The first termination signal this process got and its sender PID.
+#[cfg(unix)]
+pub(crate) fn shutdown_signal() -> Option<(i32, i32)> {
+    let signal = SHUTDOWN_SIGNAL.load(Ordering::Acquire);
+    (signal != 0).then(|| (signal, SHUTDOWN_SIGNAL_SENDER.load(Ordering::Acquire)))
 }
 
 #[cfg(unix)]
@@ -186,7 +210,8 @@ fn install_signal_handlers() -> io::Result<()> {
         // Termination must interrupt startup and teardown syscalls. In
         // particular, reopening `/dev/tty` can block forever after the host
         // PTY disappears if the handler is installed with SA_RESTART.
-        action.sa_flags = 0;
+        // SA_SIGINFO names the sender (cx-0tgl LA).
+        action.sa_flags = libc::SA_SIGINFO;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
                 SIGNAL_WAKE_READER.store(-1, Ordering::Release);

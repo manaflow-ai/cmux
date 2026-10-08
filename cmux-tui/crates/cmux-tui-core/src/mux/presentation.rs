@@ -33,6 +33,9 @@ pub struct TreeDecorations {
     /// Typed ends of ended terminals without a runtime surface, keyed by
     /// public terminal id (tab JSON `end`).
     pub terminal_ends: HashMap<String, Value>,
+    /// Cause text of each terminal's last host loss, keyed by public
+    /// terminal id (tab JSON `end.cause` for a `host_lost` end).
+    pub terminal_loss_causes: HashMap<String, String>,
 }
 
 /// Why a terminal has no runtime surface while its host may still run its
@@ -141,6 +144,18 @@ impl TreeDecorations {
     pub fn from_notifications(notifications: HashMap<SurfaceId, SurfaceNotification>) -> Self {
         Self { notifications, ..Self::default() }
     }
+
+    /// A tab's `end` with the recorded cause of a host loss (`cause`, cx-0tgl
+    /// LA): who signalled the host, or its crash. Other ends are unchanged.
+    pub(crate) fn with_loss_cause(&self, terminal: Option<&str>, mut end: Value) -> Value {
+        let cause = terminal.and_then(|id| self.terminal_loss_causes.get(id));
+        if let (Some(cause), Some(fields)) = (cause, end.as_object_mut())
+            && fields.get("kind").and_then(Value::as_str) == Some("host_lost")
+        {
+            fields.insert("cause".to_string(), Value::String(cause.clone()));
+        }
+        end
+    }
 }
 
 /// Result of `set-tab-pinned`: whether the flag changed and the tab's final
@@ -241,6 +256,7 @@ impl Mux {
             directories,
             pending_terminals,
             terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
     }
 
@@ -259,6 +275,7 @@ impl Mux {
             directories,
             pending_terminals,
             terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
     }
 

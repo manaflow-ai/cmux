@@ -54,19 +54,24 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
     public var coreDumped: Bool?
     public var reason: HostLostReason?
     public var detail: String?
+    /// For a host loss, the owner's recorded cause: who signalled the host
+    /// (pid, name, parent) or the host's crash message (cx-0tgl). Daemon
+    /// diagnostic text, shown as is.
+    public var cause: String?
 
     public init(kind: Kind, code: Int32? = nil, signal: Int32? = nil, coreDumped: Bool? = nil,
-                reason: HostLostReason? = nil, detail: String? = nil) {
+                reason: HostLostReason? = nil, detail: String? = nil, cause: String? = nil) {
         self.kind = kind
         self.code = code
         self.signal = signal
         self.coreDumped = coreDumped
         self.reason = reason
         self.detail = detail
+        self.cause = cause
     }
 
     enum CodingKeys: String, CodingKey {
-        case kind, code, signal, reason, detail
+        case kind, code, signal, reason, detail, cause
         case coreDumped = "core_dumped"
     }
 }

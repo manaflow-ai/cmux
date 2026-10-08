@@ -140,6 +140,21 @@ pub fn monotonic_now_ns() -> u64 {
     imp::monotonic_now_ns()
 }
 
+/// Who process `pid` is, for diagnostics that name a signal's sender:
+/// `{"name", "ppid", "parent_name"}`. `None` once the process is gone (or the
+/// platform does not report it). Reads the operating system once; never
+/// called on a hot path.
+pub fn describe_process(pid: u32) -> Option<serde_json::Value> {
+    if pid == 0 {
+        return None;
+    }
+    let sampler = Sampler::new();
+    let name = sampler.sample(pid)?.name;
+    let ppid = sampler.parent(pid);
+    let parent_name = ppid.and_then(|parent| sampler.sample(parent)).map(|sample| sample.name);
+    Some(serde_json::json!({"name": name, "ppid": ppid, "parent_name": parent_name}))
+}
+
 /// Operating-system reads for one request.
 pub struct Sampler {
     inner: imp::Sampler,

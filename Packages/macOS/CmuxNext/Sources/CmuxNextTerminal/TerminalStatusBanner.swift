@@ -36,8 +36,8 @@ final class TerminalStatusBanner: NSView {
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil) {
-        guard let text = Self.text(for: status, hostLoss: hostLoss) else {
+    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil, cause: String? = nil) {
+        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause) else {
             isHidden = true
             return
         }
@@ -47,13 +47,19 @@ final class TerminalStatusBanner: NSView {
     }
 
     /// The banner text, or nil while connected. An exited terminal whose
-    /// host was lost (`hostLoss`) says so. `strings` defaults to this
-    /// module's table and falls back to English if the bundle is gone.
+    /// host was lost (`hostLoss`) says so, followed by the owner's recorded
+    /// `cause` when there is one. `strings` defaults to this module's table
+    /// and falls back to English if the bundle is gone.
     static func text(
         for status: TerminalConnectionStatus,
         hostLoss: TerminalHostLoss? = nil,
+        cause: String? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
+        if case .exited = status, hostLoss != nil, let cause, !cause.isEmpty,
+           let lost = text(for: status, hostLoss: hostLoss, strings: strings) {
+            return "\(lost) · \(cause)"
+        }
         switch status {
         case .connected:
             return nil
