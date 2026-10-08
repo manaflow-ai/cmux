@@ -539,7 +539,9 @@ public final class MobileSSHComputers {
     /// returns it to idle. Leaves automatic-connect eligibility to callers.
     private func closeConnection(hostID: UUID) async {
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
-        let surfaceIDs = Set(attachments.keys).union(attachTasks.keys)
+        let surfaceIDs = Set(attachments.keys)
+            .union(attachTasks.keys)
+            .union(attachAwaitingGrid)
         for surfaceID in surfaceIDs where MobileSSHIdentifier(surfaceID).hostID == hostID {
             await detach(surfaceID: surfaceID)
         }
@@ -806,6 +808,7 @@ public final class MobileSSHComputers {
 
     private func detach(surfaceID: String) async {
         attachAwaitingGrid.remove(surfaceID)
+        pendingInputBySurface[surfaceID] = nil
         attachGenerations[surfaceID] = nil
         attachTasks.removeValue(forKey: surfaceID)?.cancel()
         sizingTasks[surfaceID] = nil
