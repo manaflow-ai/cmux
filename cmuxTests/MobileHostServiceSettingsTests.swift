@@ -90,6 +90,17 @@ struct MobileHostServiceSettingsTests {
         #expect(snapshot.pendingPortChange)
     }
 
+    @Test func settingsDoNotReportIrohReadinessAsTailscaleListenerReadiness() throws {
+        let status = MobileHostServiceStatus(
+            isRunning: true, port: 58465, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: nil)
+
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
+        #expect(!snapshot.isRunning)
+        #expect(snapshot.boundPort == nil)
+    }
+
     @Test func splitSocketAddressParsesSocketLiteralsOnly() throws {
         let v4 = try #require(HostSettingsActions.splitSocketAddress("93.184.216.34:58465"))
         #expect(v4.host == "93.184.216.34")
