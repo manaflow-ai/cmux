@@ -1,4 +1,5 @@
 import CmuxiOSFeatureKit
+import CmuxMobileWire
 import Foundation
 
 /// Reads and validates `cloud.machine.connect_info` before opening a VM link.
