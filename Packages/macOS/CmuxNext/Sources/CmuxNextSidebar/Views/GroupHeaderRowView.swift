@@ -8,7 +8,8 @@ import QuartzCore
 /// leading inset (S1, Dia-style hover fill on the whole row), then the name
 /// in a colored label, the tab-group chip (GroupColor.fill; a neutral chip
 /// without a color). The member count shows at rest and gives its slot to
-/// the + / pencil buttons on hover. A collapsed group also surfaces its
+/// the + / pencil buttons on hover. A group icon (emoji or SF Symbol) leads
+/// inside the label. A collapsed group also surfaces its
 /// children's activity and unread total.
 final class GroupHeaderRowView: SidebarRowView {
     private let dot = CAShapeLayer()
@@ -18,10 +19,13 @@ final class GroupHeaderRowView: SidebarRowView {
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
+    /// The group's icon inside its label, before the name (`workspace-group-icon-v1`).
+    let glyph = SidebarIconView()
     private let pill = CALayer()
     let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
     let editButton = SidebarIconButton(symbol: "pencil", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.rename)
     private var pinned = false
+    private var hasIcon = false
     private var color: GroupColor = .grey
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
@@ -38,7 +42,8 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.addSublayer(pill)
         layer?.addSublayer(dot)
         count.alignment = .right
-        [name, pin, count, chevron, activity, badge, addButton, editButton].forEach(addSubview)
+        glyph.drawsUncoloredSymbolAsText = true
+        [glyph, name, pin, count, chevron, activity, badge, addButton, editButton].forEach(addSubview)
         addButton.onPress = { [weak self] in self?.onAdd?() }
         editButton.onPress = { [weak self] in self?.onEdit?() }
     }
@@ -72,6 +77,8 @@ final class GroupHeaderRowView: SidebarRowView {
         count.font = SidebarStyle.subtitleFont
         count.stringValue = "\(row.childCount)"
         pinned = group.isPinned
+        hasIcon = group.icon != nil
+        glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
         chevron.image = SidebarStyle.chevron(collapsed: collapsed)
@@ -198,7 +205,14 @@ final class GroupHeaderRowView: SidebarRowView {
         // Caret, then the name inside its label (FlatSidebarTests, GroupLabelBandTests).
         let pad = Metrics.space3
         let chipX = chevronFrame.maxX + Metrics.space1
-        let nx = chipX + pad
+        let chipHeight = min(b.height, max(Metrics.space6, b.height - 2 * Metrics.space3))
+        // The icon leads inside the label at the workspace-row icon size (the
+        // label's height at most); without one the name does.
+        let glyphSide = min(SidebarStyle.iconBox, chipHeight)
+        let glyphRoom = hasIcon ? glyphSide + Metrics.space1 : 0
+        glyph.isHidden = !hasIcon
+        glyph.frame = NSRect(x: chipX + pad - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        let nx = chipX + pad + glyphRoom - (hasIcon ? Metrics.space1 : 0)
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom: CGFloat = 0
@@ -206,9 +220,8 @@ final class GroupHeaderRowView: SidebarRowView {
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - nx - pad - pinRoom))
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
-        let chipHeight = min(b.height, max(Metrics.space6, b.height - 2 * Metrics.space3))
         pill.isHidden = renaming
-        pill.frame = NSRect(x: chipX, y: (b.height - chipHeight) / 2, width: nameWidth + 2 * pad, height: chipHeight)
+        pill.frame = NSRect(x: chipX, y: (b.height - chipHeight) / 2, width: nx - chipX + nameWidth + pad, height: chipHeight)
         pill.cornerRadius = max(0, SidebarStyle.rowCornerRadius - Metrics.space1)
         var x = pill.frame.maxX + Metrics.space2
         let dotFrame = CGRect(x: x, y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)

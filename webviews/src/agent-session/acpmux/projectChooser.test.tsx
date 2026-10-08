@@ -266,9 +266,9 @@ test("the keyboard opens the folder menu, moves through it and picks with Enter"
         new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
       );
     });
-  await key("ArrowDown");
-  await key("ArrowDown");
-  await key("ArrowDown");
+  // Base UI may leave focus on the trigger or place it on the first row when the menu opens;
+  // End names the same last action deterministically across jsdom runtimes.
+  await key("End");
   expect((doc.activeElement as HTMLElement | null)?.textContent).toBe("Choose folder…");
   await key("Enter");
   expect(browsed).toBe(1);

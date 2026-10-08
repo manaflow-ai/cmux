@@ -3,18 +3,21 @@
 //! per model call (the core caps them at `JOBS`). Workers never hold the
 //! chat's lock while the model runs.
 
-use std::collections::BTreeMap;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
 use optchat_core::{
-    compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId, SizeCheck, Work,
+    block_cuts, compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId,
+    SizeCheck, Work,
 };
 
 use crate::clock::Clock;
 use crate::db::Db;
-use crate::model::{CompactModel, Followup, ModelError};
+use crate::model::{CompactModel, Followup, ModelError, Reply};
 use crate::report::{Report, Reporter};
 
 /// Everything behind the chat's one mutex.
@@ -73,6 +76,71 @@ pub struct Shared {
     pub system: String,
     pub retry: Duration,
     pub reporter: Reporter,
+    /// The marked prefixes being written (single-flight, spec 3.3).
+    pub flight: Flight,
+}
+
+/// Single-flight of cache writes (spec 3.3, gist 3c190e0): a call whose
+/// marked prefix another call is writing waits until that call's reply
+/// comes; otherwise both pay to write it. It matters because compactions
+/// start up to 8 at a time on one prefix. The reply stands in for the
+/// response's start: a compaction reply is one short line.
+#[derive(Default)]
+pub struct Flight {
+    writing: Mutex<HashSet<u64>>,
+    done: Condvar,
+}
+
+impl Flight {
+    fn enter(&self, key: u64) {
+        let mut w = self.writing.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while w.contains(&key) {
+            w = self.done.wait(w).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        w.insert(key);
+    }
+
+    fn leave(&self, key: u64) {
+        self.writing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&key);
+        self.done.notify_all();
+    }
+}
+
+/// The prefix a compaction's cache mark covers: its system prompt and its
+/// view up to the last whole 4-line block.
+pub fn marked_key(request: &CompactRequest) -> u64 {
+    let end = block_cuts(&request.context).last().copied().unwrap_or(0);
+    let mut h = DefaultHasher::new();
+    request.system.hash(&mut h);
+    request.context[..end].hash(&mut h);
+    h.finish()
+}
+
+/// The model behind a `Flight`: a node's first call waits while another
+/// call writes the same marked prefix, and holds it until its reply.
+struct Gated<'a> {
+    inner: &'a dyn CompactModel,
+    flight: &'a Flight,
+    key: u64,
+}
+
+impl CompactModel for Gated<'_> {
+    fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
+        if !followups.is_empty() {
+            return self.inner.call(request, followups);
+        }
+        self.flight.enter(self.key);
+        let reply = self.inner.call(request, followups);
+        self.flight.leave(self.key);
+        reply
+    }
+
+    fn end(&self, request: &CompactRequest) {
+        self.inner.end(request);
+    }
 }
 
 impl Shared {
@@ -151,11 +219,23 @@ fn start(shared: &Arc<Shared>, st: &mut State, node: NodeId) {
 /// (as the spec's pump does), then release it and pump again.
 fn job(shared: Arc<Shared>, request: CompactRequest) {
     let node = request.node;
-    let result = match run_node(&*shared.model, &request) {
+    let key = marked_key(&request);
+    let gated = |model: &'_ Arc<dyn CompactModel>| {
+        let model: &dyn CompactModel = &**model;
+        run_node(
+            &Gated {
+                inner: model,
+                flight: &shared.flight,
+                key,
+            },
+            &request,
+        )
+    };
+    let result = match gated(&shared.model) {
         // A refusal repeats on every try: ask the fallback model, in a fresh
         // conversation (the declined model's blocks mean nothing to it).
         Err(declined) if declined.refused => match &shared.fallback {
-            Some(fallback) => run_node(&**fallback, &request).map_err(|e| {
+            Some(fallback) => gated(fallback).map_err(|e| {
                 ModelError::new(format!("{declined}; the fallback model failed too: {e}"))
             }),
             None => Err(declined),

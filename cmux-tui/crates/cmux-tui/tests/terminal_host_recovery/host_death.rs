@@ -13,7 +13,7 @@ use super::*;
 #[test]
 fn host_death_keeps_tabs_across_daemon_restart() {
     let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start("dead-hosts-keep-tabs");
+    let mut harness = RecoveryHarness::start_without_respawn("dead-hosts-keep-tabs");
     let names = ["one", "two", "three"];
     let terminals = names
         .iter()
@@ -84,7 +84,7 @@ fn host_death_keeps_tabs_across_daemon_restart() {
 #[test]
 fn host_death_keeps_layout_when_daemon_and_hosts_stop_together() {
     let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start("logout-keeps-layout");
+    let mut harness = RecoveryHarness::start_without_respawn("logout-keeps-layout");
     let names = ["left", "right"];
     for (index, name) in names.iter().enumerate() {
         run_cat_workspace(&harness.socket, index + 1, name);
@@ -358,7 +358,7 @@ fn session_shutdown_logout_race_keeps_tabs_dead() {
 #[test]
 fn host_death_keeps_tab_under_running_daemon() {
     let _exclusive = exclusive_process_test();
-    let harness = RecoveryHarness::start("running-host-sigkill-keeps-tab");
+    let harness = RecoveryHarness::start_without_respawn("running-host-sigkill-keeps-tab");
     let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, "killed");
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     // The shell dies with its host, so nothing is left for a replacement
@@ -399,6 +399,9 @@ fn host_death_keeps_tab_under_running_daemon() {
 #[path = "stray_signals.rs"]
 mod stray_signals;
 
+#[path = "host_self_errors.rs"]
+mod host_self_errors;
+
 #[path = "pty_custody.rs"]
 mod pty_custody;
 
@@ -407,3 +410,9 @@ mod owner_idle_exit;
 
 #[path = "host_replacement.rs"]
 mod host_replacement;
+
+#[path = "dead_host_restart.rs"]
+mod dead_host_restart;
+
+#[path = "terminal_respawn.rs"]
+mod terminal_respawn;

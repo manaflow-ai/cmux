@@ -3,6 +3,7 @@
 // and how long the fade at the end of a clipped name is. ChangedFilesTree reads both arms with
 // experimentArm(); the gallery compares them (agent-pane.changes-tree, view Compare arms).
 import { defineExperiment } from "../../../experiments/experiment";
+import { defineTunable } from "../../../experiments/tunable";
 
 export const diffTreeDisclosure = defineExperiment({
   id: "diff-tree-disclosure",
@@ -54,4 +55,26 @@ export const treeNameFade = defineExperiment({
     w28: { label: "28 px", description: "A long, soft fade." },
   },
   defaultArm: "w20",
+});
+
+/** The hover scroll of a clipped name (treeTitles.ts): the gallery's curve editor tunes it. */
+export const treeMarqueeEasing = defineTunable({
+  id: "diff-tree-marquee-easing",
+  title: "Hover scroll easing",
+  description:
+    "How a clipped name scrolls on hover: x is time, y is how far it has scrolled. The start of the name is already on screen, so the shipped curve starts fast and settles slowly on the end.",
+  kind: "cubic-bezier",
+  defaultValue: [0.2, 0.6, 0.1, 1],
+  presets: { "tabs (ease-in-out)": [0.42, 0, 0.58, 1] },
+});
+
+/** The fade at the end of a clipped name (treeTitles.ts, diffTheme.ts): x across the fade, y how faded. */
+export const treeNameFadeCurve = defineTunable({
+  id: "diff-tree-name-fade-curve",
+  title: "Name fade curve",
+  description:
+    "How the end of a clipped name fades: x runs across the fade, left to right; y is how much is faded (0 opaque, 1 gone). The shipped ease-in sine keeps glyphs readable almost to the edge.",
+  kind: "cubic-bezier",
+  defaultValue: [0.12, 0, 0.39, 0],
+  presets: { "ease-in sine (cosine)": [0.12, 0, 0.39, 0] },
 });

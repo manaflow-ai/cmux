@@ -325,3 +325,93 @@
 .icon-asset-error {
   color: var(--page-text);
 }
+
+/* The category jump bar: one row of small buttons, scrolled sideways when the categories do not
+   fit (about 30 SF Symbol categories). The current section reads like the selected tab. */
+.ui-toolbar.icon-jump-bar {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+
+.icon-jump-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.ui-toolbar-button.icon-jump {
+  flex: none;
+  width: 26px;
+  min-width: 0;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  padding: 0;
+}
+
+.ui-toolbar-button.icon-jump:hover {
+  background: var(--page-hover);
+}
+
+.icon-jump[aria-current="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+.icon-jump:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: -2px;
+}
+
+.icon-jump-glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.icon-jump-symbol {
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+}
+
+/* The rendering mode menu (Symbols tab): the button previews the mode on one symbol; the menu
+   lists the modes by name. */
+.icon-mode-symbol {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.icon-mode-menu {
+  flex-direction: column;
+  min-width: 140px;
+}
+
+.icon-mode-menu button {
+  width: auto;
+  height: 26px;
+  padding: 0 10px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 26px;
+  color: var(--page-text);
+}
+
+.icon-mode-menu button[aria-pressed="true"] {
+  background: var(--page-selection);
+}
+
+/* Hierarchical and multicolor symbols are finished images from the host, not masks. */
+.icon-symbol[style*="background-image"] {
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}

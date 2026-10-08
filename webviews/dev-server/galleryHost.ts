@@ -12,6 +12,8 @@
 //                                          tab strip height, ...) per density, for window mode
 //   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
 //                                          roots, the Swift packages' Fixtures folders) by repo path
+// The agent pane's chart library is served as `__lib/vega.js` beside the frame (the markdown
+// viewer's bundled Vega and Vega-Lite, as the pane's scheme handler serves them).
 //   virtual:cmux-gallery/revision          the checkout's commit (sha, subject, commit time, branch),
 //                                          read when the module loads; the live server pushes newer
 //                                          ones (galleryLive.ts)
@@ -166,9 +168,20 @@ function agentPaneCSS(): string {
 }
 
 /** The virtual modules, for the dev server and the static build. */
+/** The markdown viewer's Vega then Vega-Lite, joined as MarkdownPageResource.library joins them. */
+function readVegaLibrary(): string {
+  const folder = path.join(repoRoot, "Resources/markdown-viewer");
+  return ["vega.min.js", "vega-lite.min.js"]
+    .map((name) => fs.readFileSync(path.join(folder, name), "utf8"))
+    .join("\n;\n");
+}
+
 export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
+    },
     resolveId(source) {
       if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID].includes(source)) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
@@ -184,6 +197,11 @@ export function galleryModules(): Plugin {
       return null;
     },
     configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        if (!request.url?.split("?")[0]?.endsWith("/__lib/vega.js")) return next();
+        response.setHeader("Content-Type", "text/javascript; charset=utf-8");
+        response.end(readVegaLibrary());
+      });
       // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
       // where Vite does not watch: watch them, and reload the module built from a changed one.
       const roots = fixtureRoots().map((root) => path.join(repoRoot, root));
