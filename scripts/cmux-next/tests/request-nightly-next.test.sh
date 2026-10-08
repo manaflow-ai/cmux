@@ -181,10 +181,10 @@ request --sha "$nogate" --release-compile-green
 grep -q "NIGHTLY_NEXT_NOTARY_PAUSED" <<<"$out" || fail "the refusal must name the gate:" "$out"
 runs 14 "$nogate" feat-cmux-next 11 "$head" feat-cmux-next
 jobs 14 completed success; jobs 11 completed success
-request --tree-ready "$nogate"
-[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$nogate" \
-  || fail "--tree-ready must pass over a commit without the gate for an older gated one:" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$nogate" \
+  || fail "--tree-ready must pass over a newer commit without the gate for the gated publisher:" "$out" "$(cat "$TMP/gh.log")"
 
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
