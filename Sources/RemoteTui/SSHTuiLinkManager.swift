@@ -5,6 +5,11 @@ import CmuxCore
 
 /// Owns one SSH carrier and shares it between native projections and control requests.
 actor SSHTuiLinkManager: RemoteTuiLinkManaging {
+    private struct LoopbackForwardKey: Hashable {
+        let machineID: String
+        let host: String
+        let port: Int
+    }
     nonisolated let operations: CloudOperationRecorder? = nil
     /// The current connection is internal for app-host tests that verify an
     /// idle carrier adopts a replacement authentication agent.
@@ -19,6 +24,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private var checking: Task<Void, Error>?
     private var browser: CloudBrowserProxyProcess?
     private var browserStarting: Task<CloudBrowserProxyEndpoint, Error>?
+    private var loopbackForwards: [LoopbackForwardKey: SSHTuiLoopbackForwardProcess] = [:]
+    private var loopbackForwardStarts: [LoopbackForwardKey: Task<UInt16, Error>] = [:]
 
     init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool,
          agentHookProviders: @escaping @Sendable () -> [String] = { [] }) {
@@ -145,6 +152,49 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         return try await task.value
     }
 
+    func loopbackForward(machineID: String, target: CloudPortForwardTarget) async throws -> UInt16 {
+        guard machineID == connection.id, target.port > 0, target.port <= Int(UInt16.max),
+              ["127.0.0.1", "localhost", "::1"].contains(target.host.lowercased()) else {
+            throw CancellationError()
+        }
+        _ = try await connected(machineID: machineID)
+        let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)
+        if let starting = loopbackForwardStarts[key] { return try await starting.value }
+        if let process = loopbackForwards[key] {
+            if let port = await process.readyPort { return port }
+            await process.stop()
+            loopbackForwards[key] = nil
+        }
+        let listener = try await SSHTuiLoopbackListenerLeaseRegistry.shared.lease(machineID: machineID, target: target)
+        let process = SSHTuiLoopbackForwardProcess()
+        loopbackForwards[key] = process
+        let arguments = connection.forwardArguments(stateDirectory: paths.stateDir.path, target: target)
+        let task = Task {
+            try await process.start(client: clientURL, arguments: arguments,
+                                    environment: connection.configuration.sshProcessEnvironment,
+                                    listener: listener)
+        }
+        loopbackForwardStarts[key] = task
+        defer { if loopbackForwardStarts[key] == task { loopbackForwardStarts[key] = nil } }
+        do {
+            let port = try await task.value
+            guard port > 0 else { throw CloudMachineLink.LinkError.spawnFailed("The SSH forward returned an invalid browser listener port.") }
+            guard loopbackForwards[key] === process, isEnabled() else { throw CancellationError() }
+            return port
+        } catch {
+            if loopbackForwards[key] === process { loopbackForwards[key] = nil }
+            await process.stop()
+            throw error
+        }
+    }
+
+    func closeLoopbackForward(machineID: String, target: CloudPortForwardTarget) async {
+        let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)
+        loopbackForwardStarts.removeValue(forKey: key)?.cancel()
+        let process = loopbackForwards.removeValue(forKey: key)
+        await process?.stop()
+    }
+
     /// Detaching a Mac closes its carrier, never the daemon or its terminal processes.
     func disconnect() async {
         let previous = current
@@ -159,6 +209,12 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         let proxy = browser
         browser = nil
         await proxy?.stop()
+        let forwards = loopbackForwards.values
+        loopbackForwards.removeAll()
+        let starts = loopbackForwardStarts.values
+        loopbackForwardStarts.removeAll()
+        for start in starts { start.cancel() }
+        for forward in forwards { await forward.stop() }
         await previous?.disconnect()
     }
 }

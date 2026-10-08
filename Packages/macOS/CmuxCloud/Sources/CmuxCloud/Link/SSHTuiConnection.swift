@@ -77,11 +77,15 @@ public struct SSHTuiConnection: Sendable {
     /// without a shared master, batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+        var effectiveOptions = configuration.sshOptions
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
             routeSensitiveOptions.append("IdentityAgent=\(agent)")
+            if !SSHAgentSocketResolver(environment: [:]).hasOptionKey(effectiveOptions, key: "IdentityAgent") {
+                effectiveOptions.append("IdentityAgent=\(agent)")
+            }
         }
         return SSHConnectionSharingOptions().mergingDefaults(
-            into: configuration.sshOptions,
+            into: effectiveOptions,
             routeSensitiveOptions: routeSensitiveOptions,
             routeIdentifier: routeIdentityDigest
         )
@@ -139,6 +143,25 @@ public struct SSHTuiConnection: Sendable {
         arguments += ["--workspace-root", "/", "--allow-loopback",
                       "--allowed-host", "127.0.0.1", "--allowed-host", "localhost",
                       "--allowed-host", "::1"]
+        return arguments
+    }
+
+    /// Opens one authenticated, loopback-only TCP route through the SSH carrier.
+    /// The app pre-binds and retains the browser-visible loopback socket. The
+    /// child inherits it on stdin so its exit cannot expose the URL to a local
+    /// service that later reuses the port.
+    public func forwardArguments(stateDirectory: String, target: CloudPortForwardTarget) -> [String] {
+        var arguments = ["remote", "forward", "ssh://" + configuration.destination,
+                         "--workspace-root", "/", "--host", target.host,
+                         "--port", String(target.port), "--listen-fd", "0", "--scheme", "http",
+                         "--exit-with-parent", "--lanes", "single", "--carrier",
+                         "--session", session, "--state-dir", stateDirectory,
+                         "--device-name", CloudTuiClientPaths.deviceName()]
+        var sshArguments = ["-o", "BatchMode=yes", "-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
+        if let port = configuration.port { sshArguments += ["-p", String(port)] }
+        if let identity = configuration.identityFile { sshArguments += ["-i", identity] }
+        for option in sshOptions { sshArguments += ["-o", option] }
+        for argument in sshArguments { arguments += ["--ssh-arg", argument] }
         return arguments
     }
 }

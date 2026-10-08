@@ -774,6 +774,73 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testRemoteTuiPublicNavigationDoesNotWaitForLegacyProxyEndpoint() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+
+        XCTAssertNotNil(navigation)
+        XCTAssertFalse(panel.hasPendingRemoteNavigation)
+    }
+
+    func testRemoteTuiLoopbackRequestDoesNotFallThroughToLocalBrowser() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+
+        XCTAssertNil(navigation)
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
+    }
+
+    func testRemoteTuiPublicNavigationSupersedesQueuedLoopbackRequest() throws {
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/"))
+        let publicURL = try XCTUnwrap(URL(string: "https://example.com/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        _ = panel.navigateWithoutInsecureHTTPPrompt(to: loopbackURL, recordTypedNavigation: false)
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: publicURL, recordTypedNavigation: false)
+
+        XCTAssertNotNil(navigation)
+        XCTAssertFalse(panel.hasPendingRemoteNavigation)
+    }
+
+    func testRemoteTuiRoutePreservesRequestWhenRewritingItsURL() throws {
+        let sourceURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/submit"))
+        let routedURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/forwarded"))
+        var request = URLRequest(url: sourceURL)
+        request.httpMethod = "POST"
+        request.httpBody = Data("payload".utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("browser-test", forHTTPHeaderField: "X-Cmux-Test")
+
+        let routed = CmuxTuiSurfaceProvider.routedBrowserRequest(request, to: routedURL)
+
+        XCTAssertEqual(routed.url, routedURL)
+        XCTAssertEqual(routed.httpMethod, "POST")
+        XCTAssertEqual(routed.httpBody, Data("payload".utf8))
+        XCTAssertEqual(routed.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(routed.value(forHTTPHeaderField: "X-Cmux-Test"), "browser-test")
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(

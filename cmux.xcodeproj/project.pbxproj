@@ -803,6 +803,7 @@
 		C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */; };
 		9EC6BCBA151ECA395FAFFFEC /* CloudLinkFailureMessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F253D557E6B9613AC4DB5C /* CloudLinkFailureMessageTests.swift */; };
 		8E7B97505657BF3E66091D9B /* CloudLinkRetryBackoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF5E22859B10B563032FECE7 /* CloudLinkRetryBackoffTests.swift */; };
+		68753103499965DFD67DD655 /* CloudLoopbackOriginTestServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA01C93EAB38BB65F12E12D /* CloudLoopbackOriginTestServer.swift */; };
 		7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */; };
 		2CA3DFCD62CD4AECA4B8ABD1 /* CloudMachineCreatorLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D600EB49C54071A2CCBE62 /* CloudMachineCreatorLabel.swift */; };
 		A44FBE43FCD42CFEEB6EAF6F /* CloudMachineCreatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6CE8A534885E9CE99D3F84 /* CloudMachineCreatorTests.swift */; };
@@ -3539,6 +3540,8 @@
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F9E6690E10C81DFA480C03 /* SSHTuiAgentStatusProjector.swift */; };
 		C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E93262C2928EC5E04F1BD4A0 /* SSHTuiLinkManager.swift */; };
+		393E11FA26505BD267BAEAB4 /* SSHTuiLoopbackForwardProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565CA2373238733C8485A911 /* SSHTuiLoopbackForwardProcess.swift */; };
+		6EA2C39A69FA000A92C6C27A /* SSHTuiLoopbackListenerLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84DE5E1D5D226BE61BDD2979 /* SSHTuiLoopbackListenerLease.swift */; };
 		2ED21DB7F76E4F2F23FC4292 /* SSHTuiMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */; };
 		687509121DABB2ADED3C0E9A /* SSHTuiOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */; };
 		B9B1DC92B6B88F225DAD7ABB /* SSHTuiPreflightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F044F74E3A921F191E3F0EAF /* SSHTuiPreflightTests.swift */; };
@@ -5383,6 +5386,7 @@
 		C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudInitialWorkspaceNamingTests.swift"; sourceTree = "<group>"; };
 		78F253D557E6B9613AC4DB5C /* CloudLinkFailureMessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudLinkFailureMessageTests.swift"; sourceTree = "<group>"; };
 		FF5E22859B10B563032FECE7 /* CloudLinkRetryBackoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudLinkRetryBackoffTests.swift"; sourceTree = "<group>"; };
+		7BA01C93EAB38BB65F12E12D /* CloudLoopbackOriginTestServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudLoopbackOriginTestServer.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForwardTests.swift; sourceTree = "<group>"; };
 		81D600EB49C54071A2CCBE62 /* CloudMachineCreatorLabel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineCreatorLabel.swift; sourceTree = "<group>"; };
 		9E6CE8A534885E9CE99D3F84 /* CloudMachineCreatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineCreatorTests.swift"; sourceTree = "<group>"; };
@@ -7966,6 +7970,8 @@
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		A6F9E6690E10C81DFA480C03 /* SSHTuiAgentStatusProjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SSHTuiAgentStatusProjector.swift"; sourceTree = "<group>"; };
 		E93262C2928EC5E04F1BD4A0 /* SSHTuiLinkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SSHTuiLinkManager.swift"; sourceTree = "<group>"; };
+		565CA2373238733C8485A911 /* SSHTuiLoopbackForwardProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTui/SSHTuiLoopbackForwardProcess.swift; sourceTree = "<group>"; };
+		84DE5E1D5D226BE61BDD2979 /* SSHTuiLoopbackListenerLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTui/SSHTuiLoopbackListenerLease.swift; sourceTree = "<group>"; };
 		0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiMigrationTests.swift"; sourceTree = "<group>"; };
 		266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiOpenTests.swift"; sourceTree = "<group>"; };
 		F044F74E3A921F191E3F0EAF /* SSHTuiPreflightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiPreflightTests.swift"; sourceTree = "<group>"; };
@@ -12003,6 +12009,8 @@
 				36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */,
 				6C858D764447A3E9A2C7EE35 /* CmuxSettingsFileStore+FontSections.swift */,
 				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
+				565CA2373238733C8485A911 /* SSHTuiLoopbackForwardProcess.swift */,
+				84DE5E1D5D226BE61BDD2979 /* SSHTuiLoopbackListenerLease.swift */,
 				11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */,
 				4252144220782379B2B347BE /* SettingsHostingView.swift */,
 			);
@@ -13536,6 +13544,7 @@
 				A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */,
 				F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */,
 				03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */,
+				7BA01C93EAB38BB65F12E12D /* CloudLoopbackOriginTestServer.swift */,
 				0FBCBAF21AECA805D71D54BD /* FilePreviewQuickLookRetirementTests.swift */,
 				67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */,
 				07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */,
@@ -16267,6 +16276,8 @@
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */,
 				C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */,
+				393E11FA26505BD267BAEAB4 /* SSHTuiLoopbackForwardProcess.swift in Sources */,
+				6EA2C39A69FA000A92C6C27A /* SSHTuiLoopbackListenerLease.swift in Sources */,
 				0754B84093909FD27762E206 /* SSHTuiWorkspaceCoordinator.swift in Sources */,
 				A11C00020000000000000001 /* StackAccountAvatarImageLoader.swift in Sources */,
 				A5C017000000000000000005 /* StackAccountAvatarView.swift in Sources */,
@@ -17649,6 +17660,7 @@
 				C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */,
 				9EC6BCBA151ECA395FAFFFEC /* CloudLinkFailureMessageTests.swift in Sources */,
 				8E7B97505657BF3E66091D9B /* CloudLinkRetryBackoffTests.swift in Sources */,
+				68753103499965DFD67DD655 /* CloudLoopbackOriginTestServer.swift in Sources */,
 				7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */,
 				A44FBE43FCD42CFEEB6EAF6F /* CloudMachineCreatorTests.swift in Sources */,
 				9E21585251BFCA0BAF06B10B /* CloudMachineDeleteOptimismTests.swift in Sources */,

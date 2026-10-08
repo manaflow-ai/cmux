@@ -2792,6 +2792,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     proxyEndpoint: self.remoteProxyEndpoint,
                     bypassRemoteProxy: false,
                     isRemoteWorkspace: self.isRemoteWorkspace,
+                    allowsLocalNavigationWithoutRemoteProxy: self.usesSSHTui,
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
                     remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
@@ -5460,6 +5461,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             transparentBackground: browserSnapshot.transparentBackground ?? false,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
+            allowsLocalNavigationWithoutRemoteProxy: usesSSHTui,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
         browserPanel.adoptStableSurfaceId(deferredPanel.stableSurfaceIdentity.id)
@@ -9993,6 +9995,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
+            allowsLocalNavigationWithoutRemoteProxy: usesSSHTui,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             websiteDataStore: websiteDataStore
         )
@@ -10122,6 +10125,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
+            allowsLocalNavigationWithoutRemoteProxy: usesSSHTui,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             websiteDataStore: websiteDataStore
         )
@@ -11550,7 +11554,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 isRemoteWorkspace: isRemoteWorkspace,
                 remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !browserPanel.bypassesRemoteWorkspaceProxyForTabDuplication ? id : nil,
                 proxyEndpoint: remoteProxyEndpoint,
-                remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+                remoteStatus: browserRemoteWorkspaceStatusSnapshot(),
+                allowsLocalNavigationWithoutRemoteProxy: usesSSHTui
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)

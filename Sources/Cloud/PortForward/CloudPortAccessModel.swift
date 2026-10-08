@@ -23,11 +23,15 @@ final class CloudPortAccessModel {
     private(set) var phase: Phase = .needsVPN
     private(set) var tunnelState: CloudTunnelState = .off
     let route: CloudPortAccessRoute
+    let allowsLoopback: Bool
     private var coordinator: CloudTunnelCoordinator?
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
     private let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)?
+    private let stopForwardForTarget: (@MainActor (CloudPortForwardTarget) async -> Void)?
+    private var activeForwardTarget: CloudPortForwardTarget?
+    private var startingForwardTarget: CloudPortForwardTarget?
     private var observation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = 0
@@ -39,7 +43,9 @@ final class CloudPortAccessModel {
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
         stopForward: @escaping @MainActor () async -> Void,
         route: CloudPortAccessRoute = .privateNetwork,
-        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil
+        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil,
+        stopForwardForTarget: (@MainActor (CloudPortForwardTarget) async -> Void)? = nil,
+        allowsLoopback: Bool = false
     ) {
         self.target = target
         self.coordinator = coordinator
@@ -48,6 +54,8 @@ final class CloudPortAccessModel {
         self.stopForward = stopForward
         self.route = startBrowserProxy == nil ? route : .browserProxy
         self.startBrowserProxy = startBrowserProxy
+        self.stopForwardForTarget = stopForwardForTarget
+        self.allowsLoopback = allowsLoopback
     }
 
     var failureMessage: String? {
@@ -142,10 +150,28 @@ final class CloudPortAccessModel {
                 return .proxied(try await startBrowserProxy())
             }
         case .loopback:
-            run { [wake, startForward, target] in
+            let previousForwardTarget = activeForwardTarget
+            run { [self, wake, startForward, stopForward, target, previousForwardTarget, stopForwardForTarget] in
+                if let previousForwardTarget {
+                    if let stopForwardForTarget { await stopForwardForTarget(previousForwardTarget) }
+                    else { await stopForward() }
+                    if activeForwardTarget == previousForwardTarget { activeForwardTarget = nil }
+                }
+                try Task.checkCancellation()
                 try await wake()
                 try Task.checkCancellation()
-                return .forwarded(try await startForward(target))
+                startingForwardTarget = target
+                do {
+                    let port = try await startForward(target)
+                    try Task.checkCancellation()
+                    activeForwardTarget = target
+                    startingForwardTarget = nil
+                    return .forwarded(port)
+                } catch {
+                    if let stopForwardForTarget { await stopForwardForTarget(target) }
+                    if startingForwardTarget == target { startingForwardTarget = nil }
+                    throw error
+                }
             }
         case .privateNetwork:
             guard tunnelState == .up else { return }
@@ -164,8 +190,9 @@ final class CloudPortAccessModel {
         operation = nil
         phase = .stopping
         let token = generation
+        if route == .loopback { await closeActiveForward() }
         await pending?.value
-        if route == .loopback { await stopForward() }
+        if route == .loopback { await closeActiveForward() }
         guard phase != .closed, generation == token else { return }
         phase = .needsVPN
     }
@@ -178,13 +205,27 @@ final class CloudPortAccessModel {
         observation = nil
         operation?.cancel()
         operation = nil
+        if route == .loopback { await closeActiveForward() }
         await pending?.value
-        if route == .loopback { await stopForward() }
+        if route == .loopback { await closeActiveForward() }
+    }
+
+    private func closeActiveForward() async {
+        guard let target = activeForwardTarget ?? startingForwardTarget else { return }
+        activeForwardTarget = nil
+        startingForwardTarget = nil
+        if let stopForwardForTarget { await stopForwardForTarget(target) }
+        else { await stopForward() }
     }
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
-        case .direct, .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
+        case .direct, .proxied:
+            return CloudPortRoutePolicy().privateURL(
+                remoteURL.absoluteString,
+                address: target.host,
+                allowLoopback: allowsLoopback
+            )
         case .forwarded(let port): return CloudPortRoutePolicy().localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
         default: return nil
         }
