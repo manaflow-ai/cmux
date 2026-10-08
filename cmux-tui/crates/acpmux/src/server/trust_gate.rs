@@ -39,15 +39,46 @@ pub(super) async fn check(
     origin: Origin,
     m: &str,
     params: &Value,
+    resolved: Option<&Arc<crate::hub::Session>>,
 ) -> Result<(), RpcError> {
     if !gated(origin, params) {
         return Ok(());
     }
     let Some(paths) = hub.trust_gate() else { return Ok(()) };
-    let session_id = match m {
-        method::SESSION_PROMPT | method::SESSION_FORK => {
-            session_key(params).ok().map(str::to_owned)
+    if m == method::SESSION_NEW {
+        if params
+            .pointer("/_meta/acpmux/peer")
+            .and_then(Value::as_str)
+            .is_some_and(|peer| !peer.is_empty())
+        {
+            return Ok(());
         }
+        return check_new(hub, &paths, params).await;
+    }
+    if m == method::MUX_PREWARM {
+        return check_prewarm(hub, &paths, params).await;
+    }
+    if m == method::MUX_HANDOFF_PREPARE {
+        let Some(source) = resolved
+            .cloned()
+            .or_else(|| session_key(params).ok().and_then(|key| hub.resolve(key).ok()))
+        else {
+            return Ok(());
+        };
+        let harness = params.get("harness").and_then(Value::as_str).unwrap_or_default();
+        let family = resolve_family(hub, harness).await;
+        return folder_answered(
+            paths.clone(),
+            source.meta().cwd.to_string_lossy().into_owned(),
+            family,
+        )
+        .await;
+    }
+    let session_id = match m {
+        method::SESSION_PROMPT
+        | method::SESSION_FORK
+        | method::SESSION_SET_MODE
+        | method::SESSION_SET_CONFIG_OPTION => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
             .get("handoffId")
             .and_then(Value::as_str)
@@ -57,7 +88,8 @@ pub(super) async fn check(
     };
     // An unknown or remote session: the request's own path answers it (a
     // peer gates what this daemon forwards, `remote_guard::mark_forwarded`).
-    let Some(session) = session_id.and_then(|id| hub.resolve(&id).ok()) else { return Ok(()) };
+    let session = resolved.cloned().or_else(|| session_id.and_then(|id| hub.resolve(&id).ok()));
+    let Some(session) = session else { return Ok(()) };
     let meta = session.meta();
     // A fork runs its agent (a Claude fork is primed with a turn) in its own
     // folder, which the remote guard made canonical: that folder answers.
@@ -67,14 +99,97 @@ pub(super) async fn check(
     folder_answered(paths, cwd, family).await
 }
 
+pub(crate) async fn check_dispatch(
+    hub: &Arc<Hub>,
+    gated_request: bool,
+    session: &Arc<crate::hub::Session>,
+) -> Result<(), RpcError> {
+    if !gated_request {
+        return Ok(());
+    }
+    let Some(paths) = hub.trust_gate() else { return Ok(()) };
+    let meta = session.meta();
+    folder_answered(
+        paths,
+        meta.cwd.to_string_lossy().into_owned(),
+        meta.family.clone().unwrap_or(meta.harness.clone()),
+    )
+    .await
+}
+
+async fn check_new(
+    hub: &Arc<Hub>,
+    paths: &crate::trust::Paths,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let cwd = params.get("cwd").and_then(Value::as_str).map(str::to_owned);
+    let meta = params.get("_meta").and_then(|v| v.get("acpmux"));
+    let family = meta
+        .and_then(|m| m.get("harness"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let cwd = match cwd {
+        Some(cwd) => cwd,
+        None => {
+            let adopt = meta.and_then(|m| m.get("adopt"));
+            let Some(id) = adopt.and_then(|a| a.get("agentSessionId")).and_then(Value::as_str)
+            else {
+                return Ok(());
+            };
+            let family = if family.is_empty() {
+                adopt.and_then(|a| a.get("harness")).and_then(Value::as_str).unwrap_or_default()
+            } else {
+                &family
+            };
+            hub.adopted_cwd_for_trust(family, id).await?.unwrap_or_default()
+        }
+    };
+    if cwd.is_empty() {
+        return Ok(());
+    }
+    let family = resolve_family(hub, &family).await;
+    folder_answered(paths.clone(), cwd, family).await
+}
+
+async fn check_prewarm(
+    hub: &Arc<Hub>,
+    paths: &crate::trust::Paths,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let Some(cwd) = params.get("cwd").and_then(Value::as_str) else { return Ok(()) };
+    let family = params.get("harness").and_then(Value::as_str).unwrap_or_default();
+    folder_answered(paths.clone(), cwd.to_owned(), resolve_family(hub, family).await).await
+}
+
+async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    let cfg = hub.config.read().await;
+    cfg.resolve_harness(name)
+        .ok()
+        .and_then(|resolved| {
+            cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))
+        })
+        .unwrap_or_else(|| name.to_owned())
+}
+
 /// The app's pane, a Web client, and a peer that forwards for either.
-fn gated(origin: Origin, params: &Value) -> bool {
+pub(super) fn gated(origin: Origin, params: &Value) -> bool {
     let via = params.pointer("/_meta/acpmux/via").and_then(Value::as_str);
     match origin {
         Origin::LocalApp | Origin::Web => true,
         Origin::Peer => matches!(via, Some("web" | "app")),
         Origin::Local => false,
     }
+}
+
+pub(super) fn peer_unsupported(peer: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "trust.peer_unsupported: peer {peer} does not advertise the folder trust gate"
+    ))
+    .with_data(json!({"reason": "trust.peer_unsupported", "peer": peer}))
 }
 
 /// Ok when the folder is trusted for `family`; else the refusal.

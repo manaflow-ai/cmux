@@ -31,12 +31,16 @@ Resources/markdown-viewer/webviews-app/** linguist-generated
 # registration.
 cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 
-# The cmux-next web bundles are minified build output that nearly every agent
-# pane change rewrites, so two branches always collide in them. Line merging
-# cannot combine two builds; the only right result is a rebuild of the merged
-# sources. `cmux-generated-v1` keeps the current branch's copy so the merge
-# finishes, then scripts/cmux-next/regenerate-web-bundles.sh rebuilds all generated pages and
-# CI's --check steps fail until it has. The driver command is `true`, a git
+# Generated files that two branches always collide in. Line merging cannot
+# combine two builds; the only right result is a rebuild of the merged sources.
+# `cmux-generated-v1` keeps the current branch's copy so the merge finishes,
+# then scripts/cmux-next/regenerate-web-bundles.sh rebuilds the still-committed
+# strings tables and CI's checks fail until it has.
+# The web bundles themselves (agent pane, Activity, palette ranker, webviews app,
+# pages) are build output since cx-vn5 and gitignored; their lines stay so the
+# generated catch-up still treats a merge with an older branch, whose only
+# conflicts are those deleted bundles, as generated (regenerate-web-bundles.sh
+# removes them from the index). The driver command is `true`, a git
 # no-op that runs no checked-out code. Register it with
 # scripts/install-git-hooks.sh. GitHub ignores merge drivers, so a PR still
 # shows the conflict until its branch is merged locally. The driver runs no

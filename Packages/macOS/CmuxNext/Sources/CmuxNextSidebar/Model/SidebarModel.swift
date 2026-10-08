@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 import Foundation
 public import Observation
 
@@ -37,6 +37,20 @@ public final class SidebarModel {
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
+    /// Client-only items above the top band's sections (the What's New item
+    /// after an update). Never in `layout`: they cannot be moved, edited or
+    /// hidden, and activate like any item (`SidebarIntent.activateItem`).
+    public var transientTopItems: [SidebarTransientItem] = []
+
+    /// The section that draws `transientTopItems` first in the top band, or
+    /// nil without any (built-in look, no title, one row per item).
+    var transientTopSection: LayoutSection? {
+        transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
+                                                        region: .top, look: .builtIn, items: transientTopItems.map(\.item))
+    }
+    /// The current profile's avatar: the account item draws it as the
+    /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
+    public var profileAvatar: SidebarAvatar?
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
@@ -45,21 +59,27 @@ public final class SidebarModel {
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    /// The card stack above the bottom band (R114): update, what's new, announcements.
+    /// The card stack above the bottom band (R114): update, announcements.
     public var cards: [SidebarCard] = []
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
+    /// The window shows a full-page destination: the footer band shows Back
+    /// (`onBack`) in its place.
+    public var showsBack = false
+    /// Back in the footer: return to where the window was.
+    @ObservationIgnored public var onBack: (() -> Void)?
+    /// The "Did you know" card (BOTTOM-LEFT-CARDS K1), shown only while
+    /// ``updateCard`` is nil.
+    public var tipCard: SidebarTipCard?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
-    /// Workspace rows show their tab count (`sidebar.showCounts`).
-    public var showCounts = false
-    /// Workspace rows show their folder line (`sidebar.showWorkspaceDirectory`).
-    public var showWorkspaceDirectory = false
+    /// What workspace rows show (`sidebar.workspaceRow.*`).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -156,7 +176,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink:
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .tryTip, .dismissTip:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -252,8 +272,7 @@ public final class SidebarModel {
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         showWorkspaceTabs = preferences.showWorkspaceTabs
-        showCounts = preferences.showCounts
-        showWorkspaceDirectory = preferences.showWorkspaceDirectory
+        workspaceRow = preferences.workspaceRow
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
@@ -267,8 +286,8 @@ public final class SidebarModel {
         o.filterMatches = filterMatches
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
-        o.showCounts = showCounts
-        o.showWorkspaceDirectory = showWorkspaceDirectory
+        o.workspaceRow = workspaceRow
+        o.now = Calendar.current.startOfDay(for: Date())
         return o
     }
 
@@ -286,5 +305,17 @@ public final class SidebarModel {
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+}
+
+/// A client-only top item and its look (`SidebarModel.transientTopItems`).
+public nonisolated struct SidebarTransientItem: Hashable, Sendable {
+    public var item: LayoutItem
+    public var info: SidebarItemInfo
+
+    /// `id` must carry the `client.` prefix (`LayoutItemID.isTransient`).
+    public init(id: LayoutItemID, info: SidebarItemInfo) {
+        item = LayoutItem(id: id, ref: LayoutItemRef(kind: "client", value: id.rawValue))
+        self.info = info
     }
 }

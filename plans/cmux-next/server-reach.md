@@ -25,7 +25,7 @@ The registry transport is `{kind: "server", host, install, name, route, ...}`, n
 | Route | When | How |
 | --- | --- | --- |
 | `ssh` (dev-only) | the server is another machine | the bundled `cmux-tui remote connect ssh://<server> --session chief --remote-binary ~/.cmux/brains/chief/bin/cmux-tui --remote-mux-socket ~/.cmux/brains/chief/daemon/cmux.sock --no-install`; on the server `remote-link --stdio --mux-socket <brain socket>` starts a sidecar that talks to the brain's daemon over its Unix socket as the same user. With an explicit `--mux-socket`, remote-link only attaches: a down brain is an error, never a second daemon at the brain's path. The destination is the server's name as a DNS label (`cmux-lawrences-Mac-mini` -> `cmux-lawrences-mac-mini`), resolved by the user's `~/.ssh/config` and tailnet DNS. |
-| `unix` | the server is this Mac (its short host name equals the server's name and the brain socket exists here; a stat, nothing is read) | the app's `DaemonService` connects to the brain's socket directly; a socket that answers as this Mac's own home daemon is refused |
+| `unix` | the server is this Mac (this Mac's link install, from `cmux link show`, equals the `brain_place` install, or with no link install its short host name equals the server's name; and the brain socket exists here, a stat, nothing is read) | the app's `DaemonService` connects to the brain's socket directly; a socket that answers as this Mac's own home daemon is refused |
 
 Why SSH now: it is the existing trusted carrier (the remote daemon sees a local Unix client of its own user, full tree, as the coordinator and the remote ACP agent G2 agreed), it works today, and the pairing transport for clients to reach a server (transport.md 15 step 5) is not built. **SSH is a dev-only carrier**: it needs the user's own SSH login on the server, which pairing does not give. Real users' paired servers need the overlay route below; only the route changes, not the reach, the registry record or the sidebar.
 
@@ -64,3 +64,16 @@ This change adds no relay and no allowlist entry. `RemoteRelayPolicy.allowed` st
 4. The SSH destination follows `Host.name`; whoever can rename the host moves where the app's SSH (with the user's identity) goes. The overlay route removes this; until then it is the owner's own name.
 5. Two names that reduce to the same DNS label (`Lawrence's Mac`, `lawrences-mac`) both match this Mac; the `unix` route only ever opens this Mac's brain socket, so only the section title can be wrong.
 6. remote-link reuses a live sidecar of the `chief` carrier session without checking which mux socket it serves; only the server reach starts that session, always with the brain socket.
+
+## 7. Overlay route plan (next G1 step; protocol parts go through the coordinator WINDOW)
+
+What exists: `cmux link` slice 1 (cmux-tui `link/`, crate `cmux-link`) dials paired peers directly over `cmux-wg` (`cmux link peer add` records, written by `cmux server pair`), sends a `ServiceHello {service: daemon}` and hands the stream to the session daemon's remote entry with a verified stamp (ClientTransport::Remote, conversations only). `HostDO` relays datagrams (first slice). Cloud VMs use `connect_info` plus `link_token`.
+
+Steps, smallest first:
+
+1. App route `overlay {host}`: `ServerMachineSession` asks the app-side link (`link.dial {host, service}` on the link's local socket) for a stream and starts `DaemonService` on a local socket that forwards it, the same shape as `remote connect` today. No protocol change. Works at once for a server on the same LAN (direct path).
+2. Trusted owner service (WINDOW: `cmux-link` dial types, daemon entry): a new `Service::OwnerSession`. The receiving link accepts it only when the stamp's user is the server's owner (the pairing record's `user`, later the `TeamDO` peer map) and the stream comes from one of that user's device keys; it hands the stream to the session's local trusted entry (full tree, as the SSH carrier gives today). Every other principal keeps `Service::Daemon` (remote entry). Policy analysis as in section 4, plus: the owner check is the authorization, the WireGuard key only reachability (transport.md 0 item 7).
+3. Which daemon (with optchat-chief): the server's link hands `OwnerSession` to the brain's daemon socket named in `server.json` (a `session_socket` field), so the brain keeps its launchd daemon; or the brain moves into the `session` role daemon of `cmux host run` (hq-6d's role supervisor). RECOMMEND the `server.json` field: no brain migration.
+4. Relay path: the app link dials `do_relay` through the server's `HostDO` when no direct path answers (relay tickets from `UserDO`, reachability compiled by `TeamDO` for the owner's devices). Backend work in the backend lead's DO base.
+5. Peer map instead of the pairing file: `TeamDO` pushes the owner's device keys to the server and the server's key to the owner's devices (transport.md 15 step 4).
+6. Remove the SSH route for servers once 1-4 are live; keep it only behind a dev setting.

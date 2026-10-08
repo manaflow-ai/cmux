@@ -281,6 +281,9 @@ pub enum Control {
     Page { url: String, title: String, loading: bool, can_go_back: bool, can_go_forward: bool },
     #[serde(rename = "rb.history")]
     History { op: HistoryOp },
+    /// The viewer's omnibar or an opened tab: load `url` in the page.
+    #[serde(rename = "rb.navigate")]
+    Navigate { url: String },
     #[serde(rename = "rb.key_unhandled")]
     KeyUnhandled { input_seq: u32 },
     #[serde(rename = "rb.cursor")]
@@ -311,6 +314,10 @@ pub enum Control {
     DialogShow { token: u64, dialog: Dialog },
     #[serde(rename = "rb.dialog.result")]
     DialogResult { token: u64, accept: bool, text: Option<String> },
+    /// The page closed the dialog itself (it navigated away or went away):
+    /// the viewer closes the sheet and sends no answer.
+    #[serde(rename = "rb.dialog.cancel")]
+    DialogCancel { token: u64 },
     #[serde(rename = "rb.file_chooser.show")]
     FileChooserShow {
         token: u64,

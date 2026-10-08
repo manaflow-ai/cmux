@@ -29,6 +29,8 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         AgentSessionWorkspace.bind(into: registry, context: context)
+        ChiefInspectorHandlers.bind(into: registry, context: context)
+        AddHarnessHandler.bind(into: registry, context: context)
         registry.bind("home.toggleChiefSettings", run: { _ in
             NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
         })
@@ -43,32 +45,11 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
-            if let pane = context.scope(invocation).pane {
+            if let pane = context.scope(invocation).pane,
+               openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
+            withAgentPane(invocation, context: context) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
-                return
             }
-            // Cmd-I is also the entry point while a workspace is settling and
-            // has no mounted pane yet. Reuse Cmd-T's shared path to repair or
-            // create the active workspace's first usable pane, then wait for
-            // its controller before opening the agent tab. Explicit targets
-            // still fail normally instead of silently switching panes.
-            guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
-            guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
-            _ = context.registry.perform("newTab.sameKind", invocation: invocation)
-            context.registry.track(Task { @MainActor in
-                let pane = try? await ControlDeadline.shared.run(
-                    method: "agent-pane.mount",
-                    deadline: .now + .seconds(10)
-                ) { @MainActor in
-                    await Self.waitForPaneController(in: workspace, context: context)
-                }
-                guard let pane else {
-                    context.refuse(MiscHandlerStrings.noPane)
-                    return ActionWorkFailure(MiscHandlerStrings.noPane)
-                }
-                openNewAgentChat(in: pane, invocation: invocation, context: context)
-                return nil
-            })
         }
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
@@ -139,6 +120,32 @@ enum AgentHandlers {
         )
     }
 
+    /// The pane a new agent chat opens in (New Agent Chat, Add Harness…): the invocation's pane,
+    /// else, while the active workspace has no mounted pane yet (Home, a settling workspace),
+    /// Cmd-T's shared path repairs or creates its first usable pane and `open` runs once its
+    /// controller mounts. Explicit targets still fail normally instead of switching panes.
+    static func withAgentPane(_ invocation: ActionInvocation, context: AppActionContext,
+                              _ open: @escaping @MainActor (PaneController) -> Void) {
+        if let pane = context.scope(invocation).pane { return open(pane) }
+        guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
+        guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
+        _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+        context.registry.track(Task { @MainActor in
+            let pane = try? await ControlDeadline.shared.run(
+                method: "agent-pane.mount",
+                deadline: .now + .seconds(10)
+            ) { @MainActor in
+                await Self.waitForPaneController(in: workspace, context: context)
+            }
+            guard let pane else {
+                context.refuse(MiscHandlerStrings.noPane)
+                return ActionWorkFailure(MiscHandlerStrings.noPane)
+            }
+            open(pane)
+            return nil
+        })
+    }
+
     @MainActor
     private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
         // The store's panes are observable; mounted controllers are not, so
@@ -154,6 +161,36 @@ enum AgentHandlers {
             return mounted()
         }
         return nil
+    }
+
+    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
+    /// workspace whose only tab is the chat, like a new thread in the Codex
+    /// and Claude apps (lawrence-call-1006 D). The chat inherits the focused
+    /// tab's cwd and draft as a tab would. Scripts, an explicit target and a
+    /// daemon that cannot hold a chat get a tab in `pane`: false.
+    private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
+                                                  context: AppActionContext) -> Bool {
+        let services = context.services
+        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
+              let windowID = context.activeWindow?.state.id else { return false }
+        let folder = pane.selectedTab?.cwd
+        services.newTabKinds.record(.agent, folder: folder)
+        let source = pane.agentSeedFromSelectedTab()
+        let daemon = pane.daemon
+        context.registry.track(Task { @MainActor in
+            var seed = await source?.take() ?? AgentPaneSeed()
+            seed.cwd = seed.cwd ?? folder
+            var spawn = WorkspaceSpawn(cwd: seed.cwd)
+            spawn.firstChat = seed
+            do {
+                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
+                return nil
+            } catch {
+                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("new agent chat: \(error)")
+            }
+        })
+        return true
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {

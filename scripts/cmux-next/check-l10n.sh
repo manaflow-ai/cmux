@@ -59,6 +59,9 @@ if sys.argv[2] == "mobile":
 else:
     tables = sorted(catalogs(root / "Packages/macOS/CmuxNext/Sources"))
     tables.append(root / "Resources/InfoPlist.xcstrings")
+    # The Home transcript's tables (MessagesLab's vendored ones and cmux's own) ship in the app too.
+    tables += sorted((root / "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Resources").glob("*.xcstrings"))
+    tables += sorted((root / "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Resources").glob("*.xcstrings"))
 def forms(localization):
     """{"": unit} for a plain value, {category: unit} for plural variations, else None."""
     if "stringUnit" in localization:

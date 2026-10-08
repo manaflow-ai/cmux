@@ -38,6 +38,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyTheme()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        view?.applyEditedFiles()
         view?.replayCustomization()
     }
 

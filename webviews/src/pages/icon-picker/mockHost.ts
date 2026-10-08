@@ -29,6 +29,8 @@ export const MOCK_SYMBOLS = [
 export class MockIconPickerHost implements PageClient {
   readonly calls: { op: string; params: unknown }[] = [];
   prefs: unknown = null;
+  /** Refuses every finish, as the native host does for an unknown session. */
+  refuseFinish = false;
   private sessionListener?: (data: PickerSession, seq: number) => void;
   private seq = 0;
 
@@ -46,6 +48,8 @@ export class MockIconPickerHost implements PageClient {
         return { icon: `${kind}:sha256-${"0".repeat(63)}${this.calls.length % 10}` } as R;
       }
       case IconPickerOps.finish:
+        if (this.refuseFinish)
+          throw pageError("cmux.protocol.invalid_params", "finish: unknown session or invalid icon");
         return undefined as R;
       default:
         throw pageError("cmux.protocol.unknown_op", op);

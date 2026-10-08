@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextMobileHostUI
 import CmuxNextPalette
+import CmuxNextPages
 import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -102,8 +103,8 @@ final class AppServices {
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
-    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
-    private(set) lazy var sidebarLayout: SidebarLayoutService = {
+    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
+    lazy var sidebarLayout: SidebarLayoutService = {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
@@ -120,6 +121,8 @@ final class AppServices {
     let newTabTypeAhead = NewTabTypeAhead()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
+    /// The spare React page hosts for Settings, History and Cloud.
+    private(set) lazy var pageHostPool = PageHostPool()
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
@@ -162,8 +165,10 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
-    /// The sidebar's Recents (nil without acpmux), watched once for every window.
-    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
+    /// The device-wide Chats index (nil without acpmux), watched once for every window.
+    private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
+    /// Shared Open Chat path for sidebar clicks and palette Return.
+    private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
@@ -204,8 +209,8 @@ final class AppServices {
         cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: contextMenus))
         themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
         remoteLocalhost = RemoteLocalhostService(machines: machines)
-        cache.configureBrowser = { [weak self] tab, url, base in
-            await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
+        cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
+            await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in
@@ -321,9 +326,7 @@ final class AppServices {
             self?.keyRouter.cancelChord()
         }
     }
-
     // MARK: Lookup
-
     /// The tab with durable id `id` and the pane that holds it.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
         for (workspace, _) in machines.allWorkspaces {
@@ -339,7 +342,6 @@ final class AppServices {
         }
         return nil
     }
-
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
@@ -348,7 +350,6 @@ final class AppServices {
     func workspace(id: String) -> WorkspaceModel? {
         machines.workspace(id: id)?.0
     }
-
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)

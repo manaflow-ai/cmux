@@ -21,6 +21,8 @@ mod hosted_callbacks;
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(unix)]
 mod prelaunch;
+#[cfg(unix)]
+mod rehost;
 use directory::PublishedDirectory;
 
 use std::borrow::Cow;
@@ -69,7 +71,6 @@ use crate::terminal_host_protocol::PROTOCOL_VERSION;
 use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
 };
-use cmux_tui_cdp::BrowserMode;
 
 /// Ghostty's default maximum retained scrollback backing storage.
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
@@ -171,22 +172,8 @@ pub struct SurfaceOptions {
     pub extra_env: Vec<(String, String)>,
     /// The `claude` shim directory, kept first on every child's PATH.
     pub claude_shim_dir: Option<String>,
-    /// Optional Chrome/Chromium binary for browser surfaces.
-    pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
     pub cdp_url: Option<String>,
-    /// Whether browser panes should probe local debuggable Chrome ports.
-    pub browser_discover: bool,
-    /// Local ports to probe for /json/version when discovery is enabled.
-    pub browser_discover_ports: Vec<u16>,
-    /// Optional Chrome user data directory for launched browser runtime.
-    pub browser_user_data_dir: Option<String>,
-    /// Whether launched Chrome should show a visible window or run headless.
-    pub browser_mode: BrowserMode,
-    /// Session component for the default launched Chrome profile path.
-    pub browser_session_name: String,
-    /// Use a temporary launched Chrome profile and delete it on shutdown.
-    pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
     pub browser_max_capture_megapixels: f64,
     /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
@@ -252,14 +239,7 @@ impl Default for SurfaceOptions {
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             claude_shim_dir: None,
-            chrome_binary: None,
             cdp_url: None,
-            browser_discover: false,
-            browser_discover_ports: vec![9222],
-            browser_user_data_dir: None,
-            browser_mode: BrowserMode::Headful,
-            browser_session_name: "default".to_string(),
-            browser_ephemeral: false,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
             terminal_host_root: None,
@@ -2708,6 +2688,7 @@ impl Surface {
                 let mut connected_at: Option<Instant> = None;
                 'connection: loop {
                     let pty = surface.as_pty().expect("host reader owns a PTY surface");
+                    rehost::request_custody(&surface);
                     let mut stager = HostedFrameStager::new_for_version(
                         sequence_boundary,
                         protocol_version,
@@ -3157,47 +3138,23 @@ impl Surface {
                             }
                         };
                         let Some((record, record_path)) = discovery else { return };
-                        match crate::terminal_host_runtime::terminal_host_record_liveness(
+                        let replaced = match crate::terminal_host_runtime::terminal_host_record_liveness(
                             &record_path,
                             &record,
                         ) {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
-                                // A durable sidecar is the host's record of the
-                                // child's end; without one the host died with an
-                                // unknown outcome (invariant 3: its tabs stay).
-                                let exit = crate::terminal_host_runtime::terminal_host_exit_record(
-                                    &record_path,
-                                )
-                                .ok()
-                                .flatten()
-                                .filter(|(_, exit)| {
-                                    exit.terminal_id == identity.terminal_id
-                                        && exit.incarnation == identity.incarnation
-                                })
-                                .map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit))
-                                .unwrap_or_else(|| {
-                                    TerminalEnd::host_lost(
-                                        "terminal host ended without a durable exit sidecar",
-                                    )
-                                });
-                                *pty.exit.lock().unwrap() = Some(exit);
-                                mark_hosted_runtime_exited(pty, &identity);
-                                pty.host_connection_state.store(
-                                    TerminalHostConnectionState::Exited as u8,
-                                    Ordering::Release,
-                                );
-                                pty.stream_progress.notify();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.surface_exited(surface.id);
+                                match rehost::after_host_death(&surface, &mux, &identity, &record, &record_path, scrollback) {
+                                    rehost::DeadHost::Replaced(attachment) => Some(*attachment),
+                                    rehost::DeadHost::Retry if retry.wait_or_fail(pty) => continue,
+                                    rehost::DeadHost::Retry | rehost::DeadHost::Stop => return,
                                 }
-                                return;
                             }
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Live)
                             | Ok(
                                 crate::terminal_host_runtime::TerminalHostLiveness::Indeterminate,
                             )
-                            | Err(_) => {}
-                        }
+                            | Err(_) => None,
+                        };
 
                         let Some(reconnect_mux) = mux.upgrade() else { return };
                         let Ok(kitty_limits) =
@@ -3205,11 +3162,11 @@ impl Surface {
                         else {
                             return;
                         };
-                        let replacement = match crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
+                        let replacement = match replaced.map_or_else(|| crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
                             record,
                             record_path,
                             kitty_limits,
-                        ) {
+                        ), Ok) {
                             Ok(replacement) if replacement.identity() == identity => replacement,
                             Ok(_) | Err(_) => {
                                 if !retry.wait_or_fail(pty) {

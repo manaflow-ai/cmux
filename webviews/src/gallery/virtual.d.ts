@@ -19,3 +19,8 @@ declare module "virtual:cmux-gallery/metrics" {
   const metrics: Record<string, { compact: number; comfortable: number }>;
   export default metrics;
 }
+declare module "virtual:cmux-gallery/revision" {
+  /** The commit the gallery was built or served from (git, read when the module loads). */
+  const revision: import("./liveStatus").Revision;
+  export default revision;
+}

@@ -271,7 +271,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    */
   async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
     this.bind(entity)
-    const principal: Principal = { identity: `system:${source}`, kind: "system" }
+    const principal = this.systemPrincipal(entity, source)
     const done: Array<number> = []
     for (const item of items) {
       const frames: Array<OwnerFrame> = []
@@ -286,6 +286,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     }
     this.afterCommit()
     return { done }
+  }
+
+  /** The principal of a delivery from another owner's outbox (`source` is that owner's stream). */
+  protected systemPrincipal(_entity: string, source: string): Principal {
+    return { identity: `system:${source}`, kind: "system" }
   }
 
   /** Runs in the alarm after the outbox drain. A throw is logged and the alarm is rescheduled. */

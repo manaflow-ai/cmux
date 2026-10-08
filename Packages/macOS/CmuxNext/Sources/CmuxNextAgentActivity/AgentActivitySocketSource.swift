@@ -28,19 +28,29 @@ public final class AgentActivitySocketSource: AgentActivitySource {
             self.machineName = machineName
         }
 
+        /// The socket override and its auth tokens. CMUX_NEXT_ names, because
+        /// the app strips every other inherited CMUX* variable at launch
+        /// (LaunchIdentity); a tagged app and its tests set these to reach a
+        /// tag-scoped cmux-cua socket, never the shared default path.
+        public static let socketEnvironmentKey = "CMUX_NEXT_CUA_SOCKET"
+        public static let authTokenEnvironmentKey = "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"
+        public static let hostAuthTokenEnvironmentKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
+
         /// The default socket with the auth tokens from the environment.
-        public static func standard(machineName: String) -> Configuration {
-            let environment = ProcessInfo.processInfo.environment
-            return Configuration(socketPath: defaultSocketPath(),
-                                 authToken: environment["CMUX_CUA_SOCKET_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-                                 hostAuthToken: environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-                                 machineName: machineName)
+        public static func standard(machineName: String,
+                                    environment: [String: String] = ProcessInfo.processInfo.environment,
+                                    home: String = NSHomeDirectory()) -> Configuration {
+            Configuration(socketPath: defaultSocketPath(environment: environment, home: home),
+                          authToken: environment[authTokenEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 },
+                          hostAuthToken: environment[hostAuthTokenEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 },
+                          machineName: machineName)
         }
 
         /// The standalone daemon's default socket (cmux-cua `default_socket_path`).
-        public static func defaultSocketPath() -> String {
-            if let path = ProcessInfo.processInfo.environment["CMUX_CUA_SOCKET"], !path.isEmpty { return path }
-            return NSHomeDirectory() + "/Library/Caches/cmux-cua/cmux-cua.sock"
+        public static func defaultSocketPath(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                             home: String = NSHomeDirectory()) -> String {
+            if let path = environment[socketEnvironmentKey], !path.isEmpty { return path }
+            return home + "/Library/Caches/cmux-cua/cmux-cua.sock"
         }
     }
 
@@ -99,7 +109,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let connection = AgentActivityLineConnection(path: config.socketPath)
+        let connection = AgentActivityLineConnection(path: config.socketPath, expectedServerUID: geteuid())
         subscription = connection
         connection.start(
             send: AgentActivityWire.requestLine(method: "activity_subscribe", args: ["sessions": true, "events_for": []],

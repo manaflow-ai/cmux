@@ -1,8 +1,9 @@
 import CoreGraphics
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// `sidebar.showWorkspaceTabs` and `sidebar.showCounts`: a workspace row
+/// `sidebar.showWorkspaceTabs` and `sidebar.workspaceRow.tabCount`: a workspace row
 /// can show how many tabs it has, and with its tabs listed inline a
 /// disclosure on it collapses them.
 @Suite struct SidebarWorkspaceTabsTests {
@@ -57,7 +58,7 @@ import Testing
 
     @Test func countsShowTheWorkspaceTabCount() {
         var options = SidebarLayoutOptions()
-        options.showCounts = true
+        options.workspaceRow.base.shown.insert(.tabCount)
         let layout = SidebarLayout.make(sections: sections(), metrics: .standard, options: options)
         #expect(layout.row(for: .workspace(id("a")))?.tabCount == 2)
         #expect(layout.row(for: .workspace(id("b")))?.tabCount == 0)

@@ -52,6 +52,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .map(|origin| crate::server::dev_origin(origin))
         .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    // config.json holds the dashboard token: owner-only, also when another
+    // tool wrote it with the umask's mode and the daemon never saves it.
+    narrow_to_owner(&Config::path());
     config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
@@ -165,6 +168,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
+    // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
+    let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
+    let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
+        fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
+    hub.catalog.attach(home().join("catalog"), fetcher);
+    if fetch_catalog {
+        tokio::spawn(hub.catalog.clone().run());
+    }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
     hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
@@ -173,6 +185,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             claude_json: none.join(".claude.json"),
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
+            agent_home: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -188,6 +201,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    // The listener's token is on the hub before the unix socket serves, so a
+    // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
+    let ws_listener = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        hub.web_token.set(token.clone());
+        (l, token)
+    });
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -223,8 +244,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
-        // `needs_token` above gave the saved listener a token.
-        let token = token.unwrap_or_else(random_token);
         let auth = crate::server::WsAuth { local_app, peer };
         tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
     });
@@ -245,6 +264,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
+    // Profile files hot-reload (no polling); before startup work writes the config.
+    hub.start_harness_watch();
     {
         let hub = hub.clone();
         tokio::spawn(async move {
@@ -327,6 +348,19 @@ fn write_ready(fd: i32, ready: &Value) {
 /// refuses it, so a dev page origin never becomes a LocalApp origin there.
 pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
     debug_build || dev_flag
+}
+
+/// Clears the group and other bits of `path`, if it exists.
+fn narrow_to_owner(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    let mode = meta.permissions().mode();
+    if mode & 0o077 != 0
+        && let Err(e) =
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+    {
+        tracing::warn!("could not make {} owner-only: {e}", path.display());
+    }
 }
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).

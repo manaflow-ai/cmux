@@ -11,7 +11,7 @@ import Testing
     // MARK: Folder line
 
     @Test func aWorkspaceRowShowsNoFolderLineByDefault() throws {
-        let ws = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~/src/app")
+        let ws = SidebarWorkspace(id: id("a"), title: "a", directory: "~/src/app")
         let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(ws)])]
         let m = SidebarLayoutMetrics.standard
         let row = try #require(SidebarLayout.make(sections: sections, metrics: m).rows.first)
@@ -26,27 +26,29 @@ import Testing
         #expect(!texts.contains("sub-a"), "visible texts: \(texts)")
     }
 
-    @Test func theSettingTurnsTheFolderLineOnAndALiveStatusAlwaysShows() throws {
-        let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~/src/app")
-        let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~/src/app", status: "Claude: running tests")
+    /// SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE supersedes "a live status always
+    /// shows": the agent status line is its own element, off by default.
+    @Test func theSettingTurnsTheFolderLineOnAndTheStatusIsItsOwnElement() throws {
+        let passive = SidebarWorkspace(id: id("a"), title: "a", directory: "~/src/app")
+        let live = SidebarWorkspace(id: id("b"), title: "b", directory: "~/src/app", status: "Claude: running tests")
         let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                                        nodes: [.workspace(passive), .workspace(live)])]
         let m = SidebarLayoutMetrics.standard
         let off = SidebarLayout.make(sections: sections, metrics: m).rows
-        #expect(off.map(\.detail) == [nil, "Claude: running tests"])
+        #expect(off.map(\.detail) == [nil, nil])
         var o = SidebarLayoutOptions()
-        o.showWorkspaceDirectory = true
+        o.workspaceRow.base.shown.insert(.directory)
         let on = SidebarLayout.make(sections: sections, metrics: m, options: o).rows
-        #expect(on.map(\.detail) == ["~/src/app", "Claude: running tests"])
+        #expect(on.map(\.detail) == ["~/src/app", "~/src/app"])
         #expect(on.allSatisfy { $0.height == m.rowHeightWithSubtitle })
     }
 
     @Test func theModelPassesTheSettingToTheList() {
         let model = SidebarModel(sections: fixture())
         var preferences = SidebarSectionsPreferences.defaults
-        preferences.showWorkspaceDirectory = true
+        preferences.workspaceRow.base.shown.insert(.directory)
         model.applyListPreferences(preferences)
-        #expect(model.listOptions().showWorkspaceDirectory)
+        #expect(model.listOptions().workspaceRow.base.shows(.directory))
     }
 
     // MARK: Group caret

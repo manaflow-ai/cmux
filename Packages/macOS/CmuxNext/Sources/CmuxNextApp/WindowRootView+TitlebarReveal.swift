@@ -1,16 +1,15 @@
 import AppKit
 import CmuxNextDesign
 
-// R83: the title bar buttons (the sidebar toggle, Back, Forward; Lawrence
-// 2026-10-05: "sidebar button should fade") and a glass patch under the
-// traffic lights stay hidden until the pointer is over the top row or the
-// sidebar, then fade in, in place, through the one hover-reveal mechanism
-// (HoverReveal; the sidebar's hover is a hold on it). Shortcuts and the
+// R83: Back, Forward and a glass patch under the traffic lights stay hidden
+// until the pointer is over the top row or the sidebar, then fade in, in
+// place, through the one hover-reveal mechanism (HoverReveal; the sidebar's
+// hover is a hold on it). The sidebar toggle is not part of it: it always
+// shows, one fixed target open or collapsed (Leo, T3 Code ref, 2026-10-07). Shortcuts and the
 // palette reach the same actions while they are hidden; keyboard focus on a
 // hidden button reveals them, and they stay in the accessibility tree.
 extension WindowRootView {
     func setUpTitlebarReveal() {
-        titlebarReveal.add(toolbarBand.sidebarToggle)
         titlebarReveal.add(toolbarBand.backButton)
         titlebarReveal.add(toolbarBand.forwardButton)
         // The glass patch is a hover cue only: it never shows at rest.

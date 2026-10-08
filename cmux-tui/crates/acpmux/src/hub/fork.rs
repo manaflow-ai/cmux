@@ -14,13 +14,16 @@ impl Hub {
         session_env: std::collections::BTreeMap<String, String>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
-        let is_claude = self
-            .config
-            .read()
-            .await
-            .profile(&parent_meta.harness)
-            .map(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
-            .unwrap_or(false);
+        // The profile env plus the preset's, for `agent_tools::left_out`.
+        let (is_claude, fork_env) = {
+            let cfg = self.config.read().await;
+            let profile = cfg.profile(&parent_meta.harness);
+            let mut env = profile.map(|p| p.env.clone()).unwrap_or_default();
+            if let Some(preset) = parent_meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
+                env.extend(preset.env.clone());
+            }
+            (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
+        };
         let sid = parent_meta
             .agent_session_id
             .clone()
@@ -35,7 +38,7 @@ impl Hub {
             let res = child
                 .request(
                     method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env)}),
                 )
                 .await?;
             let new_sid = res
@@ -85,6 +88,7 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            claude_unstored: false,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,

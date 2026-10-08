@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { sessionSummary } from "./sessionSummary";
 import { SummaryPopover } from "./SummaryPopover";
-import { usePopover } from "./usePopover";
-import { useUiAnchor } from "../../../ui/anchor";
+import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
@@ -19,10 +18,20 @@ export function SummaryButton({
   onOpenOutput?: (path: string) => void;
 }) {
   const t = useT();
-  const { open, setOpen, button, popover, toggle } = usePopover();
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
-  // At the header's right end, beside the chat menu: the popover's right edge meets the button's.
-  const popoverStyle = useUiAnchor(button, popover, open && Boolean(summary), { side: "below", align: "end" });
+  useEffect(() => {
+    if (!open) return;
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (button.current?.contains(target) || (target as Element).closest?.(".acpmux-summary-popover")) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [open]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("summary.open");
   useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
@@ -36,18 +45,18 @@ export function SummaryButton({
         title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={toggle}
+        onClick={() => setOpen((current) => !current)}
       >
         <Icon name="view.list" size={15} />
       </button>
-      {open && summary && (
-        <dialog
-          ref={popover}
-          open
-          tabIndex={-1}
-          aria-label={label}
+      {summary ? (
+        <Popover
+          open={open}
+          onOpenChange={setOpen}
+          anchor={button.current}
+          label={label}
           className="acpmux-summary-popover"
-          style={popoverStyle}
+          finalFocus={button}
         >
           <SummaryPopover
             summary={summary}
@@ -60,8 +69,8 @@ export function SummaryButton({
               })
             }
           />
-        </dialog>
-      )}
+        </Popover>
+      ) : null}
     </span>
   );
 }

@@ -1,16 +1,15 @@
-//! The hub owns every session, its child agent, its event log, and the
-//! fan-out channel that attached clients subscribe to.
-//!
-//! Method groups live in sibling files: `peers` (remote daemons), `lifecycle`
-//! (spawn, resume, fork), `permissions` (agent requests and policy), `turns`
-//! (prompt, cancel, config), `transfer` (export, import), `views` (summaries),
-//! `handoff` (a reviewed first message to a new session on another harness),
-//! `adoption` (resuming a harness's own session on `session/new`).
+//! The hub owns every session, its child agent, its event log, and the clients' fan-out channel.
+//! Method groups live in sibling files: `peers` (remote daemons), `lifecycle` (spawn, resume,
+//! fork), `permissions` (agent requests and policy), `turns` (prompt, cancel, config), `transfer`
+//! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
+//! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod catalog_reload;
 mod fork;
 mod handoff;
 mod harness_view;
+mod harness_watch;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -18,12 +17,21 @@ pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
+mod model_options;
+pub use model_options::{current_model, current_option, resolve_config_id, web_url};
+mod model_hint;
+mod models_view;
 mod paging;
 mod pool;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+mod session;
+pub use session::{Session, live_tags};
+pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
+#[cfg(test)]
+mod remote_sandbox_adopt_tests;
 mod spawn;
 mod stream;
 mod tap;
@@ -37,7 +45,9 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+mod questions;
 mod remote_floor;
+mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
@@ -46,8 +56,10 @@ mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
+mod web_token;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
+pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -139,6 +151,9 @@ pub struct PromptOptions {
     pub resend: bool,
     /// The rules the prompt runs under, checked again at dispatch.
     pub control: Control,
+    /// Whether this prompt came from a gated app/Web path and must be checked
+    /// again when a queued turn is dispatched.
+    pub trust_gate: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -164,97 +179,6 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
-}
-
-pub struct Session {
-    pub id: String,
-    pub(super) meta: StdMutex<SessionMeta>,
-    pub(super) child: Mutex<Option<Arc<ChildAgent>>>,
-    /// Held while a child is spawned and initialized, so concurrent
-    /// requests for a stopped session start one agent, not several.
-    pub(super) spawn_lock: Mutex<()>,
-    pub(super) seq: AtomicU64,
-    /// Held from sequence allocation until the record is stored and sent,
-    /// so the log and fan-out always see sequences in order.
-    pub(super) append_lock: StdMutex<()>,
-    pub(super) loading: AtomicBool,
-    pub(super) turn_lock: Mutex<()>,
-    pub(super) turn: StdMutex<Option<TurnInfo>>,
-    pub(super) queued: AtomicU64,
-    pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
-    pub(super) stream: StdMutex<StreamState>,
-    permissions: StdMutex<permission_groups::PermissionState>,
-    /// Bumped (under the `permissions` lock) whenever pending
-    /// permissions are cancelled; a request that started before the bump
-    /// is answered `cancelled` instead of being registered.
-    pub(super) permission_epoch: AtomicU64,
-    pub(super) rehydrate: AtomicBool,
-    pub(super) inbound_tx: mpsc::Sender<Inbound>,
-    pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
-    pub(super) steering: AtomicBool,
-    /// Set on a freshly forked Claude session: the parent's agent session id
-    /// to pass as `--resume <id> --fork-session` on first spawn.
-    pub(super) fork_from: StdMutex<Option<String>>,
-    /// Set once the session is purged, so late events do not recreate its
-    /// files while the directory is being removed.
-    pub(super) purged: AtomicBool,
-    /// Bumps on every status, permission and turn change; waits gate on it.
-    pub(super) state_seq: AtomicU64,
-    /// Clients attached right now (TUI, web, CLI streams).
-    pub(super) attached: std::sync::atomic::AtomicUsize,
-    /// Last stderr lines of the current turn, quoted when the agent
-    /// process dies without an answer ("Not logged in", a launcher error).
-    pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
-    /// Recent client prompt ids and their outcomes, newest last: a prompt
-    /// sent again with the same id never runs a second turn.
-    pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
-    /// Bumped when a record failed to reach the store; an agent host entry
-    /// is acknowledged only when its record was stored.
-    pub(super) append_errors: AtomicU64,
-    /// The hub clock's time (`Hub::clock_now`) of the last record or
-    /// attach change; the idle harness exit counts from it (`idle.rs`).
-    pub(super) last_active: AtomicU64,
-    /// Web control ended: the mode left the asking table (`web_control.rs`).
-    pub(super) web_control_ended: AtomicBool,
-    /// The last turn was a Web turn: an agent request between turns is
-    /// held to the remote floor (`remote_floor.rs`).
-    pub(super) last_turn_web: AtomicBool,
-    /// The Web turn the remote floor cancelled: every later request in it
-    /// is cancelled, also after a local restore of an asking mode.
-    pub(super) floor_cancelled_turn: StdMutex<Option<String>>,
-    /// A mode the harness reported while it declared no modes; the asking
-    /// check reads it (`remote_floor.rs`). Cleared when the agent exits.
-    pub(super) undeclared_mode: StdMutex<Option<String>>,
-    /// The agent process holds a lasting grant a client gave it ("allow
-    /// always"): Web control ends until the agent exits (`web_control.rs`).
-    pub(super) harness_grant: AtomicBool,
-}
-
-impl Session {
-    pub fn meta(&self) -> SessionMeta {
-        self.meta.lock().unwrap().clone()
-    }
-    pub fn turn(&self) -> Option<TurnInfo> {
-        self.turn.lock().unwrap().clone()
-    }
-    pub fn queued(&self) -> u64 {
-        self.queued.load(Ordering::SeqCst)
-    }
-    pub fn queue(&self) -> Vec<QueuedPrompt> {
-        self.queue.lock().unwrap().clone()
-    }
-    pub fn pending_permissions(&self) -> Vec<(String, Value)> {
-        self.permissions
-            .lock()
-            .unwrap()
-            .pending
-            .iter()
-            .map(|(k, v)| (k.clone(), v.request.clone()))
-            .collect()
-    }
-    pub(super) fn status(&self) -> SessionStatus {
-        self.meta.lock().unwrap().status
-    }
 }
 
 pub struct Hub {
@@ -314,39 +238,17 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
+    /// The `sandbox-exec` remote chains run Claude Code under
+    /// (`remote_sandbox.rs`).
+    pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
-}
-
-/// Tags that have not expired, as a flat map.
-pub fn live_tags(m: &SessionMeta) -> Value {
-    let now = now_ms();
-    let mut out = serde_json::Map::new();
-    for (k, t) in &m.tags {
-        if t.expires_at.map(|e| e > now).unwrap_or(true) {
-            out.insert(k.clone(), Value::String(t.value.clone()));
-        }
-    }
-    Value::Object(out)
-}
-
-pub(super) fn short_text(s: &str, max: usize) -> String {
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if s.chars().count() <= max {
-        s
-    } else {
-        let mut out: String = s.chars().take(max).collect();
-        out.push('…');
-        out
-    }
-}
-
-pub(super) fn prompt_text(blocks: &[Value]) -> String {
-    blocks
-        .iter()
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n")
+    /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
+    pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    pub(super) harness_watch: harness_watch::HarnessWatchState,
+    pub catalog: Arc<crate::catalog::CatalogService>,
+    /// The token the web listener checks now (`web_token.rs`).
+    pub web_token: WebToken,
 }
 
 impl Hub {
@@ -387,7 +289,12 @@ impl Hub {
             pool: Arc::new(pool::PoolState::new()),
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
+            remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
+            chats_waiters: StdMutex::new(Vec::new()),
+            harness_watch: Default::default(),
+            catalog: Arc::new(crate::catalog::CatalogService::new()),
+            web_token: WebToken::new(String::new()),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -580,10 +487,8 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
-            last_turn_web: AtomicBool::new(false),
-            floor_cancelled_turn: StdMutex::new(None),
-            undeclared_mode: StdMutex::new(None),
-            harness_grant: AtomicBool::new(false),
+            floor: Default::default(),
+            subagents: StdMutex::new(Default::default()),
         })
     }
 
@@ -919,70 +824,4 @@ impl Hub {
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
     }
-}
-
-/// Browser URL for the dashboard, with the listener's token in the query
-/// string (a `--token` value for this run, else the saved one).
-pub fn web_url(cfg: &crate::config::Config) -> Option<String> {
-    let w = cfg.web_listener()?;
-    let host = w.listen.replace("0.0.0.0", "127.0.0.1").replace("[::]", "[::1]");
-    Some(match cfg.web_token_override.as_ref().or(w.token.as_ref()) {
-        Some(t) => format!("http://{host}/?token={t}"),
-        None => format!("http://{host}/"),
-    })
-}
-
-/// Current value of a select config option, by id.
-pub fn current_option(m: &SessionMeta, id: &str) -> Option<String> {
-    let opts = m.config_options.as_ref().and_then(Value::as_array)?;
-    opts.iter()
-        .find(|o| o.get("id").and_then(Value::as_str) == Some(id))
-        .and_then(|o| o.get("currentValue").and_then(Value::as_str).map(str::to_owned))
-}
-
-/// The option id a harness uses for thinking effort, given the name a
-/// client asked for. `effort` is the portable name; Codex calls it
-/// `reasoning_effort`.
-pub fn resolve_config_id(m: &SessionMeta, id: &str) -> String {
-    let ids: Vec<String> = m
-        .config_options
-        .as_ref()
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|o| o.get("id").and_then(Value::as_str).map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    if ids.iter().any(|x| x == id) {
-        return id.to_owned();
-    }
-    if matches!(id, "effort" | "thinking" | "reasoning" | "reasoning_effort") {
-        for cand in ["effort", "reasoning_effort", "thinking", "reasoning", "thought_level"] {
-            if ids.iter().any(|x| x == cand) {
-                return cand.to_owned();
-            }
-        }
-    }
-    id.to_owned()
-}
-
-pub fn current_model(m: &SessionMeta) -> Option<String> {
-    if let Some(r) = &m.model_request {
-        return Some(r.clone());
-    }
-    if let Some(opts) = m.config_options.as_ref().and_then(Value::as_array) {
-        for o in opts {
-            if o.get("id").and_then(Value::as_str) == Some("model")
-                && let Some(v) = o.get("currentValue").and_then(Value::as_str)
-            {
-                return Some(v.to_owned());
-            }
-        }
-    }
-    m.models
-        .as_ref()
-        .and_then(|x| x.get("currentModelId"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
 }

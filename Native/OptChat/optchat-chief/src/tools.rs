@@ -223,6 +223,9 @@ pub struct Served {
     pub memory: Arc<dyn Memory>,
     pub orchestrator: Option<Arc<dyn Orchestrator>>,
     pub control: Option<Control>,
+    /// The memory inspector's read-only API (`inspect` tool): a remote
+    /// owner reaches it through the brain's daemon (`chief.inspect`).
+    pub inspector: Option<Arc<crate::inspect::Inspector>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -243,6 +246,7 @@ pub fn serve_with(
             memory,
             orchestrator: None,
             control,
+            inspector: None,
         },
     )
 }
@@ -291,6 +295,22 @@ fn connection(conn: UnixStream, served: &Served) {
                             Err(e) => json!({"error": e}),
                         },
                         None => json!({"error": "settings are not served here"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                if tool == "inspect" {
+                    let answer = match &served.inspector {
+                        Some(inspector) => crate::inspect::tool_answer(
+                            inspector,
+                            &req,
+                            crate::inspect::INSPECT_MAX_BYTES,
+                        ),
+                        None => {
+                            json!({"status": 503, "error": "the inspector is off on this host"})
+                        }
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;

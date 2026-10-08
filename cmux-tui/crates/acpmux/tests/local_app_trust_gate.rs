@@ -34,6 +34,7 @@ fn paths(d: &Path) -> Paths {
         claude_json: d.join("home").join(".claude.json"),
         codex_config: d.join("home").join("config.toml"),
         record: d.join("home").join("trust.json"),
+        agent_home: Some(d.join("agent-home")),
     }
 }
 
@@ -118,8 +119,9 @@ async fn the_local_app_sends_no_prompt_while_the_folders_trust_is_pending() {
     let d = dir("pending");
     let hub = hub(&d);
     let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
-    let s = app.new_session(&work, "fclaude").await;
+    let s = local.new_session(&work, "fclaude").await;
 
     let r = app.prompt(&s, "secret-before-trust").await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
@@ -145,10 +147,69 @@ async fn the_local_app_sends_no_prompt_while_the_folders_trust_is_pending() {
 }
 
 #[tokio::test]
+async fn local_app_and_web_cannot_create_an_agent_before_folder_trust() {
+    let d = dir("new");
+    let hub = hub_with(&d, "ask");
+    let work = d.join("work");
+    for origin in [Origin::LocalApp, Origin::Web] {
+        let mut client = Client::new(&hub, origin);
+        let r = client
+            .call(
+                "session/new",
+                json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}}),
+            )
+            .await;
+        assert_eq!(reason(&r), "trust.pending", "{origin:?}: {r}");
+        assert!(r["result"].is_null(), "the agent was created: {r}");
+    }
+    let mut local = Client::new(&hub, Origin::Local);
+    local.trust(&work, "trusted").await;
+    let r = local
+        .call(
+            "session/new",
+            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "trusted creation: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// cmux's own agent-home folder (the private folder the app makes for a new chat) is trusted by
+/// construction: the app's first prompt there starts the agent and runs. A symlink inside
+/// agent-home to a user folder is that user folder, and still waits for the answer.
+#[tokio::test]
+async fn a_new_chat_in_a_fresh_agent_home_folder_is_not_asked_about() {
+    let d = dir("agent-home");
+    let hub = hub(&d);
+    let home = d.join("agent-home").join("6c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(acpmux::trust::AGENT_HOME_MARKER), b"").unwrap();
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let new = |cwd: &Path| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
+    let r = app.call("session/new", new(&home)).await;
+    assert!(r.get("error").is_none(), "agent-home session/new: {r}");
+    let s = r["result"]["sessionId"].as_str().unwrap().to_owned();
+    let r = app.prompt(&s, "hello-agent-home").await;
+    assert!(r.get("error").is_none(), "agent-home prompt: {r}");
+    assert!(app.agent_saw(&s, "hello-agent-home").await);
+
+    // A symlink inside agent-home to a user folder (with a copied marker) is still asked about.
+    let user = d.join("work").join("other");
+    std::fs::write(user.join(acpmux::trust::AGENT_HOME_MARKER), b"").unwrap();
+    let link = d.join("agent-home").join("link");
+    std::os::unix::fs::symlink(&user, &link).unwrap();
+    let r = app.call("session/new", new(&link)).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    assert_eq!(r["error"]["data"]["cwd"], json!(user.to_string_lossy()), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
 async fn the_sessions_own_agent_answers_without_a_decision() {
     let d = dir("harness");
     let hub = hub(&d);
     let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
     // Claude Code accepted its own trust dialog for a parent folder; Codex knows nothing.
     std::fs::write(
@@ -156,11 +217,11 @@ async fn the_sessions_own_agent_answers_without_a_decision() {
         json!({"projects": {d.to_string_lossy(): {"hasTrustDialogAccepted": true}}}).to_string(),
     )
     .unwrap();
-    let claude = app.new_session(&work, "fclaude").await;
+    let claude = local.new_session(&work, "fclaude").await;
     let r = app.prompt(&claude, "claude-trusted").await;
     assert!(r.get("error").is_none(), "Claude Code's own trust answers: {r}");
     // A Codex session in the same folder still waits for an answer.
-    let codex = app.new_session(&work, "fcodex").await;
+    let codex = local.new_session(&work, "fcodex").await;
     assert_eq!(reason(&app.prompt(&codex, "codex-unknown").await), "trust.pending");
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -181,12 +242,15 @@ async fn a_handoff_start_waits_for_the_targets_folder_trust() {
     let d = dir("handoff");
     let hub = hub(&d);
     let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
-    let src = app.new_session(&work, "fclaude").await;
+    let src = local.new_session(&work, "fclaude").await;
+    app.trust(&work, "trusted").await;
     let p = json!({"sessionId": src, "harness": "fcodex", "handoffKey": "k-trust"});
     let h = app.call("_acpmux/handoff_prepare", p).await;
     let id = h["result"]["handoffId"].as_str().unwrap_or_else(|| panic!("{h}")).to_owned();
     let target = h["result"]["target"]["sessionId"].as_str().unwrap().to_owned();
+    app.trust(&work, "unknown").await;
     let start = json!({
         "handoffId": id,
         "revision": 1,
@@ -219,7 +283,9 @@ async fn a_web_prompt_waits_for_the_folders_trust_and_the_web_cannot_answer() {
     // The user's own CLI answers the question; the remote browser cannot.
     let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
+    local.trust(&work, "trusted").await;
     let s = web.new_session(&work, "fclaude").await;
+    local.trust(&work, "unknown").await;
 
     let r = web.prompt(&s, "web-before-trust").await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
@@ -256,6 +322,7 @@ async fn a_trust_record_that_cannot_be_read_is_no_answer() {
     let d = dir("damaged");
     let hub = hub(&d);
     let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
     // Claude Code trusts the folder, but acpmux's own record is damaged: the
     // decision in it cannot be known, so the prompt waits.
@@ -265,7 +332,8 @@ async fn a_trust_record_that_cannot_be_read_is_no_answer() {
     )
     .unwrap();
     std::fs::write(&paths(&d).record, "{not json").unwrap();
-    let s = app.new_session(&work, "fclaude").await;
+    let s = local.new_session(&work, "fclaude").await;
+    std::fs::write(&paths(&d).record, "{not json").unwrap();
     let r = app.prompt(&s, "secret-with-damaged-record").await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
     assert!(!app.agent_saw(&s, "secret-with-damaged-record").await, "the agent got the prompt");
@@ -299,8 +367,9 @@ async fn warm_starts_no_agent_in_a_folder_without_trust() {
     let d = dir("warm");
     let hub = hub(&d);
     let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
-    let s = app.new_session(&work, "fcodex").await;
+    let s = local.new_session(&work, "fcodex").await;
     let r = app.call("_acpmux/warm", json!({"sessionIds": [s]})).await;
     assert_eq!(r["result"]["warmed"], json!([]), "{r}");
     app.trust(&work, "trusted").await;

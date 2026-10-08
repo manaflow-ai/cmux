@@ -128,6 +128,8 @@ impl Brain {
                         match &outcome.error {
                             Some(e) if marked && is_marker_limit_error(e) => {
                                 marker_refused.store(true, Ordering::SeqCst);
+                                // The inspector lays this turn out unmarked.
+                                trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
                                 log(&format!(
                                     "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
                                     start.key
@@ -200,20 +202,21 @@ impl Brain {
         start
     }
 
-    /// Section 7 after `settle`: take every queued message, render the view
-    /// BEFORE logging them, then log each as `user`.
+    /// Section 7 after `settle`: take the queued items of the head item's
+    /// conversation (G9: the others wait their turn), render the view BEFORE
+    /// logging them, then log each as `user`.
     fn take_turn(&mut self) -> Option<TurnStart> {
-        if self.queue.is_empty() {
-            return None;
-        }
-        let items: Vec<Queued> = self.queue.drain(..).collect();
+        let side = self.queue.front()?.conversation.clone();
+        let (items, rest): (Vec<Queued>, Vec<Queued>) =
+            self.queue.drain(..).partition(|q| q.conversation == side);
+        self.queue.extend(rest);
         let view = self.chat.render_view();
-        // The messages, their bookkeeping (cursor, children) and the pending
+        // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
         let first_id = self.chat.status().messages;
         let session = format!("{}-{first_id}", self.settings.turn_prefix);
-        let conversation = self.state.conversation.clone();
+        let conversation = side.clone().or_else(|| self.state.conversation.clone());
         let opening: Vec<Item> = items.iter().map(item).collect();
         let done = self.log_items(&items, move |next, done| {
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -235,8 +238,10 @@ impl Brain {
             .map(|t| t.key.clone())
             .unwrap_or_default();
         optchat_host::fault("brain:after-turn-log");
-        self.set_cursor(self.handled);
-        self.set_typing(true);
+        self.set_cursor(self.state.logged_seq);
+        if side.is_none() {
+            self.set_typing(true);
+        }
         self.phase = Phase::Running;
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
@@ -287,13 +292,14 @@ impl Brain {
             .then_some(self.settings.turn_preset.as_deref())
             .flatten()
             .filter(|preset| self.agents.system_prompt(preset));
+        let marker = !self.marker_refused.load(Ordering::SeqCst);
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
                 let layout = cached_layout(
                     &self.settings.system_text,
                     &view.text,
                     &texts.join("\n\n"),
-                    !self.marker_refused.load(Ordering::SeqCst),
+                    marker,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
@@ -310,6 +316,7 @@ impl Brain {
                 (turn_blocks(&view.text, &texts), None, preset)
             }
         };
+        let image_count = image_blocks.len();
         let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
@@ -321,13 +328,24 @@ impl Brain {
                 (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
             }
         }
+        // How the prompt was laid out, so the inspector can lay it out again
+        // from the trace (inspect.rs): the cached layout and its marker, or
+        // the view's pieces then the messages.
+        let mut layout = if system_prompt.is_some() {
+            serde_json::json!({"kind": "cached", "marker": marker})
+        } else {
+            serde_json::json!({"kind": "blocks"})
+        };
+        layout["images"] = serde_json::json!(image_count);
         self.trace_start(
             &key,
             first,
-            &view.text,
+            &view,
             &texts,
+            &done.ids,
             &items_sources,
             system_prompt.as_deref(),
+            layout,
         );
         Some(TurnStart {
             prompt_id: format!("optchat:{first}"),
@@ -359,20 +377,33 @@ impl Brain {
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
     ) -> Option<Appended> {
-        let conversation = self.state.conversation.clone().unwrap_or_default();
+        let main = self.state.conversation.clone().unwrap_or_default();
         let entries: Vec<NewMessage<'_>> = items
             .iter()
             .map(|q| NewMessage {
                 key: match q.source {
-                    Source::Message { seq, .. } => Some(format!("{conversation}#{seq}")),
+                    Source::Message { seq, .. } => Some(format!(
+                        "{}#{seq}",
+                        q.conversation.as_deref().unwrap_or(&main)
+                    )),
                     _ => None,
                 },
                 ..NewMessage::new(Kind::User, &q.text)
             })
             .collect();
         let mut next = self.state.clone();
-        // The queue is empty now, so every handled seq is logged or needed no log.
-        let handled = self.handled;
+        // Each conversation's floor: every handled seq is logged or needed no
+        // log, except what is still queued (other conversations' items wait).
+        let handled = self.floor_of(None, self.handled);
+        let side_floors: Vec<(String, u64)> = items
+            .iter()
+            .filter_map(|q| q.conversation.clone())
+            .map(|c| {
+                let handled = self.side_handled.get(&c).copied().unwrap_or(0);
+                let floor = self.floor_of(Some(&c), handled);
+                (c, floor)
+            })
+            .collect();
         let file = &self.file;
         let mut writes = Vec::new();
         let result = self.chat.append_with(&entries, |done| {
@@ -386,6 +417,15 @@ impl Brain {
                 if let Source::Spawn(r) = &item.source {
                     next.spawn_logged(r);
                 }
+                if let (Some(c), Source::Message { seq, id, .. }) =
+                    (&item.conversation, &item.source)
+                {
+                    next.side.entry(c.clone()).or_default().handled(*seq, id);
+                }
+            }
+            for (c, floor) in &side_floors {
+                let saved = next.side.entry(c.clone()).or_default();
+                saved.seq = saved.seq.max(*floor);
             }
             next.logged_seq = handled;
             update(&mut next, done);
@@ -420,12 +460,21 @@ impl Brain {
         if self.phase != Phase::Running || !current {
             return Vec::new();
         }
-        // Everything queued is delivered now: the interrupt is answered.
+        // Everything queued for this turn's conversation is delivered now:
+        // the interrupt is answered. Only the items ahead of the first one
+        // of another conversation go (G9 fairness: an item that waits for
+        // its turn is never passed by later ones).
         self.interrupt.clear();
-        if self.queue.is_empty() {
+        let side = self.turn_side();
+        let take = self
+            .queue
+            .iter()
+            .take_while(|q| q.conversation == side)
+            .count();
+        if take == 0 {
             return Vec::new();
         }
-        let items: Vec<Queued> = self.queue.drain(..).collect();
+        let items: Vec<Queued> = self.queue.drain(..take).collect();
         if items.iter().any(|i| {
             matches!(
                 i.source,
@@ -453,7 +502,7 @@ impl Brain {
         if logged.is_none() {
             return Vec::new();
         }
-        self.set_cursor(self.handled);
+        self.set_cursor(self.state.logged_seq);
         // The delivered messages' images go with them, and are described
         // for the log like a turn's own.
         let images: Vec<super::images::TurnImage> = items
@@ -506,15 +555,19 @@ impl Brain {
     /// The trace's `turn.start`: what the turn reads, the view's size and
     /// the hash of each cached piece, how much of the previous turn's view
     /// is unchanged, and how long the settle wait took.
+    #[allow(clippy::too_many_arguments)]
     fn trace_start(
         &mut self,
         key: &str,
         first: u64,
-        view: &str,
+        rendered: &optchat_host::RenderedView,
         texts: &[String],
+        ids: &[u64],
         sources: &[&'static str],
         system: Option<&str>,
+        layout: serde_json::Value,
     ) {
+        let view = rendered.text.as_str();
         self.turn_clock = Some(std::time::Instant::now());
         let settle_ms = self
             .settle_clock
@@ -539,12 +592,18 @@ impl Brain {
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
+                // The log ids of the messages (the prompt's last block).
+                "message_ids": ids,
                 "sources": sources,
+                "layout": layout,
                 "view": {
                     "bytes": view.len(),
                     "lines": view.lines().count(),
                     "hash": crate::trace::hash(view),
                     "pieces": crate::trace::pieces(view),
+                    // The tree node of each line, oldest first (`id+n`): with
+                    // the stored node texts they render this view again.
+                    "parts": rendered.parts.iter().map(|p| p.name()).collect::<Vec<_>>(),
                     "unchanged_prefix_bytes": unchanged.map(|u| u.0),
                     "prev_bytes": unchanged.map(|u| u.1),
                 },
@@ -574,6 +633,18 @@ impl Brain {
         }
         self.turn_engine = Some(engine.clone());
         engine
+    }
+
+    /// The engine a spawn's subagents take: the running (or last) turn's,
+    /// with its family when that is not the default harness's.
+    pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
+        let engine = self.turn_engine.as_ref()?;
+        let family = self.family_of(&engine.harness);
+        Some(crate::subagents::SpawnEngine {
+            harness: engine.harness.clone(),
+            model: engine.model.clone(),
+            other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
+        })
     }
 
     /// A harness's family (the default harness is Claude in a brain made
@@ -670,14 +741,26 @@ impl Brain {
         // which starts now with that message, answers both.
         let superseded = outcome.cancelled && self.stop_wanted;
         self.trace_end(key, &outcome, superseded);
+        // A failure names the harness that ran the turn, and the one it
+        // stood in for when acpmux moved the session onto a fallback.
+        let failed = match outcome.harness.as_deref() {
+            Some(h) if h.requested != h.profile => {
+                format!(
+                    "turn failed on {} (fallback for {})",
+                    h.profile, h.requested
+                )
+            }
+            Some(h) => format!("turn failed on {}", h.profile),
+            None => "turn failed".to_owned(),
+        };
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
             (None, Some(error)) if outcome.refused => format!("(turn {error})"),
-            (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
+            (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
             (Some(reply), None) => reply,
-            (None, Some(error)) => format!("(turn failed: {error})"),
+            (None, Some(error)) => format!("({failed}: {error})"),
             (None, None) => String::new(),
         };
         if superseded {
@@ -716,11 +799,14 @@ impl Brain {
             Some(s) if !orphaned(&s) => vec![(crate::state::fold_key(&s), None)],
             _ => Vec::new(),
         };
+        let main = self.turn_side().is_none();
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
-        self.set_typing(false);
+        if main {
+            self.set_typing(false);
+        }
         self.phase = Phase::Idle;
         if let Some(hook) = &self.after_turn {
             hook(key);
@@ -758,9 +844,11 @@ fn with_images(
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, .. } => Item {
+        Source::Message { seq, id, .. } => Item {
             seq: Some(*seq),
             images,
+            conversation: queued.conversation.clone(),
+            id: queued.conversation.as_ref().map(|_| id.clone()),
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {

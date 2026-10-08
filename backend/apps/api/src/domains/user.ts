@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
-import type { Domain, Principal, ReduceResult } from "@cmux/ownership"
+import type { Domain, OutboxItem, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
 import { reducePushTarget } from "./user-push.ts"
 import { dropInstallNotify, NOTIFY_OPS, reduceNotify, type NotifyState } from "./user-notify.ts"
 import { user as homeUser } from "@cmux/home-core"
-import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
+import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
@@ -31,9 +31,25 @@ export interface UserState extends NotifyState, ChiefsState {
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
    */
   readonly ssh_revoke_pending?: Readonly<Record<string, { readonly user: string; readonly teams: ReadonlyArray<string>; readonly at: number }>>
+  /**
+   * Verified addresses this account had before an email change, with the change time (cx-44j.45):
+   * security notices also go to each one for PREVIOUS_EMAIL_WINDOW_MS (14 days), so a takeover
+   * that starts by changing the email still reaches the owner. Entries past the window are dropped
+   * at the next change.
+   */
+  readonly previous_emails?: ReadonlyArray<{ readonly email: string; readonly changed_at: number }>
+  /** The address the last email change replaced, and when (the stale-token guard reads it). */
+  readonly last_email_change?: { readonly email: string; readonly at: number }
   /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
   readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
 }
+
+/** At most this many previous addresses are kept (the earliest win: the owner's address is never evicted). */
+export const MAX_PREVIOUS_EMAILS = 5
+/** A claim of the address just replaced is ignored this long after a change (older access tokens). */
+export const EMAIL_REVERT_GUARD_MS = 15 * 60_000
+/** Addresses compare without case or surrounding spaces; mail goes to the address as stored. */
+export const sameEmail = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
 
 const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20)
 
@@ -149,7 +165,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
     // A system principal is built only by server code (a DO, or the Worker for pairing's install.register_server, sent by DO RPC that only Worker code reaches); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
-      confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
+      confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash, Date.now())) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
@@ -164,7 +180,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
     switch (op) {
       case "user.ensure": {
         if (!p.user || !p.stack_user_id || !p.team) return reject("auth.forbidden", "user.ensure needs a Stack session")
-        const profile: UserProfile = {
+        const claimed: UserProfile = {
           id: p.user,
           stack_user_id: p.stack_user_id,
           email: p.email ?? null,
@@ -172,13 +188,41 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
           personal_team: p.team
         }
+        // A token minted before an email change still carries the old email until it expires
+        // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
+        // replaced keeps the current email, so devices with older tokens cannot flap it.
+        const last = state.last_email_change
+        const stale = state.user !== null && last !== undefined && ctx.now < last.at + EMAIL_REVERT_GUARD_MS && sameEmail(claimed.email, last.email)
+        const profile: UserProfile = stale && state.user
+          ? { ...claimed, email: state.user.email, email_verified: state.user.email_verified, display_name: p.display_name ?? state.user.display_name }
+          : claimed
         const same = JSON.stringify(state.user) === JSON.stringify(profile)
+        // A verified address that is replaced (or stops being verified) keeps getting security
+        // notices for 14 days (cx-44j.45); a replaced one is also told of the change (never the new
+        // address). Earliest entries are kept, so later changes cannot evict the owner's address.
+        const oldVerified = state.user?.email_verified && state.user.email ? state.user.email : null
+        const newVerified = profile.email_verified && profile.email ? profile.email : null
+        let next: UserState = { ...state, user: profile }
+        let notices: ReadonlyArray<OutboxItem> = []
+        if (oldVerified && !sameEmail(oldVerified, newVerified)) {
+          // The replaced address always stays (its window starts now); the others keep their
+          // times, and when the list is full the newest of them go, never the earliest.
+          const others = (state.previous_emails ?? [])
+            .filter((e) => ctx.now < e.changed_at + PREVIOUS_EMAIL_WINDOW_MS && !sameEmail(e.email, newVerified) && !sameEmail(e.email, oldVerified))
+            .sort((a, b) => a.changed_at - b.changed_at)
+            .slice(0, MAX_PREVIOUS_EMAILS - 1)
+          next = { ...next, previous_emails: [...others, { email: oldVerified, changed_at: ctx.now }], last_email_change: { email: oldVerified, at: ctx.now } }
+          // The same mailbox in other letter case is no change of address: no notice.
+          if (!sameEmail(oldVerified, profile.email)) {
+            notices = homeUser.emailChangedNotice({ user: profile.id, locale: "en", emails: [oldVerified, ...others.map((e) => e.email)] }, ctx.now)
+          }
+        }
         return {
           ok: true,
-          state: { ...state, user: profile },
+          state: next,
           value: profile,
           changed: !same,
-          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }]
+          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }, ...notices]
         }
       }
       case "install.register":

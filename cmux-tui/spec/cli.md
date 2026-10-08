@@ -12,7 +12,7 @@ request:
 
 ```text
 cmux [START OPTIONS]
-cmux server start [START OPTIONS]
+cmux daemon start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
@@ -77,7 +77,7 @@ Interactive and headless ownership are intentionally separate:
 | Form | Contract |
 | --- | --- |
 | `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
-| `cmux server start --session NAME` | Start a headless owner. |
+| `cmux daemon start --session NAME` | Start a headless owner. |
 | `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
 
 The explicit split prevents two clients from silently creating competing
@@ -88,7 +88,7 @@ Migration from tmux or Zellij keeps the owner and client steps visible. Run the
 owner in one terminal:
 
 ```bash
-cmux server start --session agents
+cmux daemon start --session agents
 ```
 
 Then attach from another terminal:
@@ -100,29 +100,31 @@ cmux attach --session agents
 Callers supervise the owner. A blind attach retry cannot distinguish a missing
 owner from an owner still starting.
 
-`server` is the local durable mux owner for exactly one named session:
+`daemon` is the local durable mux owner for exactly one named session
+(`cmux-tui server …` is the same scope; on `cmux`, `server` is the machine
+server, see `cmux help server`):
 
 ```text
-cmux server start [START OPTIONS]
-cmux server status [--session <name>] [--socket <path>]
-cmux server stats [--session <name>] [--socket <path>] [--json]
-cmux server stop [--session <name>] [--socket <path>] [--force]
-cmux server reload-config [--session <name>] [--socket <path>]
+cmux daemon start [START OPTIONS]
+cmux daemon status [--session <name>] [--socket <path>]
+cmux daemon stats [--session <name>] [--socket <path>] [--json]
+cmux daemon stop [--session <name>] [--socket <path>] [--force]
+cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
-`server stats` prints the `server-stats` diagnostics (registry lock contention
+`daemon stats` prints the `server-stats` diagnostics (registry lock contention
 with holder sites, journal writer batches and commit latency, connection
 admission); see `docs/journal-operations.md` for how to read it.
 
-`server start` is the canonical foreground spelling of `--headless`.
+`daemon start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the
-scope, for example `cmux --session agents server start --socket /path/to.sock`.
+scope, for example `cmux --session agents daemon start --socket /path/to.sock`.
 Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 The local socket accepts ordinary protocol clients while the owner finishes
 startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
 fail fast while this field is `false` and can be retried after the owner is ready.
-`server stop` first reads the process identity, then sends the existing PID and
+`daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. `session <name>|current stop`
 is an alias for the same local operation. Opaque session IDs are not accepted
@@ -130,7 +132,7 @@ because local socket resolution uses a session name. `--all` is intentionally
 deferred until a multi-session registry can identify every target without
 introducing a second command registry.
 
-`server status` fails when no server is listening. In contrast, `server stop`
+`daemon status` fails when no server is listening. In contrast, `daemon stop`
 is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
@@ -142,8 +144,8 @@ authentication and no enrollment; only a daemon started with
 `--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
 listener is reachable solely from a private network of authorized members,
 accepts it. `remote stop` manages only a replaceable SSH sidecar. A listener
-embedded by `server start` stops only through `server stop`, which also stops
-the local owner and its workspaces. `server start` accepts the explicit
+embedded by `daemon start` stops only through `daemon stop`, which also stops
+the local owner and its workspaces. `daemon start` accepts the explicit
 remote-listener flags when the owning process also serves authenticated
 clients. Top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle.
@@ -161,6 +163,10 @@ server   machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar  git
 pairing  projection  provider  raw
 ```
+
+Run as `cmux`, the CLI spells the lifecycle root `daemon`, and `server` is
+the machine server (`cmux help server`); `srv` is a shorthand on `cmux-tui`
+only.
 
 Structural resources may be addressed directly by opaque ID or through their
 parents:
@@ -221,7 +227,7 @@ for text, and `--help` for help (`splitw -h` means horizontal).
 
 There is no `new-session` alias because a cmux session owns a separate process.
 Use `cmux --session NAME` for interactive create/attach or
-`cmux server ensure --session NAME` to ensure a detached owner. `neww` creates a
+`cmux daemon ensure --session NAME` to ensure a detached owner. `neww` creates a
 screen inside the selected session's workspace.
 
 ## Selectors
@@ -560,7 +566,7 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 `agent plugin` commands read and write local installation state. They clone
 and build the selected package, validate its `kind = "agent"` manifest, and
 write the selected background command to `agents.plugin`. They do not open a
-protocol connection or send a plugin ID to a session. Run `cmux server
+protocol connection or send a plugin ID to a session. Run `cmux daemon
 reload-config` after changing the selection. The running plugin uses the
 generic journal producer and append operations over the server socket. Use
 `agent plugin use --builtin` to disable the selected userland plugin and return
@@ -594,7 +600,10 @@ uses the `workspace_group.*` resource operations, and `add`/`remove` use
 workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
-(`personal-mixed-order-v1`). `workspace list --order personal` lists the
+(`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
+sets the group's icon (one emoji or an SF Symbol name) and `--clear-icon`
+removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
+or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
 workspaces in the sidebar order. `workspace list` without `--order` (or with
 `--order session`) lists the session's workspace order, the same order as
 `topology.workspaces`: creation order unless a workspace was moved, not the

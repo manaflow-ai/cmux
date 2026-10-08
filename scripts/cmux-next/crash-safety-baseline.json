@@ -46,7 +46,7 @@
    "ghostty-vt": 1
   },
   "unwrap": {
-   "acpmux": 182,
+   "acpmux": 183,
    "chatmux-relay": 8,
    "cmux-link": 6,
    "cmux-pty": 12,

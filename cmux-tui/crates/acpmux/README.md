@@ -52,7 +52,12 @@ reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no pe
 Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
 this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
 link from `acpmux web`, and give a `ws://` peer that pins the old token the new one; the app,
-the TUI and `ssh://` peers read it again by themselves. The page follows the Codex
+the TUI and `ssh://` peers read it again by themselves. The token stays the same across
+launches on purpose: a `ws://` peer, a kept link and a browser on another machine have no way
+to receive a new token at each start (the app's own LocalApp token and the peer token do change
+at each launch). The daemon keeps `config.json` at mode 0600. `acpmux web --rotate-token`
+replaces the token at once: the old link stops working and open dashboard and peer connections
+that used it are closed. The page follows the Codex
 desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
 <project>?`, the harness and permission chips pick its settings, the project name opens the
 directory picker, with separate harness, model, and permission buttons, and the session is created when you send the first message), sessions
@@ -93,7 +98,7 @@ Five everyday commands, three groups for the rest:
 | `send NAME "text" [--steer] [--no-wait] [-q]` | Prompt and stream the reply. |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
-| `web [--no-open]` | Print the dashboard URL and open it. |
+| `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
 | `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -382,6 +387,12 @@ there, and a selection covers only the useful text: the gutter, role markers and
 padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
+## Bring your own harness
+
+Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
+with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
+
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,
@@ -425,9 +436,10 @@ build that includes this command; installing a newer binary does not restart the
 
 **A family resolves to exactly one profile, or fails.** Its `prefer` list, else its only
 profile, else the profile named like it. Two profiles and no preference is an error naming
-both, never a guess. Discovery sets `claude` to prefer `claude-sr` then `claude` when
-`sr claude proxy` works, so `-m claude` uses the account pool and falls back to the direct
-login. Write your own with `acpmux defaults claude prefer=claude,claude-sr`.
+both, never a guess. By default `-m claude` is the user's own Claude login. When a CodeRouter
+route is configured (`coderouterClaudeRoute`, below), discovery sets `claude` to prefer
+`claude-cr` then `claude`. The subrouter pool (`claude-sr`) is never preferred automatically;
+choose it with `acpmux defaults claude prefer=claude-sr,claude` or `-m claude-sr`.
 
 **Defaults** fill in what the flag leaves out, per family or profile: model, effort, policy,
 env. Precedence: explicit flags, then the preset, then the profile's entry, then the family's.
@@ -508,7 +520,7 @@ configured entry always wins over a discovered one. A complete entry:
       "model": "gemini-2.5-flash"
     }
   },
-  "defaults": {"claude": {"prefer": ["claude-sr", "claude"], "effort": "high"}},
+  "defaults": {"claude": {"prefer": ["claude-cr", "claude"], "effort": "high"}},
   "presets": {
     "deepseek": {"harness": "deepseek", "model": "deepseek-v4.1-flash", "effort": "high"},
     "opencode-v2-deepseek": {"harness": "opencode-v2", "model": "opencode-go/deepseek-v4.1-flash"}
@@ -726,8 +738,8 @@ what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `cla
 in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
 `=1` forces it for a daemon started by hand. Claude Code keeps its login in the macOS keychain,
 so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
-discovered `claude-sr` launcher is checked at daemon start (`sr claude proxy --version`) and
-dropped, with a log line, when the installed subrouter cannot run it; `claude` then has no
+discovered `claude-cr` or `claude-sr` launcher is checked at daemon start (`--version`) and
+dropped, with a log line, when the installed CLI cannot run it; `claude` then has no
 fallback instead of failing over into a launcher that dies at once. When a subrouter server is
 known, the launcher instead becomes a copy of `claude` routed through that server, but only when
 `claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never
@@ -740,7 +752,7 @@ Claude Code sessions run over Claude's own headless protocol, not ACP:
 session stays alive until you stop it. acpmux translates the stream into the same events the
 TUI, web page, and peers already understand, so nothing changes for the user.
 
-What this gives over the ACP adapter: no injected MCP servers or hooks, real permission
+What this gives over the ACP adapter: none of the adapter's injected MCP servers or hooks, real permission
 prompts with Claude's own options, `AskUserQuestion` and plan approval answered from the TUI
 or web page, model and mode changes mid-session, exact resume with `--resume`, fork with
 `--fork-session`, and background Bash tasks that live as long as the session because the
@@ -756,24 +768,43 @@ picks this backend automatically when `claude` is on PATH. Interrupt uses Claude
 `control_request` `interrupt`; the interrupted turn ends with `stopReason: cancelled` and the
 process keeps running.
 
+### cmux tools in every session
+
+Every local session gets cmux's own agent tools: the `cmux-cua` MCP server (Computer Use)
+when `cmux-cua` sits next to the acpmux binary, the `cmux` MCP server with the browser REPL
+tools when `cmux.json` sets `"mcp": {"enabled": true}`, and, for Claude Code, a session-only
+plugin `cmux` with the skills `cmux:cmux-browser` and `cmux:cmux-cua`. Set
+`ACPMUX_AGENT_TOOLS=0` in the daemon's environment to turn all of them off, or in one
+profile's or preset's `env` to turn them off for that profile only. A Claude profile whose
+`argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its
+own `--mcp-config` names.
+
 Stopping a session kills the agent's whole process group, so background shells the agent
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
 processes.
 
-## Subrouter: Claude across many accounts
+## CodeRouter route (configured only)
+
+`coderouterClaudeRoute` in `config.json` (or `ACPMUX_CODEROUTER_CLAUDE_ROUTE` in the daemon or
+login environment, which wins) names a CodeRouter CLI subcommand that runs Claude Code through
+a CodeRouter route. When it is set and `coderouter` (else `cr`) is on PATH, acpmux adds a
+`claude-cr` profile (`coderouter <route>`, kind `claude-stdio`), makes it the first `claude`
+preference and the direct `claude` fallback. Unset, there is no `claude-cr`. The CLI uses its
+own login; acpmux never reads or copies a credential.
+
+## Subrouter: Claude across many accounts (explicit choice only)
 
 [Subrouter](https://github.com/manaflow-ai/subrouter) is a local proxy that spreads Claude and
 Codex traffic across subscription accounts and fails over when one hits its limit. When `sr`
 is installed, acpmux discovers a `claude-sr` profile that launches Claude through the pool
-(`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`),
-and sets it as the `fallback` of the direct `claude` profile.
+(`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`).
+It is used only when named, or in a `prefer` or `fallback` the user writes.
 
 - `acpmux run -m claude-sr "…"` always uses the pool; the pool picks the account with the
   most quota and keeps the conversation sticky to it.
-- A direct `claude` session whose account reports a usage or rate limit mid-turn is moved
-  onto `claude-sr` automatically: the agent process is replaced by a pooled one that resumes
-  the same Claude session, the prompt runs once more, and a `failover {from, to, reason}`
-  event is logged. `session info` then shows `harness: claude-sr`.
+- A session whose account reports a usage or rate limit mid-turn is moved onto its profile's
+  `fallback` automatically: the agent process is replaced by one that resumes the same Claude
+  session, the prompt runs once more, and a `failover {from, to, reason}` event is logged.
 - Any profile can name a `fallback` in `~/.acpmux/config.json`; the same rule applies to
   every harness, keyed on the error text (`reached your … limit`, `rate limit`, `quota`,
   `429`, `out of credits`).
@@ -799,7 +830,7 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 }
 ```
 
-When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH, an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
+When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH (or a CodeRouter route is configured), an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with

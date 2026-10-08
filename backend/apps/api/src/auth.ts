@@ -93,7 +93,8 @@ export const publicJwks = (env: Env) => {
   return { keys: [{ ...pub, alg: "ES256", use: "sig" }] }
 }
 
-const signer = async (env: Env) => {
+/** The API's ES256 signing key (JWT_PRIVATE_JWK, published at /.well-known/jwks.json). Other token kinds signed with it must use their own `aud` and `typ`: installPrincipal accepts only `aud api`. */
+export const signer = async (env: Env) => {
   if (!signingKey) {
     const jwk = privateJwk(env)
     signingKey = { key: (await importJWK(jwk, "ES256")) as CryptoKey, kid: jwk.kid ?? "k1" }

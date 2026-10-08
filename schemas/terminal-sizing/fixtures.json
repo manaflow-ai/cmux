@@ -1686,6 +1686,104 @@
           ]
         }
       ]
+    },
+    {
+      "name": "phone defers to a counting linux or windows desktop of the same user",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "lnx",
+            "user_id": "u1",
+            "device_kind": "linux",
+            "device_id": "box",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "device_id": "p1",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "lnx"
+          ],
+          "reason": "latest",
+          "counts": {
+            "lnx": true,
+            "phone": false
+          }
+        },
+        {
+          "op": "detach",
+          "id": "lnx"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "counts": {
+            "phone": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "win",
+            "user_id": "u1",
+            "device_kind": "windows",
+            "device_id": "pc",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 118,
+          "rows": 38,
+          "owners": [
+            "win"
+          ],
+          "counts": {
+            "win": true,
+            "phone": false
+          }
+        }
+      ]
     }
   ]
 }

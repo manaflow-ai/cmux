@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextBookmarks
+import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextIcons
 import CmuxNextRemoteView
@@ -20,9 +21,12 @@ enum BrowserTabIconState: Equatable {
     /// `isLoading` is the live page's load state; a hibernated tab has no
     /// live page, so it shows its favicon and never the throbber. `url` is
     /// the tab's address: a cmux page's address wears that page's icon.
-    static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil) -> BrowserTabIconState {
+    /// `showsLoading` off (`appearance.statusIndicator.showPageLoading`, the
+    /// default reads the live setting) keeps the favicon while the page loads.
+    static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil,
+                        showsLoading: Bool = DesignSettings.shared.statusIndicator.showsPageLoading) -> BrowserTabIconState {
         if let page = pageIcon(url) { return .page(page) }
-        if isLoading, !isDormant { return .throbber }
+        if isLoading, !isDormant, showsLoading { return .throbber }
         return favicon.map(BrowserTabIconState.favicon) ?? .globe
     }
 
@@ -32,6 +36,7 @@ enum BrowserTabIconState: Equatable {
         if BookmarkPageAddress.matches(url) { return .bookmarkManager }
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
         if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return .machineRemote }
+        if TabContentCache.isRemoteBrowserPage(url) { return .machineRemote }
         return nil
     }
 

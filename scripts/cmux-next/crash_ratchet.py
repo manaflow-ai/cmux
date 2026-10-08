@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,6 +57,8 @@ RUST = {
 }
 INLINE_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
+ENV_WRITE = re.compile(r"\b(setenv|unsetenv|putenv)\s*\(|\benviron\s*(\[[^\]]*\]\s*)?=(?!=)")
+ENV_ALLOWLIST = os.path.join(HERE, "env-write-allowlist.json")
 
 
 def swift_code(line):
@@ -76,17 +79,26 @@ def swift_sources(repo):
                 yield os.path.join(repo, entry, "Sources")
 
 
+def tracked_files(repo, root):
+    """Files under ROOT that git tracks; ignored build output never counts."""
+    rel = os.path.relpath(root, repo)
+    try:
+        out = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", rel],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+        return sorted(os.path.join(repo, path) for path in out.split("\0") if path)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"crash-ratchet: WARNING: {repo} is not a git checkout ({error}); scanning every file under {rel}",
+              file=sys.stderr)
+        return sorted(os.path.join(directory, name)
+                      for directory, _, names in os.walk(root) for name in names)
+
+
 def scan_swift(repo, counts):
     for sources in swift_sources(repo):
-        scan_swift_sources(sources, counts)
-
-
-def scan_swift_sources(sources, counts):
-    for dirpath, _, files in os.walk(sources):
-        for name in sorted(files):
-            if not name.endswith(".swift"):
+        for path in tracked_files(repo, sources):
+            name = os.path.basename(path)
+            if not name.endswith(".swift") or not os.path.isfile(path):
                 continue
-            path = os.path.join(dirpath, name)
             rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
             lines = open(path, encoding="utf-8").read().split("\n")
             for index, line in enumerate(lines):
@@ -102,6 +114,30 @@ def scan_swift_sources(sources, counts):
                     if hits:
                         counts.setdefault(kind, {}).setdefault(rel, 0)
                         counts[kind][rel] += hits
+
+
+def scan_env_writes(repo):
+    """Reject new process-environment writes outside the reviewed allowlist."""
+    sources = os.path.join(repo, "Packages/macOS/CmuxNext/Sources")
+    allow = json.load(open(ENV_ALLOWLIST)) if os.path.exists(ENV_ALLOWLIST) else {}
+    found = {}
+    for path in tracked_files(repo, sources):
+        if not path.endswith(".swift") or not os.path.isfile(path):
+            continue
+        rel = os.path.relpath(path, repo)
+        for line in open(path, encoding="utf-8").read().split("\n"):
+            if line.lstrip().startswith("//"):
+                continue
+            for match in ENV_WRITE.finditer(swift_code(line)):
+                call = match.group(1) or "environ="
+                found[(rel, call)] = found.get((rel, call), 0) + 1
+    over = {}
+    for (rel, call), hits in sorted(found.items()):
+        allowed_hits = allow.get(rel, {}).get(call, 0)
+        if hits > allowed_hits:
+            module = os.path.relpath(rel, "Packages/macOS/CmuxNext/Sources").split(os.sep)[0]
+            over.setdefault(module, []).append(f"{rel}: {call} {allowed_hits} -> {hits}")
+    return over
 
 
 def scan_rust(repo, counts):
@@ -159,11 +195,17 @@ def main():
             for rel, hits in files.items():
                 if counts[lang].get(kind, {}).get(rel, 0) < hits:
                     shrunk += 1
+    env_over = scan_env_writes(opts.repo)
+    for module, details in sorted(env_over.items()):
+        hits = sum(int(detail.rsplit(" ", 1)[1]) for detail in details)
+        grown.append(f"swift {module}: env_write 0 -> {hits}")
+        for detail in details:
+            print("crash-ratchet: env_write " + detail + " (not in scripts/cmux-next/env-write-allowlist.json)")
     for line in grown:
         print("crash-ratchet: " + line)
     if grown:
         print(f"crash-ratchet: {len(grown)} module(s) or crate(s) gained a crash-class hit (plans/cmux-next/crash-elimination.md). "
-              "Remove it, or add a reviewed `// crash-allow: <reason>`.")
+              "Remove it, or add a reviewed `// crash-allow: <reason>` (env_write: never; pass the value in the child's spawn environment instead).")
         return 1
     note = f"; {shrunk} count(s) went down: run scripts/cmux-next/crash_ratchet.py --update-baseline" if shrunk else ""
     print(f"crash-ratchet: ok{note}")

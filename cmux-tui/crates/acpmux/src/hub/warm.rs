@@ -44,6 +44,15 @@ impl Hub {
         let meta = session.meta();
         let cwd = meta.cwd.to_string_lossy().into_owned();
         let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+        self.folder_trusted_cwd(paths, cwd, family).await
+    }
+
+    pub(crate) async fn folder_trusted_cwd(
+        &self,
+        paths: crate::trust::Paths,
+        cwd: String,
+        family: String,
+    ) -> bool {
         let level = tokio::task::spawn_blocking(move || {
             crate::trust::session_level(&paths, &cwd, &family).map(|(_, level)| level)
         })

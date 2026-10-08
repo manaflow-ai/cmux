@@ -160,6 +160,7 @@ final class HostView: NSView {
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
+        if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
     }
@@ -194,8 +195,12 @@ final class HostView: NSView {
     // button. The tracking area exists only while the field holds attachments,
     // covers only the field, and only for the key window (no wake-up per mouse move).
     private var hoverArea: NSTrackingArea?
+    /// cmux: the top zone that shows the header's fade (HeaderFade.swift).
+    var headerZoneArea: NSTrackingArea?
+    let headerZone = HeaderZoneTracker()
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        updateHeaderZone()
         if let t = hoverArea { removeTrackingArea(t); hoverArea = nil }
         guard let demo, !demo.compose.strip.tiles.isEmpty else { return }
         let t = NSTrackingArea(rect: demo.compose.fieldRect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self)
@@ -258,6 +263,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
+    /// The next display frame of the pane's screen (MessagesLab bd65bbf FrameTick).
+    private(set) lazy var frameTick = FrameTick(view: host)
+    /// Runs work at the start of the next display frame (FrameTick; tests capture it).
+    /// Off screen (no window: captures, the harness) there is no display frame: now.
+    lazy var nextFrame: (@escaping () -> Void) -> Void = { [unowned self] f in
+        if self.host.window == nil { f() } else { self.frameTick.next(f) }
+    }
+    /// Engine jobs held for the next frame (a keystroke went ahead of them).
+    private var holdDue = false
+    /// A keystroke (the field's text) was dispatched and the next frame has not started.
+    private(set) var inKeystrokeFrame = false
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
@@ -404,8 +420,38 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
-        store.advance(to: clock)
-        store.dispatch(a)
+        // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
+        // run at the start of the next display frame, so they do not add their commits to
+        // the keystroke's frame; a send goes first only past statuses and typing (message
+        // order stays). Other actions keep the order of time.
+        let ahead: Bool = {
+            guard let due = store.nextDue, due <= clock else { return false }
+            switch a {
+            case .setDraft: return true
+            case .send: return store.onlyAmbientDue(by: clock)
+            default: return false
+            }
+        }()
+        if ahead {
+            store.dispatchAhead(a, at: clock)
+            if !holdDue {
+                holdDue = true
+                nextFrame { [weak self] in
+                    guard let self else { return }
+                    self.holdDue = false
+                    self.wakeFired()
+                }
+            }
+        } else {
+            store.advance(to: clock)
+            store.dispatch(a)
+        }
+        // cmux: Home's ambient updates come from HomeStore, not the engine queue: they wait
+        // for the next frame too while a keystroke frame is open (HomeProjection.apply).
+        if case .setDraft = a, !inKeystrokeFrame {
+            inKeystrokeFrame = true
+            nextFrame { [weak self] in self?.inKeystrokeFrame = false }
+        }
         afterEngine()
     }
 
@@ -442,7 +488,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func scheduleWake() {
         guard let store else { return }
-        let due = min(store.nextDue ?? .infinity, viewWakeAt)
+        var due = min(store.nextDue ?? .infinity, viewWakeAt)
+        // Jobs held for the next frame: the frame tick runs them (only a later settle needs the timer).
+        if holdDue { due = viewWakeAt > clock ? viewWakeAt : .infinity }
         guard due.isFinite else { wake.cancel(); wakeAt = .infinity; return }
         if wakeAt <= due { return }
         wakeAt = due

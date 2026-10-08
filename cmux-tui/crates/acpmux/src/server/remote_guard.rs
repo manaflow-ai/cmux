@@ -100,6 +100,10 @@ pub(super) async fn check(
     if m == method::MUX_WEB_MODES {
         return Err(refused("_acpmux/web_modes"));
     }
+    // The listener's own credential changes over the unix socket only.
+    if m == method::MUX_WEB_TOKEN_ROTATE {
+        return Err(refused("rotating the web token"));
+    }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
@@ -125,6 +129,16 @@ pub(super) async fn check(
     }
     if web {
         web_only(m, params)?;
+        // A remote-origin session (a Web device, or a peer) never resumes a
+        // local harness session (REMOTE-FLOOR v3, D13).
+        if m == method::SESSION_NEW
+            && params.pointer("/_meta/acpmux/adopt").is_some_and(|v| !v.is_null())
+        {
+            return Err(RpcError::invalid_params(
+                "a remote device cannot adopt a local agent session; start a new chat from this device",
+            )
+            .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
+        }
     }
     let folders = matches!(
         m,
@@ -347,6 +361,8 @@ async fn web_starts_asking(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
+    let web = control == crate::hub::Control::Web;
     if m == method::SESSION_NEW
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
@@ -406,6 +422,24 @@ async fn web_starts_asking(
         }
         return hub.web_control_check(&t, control);
     }
+    // D13: a remote device does not change or end a Claude session the Mac
+    // started either (its rules, policy, model, its life or its log).
+    let mutates = matches!(
+        m,
+        method::MUX_SET_RULES
+            | method::MUX_SET_POLICY
+            | method::MUX_KILL
+            | method::SESSION_DELETE
+            | method::SESSION_CLOSE
+            | method::SESSION_SET_MODEL
+    );
+    if web
+        && mutates
+        && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if !(copies || sets_mode || controls) {
         return Ok(());
     }
@@ -429,6 +463,14 @@ async fn web_starts_asking(
             e.message
         ))
     })?;
+    // D13: a copy of a Claude Code session the Mac started carries its
+    // local state; a remote chain starts fresh.
+    if web
+        && matches!(m, method::SESSION_FORK | method::MUX_HANDOFF_PREPARE)
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if sets_mode {
         hub.web_control_check(&s, control)?;
     }

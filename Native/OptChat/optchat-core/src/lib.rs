@@ -16,16 +16,23 @@ mod node;
 mod render;
 
 pub use compact::{
-    compact_request, cut_at_bytes, finish_line, size_check, size_check_in, CompactPrompt,
-    CompactRequest, MissingNode, SizeCheck, CMUX_PROMPT_ADDITIONS, SCALE, TAELIN_PROMPT,
+    compact_request, cut_at_bytes, finish_line, size_check, size_check_in, strip_head,
+    system_prompt, CompactPrompt, CompactRequest, MissingNode, SizeCheck, CMUX_PROMPT_ADDITIONS,
+    MIDRUN, RULER, TAELIN_PROMPT,
 };
-pub use memory::{Checkpoint, Memory, NotRunning, Store, Work};
+pub use memory::{most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
 pub use node::{Kind, NodeId};
-pub use render::{cache_marks, cache_pieces, render_view, zoom, RenderedView, ZoomError};
+pub use render::{
+    block_cuts, block_pieces, cache_marks, cache_pieces, render_parts, render_view, view_line,
+    zoom, RenderedView, ZoomError, BLOCK_LINES,
+};
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
 pub const NODE: usize = 512;
-/// Budget of the view: the sum of its lines' text, in UTF-8 bytes (section 1).
+/// Budget of the view: the sum of its lines' text, in UTF-8 bytes. Past it,
+/// one batch merges the view down to half (spec 3.2, gist 3c190e0: a
+/// 64-128 KB sawtooth); the compaction view runs from a quarter down to an
+/// eighth of it (16-32 KB).
 pub const VIEW: usize = 128_000;
 /// Compactor model calls running at once (section 4.1).
 pub const JOBS: usize = 8;

@@ -54,7 +54,9 @@ const BUILD: &str = match option_env!("OPTCHAT_BUILD_COMMIT") {
 };
 
 /// The turn harness and the compactor harness: `OPTCHAT_CHIEF_HARNESS`, else
-/// `MUX_HARNESS`, else claude-sr; the compactor's `OPTCHAT_COMPACTOR_HARNESS`.
+/// `MUX_HARNESS`, else `DEFAULT_HARNESS`; the compactor's
+/// `OPTCHAT_COMPACTOR_HARNESS`. With nothing set, the host then takes
+/// `default_harness` of acpmux's answer.
 pub fn harness_choice(
     chief: Option<&str>,
     mux: Option<&str>,
@@ -66,8 +68,29 @@ pub fn harness_choice(
 }
 
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
-/// launched through `sr claude proxy`, the team subrouter's account pool.
-pub const DEFAULT_HARNESS: &str = "claude-sr";
+/// running the user's own `claude` login. The subrouter pool (`claude-sr`)
+/// is only an explicit choice.
+pub const DEFAULT_HARNESS: &str = "claude";
+
+/// The harness the Chief uses when none is set: the configured CodeRouter
+/// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
+/// names one) whether or not it can run, so an unavailable route is
+/// refused with its reason instead of silently moving to another account;
+/// else `DEFAULT_HARNESS`.
+pub fn default_harness(answer: &serde_json::Value) -> &'static str {
+    if answer
+        .get("harnesses")
+        .and_then(|h| h.get(CODEROUTER_HARNESS))
+        .is_some()
+    {
+        CODEROUTER_HARNESS
+    } else {
+        DEFAULT_HARNESS
+    }
+}
+
+/// acpmux's profile for a configured CodeRouter Claude route.
+pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
 /// The turn sessions' acpmux preset, or None when a turn needs none: on
 /// a Claude harness it carries each turn's system prompt (the cached
@@ -94,7 +117,8 @@ pub fn turn_preset(
         );
     }
     if family == Family::Claude {
-        // claude-sr: every turn of this Chief on one sticky subrouter account.
+        // claude-sr (when chosen): every turn of this Chief on one sticky
+        // subrouter account. Other Claude routes ignore the variable.
         env.insert(
             crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
@@ -303,16 +327,15 @@ fn start(
     // One setting picks the harness of turns and compactor alike.
     // engine.json's compactor fields apply at host start (engine.rs).
     let engine_choice_file = crate::engine::load(&crate::engine::path(home));
-    let (harness, compactor_harness) = harness_choice(
-        env("OPTCHAT_CHIEF_HARNESS").as_deref(),
-        env("MUX_HARNESS").as_deref(),
-        env("OPTCHAT_COMPACTOR_HARNESS")
-            .or_else(|| engine_choice_file.compactor_harness.clone())
-            .as_deref(),
-    );
+    let chief_set = env("OPTCHAT_CHIEF_HARNESS").or_else(|| env("MUX_HARNESS"));
+    let compactor_set =
+        env("OPTCHAT_COMPACTOR_HARNESS").or_else(|| engine_choice_file.compactor_harness.clone());
+    let sub_set = env("OPTCHAT_SUBAGENT_HARNESS");
+    let (mut harness, mut compactor_harness) =
+        harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
     // Section 9's subagents run on this harness (default the Chief's).
-    let sub_harness = env("OPTCHAT_SUBAGENT_HARNESS").unwrap_or_else(|| harness.clone());
+    let mut sub_harness = sub_set.clone().unwrap_or_else(|| harness.clone());
     // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 adds whole texts.
     let trace = match crate::trace::Trace::open(
         &paths.traces,
@@ -327,13 +350,22 @@ fn start(
             crate::trace::Trace::off()
         }
     };
-    let config = Config {
+    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
+    // prompt, so it reads it from the turns' cache entry.
+    let claude_text =
+        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
+    let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
+        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
+    if engine_choice.as_deref() == Some("native") && route == CompactRoute::Api {
+        // And the native turns' tools (never called), for the same entry.
+        config.tools = Some(crate::native::Native::tools());
+    }
     // The harness family decides each session's layout and isolation; acpmux
     // says what a harness is (its declared family, else its kind and
     // command), never its name. Only the native engine with the API
@@ -369,6 +401,17 @@ fn start(
             if p.admitted.is_ok() {
                 families.insert(name.clone(), p.family);
                 profiles_by_name.insert(name.clone(), p.profile.clone());
+            }
+        }
+        // Nothing set: the configured CodeRouter route when acpmux has one,
+        // else the user's own Claude login (default_harness).
+        if chief_set.is_none() {
+            harness = default_harness(&answer).to_owned();
+            if compactor_set.is_none() {
+                compactor_harness = harness.clone();
+            }
+            if sub_set.is_none() {
+                sub_harness = harness.clone();
             }
         }
         let (turn, compactor, sub) = (
@@ -451,8 +494,6 @@ fn start(
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
     // The Claude turn preset carries the Claude system text (MCP tools).
-    let claude_text =
-        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &claude_text);
     // A harness without the project settings' env (codex) reads its tools'
     // env from the acpmux daemon and the preset: the preset pins cmux.
@@ -498,7 +539,7 @@ fn start(
     // The subagent preset: required, so a subagent never falls back to the
     // turn preset (whose system prompt is the Chief's view).
     let sub_preset_name = format!("optchat-sub-{}", crate::paths::home_id(home));
-    if uses_acpmux {
+    let sub_preset = |name: String, profile: &str, family: Family, text: &str| {
         let mut env = if isolate {
             session_dir::isolation_env(paths)
         } else {
@@ -507,22 +548,56 @@ fn start(
         env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
         // Subagents' cmux calls reach the same app daemon as the Chief's.
         env.extend(pinned.clone());
-        if sub_family == Family::Codex {
+        if family == Family::Codex {
             env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
         }
-        if sub_family == Family::Claude {
+        if family == Family::Claude {
             env.insert(
                 crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
                 codex_cache_key(home, "sub"),
             );
         }
-        required.push(Preset {
-            name: sub_preset_name.clone(),
-            harness: sub_profile.clone(),
+        Preset {
+            name,
+            harness: profile.to_owned(),
             env,
             args: Vec::new(),
-            system_prompt: (sub_family == Family::Claude).then(|| sub_text.clone()),
-        });
+            system_prompt: (family == Family::Claude).then(|| text.to_owned()),
+        }
+    };
+    if uses_acpmux {
+        required.push(sub_preset(
+            sub_preset_name.clone(),
+            &sub_profile,
+            sub_family,
+            &sub_text,
+        ));
+        // Subagents follow the turn's engine (engine.json) unless pinned:
+        // the other family's subagent preset, and its instructions.
+        let sub_other = if sub_family == Family::Codex {
+            Family::Claude
+        } else {
+            Family::Codex
+        };
+        if sub_set.is_none()
+            && let Some(name) = crate::subagents::family_preset(&sub_preset_name, sub_other)
+            && let Some(profile) =
+                first_of(sub_other).map(|h| profiles_by_name.get(&h).cloned().unwrap_or(h))
+        {
+            let other_tools = if sub_other == Family::Claude {
+                crate::prompt::Tools::Mcp
+            } else {
+                crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
+            };
+            let other_text =
+                crate::prompt::subagent_system_text(instructions.as_deref(), &other_tools);
+            if sub_other == Family::Codex
+                && let Err(e) = session_dir::write_subagent_agents_md(paths, &other_text)
+            {
+                log(format!("writing the subagent directory's AGENTS.md: {e}"));
+            }
+            required.push(sub_preset(name, &profile, sub_other, &other_text));
+        }
     }
     if let Some(other) = other_preset {
         required.push(other);
@@ -724,6 +799,7 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
+        .with_pinned_harness(sub_set.is_some())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
         Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
@@ -751,6 +827,7 @@ fn start(
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
+            inspector: start_inspector(paths, &chat, &claude_text),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -944,7 +1021,7 @@ fn spawn_probe(
                 Err(e) => {
                     let remedy = match route {
                         CompactRoute::Acpmux => {
-                            "Check that acpmux runs and that its claude-sr harness signs in, or set \
+                            "Check that acpmux runs and that its Claude harness signs in, or set \
                              OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY for an endpoint \
                              that takes Messages API calls."
                         }
@@ -966,6 +1043,42 @@ fn spawn_probe(
     if let Err(e) = spawned {
         log(format!("starting the compactor probe: {e}"));
     }
+}
+
+/// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its
+/// address and token in `optchat/inspector.json` for the app. Off with
+/// `OPTCHAT_INSPECTOR=0`; a failure only logs (the Chief runs without it).
+/// Returns the inspector for the tools socket's `inspect` tool too.
+fn start_inspector(
+    paths: &Paths,
+    chat: &Arc<OptChat>,
+    system_text: &str,
+) -> Option<Arc<crate::inspect::Inspector>> {
+    let _ = std::fs::remove_file(&paths.inspector);
+    if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
+        return None;
+    }
+    let inspector = Arc::new(crate::inspect::Inspector::new(
+        chat.clone(),
+        paths.traces.clone(),
+        paths.settle_status.clone(),
+        system_text.to_owned(),
+    ));
+    let started = crate::inspect::http::new_secret().and_then(|token| {
+        let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
+        crate::inspect::http::start(inspector.clone(), bind, token)
+    });
+    match started.and_then(|running| {
+        crate::inspect::http::publish(&paths.inspector, &running).map(|()| running)
+    }) {
+        Ok(running) if crate::inspect::http::PAGE_IS_PLACEHOLDER => log(format!(
+            "memory inspector on {} (placeholder page: this binary was built without the inspector bundle)",
+            running.url()
+        )),
+        Ok(running) => log(format!("memory inspector on {}", running.url())),
+        Err(e) => log(format!("memory inspector not started: {e}")),
+    }
+    Some(inspector)
 }
 
 fn now_ms() -> u64 {

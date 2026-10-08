@@ -43,6 +43,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
+    /// The identified New Tab field mounted and took DOM focus.
+    case newTabInputReady(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -97,6 +99,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` whose params the bridge refused (no
     /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
+    /// Reads the selected local session's GitHub `origin` for Markdown reference links.
+    case githubRepository(cwd: String)
+    /// `turn.undo`: the edited-files card's host revert (AgentPaneTurnUndo.swift).
+    case turnUndo(AgentPaneTurnUndo)
+    /// `turn.undo` whose params break its contract; nothing is read or written.
+    case invalidTurnUndo
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen
@@ -223,6 +231,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             }
         case "shell.stop":
             if let id = Self.shellID(params) { self = .shellStop(id: id) } else { self = .unsupported(method) }
+        case "newTab.inputReady":
+            if let token = params?["token"] as? String, !token.isEmpty, token.count <= 128 { self = .newTabInputReady(token) }
+            else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
         case "newTab.remember":
@@ -292,6 +303,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
+        case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
+        case "git.githubRepository":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
+                self = .githubRepository(cwd: cwd)
+            } else {
+                self = .invalidGit(method)
+            }
         case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
@@ -376,7 +394,6 @@ public nonisolated enum AgentPaneReply {
         return dictionary
     }
 }
-
 /// What the location bar can jump to (`tab.jump`).
 public nonisolated enum AgentPaneJumpTarget: String, Sendable {
     case tab, workspace

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { chromium, webkit, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { randomUUID } from "node:crypto";
@@ -27,7 +27,7 @@ const DEFAULT_DEVICE_SCALE = 2;
 const FREESTYLE_IDLE_SECONDS = 300;
 /** Browsers run only inside a Freestyle VM (or CI), never on a developer laptop. */
 const IN_VM = process.env.CMUX_GALLERY_IN_VM === "1";
-const LEDGER_PATH = "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
+const LEDGER_PATH = process.env.CMUX_GALLERY_FREESTYLE_LEDGER ?? "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
 /** Published matrix runs (tailnet, every member): https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix/<run>/ */
 const PUBLISH_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix";
 const engines: Record<Engine, BrowserType> = { chromium, webkit };
@@ -155,15 +155,14 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
 }
 
-async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number): Promise<Record<string, unknown>> {
+async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
   const height = Number(params.height ?? DEFAULT_HEIGHT);
-  const browser = await engines[engine].launch({ headless: true });
+  const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
+  // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
   try {
-    const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
-    // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
     const page = await context.newPage();
     // Play steps (webviews/src/gallery/play.ts) act through Playwright's trusted mouse and keyboard.
     await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
@@ -184,13 +183,15 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // Long frames gate only on Chromium's Long Animation Frames; rAF timing in headless WebKit on a
     // CPU-only VM measures the VM's software rendering, so the stage reports it as a warning.
     const play = await page.evaluate(() => (window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null);
+    // An experiment case (`measure=1`) leaves its frame timings per step (frame/experimentRunner.ts).
+    const experiment = await page.evaluate(() => (window as unknown as { cmuxGalleryExperimentReport?: unknown }).cmuxGalleryExperimentReport ?? null);
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play, ...(experiment ? { experiment } : {}) };
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
       if (existsSync(baselinePath)) {
@@ -201,27 +202,29 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
         result.diffImage = diffName;
       } else result.diff = { percentage: null, passed: true, missingBaseline: true };
     }
-    await context.close();
     return result;
-  } finally { await browser.close(); }
+  } finally { await context.close(); }
 }
 
-function renderIndex(results: Record<string, unknown>[]): string {
+export function renderIndex(results: Record<string, unknown>[]): string {
   const data = JSON.stringify(results).replace(/</g, "\\u003c");
   return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};function playCells(p){if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre></details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r.play)+'</article>'}).join('')}render();</script>`;
 }
 
-async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number }): Promise<Record<string, unknown>[]> {
+export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
   const cases = parseManifest(JSON.parse(await readFile(args.manifest, "utf8")));
   const selected = shardCases(cases, args.shardCount, args.shardIndex);
   await mkdir(args.outputDir, { recursive: true });
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
+  const browsers = new Map<Engine, Browser>();
   try {
+    // Keep one process per engine; every case still gets a fresh context and page.
+    for (const engine of args.engines) browsers.set(engine, await browserTypes[engine].launch({ headless: true, timeout: 30_000 }));
     const results: Record<string, unknown>[] = [];
     for (const item of selected)
       for (const engine of args.engines) {
         const started = Date.now();
-        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold);
+        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!);
         console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
         results.push(result);
       }
@@ -237,10 +240,21 @@ async function runLocal(args: { manifest: string; galleryDir: string; outputDir:
       process.exitCode = 1;
     }
     return results;
-  } finally { server?.close(); }
+  } finally {
+    try { await Promise.all([...browsers.values()].map((browser) => browser.close())); }
+    finally { server?.close(); }
+  }
 }
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'`; }
+
+/** Finish VM allocation before its caller cleans up the recorded IDs. */
+export async function createAllVms<T>(count: number, create: (shard: number) => Promise<T>): Promise<T[]> {
+  const results = await Promise.allSettled(Array.from({ length: count }, (_, shard) => create(shard)));
+  const failed = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed.length) throw new AggregateError(failed.map((result) => result.reason), "Gallery VM allocation failed");
+  return results.map((result) => (result as PromiseFulfilledResult<T>).value);
+}
 
 async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
   const { Freestyle } = await import("freestyle");
@@ -264,12 +278,12 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
   process.once("SIGINT", onSignal); process.once("SIGTERM", onSignal);
   const pauseExact = async (id: string) => { await (vms.find((entry) => entry.id === id)?.vm ?? client.vms.ref(id)).pause(); };
   try {
-    await Promise.all(Array.from({ length: args.vmCount }, async (_, shard) => {
+    await createAllVms(args.vmCount, async (shard) => {
       const created = await client.vms.create({ snapshotId: args.snapshot, displayName: `${runId}-${shard}`, idleTimeoutSeconds: FREESTYLE_IDLE_SECONDS, metadata: { cmux: "gallery-matrix", runId }, firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] } });
       const entry = { id: created.vmId, vm: created.vm, shard };
       vms.push(entry); ledger.vmIds.push(created.vmId); writeLedger(ledgerPath, ledger);
       console.error(`freestyle: created ${created.vmId} (shard ${shard}, run ${runId})`);
-    }));
+    });
     const remoteRoot = `/tmp/${runId}`;
     const source = readFileSync(new URL(import.meta.url), "utf8");
     const packageJson = readFileSync(new URL("./package.json", import.meta.url), "utf8");
@@ -294,7 +308,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       const steps = [
         `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
         // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
-        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
       ];
       const logPath = join(args.outputDir, `shard-${shard}.log`);
       await mkdir(args.outputDir, { recursive: true });
