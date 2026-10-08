@@ -29,7 +29,6 @@ struct PendingHostClose {
     step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
-    deadline: Instant,
 }
 
 #[cfg(unix)]
@@ -38,8 +37,11 @@ enum HostCloseStep {
     /// behind the other signals, so a batch close signals every host first.
     Signal,
     /// Asked to exit. `None` when the host could not be signaled through its
-    /// connection; the worker then falls back to the host record.
-    Await(Option<crate::surface::HostTermination>),
+    /// connection; the worker then falls back to the host record. The
+    /// deadline starts when the host is signaled, not when the close was
+    /// queued: a teardown that queues a thousand closes must not spend the
+    /// later hosts' exit time waiting in the queue.
+    Await(Option<crate::surface::HostTermination>, Instant),
 }
 
 #[derive(Default)]
@@ -50,6 +52,8 @@ struct HostCloseState {
     workers: usize,
     /// Closes queued or in progress.
     pending: usize,
+    /// Closes finished since start; a waiter measures progress with it.
+    finished: u64,
 }
 
 /// Shared queue of hosts that were asked to exit.
@@ -103,7 +107,7 @@ impl TerminalHostCloses {
             };
             let close = match close.step {
                 HostCloseStep::Signal => signal_host_close(close),
-                HostCloseStep::Await(_) => {
+                HostCloseStep::Await(..) => {
                     finish_host_close(close);
                     None
                 }
@@ -115,18 +119,25 @@ impl TerminalHostCloses {
                 continue;
             }
             state.pending -= 1;
-            if state.pending == 0 {
-                self.idle.notify_all();
-            }
+            state.finished = state.finished.wrapping_add(1);
+            // Waiters measure progress, so every finished close wakes them.
+            self.idle.notify_all();
         }
     }
 
-    /// Wait until every queued host close finished or `deadline` passed.
-    /// Returns whether the queue drained.
-    pub(crate) fn wait_idle(&self, deadline: Instant) -> bool {
+    /// Wait until every queued host close finished, or until no close
+    /// finished for `stall`. Returns whether the queue drained. Each close
+    /// is bounded by its own deadline, so a long queue that keeps finishing
+    /// closes is waited for; a fixed deadline from the first enqueue made
+    /// the hosts at the end of a large teardown miss it.
+    pub(crate) fn wait_idle(&self, stall: Duration) -> bool {
         let mut state = self.state.lock().unwrap();
+        let mut progress = (state.finished, Instant::now() + stall);
         while state.pending != 0 {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            if state.finished != progress.0 {
+                progress = (state.finished, Instant::now() + stall);
+            }
+            let Some(remaining) = progress.1.checked_duration_since(Instant::now()) else {
                 return false;
             };
             state = self.idle.wait_timeout(state, remaining).unwrap().0;
@@ -169,14 +180,14 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
             None
         }
     };
-    close.step = HostCloseStep::Await(termination);
+    close.step = HostCloseStep::Await(termination, Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
     Some(close)
 }
 
 #[cfg(unix)]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root, deadline } = close;
-    let HostCloseStep::Await(termination) = step else {
+    let PendingHostClose { runtime, step, identity, host_root } = close;
+    let HostCloseStep::Await(termination, deadline) = step else {
         unreachable!("only a signaled host close is awaited");
     };
     let acknowledged =
@@ -232,7 +243,6 @@ impl Mux {
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
-                deadline: Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
             });
         }
         #[cfg(not(unix))]
@@ -260,7 +270,6 @@ impl Mux {
                     step: HostCloseStep::Signal,
                     identity,
                     host_root: host_root.clone(),
-                    deadline: Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
                 });
             }
         }
@@ -271,8 +280,9 @@ impl Mux {
     }
 
     /// Wait until every closed terminal's host has exited or been handed to
-    /// record cleanup, or `deadline` passed. Returns whether all finished.
-    pub fn wait_for_terminal_host_closes(&self, deadline: Instant) -> bool {
-        self.terminal_host_closes.wait_idle(deadline)
+    /// record cleanup, or until no host close finished for `stall`. Returns
+    /// whether all finished.
+    pub fn wait_for_terminal_host_closes(&self, stall: Duration) -> bool {
+        self.terminal_host_closes.wait_idle(stall)
     }
 }

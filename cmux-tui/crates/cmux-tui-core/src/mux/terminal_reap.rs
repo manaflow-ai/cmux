@@ -348,30 +348,48 @@ impl Mux {
         let kept = if keep_layout { self.record_kept_tabs(&terminals)? } else { HashSet::new() };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
+        let mut to_close = Vec::new();
         for terminal in terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 continue;
             }
-            let outcome = if kept.contains(&terminal.terminal_id) {
-                self.end_terminal_keeping_tabs(&terminal)
-            } else {
-                self.close_terminal_with_mutation(
-                    &terminal.terminal_id,
-                    None,
-                    None,
-                    None,
-                    &WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN),
-                )
-                .map(|_| ())
-            };
-            match outcome {
+            if !kept.contains(&terminal.terminal_id) {
+                to_close.push(terminal.terminal_id);
+                continue;
+            }
+            match self.end_terminal_keeping_tabs(&terminal) {
                 Ok(()) => ended.push(terminal.terminal_id),
                 Err(error) => failures.push(format!("{}: {error}", terminal.terminal_id)),
             }
         }
+        // One projection and one commit for every terminal with a runtime
+        // (O(N), nx-scale 1b); the per-terminal close takes the rest.
+        let mutation = WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN);
+        let one_by_one = match self.end_terminals_in_one_commit(&to_close, &mutation) {
+            Ok(batch) => {
+                ended.extend(batch.ended);
+                batch.remaining
+            }
+            Err(error) => {
+                eprintln!("cmux-tui: batched end_terminals failed; ending one by one: {error:#}");
+                to_close
+            }
+        };
+        for terminal_id in one_by_one {
+            match self.close_terminal_with_mutation(
+                &terminal_id,
+                None,
+                None,
+                None,
+                &WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN),
+            ) {
+                Ok(_) => ended.push(terminal_id),
+                Err(error) => failures.push(format!("{terminal_id}: {error}")),
+            }
+        }
         // Every host was asked to exit in parallel; wait for them so the
         // caller can rely on no host outliving this call.
-        let drained = self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
+        let drained = self.wait_for_terminal_host_closes(TERMINAL_HOST_CLOSE_WAIT);
         if !failures.is_empty() && !kept.is_empty() {
             // The handoff is cancelled and the daemon keeps serving: a
             // terminal that did not end must not keep a keep-layout record,
