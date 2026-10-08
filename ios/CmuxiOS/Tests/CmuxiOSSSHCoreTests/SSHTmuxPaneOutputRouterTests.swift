@@ -23,7 +23,10 @@ import Testing
         #expect(left[0].sequence == 0)
         #expect(left[1].kind == .live)
         #expect(left[1].sequence == 2)
-        #expect(left.map(\.bytes).joined() == Data(repeating: 65, count: 16_385) + Data("tail".utf8))
+        let leftBytes = left.reduce(into: Data()) { result, delivery in
+            result.append(delivery.bytes)
+        }
+        #expect(leftBytes == Data(repeating: 65, count: 16_385) + Data("tail".utf8))
         let right = router.drain(paneID: "%3")
         #expect(right.map(\.bytes) == [Data("right".utf8)])
         #expect(router.queuedBytes == 0)
