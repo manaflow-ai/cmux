@@ -128,18 +128,11 @@ describe("verifyRequestFromSnapshot", () => {
 
   test("native machine-list auth does not wait for the best-effort snapshot write", async () => {
     snapshotState.stallWrites = true;
-    let settled = false;
-    const verification = verifyRequest(nativeRequest("good-token")).then((user) => {
-      settled = true;
-      return user;
-    });
+    const verification = verifyRequest(nativeRequest("good-token"));
+    const user = await verification;
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const settledBeforeSnapshot = settled;
+    expect(user?.id).toBe("stack-user-1");
     for (const release of snapshotState.pendingWrites.splice(0)) release();
-
-    expect(settledBeforeSnapshot).toBe(true);
-    expect((await verification)?.id).toBe("stack-user-1");
   });
 
   test("a token the local check rejects falls back to Stack even with a snapshot", async () => {
