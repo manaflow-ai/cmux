@@ -102,7 +102,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
-        let hidden = pendingClosed.union(pendingDock)
+        // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
+        let hidden = pendingClosed.union(dockBound)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).

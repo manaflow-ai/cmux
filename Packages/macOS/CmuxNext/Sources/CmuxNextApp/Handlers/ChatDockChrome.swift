@@ -13,7 +13,9 @@ enum ChatDockChrome {
     static func hidesStrip(pane: LayoutPaneID, columns: [LayoutColumn], tabCount: Int, isLoneChat: Bool) -> Bool {
         guard tabCount < 2, let column = columns.first(where: { $0.root.contains(pane) }) else { return false }
         if column.dock?.role == .agentChat { return true }
+        // Beside a chat dock a chat in the strip is an ordinary tab: it docks nothing.
         return column.dock == nil && isLoneChat && columns.filter { $0.dock == nil }.count == 1
+            && !columns.contains { $0.dock?.role == .agentChat }
     }
 }
 
