@@ -54,9 +54,9 @@ pub use journal_extensions::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducerManifest, JournalSegment,
 };
 pub(crate) use journal_extensions::{
-    JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
-    JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
-    JournalSegmentSealCommit, JournalSegmentSealStart, JOURNAL_LIST_MAX_ITEMS,
+    JOURNAL_LIST_MAX_ITEMS, JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob,
+    JournalHookAttempt, JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan,
+    JournalHookState, JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;

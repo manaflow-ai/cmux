@@ -6904,7 +6904,8 @@ impl Mux {
                 Ok(captured) => captured,
                 Err(error)
                     if crate::journal_checkpoint::capture_error_is_retryable(&error)
-                        && attempt + 1 < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
                 {
                     last_error = Some(error);
                     std::thread::yield_now();
@@ -6928,7 +6929,8 @@ impl Mux {
                 }
                 Err(error)
                     if crate::journal_checkpoint::capture_error_is_retryable(&error)
-                        && attempt + 1 < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
                 {
                     last_error = Some(error);
                     std::thread::yield_now();
