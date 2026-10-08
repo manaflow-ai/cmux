@@ -2597,7 +2597,8 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
+          # The release tag and notes name the commit this run built and published.
+          NOTES_HEAD: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
           NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
           NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -2928,7 +2929,7 @@ jobs:
     # DMG and signed appcast. The nightly-next track signs in release-next
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, publish-nightly]
+    needs: [decide, build-nightly-app, publish-nightly, resolve-nightly-cmux-tui-client]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
     permissions:
       contents: read
@@ -2957,7 +2958,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -3039,7 +3040,7 @@ jobs:
     # This job is intentionally outside publish-nightly's concurrency group:
     # a newer run may publish its full feed immediately, and the tag guard below
     # prevents an older delta from overwriting it.
-    needs: [decide, build-nightly-app, publish-nightly, generate-nightly-deltas]
+    needs: [decide, build-nightly-app, publish-nightly, generate-nightly-deltas, resolve-nightly-cmux-tui-client]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -3056,7 +3057,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -3072,7 +3073,8 @@ jobs:
         run: |
           set -euo pipefail
           current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHANNEL_RELEASE_TAG" --jq .sha)"
-          if [ "$current_sha" != "${{ needs.decide.outputs.head_sha }}" ]; then
+          # publish-nightly points the release tag at the resolved build commit.
+          if [ "$current_sha" != "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" ]; then
             echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
