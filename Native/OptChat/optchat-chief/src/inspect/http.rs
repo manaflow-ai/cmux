@@ -329,6 +329,29 @@ impl Shared {
         })
     }
 
+    /// No `Origin` (a navigation or a same-origin GET) or exactly this
+    /// server's own loopback origin. A foreign or `null` Origin is a web page
+    /// reading the inspector (cross-site, or a DNS-rebound name on another
+    /// port), refused even when the request carries the token or a session.
+    fn origin_ok(&self, req: &Request) -> bool {
+        let port = self.port;
+        let mut origins = req
+            .headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("origin"));
+        match (origins.next(), origins.next()) {
+            (None, _) => true,
+            (Some((_, origin)), None) => {
+                let origin = origin.trim().to_ascii_lowercase();
+                let origin = origin.strip_suffix('/').unwrap_or(&origin);
+                origin == format!("http://127.0.0.1:{port}")
+                    || origin == format!("http://localhost:{port}")
+                    || origin == format!("http://[::1]:{port}")
+            }
+            (Some(_), Some(_)) => false,
+        }
+    }
+
     fn mint_ticket(&self) -> io::Result<String> {
         let ticket = new_secret()?;
         let mut tickets = self
@@ -405,6 +428,9 @@ const LOCKED: &str = "<!doctype html><meta charset=utf-8><title>Memory Inspector
 fn route(shared: &Shared, req: &Request) -> Reply {
     if !shared.host_ok(req) {
         return text(403, "the Host header is not this loopback server");
+    }
+    if !shared.origin_ok(req) {
+        return text(403, "the Origin is not this loopback server");
     }
     if req.method != "GET" && req.method != "HEAD" {
         let mut r = text(405, "the inspector is read-only: GET only");

@@ -86,9 +86,10 @@ fn view_at_turn_equals_the_bytes_the_turn_sent_cached_layout() {
             agents.systems[k].as_ref(),
             "turn {k}: the system prompt"
         );
-        assert!(
-            prompt.system.len() > optchat_chief::prompt::claude_md(None).len(),
-            "the view head is in the system prompt"
+        assert_eq!(
+            prompt.system,
+            optchat_chief::prompt::claude_md(None),
+            "the system prompt is the constant text alone (spec 3.3)"
         );
     }
     assert_ne!(
@@ -332,6 +333,55 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
         )
         .status,
         200
+    );
+}
+
+/// A web page cannot read the inspector: a foreign or `null` Origin is
+/// refused even with the token or a session, so neither a cross-site fetch
+/// nor a DNS-rebound name on another port gets an answer. A same-origin
+/// request (no Origin, or the inspector's own loopback origin) is served.
+#[test]
+fn a_foreign_origin_is_refused_even_with_the_token() {
+    let h = harness(true, 40);
+    let token = http::new_secret().unwrap();
+    let running =
+        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let addr = running.addr;
+    let port = addr.port();
+    let host = format!("127.0.0.1:{port}");
+    let bearer = format!("Authorization: Bearer {token}\r\n");
+    for origin in [
+        "https://evil.example".to_owned(),
+        "null".to_owned(),
+        format!("http://evil.example:{port}"),
+        format!("http://127.0.0.1:{}", port.wrapping_add(1)),
+        format!("https://127.0.0.1:{port}"),
+    ] {
+        let extra = format!("{bearer}Origin: {origin}\r\n");
+        for path in ["/api/status", "/api/ticket", "/"] {
+            assert_eq!(
+                get(addr, "GET", path, &host, &extra).status,
+                403,
+                "{origin} {path}"
+            );
+        }
+    }
+    for origin in [
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+        format!("http://[::1]:{port}"),
+    ] {
+        let extra = format!("{bearer}Origin: {origin}\r\n");
+        assert_eq!(
+            get(addr, "GET", "/api/status", &host, &extra).status,
+            200,
+            "{origin}"
+        );
+    }
+    assert_eq!(
+        get(addr, "GET", "/api/status", &host, &bearer).status,
+        200,
+        "no Origin"
     );
 }
 

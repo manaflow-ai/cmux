@@ -171,7 +171,7 @@ impl std::fmt::Debug for Engine {
 pub struct Settings {
     /// The constant working directory of every turn session.
     pub session_dir: PathBuf,
-    /// `MUX_HARNESS` (default claude-sr).
+    /// `MUX_HARNESS` (default claude, or a configured claude-cr).
     pub harness: String,
     /// `MUX_POLICY` (default approve-all).
     pub policy: String,
