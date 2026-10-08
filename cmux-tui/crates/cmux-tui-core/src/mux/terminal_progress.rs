@@ -13,7 +13,7 @@ impl Mux {
         &self,
         source: &Surface,
         mutation: &'static str,
-        program_status_change: Option<serde_json::Value>,
+        program_status_change: Option<Value>,
     ) -> anyhow::Result<()> {
         let Some(id) = source.terminal_public_id() else { return Ok(()) };
         let mut registry = self.workspace_registry.lock().unwrap();
