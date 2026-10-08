@@ -22,20 +22,37 @@ final class MobileLinkService {
 
     /// Starts (or restarts for a new account) the phone link host.
     func start(launch: LaunchIdentity, daemon: DaemonService, setting: MobileLinkSetting = MobileLinkSetting()) {
-        stop()
-        guard setting.enabled else { return }
-        guard let provider = accountProvider else {
-            logger.info("phone link: not started, no account source")
+        // A listener owns the Bonjour name and direct port.  Tear down the
+        // previous run in the replacement task, rather than launching an
+        // unawaited teardown beside the new assembly.  This matters on an
+        // account/team switch: two assemblies must never overlap while they
+        // are both trying to advertise the same Mac.
+        generation += 1
+        starting?.cancel()
+        starting = nil
+        let previous = runner
+        runner = nil
+        let current = generation
+
+        guard setting.enabled else {
+            // task-owner: no replacement run exists; finish the previous host teardown.
+            Task { await previous?.stop() }
             return
         }
-        generation += 1
-        let current = generation
+        guard let provider = accountProvider else {
+            logger.info("phone link: not started, no account source")
+            // task-owner: no replacement run exists; finish the previous host teardown.
+            Task { await previous?.stop() }
+            return
+        }
         let namespace = launch.bundleID ?? "com.cmuxterm.app.next"
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let keys = support.appendingPathComponent(namespace, isDirectory: true).appendingPathComponent("mobile-link", isDirectory: true)
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         let linkServices = servicesProvider?(setting) ?? MobileLinkServices()
         starting = Task { [weak self, logger] in
+            await previous?.stop()
+            guard !Task.isCancelled else { return }
             let name = await MacName.computerName()
             guard let self, self.generation == current, !Task.isCancelled else { return }
             guard let account = provider(name) else {
@@ -53,6 +70,15 @@ final class MobileLinkService {
                 _ = try await runner.start()
             } catch {
                 logger.error("phone link: start failed: \(String(describing: error), privacy: .public)")
+                // `start()` may have opened part of the assembly before it
+                // failed.  Finalize that run and clear it so a later account
+                // transition cannot retain a half-started listener.
+                guard let self, self.generation == current else {
+                    await runner.stop()
+                    return
+                }
+                self.runner = nil
+                await runner.stop()
             }
         }
     }

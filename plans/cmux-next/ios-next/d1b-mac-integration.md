@@ -60,3 +60,26 @@ No tagged build (no fleet, disk). The HostDO host-role TURN read needs a deploy;
 back to STUN. acpmux must already run on the Mac (an agent tab starts it) for agents to show. Browser
 pane resizes reach the phone with the next page change; a closed tab ends the stream only when the phone
 leaves. The Simulator screen mapping assumes a 28 pt title bar and no device bezel.
+
+## 6. App journey and failure states (D1b follow-up)
+
+The Mac-side journey is account-scoped and replacement-safe:
+
+1. App launch starts Cloud and installs the account and service providers before the account observer can
+   start phone access.
+2. A signed-in user/team creates one `InstallHostAccount`; its first use registers the Mac install,
+   enrolls (or looks up) the host, opens the daemon-backed `MobileHostAssembly`, then publishes the
+   direct and WireGuard certificates after the user socket negotiates.
+3. A user or team switch invalidates the old account, stops its assembly completely, and only then starts
+   the new account's assembly. The Bonjour name and direct listener therefore have one owner at a time.
+4. Sign-out, disabled settings, a missing account/provider, or a stale start generation leaves no listener
+   and no queued mutation. A transient assembly-start failure closes partial resources and clears the
+   failed run so a later account transition can retry cleanly.
+
+The user-visible states are `starting` (no phone service yet), `ready` (direct and/or relayed carrier
+available), `degraded` (control socket or TURN unavailable; direct may still work), `signedOut`/`disabled`,
+and `failed` with a retryable log/refusal. The app must not claim `ready` from a returned port alone: the
+control-plane registration, trust mirror and certificate publication are separate readiness gates.
+
+The replacement ordering above is implemented in `MobileLinkService`; the remaining evidence is a hosted
+`CmuxNextApp` compile and a tagged Mac/iOS pair run. No local Swift or Rust build is used for this lane.
