@@ -14,7 +14,7 @@ final class LoadErrorView: NSView {
     private(set) var retryButton: ChromeTextButton!
     private(set) var backButton: ChromeTextButton!
     private(set) var proceedButton: ChromeTextButton!
-    private(set) var detailsButton: ChromeTextButton!
+    let detailsButton = ChromeTextButton(title: Strings.certificateShowDetails, prominent: false, action: nil, target: nil)
     let detailsLabel = NSTextField(wrappingLabelWithString: "")
     private(set) var showsDetails = false
     private(set) var isCertificateInterstitial = false
@@ -30,8 +30,8 @@ final class LoadErrorView: NSView {
         retryButton = retry
         backButton = back
         proceedButton = proceed
-        detailsButton = ChromeTextButton(title: Strings.certificateShowDetails, prominent: false,
-                                         action: #selector(toggleDetails), target: self)
+        detailsButton.action = #selector(toggleDetails)
+        detailsButton.target = self
         detailsLabel.alignment = .center
         let stack = NSStackView(views: [titleLabel, messageLabel, retry, back, detailsButton, detailsLabel, proceed])
         stack.orientation = .vertical

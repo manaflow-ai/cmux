@@ -6,8 +6,8 @@ import Foundation
 /// WebKit tab uses it (before, WebKit's default handling had no UI and
 /// sign-in failed silently), and the CEF auth handler is to use it too.
 /// Cancel lets the server's 401 page load. Nothing is remembered past this
-/// app session unless the user checks "Remember password"; then the
-/// credential is permanent (WebKit keeps it in the login Keychain).
+/// app session unless the user checks "Remember password"; then the tab
+/// saves it in cmux's Keychain store (`BrowserHTTPCredentialStore`).
 enum BrowserHTTPAuth {
     static let methods: Set<String> = [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
                                        NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
@@ -43,13 +43,16 @@ enum BrowserHTTPAuth {
     /// The URL credential for a prompt response; nil unless it carries one.
     static func urlCredential(for response: BrowserPromptResponse) -> URLCredential? {
         guard case .credentials(let user, let password, let remember) = response else { return nil }
-        return URLCredential(user: user, password: password, persistence: remember ? .permanent : .forSession)
+        _ = remember
+        return URLCredential(user: user, password: password, persistence: .forSession)
     }
+
+    /// Whether the user checked "Remember password".
+    static func remembers(_ answer: CmuxDialogAnswer) -> Bool { answer.isOn("remember") }
 
     /// The credential for an answer; nil when the user cancelled.
     static func credential(for answer: CmuxDialogAnswer) -> URLCredential? {
         guard answer.button == "sign-in" else { return nil }
-        return URLCredential(user: answer.text("user") ?? "", password: answer.text("password") ?? "",
-                             persistence: answer.isOn("remember") ? .permanent : .forSession)
+        return URLCredential(user: answer.text("user") ?? "", password: answer.text("password") ?? "", persistence: .forSession)
     }
 }

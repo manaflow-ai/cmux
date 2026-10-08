@@ -68,7 +68,7 @@ final class BrowserPromptDialogs {
         case .textInput: answer.button == "ok" ? .text(answer.text("text") ?? "") : .cancel
         case .credentials:
             BrowserHTTPAuth.credential(for: answer).map {
-                .credentials(user: $0.user ?? "", password: $0.password ?? "", remember: $0.persistence == .permanent)
+                .credentials(user: $0.user ?? "", password: $0.password ?? "", remember: BrowserHTTPAuth.remembers(answer))
             } ?? .cancel
         default: answer.button == "ok" ? .accept : .cancel
         }
