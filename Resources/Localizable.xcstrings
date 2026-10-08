@@ -644106,6 +644106,65 @@
           }
         }
       }
+    },
+    "machines.stateProtection.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-disk protection is unverified. Keep disk space free to avoid losing access to this machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Schutz bei vollem Datenträger ist nicht bestätigt. Halte Speicherplatz frei, um den Zugriff auf diese Maschine nicht zu verlieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La protection en cas de disque plein n’est pas vérifiée. Gardez de l’espace disque libre pour éviter de perdre l’accès à cette machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التحقق من الحماية عند امتلاء القرص. احتفظ بمساحة خالية لتجنب فقدان الوصول إلى هذه الآلة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha verificado la protección ante un disco lleno. Mantén espacio libre para evitar perder el acceso a esta máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未確認磁碟滿載保護。請保留可用磁碟空間，以免無法存取此機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未确认磁盘满载保护。请保留可用磁盘空间，以免无法访问此机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크가 가득 찼을 때의 보호 기능이 확인되지 않았습니다. 이 머신에 대한 접근을 잃지 않도록 디스크 여유 공간을 확보하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク満杯時の保護は確認されていません。このマシンにアクセスできなくなるのを防ぐため、ディスクの空き容量を確保してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

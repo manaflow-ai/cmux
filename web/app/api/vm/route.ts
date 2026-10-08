@@ -204,6 +204,9 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
+        // A legacy image can still report snapshot-v2 while its root-backed
+        // cmux-tui state becomes unwritable when the guest disk fills.
+        cmuxTuiStateProtection: entry.cmuxTuiStateProtection,
         // This machine's share of the shared vCPU/memory pool.
         resources: poolShare(entry),
       }));
@@ -412,6 +415,7 @@ export async function POST(request: Request): Promise<Response> {
         // (~2 s measured) for data this response already had.
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
+        cmuxTuiStateProtection: created.cmuxTuiStateProtection,
         agentUpdates: created.agentUpdates,
       });
     },

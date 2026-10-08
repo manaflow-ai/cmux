@@ -140,6 +140,7 @@ export async function POST(request: Request): Promise<Response> {
         status: restored.status,
         createdAt: restored.createdAt,
         capabilities: vmCapabilitiesFor(restored.provider),
+        cmuxTuiStateProtection: restored.cmuxTuiStateProtection,
       });
     },
   );

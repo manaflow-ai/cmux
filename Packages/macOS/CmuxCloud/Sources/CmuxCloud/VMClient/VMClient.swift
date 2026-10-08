@@ -308,6 +308,7 @@ public struct VMSummary: Sendable {
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
+        cmuxTuiStateProtection: String? = nil,
         createdBy: VMCreator? = nil,
         agentUpdates: CloudAgentUpdates? = nil
     ) {
@@ -325,6 +326,7 @@ public struct VMSummary: Sendable {
         self.addressIPv4 = addressIPv4
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
+        self.cmuxTuiStateProtection = cmuxTuiStateProtection
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
     }
@@ -345,6 +347,7 @@ public struct VMSummary: Sendable {
             addressIPv4: addressIPv4,
             addressIPv6: addressIPv6,
             cmuxTuiContract: cmuxTuiContract,
+            cmuxTuiStateProtection: cmuxTuiStateProtection,
             createdBy: createdBy,
             agentUpdates: agentUpdates
         )
@@ -380,6 +383,8 @@ public struct VMSummary: Sendable {
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
     /// This is rollout metadata from the control plane, not a live daemon probe.
     public var cmuxTuiContract: String?
+    /// State filesystem contract reported by the control plane (`reserved-v1`, `legacy`, or `unknown`).
+    public var cmuxTuiStateProtection: String?
     /// Whether the machine keeps its image's coding agents or updates them on attach.
     public var agentUpdates: CloudAgentUpdates?
 
@@ -1609,6 +1614,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.cmuxTuiStateProtection = (obj["cmuxTuiStateProtection"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             machineCache.record(hasAnyMachine: true)
             return summary
@@ -1694,6 +1700,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.cmuxTuiStateProtection = (obj["cmuxTuiStateProtection"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return summary
         }
     }
@@ -1895,6 +1902,7 @@ public actor VMClient {
                 base: nil
             )
             forked.capabilities = VMCapabilities(vmResponse: obj)
+            forked.cmuxTuiStateProtection = (obj["cmuxTuiStateProtection"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             machineCache.record(hasAnyMachine: true)
             return (
                 snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
@@ -1927,6 +1935,7 @@ public actor VMClient {
             let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
             restored.capabilities = VMCapabilities(vmResponse: obj)
+            restored.cmuxTuiStateProtection = (obj["cmuxTuiStateProtection"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             machineCache.record(hasAnyMachine: true)
             return restored
         }

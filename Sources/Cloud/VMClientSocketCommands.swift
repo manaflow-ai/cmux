@@ -861,6 +861,9 @@ extension TerminalController {
         if let agentUpdates = vm.agentUpdates {
             payload["agentUpdates"] = agentUpdates.rawValue
         }
+        if let cmuxTuiStateProtection = vm.cmuxTuiStateProtection {
+            payload["cmuxTuiStateProtection"] = cmuxTuiStateProtection
+        }
         if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
             var address: [String: Any] = [:]
             address["ipv4"] = vm.addressIPv4.map { $0 as Any } ?? NSNull()

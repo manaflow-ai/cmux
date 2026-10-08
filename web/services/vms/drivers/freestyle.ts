@@ -59,6 +59,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import { cmuxTuiStateProtectionForImage } from "../images/resolver";
 import { devboxForkDaemonReadyCommand } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
@@ -67,6 +68,11 @@ import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
 } from "./cmuxTuiDaemon";
+
+function stateProtectionMetadataForImage(image: string): Record<string, string> {
+  const protection = cmuxTuiStateProtectionForImage("freestyle", image);
+  return protection === "unknown" ? {} : { cmuxTuiStateProtection: protection };
+}
 export { preconnectFreestyle } from "./freestyleWarmup";
 export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 
@@ -1131,6 +1137,9 @@ export class FreestyleProvider implements VMProvider {
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
               cmuxTuiContract: "snapshot-v2",
+              ...(options.providerMetadata?.cmuxTuiStateProtection === undefined
+                ? stateProtectionMetadataForImage(image)
+                : {}),
               ...(networkId ? { networkId } : {}),
               ...(freestyleNetworkAddressMetadata(data)),
             },
@@ -1542,6 +1551,9 @@ export class FreestyleProvider implements VMProvider {
             providerMetadata: {
               ...(options?.providerMetadata ?? {}),
               cmuxTuiContract: "snapshot-v2",
+              ...(options?.providerMetadata?.cmuxTuiStateProtection === undefined
+                ? stateProtectionMetadataForImage(snapshotId)
+                : {}),
               ...(networkId ? { networkId, ...freestyleNetworkAddressMetadata(data) } : {}),
             },
           };

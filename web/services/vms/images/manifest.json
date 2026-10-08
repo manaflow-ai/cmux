@@ -18566,7 +18566,8 @@
         "memoryMb": 4096,
         "storageMb": 16384,
         "freestyleBase": "freestyle/ubuntu-sm"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18602,7 +18603,8 @@
         "memoryMb": 8192,
         "storageMb": 32768,
         "freestyleBase": "freestyle/ubuntu"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18638,7 +18640,8 @@
         "memoryMb": 16384,
         "storageMb": 65536,
         "freestyleBase": "freestyle/ubuntu-lg"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18673,7 +18676,8 @@
         "cpu": 12,
         "memoryMb": 24576,
         "storageMb": 98304
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18709,7 +18713,8 @@
         "memoryMb": 32768,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18745,7 +18750,8 @@
         "memoryMb": 65536,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-2xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18782,7 +18788,8 @@
         "storageMb": 16384,
         "freestyleBase": "freestyle/ubuntu-sm"
       },
-      "defaultForLocalDev": false
+      "defaultForLocalDev": false,
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18818,7 +18825,8 @@
         "memoryMb": 8192,
         "storageMb": 32768,
         "freestyleBase": "freestyle/ubuntu"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18854,7 +18862,8 @@
         "memoryMb": 16384,
         "storageMb": 65536,
         "freestyleBase": "freestyle/ubuntu-lg"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18889,7 +18898,8 @@
         "cpu": 12,
         "memoryMb": 24576,
         "storageMb": 98304
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18925,7 +18935,8 @@
         "memoryMb": 32768,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18961,7 +18972,8 @@
         "memoryMb": 65536,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-2xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -18997,7 +19009,8 @@
         "memoryMb": 4096,
         "storageMb": 16384,
         "freestyleBase": "freestyle/ubuntu-sm"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19033,7 +19046,8 @@
         "memoryMb": 8192,
         "storageMb": 32768,
         "freestyleBase": "freestyle/ubuntu"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19069,7 +19083,8 @@
         "memoryMb": 16384,
         "storageMb": 65536,
         "freestyleBase": "freestyle/ubuntu-lg"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19104,7 +19119,8 @@
         "cpu": 12,
         "memoryMb": 24576,
         "storageMb": 98304
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19140,7 +19156,8 @@
         "memoryMb": 32768,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19176,7 +19193,8 @@
         "memoryMb": 65536,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-2xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19213,7 +19231,8 @@
         "storageMb": 16384,
         "freestyleBase": "freestyle/ubuntu-sm"
       },
-      "defaultForLocalDev": true
+      "defaultForLocalDev": true,
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19249,7 +19268,8 @@
         "memoryMb": 8192,
         "storageMb": 32768,
         "freestyleBase": "freestyle/ubuntu"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19285,7 +19305,8 @@
         "memoryMb": 16384,
         "storageMb": 65536,
         "freestyleBase": "freestyle/ubuntu-lg"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19320,7 +19341,8 @@
         "cpu": 12,
         "memoryMb": 24576,
         "storageMb": 98304
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19356,7 +19378,8 @@
         "memoryMb": 32768,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     },
     {
       "provider": "freestyle",
@@ -19392,7 +19415,8 @@
         "memoryMb": 65536,
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-2xl"
-      }
+      },
+      "cmuxTuiStateProtection": "reserved-v1"
     }
   ]
 }

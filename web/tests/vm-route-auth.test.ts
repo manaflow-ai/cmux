@@ -493,6 +493,7 @@ describe("VM REST auth", () => {
       addressIpv4: "10.16.0.9",
       addressIpv6: null,
       cmuxTuiContract: "snapshot-v2",
+      cmuxTuiStateProtection: "reserved-v1",
     });
 
     const response = await POST(
@@ -531,6 +532,7 @@ describe("VM REST auth", () => {
       // re-reading the fleet and calling POST /attach-endpoint.
       address: { ipv4: "10.16.0.9", ipv6: null },
       cmuxTuiContract: "snapshot-v2",
+      cmuxTuiStateProtection: "reserved-v1",
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
@@ -1553,6 +1555,26 @@ describe("VM REST auth", () => {
       vms: [
         { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" }, cmuxTuiContract: "snapshot-v2" },
         { id: "theirs", createdBy: { userId: "user-2", displayName: null }, cmuxTuiContract: null },
+      ],
+    });
+  });
+
+  test("lists the state protection status for existing machines", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "reserved", provider: "freestyle", image: "current", status: "running", createdAt: 1_777_000_000_000, cmuxTuiStateProtection: "reserved-v1" },
+      { providerVmId: "legacy", provider: "freestyle", image: "old", status: "running", createdAt: 1_777_000_000_000, cmuxTuiStateProtection: "legacy" },
+      { providerVmId: "unknown", provider: "freestyle", image: "snapshot", status: "running", createdAt: 1_777_000_000_000, cmuxTuiStateProtection: "unknown" },
+    ]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vms: [
+        { id: "reserved", cmuxTuiStateProtection: "reserved-v1" },
+        { id: "legacy", cmuxTuiStateProtection: "legacy" },
+        { id: "unknown", cmuxTuiStateProtection: "unknown" },
       ],
     });
   });

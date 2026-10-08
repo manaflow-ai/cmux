@@ -893,6 +893,24 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
     expect(commands).toEqual([]);
   });
 
+  test("keeps a known legacy state layout attachable without guest work", async () => {
+    const commands: string[] = [];
+    const vm = {
+      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const endpoint = await provider.openCmuxRemote(VM_ID, {
+      providerMetadata: {
+        cmuxTuiContract: "snapshot-v2",
+        cmuxTuiStateProtection: "legacy",
+        networkIpv4: "10.4.0.7",
+      },
+    });
+    expect(endpoint.route).toBe("ws://10.4.0.7:1337/v1/link");
+    expect(commands).toEqual([]);
+  });
+
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
   // to stay compatible with: a row without the contract or its recorded
   // addresses is refused with a clear error, never healed or looked up.

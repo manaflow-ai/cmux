@@ -50,7 +50,8 @@ public enum MachineSnapshotBuilder: Sendable {
             slug: summary.slug,
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
-            privateAddress: summary.preferredPrivateAddress
+            privateAddress: summary.preferredPrivateAddress,
+            cmuxTuiStateProtectionWarning: summary.cmuxTuiStateProtection.map { $0 != "reserved-v1" } ?? false
         )
         snapshot.agentUpdates = summary.agentUpdates
         return snapshot

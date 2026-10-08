@@ -118,6 +118,10 @@ import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
+import {
+  cmuxTuiStateProtectionForImage,
+  type VmCmuxTuiStateProtection,
+} from "./images/resolver";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -223,6 +227,8 @@ export type VmEntry = {
    * carry it and New Machine skips the separate attach request.
    */
   readonly cmuxTuiContract: string | null;
+  /** Whether the image keeps cmux-tui state off the root filesystem. */
+  readonly cmuxTuiStateProtection?: VmCmuxTuiStateProtection;
   /** Coding agents: "image" keeps the baked pins, "latest" updates them on attach. */
   readonly agentUpdates: VmAgentUpdatesSetting;
   /**
@@ -998,6 +1004,8 @@ type CreateVmInput = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
+  /** Metadata to persist before provider work (used to carry image contracts through forks). */
+  readonly providerMetadata?: Record<string, unknown>;
   readonly idempotencyKey?: string;
   /** Stored before provisioning so the first guest prompt already has its chosen name. */
   readonly displayName?: string | null;
@@ -2441,6 +2449,7 @@ export function forkVm(input: {
         provider: source.provider,
         image: source.imageId,
         imageVersion: source.imageVersion,
+        providerMetadata: { cmuxTuiStateProtection: vmCmuxTuiStateProtection(source) },
         maxActiveVms: input.maxActiveVms,
         ...(isPaidVmPlan(input.billingPlanId)
           ? {
@@ -2622,6 +2631,7 @@ export function forkVm(input: {
       provider: source.provider,
       image: snapshot.id,
       imageVersion: null,
+      providerMetadata: { cmuxTuiStateProtection: vmCmuxTuiStateProtection(source) },
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
@@ -5600,11 +5610,18 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
+    cmuxTuiStateProtection: vmCmuxTuiStateProtection(row),
     agentUpdates: vmAgentUpdatesFromRow(row),
     resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
       ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))
       : null,
   };
+}
+
+function vmCmuxTuiStateProtection(row: Pick<CloudVmRow, "provider" | "imageId" | "providerMetadata">): VmCmuxTuiStateProtection {
+  const recorded = row.providerMetadata?.cmuxTuiStateProtection;
+  if (recorded === "reserved-v1" || recorded === "legacy" || recorded === "unknown") return recorded;
+  return cmuxTuiStateProtectionForImage(row.provider, row.imageId);
 }
 
 function baseVmEntryFromRows(
