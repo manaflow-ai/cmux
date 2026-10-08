@@ -22,7 +22,7 @@ import { FileSearch } from "./FileSearch";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
+import { readNativePersistedDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -162,6 +162,8 @@ export function Composer({
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
   const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
+  const textRef = useRef(text);
+  textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
@@ -295,6 +297,18 @@ export function Composer({
     setCaret(restored.length);
     pendingCaret.current = restored.length;
   }, [sessionId, text]);
+  useEffect(() => {
+    let current = true;
+    void readNativePersistedDraft(sessionId).then((restored) => {
+      if (!current || !restored || field.current?.value() || textRef.current) return;
+      setText(restored);
+      setCaret(restored.length);
+      pendingCaret.current = restored.length;
+    });
+    return () => {
+      current = false;
+    };
+  }, [sessionId]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
