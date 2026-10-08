@@ -97,6 +97,24 @@ fn respawn_lines(harness: &RecoveryHarness, terminal_id: &str) -> Vec<serde_json
         .collect()
 }
 
+/// The respawn lines for `terminal_id` once at least `count` exist. The
+/// daemon appends a line after it commits the new incarnation, so a reader
+/// that saw the terminal running can still be ahead of the log.
+fn wait_for_respawn_lines(
+    harness: &RecoveryHarness,
+    terminal_id: &str,
+    count: usize,
+) -> Vec<serde_json::Value> {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let lines = respawn_lines(harness, terminal_id);
+        if lines.len() >= count || Instant::now() >= deadline {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 fn kill_current_shell_and_host(harness: &RecoveryHarness, terminal_id: &str) {
     let (record_path, record) = load_terminal_host_records(&harness.host_root())
         .unwrap_or_default()
@@ -140,7 +158,7 @@ fn a_killed_shell_and_host_respawn_the_terminal_in_place() {
     let new_pid = echo_value(&harness, surface, "second", "$$");
     assert_ne!(new_pid, old_pid, "the same shell answered");
     assert_eq!(echo_value(&harness, surface, "dir", "$PWD"), cwd_text);
-    let lines = respawn_lines(&harness, &terminal_id);
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["old_incarnation"], incarnation.as_str());
     assert_eq!(lines[0]["new_incarnation"], new_incarnation.as_str());
@@ -158,18 +176,27 @@ fn a_host_that_died_without_a_daemon_is_respawned_at_the_next_start() {
     let (terminal_id, incarnation, surface) = start_default_shell(&harness, "reboot");
     send_line(&harness.socket, surface, "echo checkpoint-marker");
     wait_for_screen(&harness.socket, surface, "checkpoint-marker\n");
-    let checkpoint = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "protocol":"cmux.protocol/2",
-            "type":"request",
-            "id":"respawn-checkpoint",
-            "operation":"session.journal.checkpoint.create",
-            "idempotency_key":"respawn-checkpoint",
-            "params":{"machine":"current","session":"current"},
-        }),
-    );
-    assert_eq!(checkpoint["ok"], true, "{checkpoint}");
+    // A capture refuses while the shell still writes (its prompt, its
+    // integration reports); a retry under the same key is the client's part.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let checkpoint = request_response(
+            &harness.socket,
+            serde_json::json!({
+                "protocol":"cmux.protocol/2",
+                "type":"request",
+                "id":"respawn-checkpoint",
+                "operation":"session.journal.checkpoint.create",
+                "idempotency_key":"respawn-checkpoint",
+                "params":{"machine":"current","session":"current"},
+            }),
+        );
+        if checkpoint["ok"] == true {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{checkpoint}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     harness.sigkill();
     // SAFETY: the record PID is the harness-owned terminal host.
@@ -182,7 +209,7 @@ fn a_host_that_died_without_a_daemon_is_respawned_at_the_next_start() {
     let surface = tab["surface"].as_u64().expect("the respawned tab has a surface");
     let text = wait_for_screen(&harness.socket, surface, MARKER);
     assert!(text.contains("checkpoint-marker"), "the checkpoint screen is gone: {text}");
-    let lines = respawn_lines(&harness, &terminal_id);
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["cause"], "dead_before_adoption");
 }
@@ -244,7 +271,7 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
     let text = screen(&harness, surface);
     assert!(!text.contains("not found"), "the resume command ran: {text}");
     assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
-    let lines = respawn_lines(&harness, &terminal_id);
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
 }
 
@@ -304,7 +331,7 @@ fn a_terminal_that_keeps_losing_its_host_stays_ended() {
     let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
     assert_eq!(resolved["terminal_incarnation"], respawned.as_str(), "{resolved}");
     assert_eq!(tab_named(&harness, "loop")["dead"], true);
-    assert_eq!(respawn_lines(&harness, &terminal_id).len(), 1);
+    assert_eq!(wait_for_respawn_lines(&harness, &terminal_id, 1).len(), 1);
 }
 
 /// f. A close that lands after the host died and before the respawn starts
