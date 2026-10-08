@@ -126,7 +126,10 @@ nonisolated enum AcpmuxDaemonLauncher {
         var status: Int32 = 0
         var result: pid_t
         repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
-        if result == -1 { logger.error("acpmux launch shell reap failed errno=\(errno, privacy: .public)") }
+        if result == -1 {
+            let failure = errno
+            logger.error("acpmux launch shell reap failed errno=\(failure, privacy: .public)")
+        }
     }
 
     private static func withCStringArray<Value>(
