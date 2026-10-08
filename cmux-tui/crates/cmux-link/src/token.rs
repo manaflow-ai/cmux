@@ -129,7 +129,11 @@ impl ControlPlaneTokenVerifier {
     where
         F: Fn() -> u64 + Send + Sync + 'static,
     {
-        Self { keyset: RwLock::new(keyset), seen: Mutex::new(BTreeMap::new()), clock: Arc::new(clock) }
+        Self {
+            keyset: RwLock::new(keyset),
+            seen: Mutex::new(BTreeMap::new()),
+            clock: Arc::new(clock),
+        }
     }
 
     /// Replace the held public keys after a successful keyset refresh.
@@ -156,8 +160,10 @@ impl TokenVerifier for ControlPlaneTokenVerifier {
             return Err(TokenRefused::Invalid);
         }
 
-        let header_bytes = URL_SAFE_NO_PAD.decode(encoded_header).map_err(|_| TokenRefused::Invalid)?;
-        let header: TokenHeader = serde_json::from_slice(&header_bytes).map_err(|_| TokenRefused::Invalid)?;
+        let header_bytes =
+            URL_SAFE_NO_PAD.decode(encoded_header).map_err(|_| TokenRefused::Invalid)?;
+        let header: TokenHeader =
+            serde_json::from_slice(&header_bytes).map_err(|_| TokenRefused::Invalid)?;
         if header.alg != "EdDSA" || header.typ != LINK_TOKEN_TYP {
             return Err(TokenRefused::Invalid);
         }
@@ -168,15 +174,16 @@ impl TokenVerifier for ControlPlaneTokenVerifier {
             .and_then(|keyset| keyset.get(&header.kid).copied())
             .ok_or(TokenRefused::Invalid)?;
 
-        let signature_bytes = URL_SAFE_NO_PAD
-            .decode(encoded_signature)
-            .map_err(|_| TokenRefused::Invalid)?;
+        let signature_bytes =
+            URL_SAFE_NO_PAD.decode(encoded_signature).map_err(|_| TokenRefused::Invalid)?;
         signature::UnparsedPublicKey::new(&signature::ED25519, &public_key)
             .verify(format!("{encoded_header}.{encoded_claims}").as_bytes(), &signature_bytes)
             .map_err(|_| TokenRefused::Invalid)?;
 
-        let claims_bytes = URL_SAFE_NO_PAD.decode(encoded_claims).map_err(|_| TokenRefused::Invalid)?;
-        let claims: TokenClaims = serde_json::from_slice(&claims_bytes).map_err(|_| TokenRefused::Invalid)?;
+        let claims_bytes =
+            URL_SAFE_NO_PAD.decode(encoded_claims).map_err(|_| TokenRefused::Invalid)?;
+        let claims: TokenClaims =
+            serde_json::from_slice(&claims_bytes).map_err(|_| TokenRefused::Invalid)?;
         let now = self.now();
         if claims.exp <= now {
             return Err(TokenRefused::Expired);
@@ -200,11 +207,7 @@ impl TokenVerifier for ControlPlaneTokenVerifier {
         // Cloud link tokens intentionally carry no person id, so use the
         // install as the stamped user principal rather than impersonating a
         // team member.
-        let peer = LinkPeer {
-            user: claims.sub.clone(),
-            install: claims.sub,
-            team: claims.team,
-        };
+        let peer = LinkPeer { user: claims.sub.clone(), install: claims.sub, team: claims.team };
         if !peer.is_valid() {
             return Err(TokenRefused::Invalid);
         }
@@ -421,14 +424,8 @@ mod tests {
             URL_SAFE_NO_PAD.decode(value).unwrap().try_into().unwrap()
         };
         BTreeMap::from([
-            (
-                "test-k1".into(),
-                decode("tRRe5k08ymM7wh1Rh9EZkgf1p8UAskG2c_3dH0bYSGY"),
-            ),
-            (
-                "test-k2".into(),
-                decode("-IW5hjSjOqC3WBiaZ8uwfsemALBF4XaHTp8jxg8zcuY"),
-            ),
+            ("test-k1".into(), decode("tRRe5k08ymM7wh1Rh9EZkgf1p8UAskG2c_3dH0bYSGY")),
+            ("test-k2".into(), decode("-IW5hjSjOqC3WBiaZ8uwfsemALBF4XaHTp8jxg8zcuY")),
         ])
     }
 
@@ -443,8 +440,7 @@ mod tests {
 
     #[test]
     fn the_default_verifier_refuses_every_token() {
-        let expected =
-            Expected { host: "host_a", epoch: 1, service: Service::Daemon, peer_key: &[1; 32] };
+        let expected = Expected { host: "host_a", epoch: 1, service: Service::Daemon, peer_key: &[1; 32] };
         assert_eq!(DenyAllTokens.verify("anything", &expected), Err(TokenRefused::NoVerifier));
     }
 
@@ -470,7 +466,8 @@ mod tests {
 
         let verifier = ControlPlaneTokenVerifier::with_clock(keyset(), || 1_790_000_010);
         assert_eq!(
-            verifier.verify(VALID_TOKEN, &Expected { host: "host_other", ..expected(Service::Daemon) }),
+            verifier
+                .verify(VALID_TOKEN, &Expected { host: "host_other", ..expected(Service::Daemon) }),
             Err(TokenRefused::Invalid)
         );
         assert_eq!(
@@ -478,9 +475,15 @@ mod tests {
             Err(TokenRefused::Invalid)
         );
         let tampered = format!("{VALID_TOKEN}x");
-        assert_eq!(verifier.verify(&tampered, &expected(Service::Daemon)), Err(TokenRefused::Invalid));
+        assert_eq!(
+            verifier.verify(&tampered, &expected(Service::Daemon)),
+            Err(TokenRefused::Invalid)
+        );
         assert!(verifier.verify(VALID_TOKEN, &expected(Service::Daemon)).is_ok());
-        assert_eq!(verifier.verify(VALID_TOKEN, &expected(Service::Daemon)), Err(TokenRefused::Replayed));
+        assert_eq!(
+            verifier.verify(VALID_TOKEN, &expected(Service::Daemon)),
+            Err(TokenRefused::Replayed)
+        );
     }
 
     #[test]
@@ -489,7 +492,10 @@ mod tests {
             BTreeMap::from([("test-k2".into(), keyset().remove("test-k2").unwrap())]),
             || 1_790_000_010,
         );
-        assert_eq!(verifier.verify(ROTATED_TOKEN, &expected(Service::Daemon)), Err(TokenRefused::Invalid));
+        assert_eq!(
+            verifier.verify(ROTATED_TOKEN, &expected(Service::Daemon)),
+            Err(TokenRefused::Invalid)
+        );
         verifier.replace_keyset(keyset());
         assert!(verifier.verify(ROTATED_TOKEN, &expected(Service::Daemon)).is_ok());
     }
