@@ -27,6 +27,32 @@ struct SSHClipboardWriteTrustStoreTests {
         #expect(GhosttyNSView.sshClipboardMachine(for: panel, dock: dock, ownership: ownership) == machine)
     }
 
+    @Test("Dock trust prefers transferred SSH ownership over a local placeholder")
+    @MainActor
+    func dockClipboardMachineSkipsLocalCatalogPlaceholder() throws {
+        let machine = SurfaceMachineID.ssh("dock-aliased-ssh-machine")
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let panel = TerminalPanel(workspaceId: dock.workspaceId)
+        panel.retainTransferredSurfaceMachine(machine)
+        dock.panels[panel.id] = panel
+
+        let localProjection = SurfaceProjection(
+            resource: SurfaceResourceID(
+                machine: .local,
+                kind: .terminal,
+                key: panel.id.uuidString
+            ),
+            workspaceID: dock.workspaceId,
+            panelID: panel.id
+        )
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(
+            projections: [localProjection],
+            pendingRestores: []
+        )
+        #expect(GhosttyNSView.sshClipboardMachine(for: panel, dock: dock, ownership: ownership) == machine)
+    }
+
     @Test("generic manual mirrors do not inherit workspace SSH trust")
     @MainActor
     func genericManualMirrorRemainsDenied() throws {
