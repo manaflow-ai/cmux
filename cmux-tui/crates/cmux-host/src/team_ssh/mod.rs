@@ -23,9 +23,16 @@
 //!   recorded start time and whose certificate the KRL revokes; it never
 //!   matches processes by name or pattern ([`sessions`]).
 //!
-//! Known limit: until the team VM bind route (vm-image.md 6b) exists, no
-//! deployed machine fetches `team_vm.ssh_ca` by itself; `apply` reads the
-//! snapshot on stdin, and the fetcher that calls it lands with the bind.
+//! Known limits:
+//! - A revocation ends the sshd process and its logind session scope.
+//!   Processes the user moved out of that scope (`systemd-run --user`, a
+//!   lingering user manager) keep running.
+//! - Only Ed25519 and ECDSA user certificates can be recorded; a session
+//!   with another certificate type is refused at session open (the team CA
+//!   is Ed25519 only).
+//! - Until the team VM bind route (vm-image.md 6b) exists, no deployed
+//!   machine fetches `team_vm.ssh_ca` by itself; `apply` reads the snapshot
+//!   on stdin, and the fetcher that calls it lands with the bind.
 
 pub mod b64;
 pub mod cert;
@@ -56,5 +63,8 @@ pub const KRL_FILE: &str = "/etc/cmux/ssh/revoked.krl";
 pub const PRINCIPALS_DIR: &str = "/etc/cmux/ssh/principals";
 /// The applied snapshot's versions and sync time ([`trust::TrustState`]).
 pub const TRUST_FILE: &str = "/etc/cmux/ssh/trust.json";
+/// Serializes `apply` (flock). Root-only directory, so no other user can
+/// hold the lock and stall updates.
+pub const APPLY_LOCK_FILE: &str = "/run/cmux-host/ssh-sessions/.apply.lock";
 /// Root-only session records, one file per sshd process id.
 pub const SESSIONS_DIR: &str = "/run/cmux-host/ssh-sessions";

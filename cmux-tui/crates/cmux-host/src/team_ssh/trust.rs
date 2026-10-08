@@ -52,6 +52,20 @@ fn valid_ca_line(line: &str) -> bool {
         && b64::decode(body).is_some_and(|blob| blob.len() == 51)
 }
 
+/// The version in an OpenSSH KRL header (format 1), `None` when `krl` is
+/// not a KRL.
+pub fn krl_header_version(krl: &[u8]) -> Option<u64> {
+    if krl.len() < 20 || &krl[..8] != KRL_MAGIC {
+        return None;
+    }
+    if u32::from_be_bytes([krl[8], krl[9], krl[10], krl[11]]) != KRL_FORMAT_VERSION {
+        return None;
+    }
+    let mut version = [0u8; 8];
+    version.copy_from_slice(&krl[12..20]);
+    Some(u64::from_be_bytes(version))
+}
+
 /// Checks a snapshot: Ed25519 CA lines only, a decodable KRL whose header
 /// carries the same `krl_version`.
 pub fn verify(snapshot: &Snapshot) -> Result<Verified, String> {
@@ -66,16 +80,8 @@ pub fn verify(snapshot: &Snapshot) -> Result<Verified, String> {
         return Err("krl: too large".into());
     }
     let krl = b64::decode(&snapshot.krl).ok_or("krl: not standard base64")?;
-    if krl.len() < 20 || &krl[..8] != KRL_MAGIC {
-        return Err("krl: not an OpenSSH KRL".into());
-    }
-    let format = u32::from_be_bytes([krl[8], krl[9], krl[10], krl[11]]);
-    if format != KRL_FORMAT_VERSION {
-        return Err(format!("krl: format version {format} is not supported"));
-    }
-    let mut version = [0u8; 8];
-    version.copy_from_slice(&krl[12..20]);
-    if u64::from_be_bytes(version) != snapshot.krl_version {
+    let version = krl_header_version(&krl).ok_or("krl: not an OpenSSH KRL (format 1)")?;
+    if version != snapshot.krl_version {
         return Err("krl: header version differs from krl_version".into());
     }
     Ok(Verified {

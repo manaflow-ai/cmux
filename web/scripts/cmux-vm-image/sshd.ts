@@ -110,9 +110,14 @@ export function sshdListenProblems(ss: string): string[] {
   return port22.filter((local) => !LOOPBACK_LISTEN.test(local)).map((local) => `port 22 listens on ${local}`);
 }
 
-/** Problems in /etc/pam.d/sshd: the session recorder must be present exactly once, as the last session line. */
+/**
+ * Problems in /etc/pam.d/sshd: the session recorder must be present exactly once, as the last session
+ * line, and no module may read the user's own PAM environment (`user_readenv=1` would let the user
+ * replace SSH_AUTH_INFO_0, which the recorder trusts).
+ */
 export function sshdPamProblems(pam: string): string[] {
   const lines = pam.split("\n").map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
+  if (lines.some((line) => /\buser_readenv=1\b/.test(line))) return ["a PAM module reads the user's environment (user_readenv=1)"];
   const hits = lines.filter((line) => line === SSHD_PAM_LINE).length;
   if (hits === 0) return ["the certificate session recorder is missing from the sshd PAM stack"];
   if (hits > 1) return ["the certificate session recorder appears more than once"];
@@ -131,7 +136,7 @@ export function sshdBakeCommand(workUser: string): string {
     `install -m 0644 /dev/null ${SSH_CA_FILE}`,
     `install -m 0644 /dev/null ${SSH_PRINCIPALS_DIR}/${workUser}`,
     `rm -f ${SSH_KRL_FILE} ${SSH_TRUST_FILE} && ssh-keygen -q -k -f ${SSH_KRL_FILE} && chmod 0644 ${SSH_KRL_FILE}`,
-    `{ grep -qxF ${sq(SSHD_PAM_LINE)} ${SSHD_PAM_FILE} || printf '%s\\n' ${sq(SSHD_PAM_LINE)} >> ${SSHD_PAM_FILE}; }`,
+    `{ grep -qxF ${sq(SSHD_PAM_LINE)} ${SSHD_PAM_FILE} || { sed -i -e '$a\\' ${SSHD_PAM_FILE} && printf '%s\\n' ${sq(SSHD_PAM_LINE)} >> ${SSHD_PAM_FILE}; }; }`,
     "sshd -t",
     // Ubuntu 24.04 activates sshd through ssh.socket; its generator turns ListenAddress into the socket's listen list.
     "{ systemctl is-enabled --quiet ssh.service || systemctl is-enabled --quiet ssh.socket || systemctl enable --quiet ssh.socket; }",
@@ -191,17 +196,17 @@ export function sshdCertSmokeCommand(workUser: string): string {
     `if ${ssh} ${id} ${target} true 2>/dev/null; then echo "FAIL login with an empty CA file"; exit 1; fi; echo "PASS empty CA refuses"`,
     `printf '%s\\n' ${workUser} > ${SSH_PRINCIPALS_DIR}/${workUser}`,
     'ssh-keygen -q -k -z 1 -f "$d/krl1" && apply "$d/krl1" 1',
-    `test "$(${ssh} ${id} ${target} echo cert-ok)" = cert-ok && echo "PASS certificate login"`,
-    `head -c 1048576 /dev/urandom > "$d/blob" && ${scp} ${id} "$d/blob" ${target}:/tmp/cmux-scp-smoke && cmp "$d/blob" /tmp/cmux-scp-smoke && echo "PASS scp 1 MiB"`,
+    `test "$(${ssh} ${id} ${target} echo cert-ok)" = cert-ok || { echo "FAIL certificate login"; exit 1; }; echo "PASS certificate login"`,
+    `{ head -c 1048576 /dev/urandom > "$d/blob" && ${scp} ${id} "$d/blob" ${target}:/tmp/cmux-scp-smoke && cmp "$d/blob" /tmp/cmux-scp-smoke; } || { echo "FAIL scp 1 MiB"; exit 1; }; echo "PASS scp 1 MiB"`,
     // The client loads <identity>-cert.pub on its own, so the plain-key attempt uses a copy with no certificate beside it.
     `install -d -m 0700 "$d/plain" && cp "$d/user" "$d/user.pub" "$d/plain/"`,
     `if ${ssh} -o IdentitiesOnly=yes -i "$d/plain/user" ${target} true 2>/dev/null; then echo "FAIL plain key login"; exit 1; fi; echo "PASS plain key refused"`,
     `${ssh} ${id} ${target} sleep 300 </dev/null >/dev/null 2>&1 & live=$!`,
-    `for i in $(seq 50); do grep -qs cmux-smoke ${sessions}/*.json && break; sleep 0.2; done; grep -qs cmux-smoke ${sessions}/*.json && echo "PASS session recorded"`,
+    `for i in $(seq 50); do grep -qs cmux-smoke ${sessions}/*.json && break; sleep 0.2; done; grep -qs cmux-smoke ${sessions}/*.json || { echo "FAIL session not recorded"; exit 1; }; kill -0 "$live" || { echo "FAIL held session did not stay open"; exit 1; }; echo "PASS session recorded"`,
     `printf 'id: cmux-smoke\\n' > "$d/krl-spec" && ssh-keygen -q -k -z 2 -f "$d/krl2" -s "$d/ca.pub" "$d/krl-spec" && apply "$d/krl2" 2`,
     'for i in $(seq 50); do kill -0 "$live" 2>/dev/null || break; sleep 0.2; done; if kill -0 "$live" 2>/dev/null; then echo "FAIL revoked session still open"; exit 1; fi; echo "PASS revoked session ended"',
     `if ${ssh} ${id} ${target} true 2>/dev/null; then echo "FAIL revoked certificate login"; exit 1; fi; echo "PASS revoked certificate refused"`,
-    `test "$(${ssh} ${id2} ${target} echo cert-ok)" = cert-ok && echo "PASS unrevoked certificate login"`,
+    `test "$(${ssh} ${id2} ${target} echo cert-ok)" = cert-ok || { echo "FAIL unrevoked certificate login"; exit 1; }; echo "PASS unrevoked certificate login"`,
     `printf '{"krl_version":2,"generation":1,"synced_at":%s}' "$(( $(date +%s) - 121 ))" > ${SSH_TRUST_FILE}`,
     `if ${ssh} ${id2} ${target} true 2>/dev/null; then echo "FAIL login with stale trust"; exit 1; fi; echo "PASS stale trust refuses"`,
   ].join("\n");

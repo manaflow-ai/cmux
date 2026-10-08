@@ -93,6 +93,8 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
     const early = [ubuntu[0], SSHD_PAM_LINE, ...ubuntu.slice(1)];
     expect(sshdPamProblems(early.join("\n"))).toEqual(["the certificate session recorder is not the last session line"]);
     expect(sshdPamProblems(`# ${SSHD_PAM_LINE}\n${ubuntu.join("\n")}`)).toEqual(["the certificate session recorder is missing from the sshd PAM stack"]);
+    const readenv = ["session required pam_env.so user_readenv=1", ...ubuntu, SSHD_PAM_LINE];
+    expect(sshdPamProblems(readenv.join("\n"))).toEqual(["a PAM module reads the user's environment (user_readenv=1)"]);
   });
 
   test("the bake output splits into sshd -T, ss and the PAM file; a missing part fails the policy", () => {

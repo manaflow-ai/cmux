@@ -45,6 +45,10 @@ impl Host for LinuxHost {
 
     fn revoked(&self, krl: &Path, cert_line: &str) -> io::Result<bool> {
         fs::create_dir_all(&self.scratch)?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.scratch, fs::Permissions::from_mode(0o700))?;
+        }
         let file = self.scratch.join(format!(".check-{}.pub", std::process::id()));
         fs::write(&file, format!("{cert_line}\n"))?;
         let out = Command::new(&self.ssh_keygen)

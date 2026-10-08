@@ -76,7 +76,7 @@ fn apply_verb(paths: &Paths) -> u8 {
             return 2;
         }
     };
-    let applied = match store::apply(paths, &snapshot, now()) {
+    let applied = match store::apply(paths, &snapshot, now(), &store::ssh_keygen_check) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("cmux host team-ssh apply: refused: {e}");
@@ -119,25 +119,28 @@ fn reap_verb(paths: &Paths) -> u8 {
 fn session_verb(paths: &Paths) -> u8 {
     use super::sessions::{SessionRecord, forget, save};
     let var = |k: &str| std::env::var(k).ok();
+    use super::sessions::Host;
     // SAFETY: getppid has no preconditions.
     let parent = unsafe { libc::getppid() } as u32;
+    let host = super::linux_host::LinuxHost::new(paths.at(super::SESSIONS_DIR));
     match var("PAM_TYPE").as_deref() {
         Some("open_session") => {}
-        Some("close_session") => return u8::from(forget(paths, parent).is_err()),
+        Some("close_session") => {
+            return match host.start_time(parent) {
+                Some(start) => u8::from(forget(paths, parent, start).is_err()),
+                None => 0,
+            };
+        }
         _ => return 0,
     }
-    let certs = match super::cert::session_certs(&var("SSH_AUTH_INFO_0").unwrap_or_default()) {
+    let auth_info = var("SSH_AUTH_INFO_0").unwrap_or_default();
+    let certs = match super::cert::required_session_certs(&auth_info) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("cmux host team-ssh session-open: {e}");
             return 1;
         }
     };
-    if certs.is_empty() {
-        return 0;
-    }
-    let host = super::linux_host::LinuxHost::new(paths.at(super::SESSIONS_DIR));
-    use super::sessions::Host;
     let (Some(start), Some(comm)) = (host.start_time(parent), host.comm(parent)) else {
         eprintln!("cmux host team-ssh session-open: parent {parent} is gone");
         return 1;

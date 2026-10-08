@@ -99,8 +99,10 @@ pub fn judge(host: &dyn Host, krl: &Path, record: &SessionRecord) -> io::Result<
     Ok(Verdict::Keep)
 }
 
-fn record_path(paths: &Paths, pid: u32) -> std::path::PathBuf {
-    paths.at(SESSIONS_DIR).join(format!("{pid}.json"))
+/// Named by pid and start time, so forgetting a dead session never removes
+/// the record of a new session that reused its pid.
+fn record_path(paths: &Paths, pid: u32, start_time: u64) -> std::path::PathBuf {
+    paths.at(SESSIONS_DIR).join(format!("{pid}-{start_time}.json"))
 }
 
 /// Writes a record (root-only directory, 0600 file).
@@ -113,12 +115,13 @@ pub fn save(paths: &Paths, record: &SessionRecord) -> io::Result<()> {
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
     }
     let json = serde_json::to_vec(record).map_err(io::Error::other)?;
-    write_atomic(&record_path(paths, record.pid), &json, 0o600)
+    write_atomic(&record_path(paths, record.pid, record.start_time), &json, 0o600)
 }
 
-/// Removes the record of `pid` (close_session); absent is fine.
-pub fn forget(paths: &Paths, pid: u32) -> io::Result<()> {
-    match fs::remove_file(record_path(paths, pid)) {
+/// Removes the record of `pid` started at `start_time` (close_session);
+/// absent is fine.
+pub fn forget(paths: &Paths, pid: u32, start_time: u64) -> io::Result<()> {
+    match fs::remove_file(record_path(paths, pid, start_time)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }
@@ -154,12 +157,12 @@ pub fn reap(paths: &Paths, host: &dyn Host) -> Reaped {
             Ok(Verdict::Keep) => {}
             Ok(Verdict::Forget) => {
                 out.forgotten.push(record.pid);
-                let _ = forget(paths, record.pid);
+                let _ = forget(paths, record.pid, record.start_time);
             }
             Ok(Verdict::End) => match host.end(&record) {
                 Ok(()) => {
                     out.ended.push(record.pid);
-                    let _ = forget(paths, record.pid);
+                    let _ = forget(paths, record.pid, record.start_time);
                 }
                 Err(e) => out.errors.push(format!("end session {}: {e}", record.pid)),
             },

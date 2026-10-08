@@ -1,4 +1,4 @@
-use super::cert::session_certs;
+use super::cert::{required_session_certs, session_certs};
 use super::test_support::{b64, cert_blob};
 
 #[test]
@@ -22,4 +22,18 @@ fn unparsable_or_host_certificates_are_errors_not_silently_skipped() {
     assert!(session_certs("publickey ssh-ed25519-cert-v01@openssh.com %%%").is_err());
     assert!(session_certs("publickey ssh-rsa-cert-v01@openssh.com AAAA").is_err());
     assert_eq!(session_certs("").expect("empty"), vec![]);
+}
+
+#[test]
+fn session_open_requires_a_certificate() {
+    // An empty or plain-key SSH_AUTH_INFO_0 means the PAM environment was altered.
+    assert!(required_session_certs("").is_err());
+    assert!(
+        required_session_certs("publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== x").is_err()
+    );
+    let body = b64(&cert_blob(3, 1, "k"));
+    let certs =
+        required_session_certs(&format!("publickey ssh-ed25519-cert-v01@openssh.com {body}"))
+            .expect("cert");
+    assert_eq!(certs[0].serial, 3);
 }

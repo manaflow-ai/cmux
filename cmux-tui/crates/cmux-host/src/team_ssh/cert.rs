@@ -90,3 +90,14 @@ pub fn session_certs(auth_info: &str) -> Result<Vec<SessionCert>, String> {
     }
     Ok(certs)
 }
+
+/// `session_certs` for session open: a session with no certificate is an
+/// error, because sshd allows only certificate logins (`AuthorizedKeysFile
+/// none`), so an empty list means the PAM environment was altered.
+pub fn required_session_certs(auth_info: &str) -> Result<Vec<SessionCert>, String> {
+    let certs = session_certs(auth_info)?;
+    if certs.is_empty() {
+        return Err("no certificate in SSH_AUTH_INFO_0".into());
+    }
+    Ok(certs)
+}

@@ -102,6 +102,20 @@ fn reap_ends_revoked_sessions_and_drops_dead_records_but_keeps_the_rest() {
 }
 
 #[test]
+fn forgetting_a_dead_session_keeps_the_record_of_a_new_session_on_the_same_pid() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = Paths::new(dir.path());
+    save(&paths, &record(10, 500, "cert-old")).expect("save");
+    save(&paths, &record(10, 600, "cert-new")).expect("save");
+    let host = FakeHost { procs: BTreeMap::from([(10, (600, "sshd"))]), ..FakeHost::default() };
+    let out = reap(&paths, &host);
+    assert_eq!(out.forgotten, vec![10]);
+    let left = load_all(&paths);
+    assert_eq!(left.len(), 1);
+    assert_eq!((left[0].pid, left[0].start_time), (10, 600));
+}
+
+#[test]
 fn failures_keep_the_record_and_are_reported() {
     let dir = tempfile::tempdir().expect("tempdir");
     let paths = Paths::new(dir.path());
