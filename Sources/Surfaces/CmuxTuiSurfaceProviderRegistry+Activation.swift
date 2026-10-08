@@ -34,9 +34,8 @@ extension CmuxTuiSurfaceProviderRegistry {
         if AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope != expectedTeamScope {
             throw VMClientError.notSignedIn
         }
-        guard let wireGuardHub else { throw VMClientError.cloudMachinesDisabled }
-        _ = try await wireGuardHub.prewarm(
-            allowWhenCloudDisabled: true,
+        try await prepareActivationHub(
+            wireGuardHub: wireGuardHub,
             expectedTeamScope: expectedTeamScope
         )
         try Task.checkCancellation()
@@ -46,6 +45,19 @@ extension CmuxTuiSurfaceProviderRegistry {
         if AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope != expectedTeamScope {
             throw VMClientError.notSignedIn
         }
+    }
+
+    /// Runs activation's carrier preparation. Kept as a seam so activation can
+    /// be tested independently from the app's live auth and VM client graph.
+    func prepareActivationHub(
+        wireGuardHub: CloudWireGuardHub?,
+        expectedTeamScope: AuthenticatedTeamScope
+    ) async throws {
+        guard let wireGuardHub else { throw VMClientError.cloudMachinesDisabled }
+        _ = try await wireGuardHub.prewarm(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: expectedTeamScope
+        )
     }
 
     /// Stops activation-only hub work after cancellation or a failed readiness
