@@ -44,6 +44,8 @@ import Testing
         #expect(FeedWireEncode.answer(.permission(allow: false, scope: .always)) as NSDictionary == ["decision": "deny"])
         #expect(FeedWireEncode.answer(.permission(allow: true, scope: .session)) as NSDictionary == ["decision": "allow", "scope": "session"])
         #expect(FeedWireEncode.answer(.plan(approved: false, comment: "smaller")) as NSDictionary == ["verdict": "request_changes", "comment": "smaller"])
+        #expect(FeedWireEncode.answer(.text("  answer  ")) as NSDictionary == ["text": "answer"])
+        #expect(FeedWireEncode.answer(.plan(approved: true, comment: "  ")) as NSDictionary == ["verdict": "approve"])
         #expect(FeedWireEncode.answer(.choice(["q": FeedChoiceSelection(selected: ["a"], other: "z")])) as NSDictionary
                 == ["answers": ["q": ["selected": ["a"], "other": "z"]]])
         let frame = FeedWireEncode.opFrame(.decline(itemID: "fi_1"), key: IntentKey(rawValue: "k1"), device: nil)

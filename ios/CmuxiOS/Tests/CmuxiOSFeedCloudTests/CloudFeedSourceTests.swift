@@ -93,6 +93,29 @@ import Testing
         #expect(socket.sentFrameCount("op") == 1)
     }
 
+    @Test func duplicateKeyWithDifferentFrameRefusesLocally() async throws {
+        let socket = FakeFeedConnection()
+        let (source, _) = makeSource([socket])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = socket.outbound.makeAsyncIterator()
+        socket.push(OwnerJSON.welcome)
+        socket.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+
+        let key = IntentKey(rawValue: "idem_conflict")
+        let first = Task { try await source.perform(.read(itemIDs: ["fi_1"]), key: key) }
+        _ = try #require(await nextFrame(&sent, t: "op"))
+        let second = Task { try await source.perform(.answer(itemID: "fi_1", reply: .confirm(true)), key: key) }
+        var secondError: (any Error)?
+        do { _ = try await second.value } catch { secondError = error }
+        #expect(secondError as? FeatureSourceError == .unsupported("feed.idempotency-conflict"))
+
+        socket.push(["t": "request-settled", "tx": "t", "idempotency_key": key.rawValue,
+                     "stream": "feed:usr_1", "sequence": 2, "ok": true])
+        #expect(try await first.value == .committed(key: key, revision: 2))
+        #expect(socket.sentFrameCount("op") == 1)
+    }
+
     @Test func rejectThenSettleIsARefusalWithTheCode() async throws {
         let socket = FakeFeedConnection()
         let (source, _) = makeSource([socket])

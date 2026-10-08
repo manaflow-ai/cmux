@@ -143,7 +143,18 @@ public final class FeedStore {
         // The owner takes at most 256 ids per op.
         for start in stride(from: 0, to: ids.count, by: 256) {
             let chunk = Array(ids[start..<min(start + 256, ids.count)])
-            Task { await send(.seen(itemIDs: chunk)) }
+            Task { [weak self] in
+                guard let self else { return }
+                let outcome = await self.send(.seen(itemIDs: chunk))
+                // A failed or refused seen intent must be eligible for a
+                // later render pass. Keeping it marked forever would let the
+                // owner continue treating the item as unseen and send a
+                // duplicate notification.
+                guard case .committed = outcome else {
+                    self.reportedSeen.subtract(chunk)
+                    return
+                }
+            }
         }
     }
 

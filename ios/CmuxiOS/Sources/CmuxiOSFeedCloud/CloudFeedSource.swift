@@ -90,6 +90,14 @@ public actor CloudFeedSource: FeedSource {
         }
         return try await withCheckedThrowingContinuation { continuation in
             if waiting[key.rawValue] != nil {
+                // A key is also the owner's idempotency boundary. Joining is
+                // safe only when the second caller describes the exact same
+                // canonical frame; otherwise returning the first receipt
+                // would report success for a different user intent.
+                guard unsettled.first(where: { $0.key == key.rawValue })?.frame == text else {
+                    continuation.resume(throwing: FeatureSourceError.unsupported("feed.idempotency-conflict"))
+                    return
+                }
                 // The key is the operation's idempotency boundary. Do not
                 // enqueue another frame; fan the eventual receipt out to the
                 // racing caller instead.
@@ -184,7 +192,15 @@ public actor CloudFeedSource: FeedSource {
         resendOnSnapshot = true
         awaitingSnapshot = true
         let sender = Task {
-            for await text in frames { try? await socket.send(text) }
+            do {
+                for await text in frames { try await socket.send(text) }
+            } catch is CancellationError {
+                // Session teardown owns the normal cancellation path.
+            } catch {
+                // A failed send must end the receive side too. Leaving it
+                // hidden would strand unsettled intents on a dead socket.
+                socket.close()
+            }
         }
         defer { sender.cancel() }
         while !Task.isCancelled, generation == self.generation {

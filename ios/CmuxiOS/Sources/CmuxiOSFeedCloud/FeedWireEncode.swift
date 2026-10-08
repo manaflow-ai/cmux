@@ -12,7 +12,7 @@ struct FeedWireEncode {
             if allow, let scope { value["scope"] = scope.rawValue }
             return value
         case .text(let text):
-            return ["text": text]
+            return ["text": text.trimmingCharacters(in: .whitespacesAndNewlines)]
         case .choice(let answers):
             return ["answers": answers.mapValues { selection -> [String: Any] in
                 var value: [String: Any] = ["selected": selection.selected]
@@ -21,7 +21,10 @@ struct FeedWireEncode {
             }]
         case .plan(let approved, let comment):
             var value: [String: Any] = ["verdict": approved ? "approve" : "request_changes"]
-            if let comment, !comment.isEmpty { value["comment"] = comment }
+            if let comment {
+                let normalized = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalized.isEmpty { value["comment"] = normalized }
+            }
             return value
         case .confirm(let confirmed):
             return ["confirmed": confirmed]
