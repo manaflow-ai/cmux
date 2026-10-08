@@ -56,7 +56,11 @@ extension GhosttyNSView {
 
         for dock in DockSplitStore.liveStores {
             for panel in dock.panels.values.compactMap({ $0 as? TerminalPanel })
-            where dock.machineOwningSurface(panel.id) == machine {
+            // Reuse the batch ownership index, then preserve Dock's detached
+            // transfer fallback without rescanning the catalog per panel.
+            where (ownership.machine(for: panel.id)
+                ?? panel.transferredSurfaceMachine
+                ?? dock.detachedSurfaceTransfersByPanelId[panel.id]?.surfaceMachine) == machine {
                 panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }
         }
