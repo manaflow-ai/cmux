@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextDesign
 
 // `sidebar.spacesPosition` (R109): the spaces dots sit in the footer row,
-// right after the profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
-// 3: one row, avatar leading, dots after it, anchored leading), or in their
-// own row under the titlebar row.
+// after the profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3: one
+// row, avatar leading), or in their own row under the titlebar row. Either
+// way the strip is centered on the sidebar (cx-5k3r, Lawrence 2026-10-08:
+// "center spaces in bottom"), clamped so it never covers the control.
 extension SidebarView {
     /// The pinned footer section shows items, so the dots go in its first
     /// row. Valid after `updateBands()`.
@@ -38,15 +39,19 @@ extension SidebarView {
             if profileBar.superview !== self { addSubview(profileBar) }
             profileBar.leadingInset = nil
             profileBar.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
+            profileBar.centerX = bounds.midX
         } else if let row = bandFirstRow {
             if profileBar.superview !== self { addSubview(profileBar) }
-            // The dots start right after the control; their slots carry the gap.
+            // The bar starts right after the control (the strip never covers
+            // it; the slots carry the gap) and centers on the sidebar's middle.
             profileBar.leadingInset = 0
             profileBar.frame = NSRect(x: row.itemsMaxX, y: row.frame.minY, width: max(0, bounds.width - row.itemsMaxX), height: row.frame.height)
+            profileBar.centerX = bounds.midX - row.itemsMaxX
         } else {
             if profileBar.superview !== footer { footer.addSubview(profileBar) }
             profileBar.leadingInset = nil
             profileBar.frame = NSRect(x: 0, y: 0, width: footer.bounds.width, height: footer.bounds.height)
+            profileBar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: self).x
         }
         profileBar.refresh()
     }

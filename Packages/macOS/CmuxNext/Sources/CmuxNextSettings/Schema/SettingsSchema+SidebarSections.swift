@@ -63,6 +63,7 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.tipsDescriptor(group: sidebar),
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
+            ChromePlacementSetting.spacesVisibilityDescriptor(group: sidebar),
         ] + SidebarNavigationSetting.descriptors(group: sidebar)
     }
 }

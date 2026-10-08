@@ -3,6 +3,7 @@
 //! per-tab session history (`frontend-browser-history-v1`).
 
 use super::*;
+use crate::Actor;
 
 /// Opaque per-tab session history (back/forward entries, scroll) for
 /// frontend-rendered browsers: `set-frontend-browser-history` and
@@ -134,10 +135,16 @@ pub(super) struct GetParams {
     surface: SurfaceId,
 }
 
-pub(super) fn update(mux: &Mux, params: UpdateTabParams) -> anyhow::Result<Value> {
+pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyhow::Result<Value> {
     let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
-    let (record, changed) =
-        mux.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, owner)?;
+    let (record, changed) = mux.update_frontend_browser_tab_with_owner_as(
+        actor,
+        surface,
+        url,
+        title,
+        favicon_url,
+        owner,
+    )?;
     Ok(json!({
         "surface": surface,
         "url": record.url,

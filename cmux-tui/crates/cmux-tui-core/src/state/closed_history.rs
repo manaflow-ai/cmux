@@ -24,6 +24,7 @@ use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
+use crate::user_settings::NewWorkspacePlacement;
 
 const OPERATION: &str = "closed.reopen";
 
@@ -358,12 +359,15 @@ impl Mux {
                         resolution.terminal.lifecycle == TerminalLifecycle::Running
                     });
                 match running.and_then(|resolution| {
-                    self.project_terminal_into_pane(&resolution.terminal.terminal_id, pane).ok()
+                    self.project_terminal_into_pane(actor, &resolution.terminal.terminal_id, pane)
+                        .ok()
                 }) {
                     Some(surface) => surface,
                     None => {
-                        let (cwd, env) = crate::workspace_registry::relaunch_store::replay(tab);
-                        self.new_tab_with_env_as(actor, Some(pane), cwd, env, None)?.id
+                        // ARCHIVE-1: the archived screen and the stopped
+                        // program come back above the new shell.
+                        let (spawn, _seed) = self.reopen_terminal_spawn(tab);
+                        self.new_tab_with_options_as(actor, Some(pane), spawn, None)?.id
                     }
                 }
             }
@@ -387,7 +391,7 @@ impl Mux {
                 tab: Some(self.public_tab_of(surface)?),
                 ..Self::ordinary_resource_selectors()
             };
-            self.state_pin_tab(StripRequest::local("tab.pin"), selectors, true)?;
+            self.state_pin_tab(StripRequest::local(actor, "tab.pin"), selectors, true)?;
         }
         Ok(())
     }
@@ -504,13 +508,23 @@ impl Mux {
         Ok(())
     }
 
-    fn first_terminal_cwd(screen: &Value) -> Option<String> {
-        screen["tabs"]
-            .as_array()?
-            .iter()
-            .find(|tab| tab["kind"] == "terminal")
-            .and_then(|tab| tab["cwd"].as_str())
-            .map(str::to_string)
+    /// How the first terminal of a reopened screen starts: as its first
+    /// terminal record (directory, environment, archived screen), which
+    /// `fill_screen` then reuses.
+    fn first_terminal_spawn(
+        &self,
+        screen: &Value,
+    ) -> (TerminalSpawnOptions, Option<terminal_archive::SeedGuard<'_>>) {
+        match screen["tabs"]
+            .as_array()
+            .and_then(|tabs| tabs.iter().find(|tab| tab["kind"] == "terminal"))
+        {
+            Some(tab) => {
+                let (spawn, guard) = self.reopen_terminal_spawn(tab);
+                (spawn, Some(guard))
+            }
+            None => (TerminalSpawnOptions::new(None, Vec::new()), None),
+        }
     }
 
     fn reopen_closed_screen(
@@ -529,14 +543,12 @@ impl Mux {
                     .map(|candidate| candidate.id)
             })
         });
+        let (spawn, _seed) = self.first_terminal_spawn(screen);
         let first = match workspace {
-            Some(workspace) => self.new_screen_with_cwd_as(
-                actor,
-                Some(workspace),
-                Self::first_terminal_cwd(screen),
-                None,
-            )?,
-            None => self.new_workspace_as(actor, None, None)?,
+            Some(workspace) => {
+                self.new_screen_named_as(actor, Some(workspace), None, spawn, None)?
+            }
+            None => self.new_workspace_with_spawn_as(actor, None, spawn, None)?,
         };
         self.fill_screen(actor, first.id, screen, reopened)
     }
@@ -549,7 +561,14 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let screens = record["screens"].as_array().cloned().unwrap_or_default();
         let name = record["name"].as_str().map(str::to_string);
-        let first = self.new_workspace_as(actor, name, None)?;
+        let (spawn, _seed) =
+            screens.first().map_or((TerminalSpawnOptions::new(None, Vec::new()), None), |screen| {
+                self.first_terminal_spawn(screen)
+            });
+        // Created last, so the row `restore_placement` drops in the reopen
+        // commit moves no other row; the closed row's place comes back.
+        let first = NewWorkspacePlacement::Bottom
+            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, None))?;
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;
@@ -563,12 +582,8 @@ impl Mux {
             let surface = if index == 0 {
                 first.clone()
             } else {
-                self.new_screen_with_cwd_as(
-                    actor,
-                    Some(workspace),
-                    Self::first_terminal_cwd(screen),
-                    None,
-                )?
+                let (spawn, _seed) = self.first_terminal_spawn(screen);
+                self.new_screen_named_as(actor, Some(workspace), None, spawn, None)?
             };
             self.fill_screen(actor, surface.id, screen, reopened)?;
         }

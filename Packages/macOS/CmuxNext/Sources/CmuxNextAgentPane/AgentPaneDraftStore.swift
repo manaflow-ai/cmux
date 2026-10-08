@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Persists unsent composer text by acpmux session.
 public protocol AgentPaneDraftStoring: Sendable {
@@ -10,7 +10,13 @@ public protocol AgentPaneDraftStoring: Sendable {
 }
 
 /// Stores agent composer drafts in app-owned defaults so WebKit's private page stores can stay ephemeral.
-public actor UserDefaultsAgentPaneDraftStore: AgentPaneDraftStoring {
+///
+/// A nonisolated class, not an actor: Swift 6.4 (Xcode 27) rejects an actor initializer that stores
+/// a non-Sendable `UserDefaults` under this target's main-actor default isolation ("actor-isolated
+/// property can not be mutated from the main actor"), with or without `nonisolated`. `UserDefaults`
+/// is thread-safe and the store holds only immutable references, so `@unchecked Sendable` is sound.
+// crash-allow: UserDefaults is thread-safe and both stored properties are immutable.
+public nonisolated final class UserDefaultsAgentPaneDraftStore: AgentPaneDraftStoring, @unchecked Sendable {
     private let defaults: UserDefaults
     private let keyPrefix: String
 
@@ -25,7 +31,7 @@ public actor UserDefaultsAgentPaneDraftStore: AgentPaneDraftStoring {
     }
 
     /// Creates a draft store backed by the app's standard defaults suite.
-    public init() {
+    public convenience init() {
         self.init(defaults: UserDefaults.standard)
     }
 

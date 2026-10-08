@@ -24,31 +24,61 @@
 //!   matches processes by name or pattern ([`sessions`]).
 //!
 //! Known limits:
-//! - A revocation ends the sshd process and its logind session scope.
-//!   Processes the user moved out of that scope (`systemd-run --user`, a
-//!   lingering user manager) keep running.
+//! - A revocation ends the sshd process and its logind session scope, turns
+//!   the user's lingering off and, once no live session of that user holds
+//!   an unrevoked certificate, stops that user's `user@<uid>.service` (so
+//!   `systemd-run --user` work ends too). Team users never linger: each
+//!   pass turns lingering off for every user with a principals file. While
+//!   another valid session of the same Linux user is live, work the revoked
+//!   session moved into the shared user manager keeps running until that
+//!   session ends. Work handed to another system service (cron or at jobs,
+//!   a docker daemon the user may reach) is outside these scopes. Lingering
+//!   is a product decision for team users: off, reverted on every pass.
+//! - These controls end what a revoked user left running by accident. They
+//!   do not contain a hostile one while the work user has passwordless sudo
+//!   (web/services/vms/images/workUser.ts) or docker access: root can add
+//!   system units or cron jobs, or edit the session records.
 //! - Only Ed25519 and ECDSA user certificates can be recorded; a session
 //!   with another certificate type is refused at session open (the team CA
 //!   is Ed25519 only).
-//! - Until the team VM bind route (vm-image.md 6b) exists, no deployed
-//!   machine fetches `team_vm.ssh_ca` by itself; `apply` reads the snapshot
-//!   on stdin, and the fetcher that calls it lands with the bind.
+//! - The fetcher ([`sync`]) runs only on a team VM that the bind
+//!   ([`enroll`], vm-image.md 6b) gave an install; `apply` also reads a
+//!   snapshot on stdin.
+//! - On a team VM the same sync pass reads the members' Linux accounts and
+//!   reconciles users and principals files ([`accounts`]); a member who
+//!   left loses its principals and the reaper ends its sessions. Agent
+//!   certificates run only `cmux team …` verbs ([`restricted_shell`]).
 
+pub mod accounts;
+#[cfg(target_os = "linux")]
+pub mod accounts_linux;
 pub mod b64;
 pub mod cert;
 pub mod cli;
+pub mod enroll;
 #[cfg(target_os = "linux")]
 pub mod linux_host;
+pub mod restricted_shell;
 pub mod sessions;
 pub mod store;
+pub mod sync;
+pub mod team_cli;
 pub mod trust;
 
 #[cfg(test)]
+mod accounts_tests;
+#[cfg(test)]
 mod cert_tests;
+#[cfg(test)]
+mod enroll_tests;
+#[cfg(test)]
+mod restricted_shell_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod sync_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
@@ -61,6 +91,8 @@ pub const KRL_FILE: &str = "/etc/cmux/ssh/revoked.krl";
 /// Principals per Linux user (`<dir>/<user>`), written by bind or the
 /// team reconciler; `principals` passes them on only while trust is fresh.
 pub const PRINCIPALS_DIR: &str = "/etc/cmux/ssh/principals";
+/// The users the account reconciler created or adopted (root-only).
+pub const ACCOUNTS_FILE: &str = "/etc/cmux/ssh/accounts.json";
 /// The applied snapshot's versions and sync time ([`trust::TrustState`]).
 pub const TRUST_FILE: &str = "/etc/cmux/ssh/trust.json";
 /// Serializes `apply` (flock). Root-only directory, so no other user can

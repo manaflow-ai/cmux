@@ -29,6 +29,9 @@ final class PageWKWebView: WKWebView {
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
         allowsMagnification = false
+        // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
+        NotificationCenter.default.addObserver(self, selector: #selector(menuWillSendAction(_:)),
+                                               name: NSMenu.willSendActionNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -46,8 +49,27 @@ final class PageWKWebView: WKWebView {
     }
 
     func noteUserEvent(_ event: NSEvent) {
+        noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
+    }
+
+    private func noteUserActivation(at uptime: TimeInterval) {
         onUserEvent?()
-        lastUserEventUptime = event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime
+        lastUserEventUptime = uptime
+    }
+
+    /// The context menu WebKit last opened over this view (weak: AppKit owns it).
+    private weak var openedMenu: NSMenu?
+
+    /// An item of this view's context menu (or one of its submenus) is about to send its action:
+    /// the person chose it, so the page call it leads to (a host-built Copy) follows a gesture.
+    /// AppKit posts this only for a real menu choice; page script cannot.
+    @objc private func menuWillSendAction(_ notification: Notification) {
+        guard let opened = openedMenu, var menu = notification.object as? NSMenu else { return }
+        while menu !== opened {
+            guard let parent = menu.supermenu else { return }
+            menu = parent
+        }
+        noteUserActivation(at: ProcessInfo.processInfo.systemUptime)
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
@@ -57,8 +79,12 @@ final class PageWKWebView: WKWebView {
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); super.rightMouseDown(with: event) }
 
+    /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
+    var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        Self.keepDesktopItems(in: menu)
+        openedMenu = menu
+        if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         super.willOpenMenu(menu, with: event)
     }
 

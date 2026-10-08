@@ -31,10 +31,10 @@ pub(crate) struct StripRequest {
 }
 
 impl StripRequest {
-    /// A raw command: a fresh local mutation that never replays.
-    pub(crate) fn local(operation: &str) -> Self {
+    /// A raw command of `actor`: a fresh local mutation that never replays.
+    pub(crate) fn local(actor: &Actor, operation: &str) -> Self {
         Self {
-            mutation: WorkspaceMutation::daemon_local("cmux-tui-tab-groups"),
+            mutation: WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
             operation: operation.to_string(),
             fingerprint: serde_json::json!({
                 "operation": operation,

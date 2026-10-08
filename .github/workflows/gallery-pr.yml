@@ -37,7 +37,15 @@ jobs:
   render:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
+    # Keep all three evidence stages, but give each its own runner and timeout. A broad gallery
+    # change can select hundreds of states; sequential stages otherwise consume the whole hour.
+    # Isolated jobs also avoid competing for renderer memory or CPU while measuring play steps.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        stage: [base, head, repeat]
     outputs:
       touched: ${{ steps.touched.outputs.count }}
       base_sha: ${{ steps.base.outputs.sha }}
@@ -119,14 +127,20 @@ jobs:
             exit 0
           fi
           bun install --frozen-lockfile
-          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json" &&
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build; }; then
+            echo "[]" > "$RUNNER_TEMP/base.json"
+            rm -rf "$RUNNER_TEMP/gallery-base"
+            echo "::warning::The merge-base gallery does not build; every state is compared as new."
+            echo "> The merge-base gallery does not build, so every state is compared as new." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      - name: Render the base, the head and the head again
+      - name: Render the evidence stage
         if: ${{ steps.touched.outputs.count != '0' }}
         working-directory: scripts/gallery-matrix
         env:
           CMUX_GALLERY_IN_VM: "1"
+          STAGE: ${{ matrix.stage }}
         run: |
           set -euo pipefail
           ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
@@ -134,39 +148,84 @@ jobs:
           jq -s '.[0] as $head | $head + [.[1][] | select(.id as $id | any($head[]; .id == $id) | not)]' \
             "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" > "$RUNNER_TEMP/cases.json"
           echo "$(jq length "$RUNNER_TEMP/cases.json") cases x $GALLERY_ENGINES"
-          render() {
-            # A stage that fails to mount makes the runner exit 1; compare.ts reports it, so only a
-            # run that wrote no results.json fails here.
-            bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$1" --output-dir "$2" \
+          gallery="$RUNNER_TEMP/gallery-head"
+          if [ "$STAGE" = base ]; then gallery="$RUNNER_TEMP/gallery-base"; fi
+          out="$RUNNER_TEMP/evidence/runs/$STAGE"
+          mkdir -p "$out"
+          if [ -d "$gallery" ]; then
+            # A stage that fails to mount makes the runner exit 1; compare.ts reports it. A
+            # missing results.json is an infrastructure failure, never a silently empty stage.
+            bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$gallery" --output-dir "$out" \
               --engines "$GALLERY_ENGINES" || true
-            test -f "$2/results.json"
-          }
-          if [ -d "$RUNNER_TEMP/gallery-base" ]; then render "$RUNNER_TEMP/gallery-base" "$RUNNER_TEMP/runs/base"; fi
-          render "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/runs/head"
-          render "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/runs/repeat"
+            test -f "$out/results.json"
+          else
+            test "$STAGE" = base
+            echo '[]' > "$out/results.json"
+          fi
+          # Only one job supplies common inputs so artifact merging never overwrites a sibling.
+          if [ "$STAGE" = head ]; then
+            cp "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/touched.json" "$RUNNER_TEMP/evidence/"
+            cp -r "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/evidence/gallery"
+          fi
+
+      - name: Upload the evidence stage
+        if: ${{ steps.touched.outputs.count != '0' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-stage-${{ matrix.stage }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 14
+
+  compare:
+    needs: render
+    if: ${{ needs.render.result == 'success' && needs.render.outputs.touched != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the PR diff scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/gallery-matrix
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Download the evidence stages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: gallery-stage-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/evidence
 
       - name: Compare
-        if: ${{ steps.touched.outputs.count != '0' }}
         working-directory: scripts/gallery-matrix
         env:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_SHA: ${{ steps.base.outputs.sha }}
+          BASE_SHA: ${{ needs.render.outputs.base_sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/runs/base"
-          bun pr.ts --base "$RUNNER_TEMP/runs/base" --head "$RUNNER_TEMP/runs/head" --repeat "$RUNNER_TEMP/runs/repeat" \
-            --base-manifest "$RUNNER_TEMP/base.json" --head-manifest "$RUNNER_TEMP/head.json" \
+          bun install --frozen-lockfile
+          evidence="$RUNNER_TEMP/evidence"
+          # Require every stage even when it contains no states (a base without the gallery).
+          for stage in base head repeat; do test -f "$evidence/runs/$stage/results.json"; done
+          bun pr.ts --base "$evidence/runs/base" --head "$evidence/runs/head" --repeat "$evidence/runs/repeat" \
+            --base-manifest "$evidence/base.json" --head-manifest "$evidence/head.json" \
             --out "$RUNNER_TEMP/gallery-pr/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" \
-            --artifact-url "$ARTIFACT_URL"
-          cp "$RUNNER_TEMP/touched.json" "$RUNNER_TEMP/gallery-pr/"
-          cp -r "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/gallery-pr/gallery"
-          cp -r "$RUNNER_TEMP/runs/head" "$RUNNER_TEMP/gallery-pr/matrix"
+            --artifact-url "$ARTIFACT_URL" --branch "$BRANCH" --feed-url "${FEED_BASE_URL}?pr=${PR}&view=all"
+          cp "$evidence/touched.json" "$RUNNER_TEMP/gallery-pr/"
+          cp -r "$evidence/gallery" "$RUNNER_TEMP/gallery-pr/gallery"
+          cp -r "$evidence/runs/head" "$RUNNER_TEMP/gallery-pr/matrix"
           cat "$RUNNER_TEMP/gallery-pr/diff/comment.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the diff, the gallery and the matrix
-        if: ${{ steps.touched.outputs.count != '0' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gallery-pr
@@ -174,8 +233,8 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: render
-    if: ${{ needs.render.result == 'success' && needs.render.outputs.touched != '0' }}
+    needs: [render, compare]
+    if: ${{ needs.compare.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted base-branch scripts with the contents and pull-request write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     # contents: write reaches the pr-media branch; the protected branches have their rulesets.
@@ -220,15 +279,34 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ needs.render.outputs.base_sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
         run: |
           set -euo pipefail
           prefix="gallery-${HEAD_SHA:0:11}-"
           thumb_base="https://raw.githubusercontent.com/$REPOSITORY/pr-media/$PR/$prefix"
           report="$RUNNER_TEMP/report"
+          branch_args=()
+          if grep -Eq 'branch:[[:space:]]*\{[[:space:]]*type:[[:space:]]*"string"' scripts/gallery-matrix/pr.ts; then
+            branch_args=(--branch "$BRANCH")
+          else
+            echo "Base publisher has no --branch option; omitting the live-preview link."
+          fi
           (cd scripts/gallery-matrix && bun install --frozen-lockfile --ignore-scripts && \
             bun pr.ts --outcomes "$RUNNER_TEMP/render/diff/outcomes.json" --out "$report" --pr "$PR" \
-              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base")
+              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base" \
+              "${branch_args[@]}")
+          python3 - "$report/comment.md" "${FEED_BASE_URL}?pr=${PR}&view=all" <<'PY'
+          from pathlib import Path
+          import sys
+          path, link = Path(sys.argv[1]), sys.argv[2]
+          text = path.read_text()
+          marker = "### Gallery\n"
+          if marker in text and "[Review in feed]" not in text:
+              text = text.replace(marker, f"{marker}\n[Review in feed]({link})\n", 1)
+              path.write_text(text)
+          PY
           upload="$RUNNER_TEMP/upload"
           mkdir -p "$upload"
           while IFS= read -r key; do
