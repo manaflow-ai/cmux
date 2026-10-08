@@ -319,11 +319,18 @@ try:
     suggestions = wait(autofill, 15)
     shot("datalist")
     filled = None
-    if suggestions:
+    for _ in range(3):
+        if not suggestions or filled:
+            break
+        # Chromium ignores clicks on a popup in its first 500 ms; the first row is ~30 CSS px down.
+        time.sleep(1.0)
+        suggestions = autofill() or suggestions
         width = int(suggestions["frame"].split(" ")[1].split("x")[0])
-        rb("surface_click", tab=tab1, surface=suggestions["id"], x=max(10, width // 2), y=14)
+        rb("surface_click", tab=tab1, surface=suggestions["id"], x=max(10, width // 2), y=30)
         filled = wait(lambda: session_where(lambda s: s["tab"] == tab1 and (s.get("title") or "") in (
-            "rb list Apple", "rb list Apricot", "rb list Avocado")), 15)
+            "rb list Apple", "rb list Apricot", "rb list Avocado")), 5)
+        suggestions = suggestions if filled else autofill()
+    if suggestions:
         shot("datalist-filled")
     step("an <input list> shows its suggestions (autofill surface) and a click fills the field",
          suggestions and filled, {"surface": suggestions, "session": filled or session_where(lambda s: s["tab"] == tab1)})
