@@ -27,6 +27,8 @@ public final class AgentPaneModel {
     /// The new tab page this pane shows until it has a session, nil for a
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
+    /// Receives the current opening’s focused-field acknowledgement.
+    @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
@@ -40,7 +42,7 @@ public final class AgentPaneModel {
     /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
-    @ObservationIgnored public var onRunAction: ((String) -> Void)?
+    @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -111,6 +113,7 @@ public final class AgentPaneModel {
     @ObservationIgnored private(set) var handshakeCwd: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    @ObservationIgnored private let draftStore: any AgentPaneDraftStoring
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored private let seed: AgentPaneSeedSource?
 
@@ -120,10 +123,12 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        draftStore: any AgentPaneDraftStoring = UserDefaultsAgentPaneDraftStore()
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.draftStore = draftStore
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -132,10 +137,6 @@ public final class AgentPaneModel {
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
         transport.agentHome = { [weak self] in self?.workspaceAgentHome?() }
-        transport.requestRoot = { [weak self] folder, answer in
-            guard let onRequestRoot = self?.onRequestRoot else { return answer(false) }
-            onRequestRoot(folder, answer)
-        }
         if let sessionId { transport.sessions.add(sessionId) }
         transport.requestModeConfirmation = { [weak self] asked, answer in
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
@@ -147,14 +148,11 @@ public final class AgentPaneModel {
         }
     }
 
-    /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
+    /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Asks the user to enable a folder harness profile (the view's native Enable harness sheet).
     @ObservationIgnored public var onConfirmHarness: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
-
-    /// Asks the user to add a folder the page named outside every root (the view's native sheet).
-    @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
@@ -178,12 +176,11 @@ public final class AgentPaneModel {
         guard sessionId == nil else { return }
         newTab = page
     }
-
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -226,6 +223,7 @@ public final class AgentPaneModel {
                    workspaceAgentHome?() != nil {
                     handshake.chooseFolder = true
                 }
+                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
@@ -246,6 +244,11 @@ public final class AgentPaneModel {
                 newTab = nil
                 onSessionChange?(id)
             }
+            return AgentPaneReply.success()
+        case .readDraft(let id):
+            return AgentPaneReply.success(await draftStore.draft(for: id) ?? NSNull())
+        case .writeDraft(let id, let text):
+            await draftStore.setDraft(text, for: id)
             return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
@@ -270,21 +273,16 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
+        case .newTabInputReady(let token):
+            guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }
+            onNewTabInputReady?(token)
+            return AgentPaneReply.success()
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
-            // and the command palette's chats page ("Show all", decision K1). The New Tab page also
-            // runs Add Harness… ("Integrate a harness").
-            guard id == "newTab.page" || id == "agentPane.searchChats"
-                    || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil),
-                  let onRunAction else {
-                return Self.unsupported("action.run")
-            }
-            onRunAction(id)
-            return AgentPaneReply.success()
+            return runAction(id)
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
@@ -361,8 +359,8 @@ public final class AgentPaneModel {
             } catch {
                 return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
             }
-        case .invalidGit:
-            return Self.gitFailure(.invalidRequest)
+        case .invalidGit: return Self.gitFailure(.invalidRequest)
+        case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
         case .turnUndo(let undo): return await respondToTurnUndo(undo)
         case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:

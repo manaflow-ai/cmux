@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextOnboarding
 import Observation
 
 /// Agent actions. Forks read the agent session the daemon reports for the
@@ -11,7 +12,8 @@ import Observation
 /// daemon commands. New Agent Chat opens the React acpmux pane in a tab
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
 /// Quick Agent Chat toggles the floating `QuickComposerController` panel.
-/// Terminal-as-chat, Teams, and Computer Use are
+/// Computer Use Setup and its two grants run `ComputerUseSetup`.
+/// Terminal-as-chat, Teams, and Computer Use focus/stop are
 /// typed-unavailable.
 enum AgentHandlers {
     enum Placement {
@@ -42,9 +44,18 @@ enum AgentHandlers {
             guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
             context.services.quickComposer.toggle()
         })
-        registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
-        registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
+        // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
+        // Settings card and the onboarding step. Setup opens the guided step; the two grant
+        // actions open their Privacy & Security list.
+        registry.bind("palette.computerUse.setup", run: { _ in
+            context.services.onboarding.computerUseSetup.recheck()
+            context.services.onboarding.show(step: .computerUse)
+        })
+        registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
+        registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
+            if let pane = context.scope(invocation).pane,
+               openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
             withAgentPane(invocation, context: context) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
@@ -113,7 +124,7 @@ enum AgentHandlers {
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(
-            ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
+            ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)
         )
     }
@@ -159,6 +170,36 @@ enum AgentHandlers {
             return mounted()
         }
         return nil
+    }
+
+    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
+    /// workspace whose only tab is the chat, like a new thread in the Codex
+    /// and Claude apps (lawrence-call-1006 D). The chat inherits the focused
+    /// tab's cwd and draft as a tab would. Scripts, an explicit target and a
+    /// daemon that cannot hold a chat get a tab in `pane`: false.
+    private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
+                                                  context: AppActionContext) -> Bool {
+        let services = context.services
+        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
+              let windowID = context.activeWindow?.state.id else { return false }
+        let folder = pane.selectedTab?.cwd
+        services.newTabKinds.record(.agent, folder: folder)
+        let source = pane.agentSeedFromSelectedTab()
+        let daemon = pane.daemon
+        context.registry.track(Task { @MainActor in
+            var seed = await source?.take() ?? AgentPaneSeed()
+            seed.cwd = seed.cwd ?? folder
+            var spawn = WorkspaceSpawn(cwd: seed.cwd)
+            spawn.firstChat = seed
+            do {
+                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
+                return nil
+            } catch {
+                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("new agent chat: \(error)")
+            }
+        })
+        return true
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
@@ -234,9 +275,7 @@ enum AgentHandlers {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             guard let pane = context.paneController(invocation) else { return }
-            let opener = context.services.viewers.fileOpener
-            let reason = (opener as? FilePageOpener)?.open(url, in: pane, userChose: invocation.origin == .user) ?? opener.open(url, in: pane)
-            if let reason { throw ActionFailure(message: reason) }
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening
@@ -254,10 +293,5 @@ enum AgentHandlers {
         if let editor = opening.editor {
             NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
         }
-    }
-
-    private static func openPrivacyPane(_ anchor: String, _ context: AppActionContext) throws {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else { return }
-        try context.open(url)
     }
 }

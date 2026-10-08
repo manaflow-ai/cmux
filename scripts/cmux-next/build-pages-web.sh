@@ -1,10 +1,10 @@
 #!/bin/sh
 # Builds each React page (webviews/src/pages/<page>) into one self-contained index.html that
 # CmuxNextPages ships under Resources/pages/<page>/ (plans/cmux-next/react-pages.md). The output
-# is committed; rerun this after changing a page's sources, styles or strings.
+# is build output (gitignored; scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-pages-web.sh          # rebuild every page
-#   scripts/cmux-next/build-pages-web.sh --check  # fail if a page (or its strings) is stale
+#   scripts/cmux-next/build-pages-web.sh --check  # build into a temp dir only (fails on stale committed strings)
 #   scripts/cmux-next/build-pages-web.sh --out DIR  # build every page into DIR/<page>/
 #
 # Absorbed from the Settings lead's build-settings-web.sh (branch feat-cmux-next-settings-react).
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog chief-inspector"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -38,10 +38,10 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
-if [ "$MODE" = "--check" ]; then
-  bun scripts/pages/gen-strings.mjs --check
-else
-  bun scripts/pages/gen-strings.mjs
+# The strings tables are committed: a build checks them and never writes them (cx-t3e5).
+if ! bun scripts/pages/gen-strings.mjs --check; then
+  echo "error: generated file is stale; run gen-strings and commit: bun webviews/scripts/pages/gen-strings.mjs" >&2
+  exit 1
 fi
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
@@ -71,14 +71,7 @@ for page in $PAGES; do
 
   out="$OUT_ROOT/$page/index.html"
   if [ "$MODE" = "--check" ]; then
-    if ! cmp -s "$WORK/$page/index.html" "$out"; then
-      echo "error: $out is stale; run scripts/cmux-next/build-pages-web.sh" >&2
-      status=1
-    fi
-    if [ -d "$WORK/$page/locales" ] && ! diff -rq "$WORK/$page/locales" "$OUT_ROOT/$page/locales" >/dev/null 2>&1; then
-      echo "error: $OUT_ROOT/$page/locales is stale; run scripts/cmux-next/build-pages-web.sh" >&2
-      status=1
-    fi
+    :
   else
     mkdir -p "$OUT_ROOT/$page"
     cp "$WORK/$page/index.html" "$out"
@@ -89,5 +82,5 @@ for page in $PAGES; do
     echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
   fi
 done
-[ "$MODE" = "--check" ] && [ "$status" -eq 0 ] && echo "page bundles are current"
+[ "$MODE" = "--check" ] && [ "$status" -eq 0 ] && echo "page bundles build"
 exit "$status"

@@ -55,12 +55,15 @@ import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./question/QuestionCard";
+import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import { Inspector } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
@@ -78,12 +81,18 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { canFork, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import { RenderCard, canRender } from "./conversation/RenderCard";
+import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
+import { chatImages, type ChatImage } from "./conversation/chatImages";
+import { ImageViewer } from "./conversation/ImageViewer";
+import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
@@ -99,9 +108,12 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
+import { mergedCommands } from "./cmuxCommands";
+import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -120,6 +132,7 @@ type RowProps = {
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   onOpenDiff?: OpenDiff;
+  githubRepository?: string;
 };
 
 declare global {
@@ -219,7 +232,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row }: RowProps) {
+  function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
     if (row.kind === "user")
       return (
@@ -244,9 +257,14 @@ const MessageRow = memo(
           )}
         </div>
       );
-    return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;
+    return (
+      <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
+    );
   },
-  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+  (previous, next) =>
+    previous.row.id === next.row.id &&
+    previous.row.version === next.row.version &&
+    previous.githubRepository === next.githubRepository,
 );
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
@@ -300,6 +318,15 @@ const PreviewRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
 );
+/// An ended turn's render call, live (conversation/RenderCard.tsx).
+const RenderRow = memo(
+  function RenderRow({ row }: RowProps) {
+    const tool = row.items?.[0]?.tool;
+    const call = tool && canRender() ? renderCall(tool) : undefined;
+    return call ? <RenderCard call={call} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
@@ -323,7 +350,7 @@ const PermissionRow = memo(
           <strong>{t("permission.required")}</strong>
         </div>
       );
-    return <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />;
+    return <PermissionAsk permission={permission} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -361,6 +388,7 @@ const defaultRegistry: NativeRegistry = {
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   [PREVIEW]: PreviewRow,
+  [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -505,6 +533,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  githubRepository,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -513,6 +542,7 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  githubRepository?: string;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -775,6 +805,7 @@ export function VirtualTranscript({
                   onToggleActivity={onToggleActivity}
                   onOpenDiff={onOpenDiff}
                   expanded={isExpanded}
+                  githubRepository={githubRepository}
                 />
               </RowFrame>
             );
@@ -788,6 +819,23 @@ export function VirtualTranscript({
 /// Answers `permission` with the option a button or key picked.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+
+/// Sends a question card's reply: the harness's option (absent cancels) and its answers.
+const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
+  void callNative("chat.permission", {
+    permissionId: permission.permissionId,
+    ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
+    ...(sent.answers === undefined ? {} : { answers: sent.answers }),
+  });
+
+/// A permission ask: a question card when the request asks a question, else its option buttons.
+function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
+  return permission.question ? (
+    <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+  ) : (
+    <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />
+  );
+}
 
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   const picker = usePickerCatalog(snapshot.catalog, {
@@ -847,6 +895,7 @@ function AcpmuxPane() {
   const [chooseFolder, setChooseFolder] = useState(false);
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
+  const [importError, setImportError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
@@ -854,6 +903,7 @@ function AcpmuxPane() {
   const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -878,6 +928,30 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
+  // Repository context follows the selected session, connection origin and cwd. A reconnect
+  // handshake for an existing session deliberately omits cwd, so key this lookup from the live
+  // snapshot instead of clearing a valid repository while the daemon is being replaced.
+  const githubRepositoryContext =
+    snapshot.origin === "local" && snapshot.summary?.cwd
+      ? `${snapshot.sessionId ?? snapshot.summary.sessionId}:local:${snapshot.summary.cwd}`
+      : undefined;
+  useEffect(() => {
+    const cwd = snapshot.summary?.cwd;
+    if (!githubRepositoryContext || !cwd) {
+      setGithubRepository(undefined);
+      return;
+    }
+    let current = true;
+    void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
+      .then((value) => {
+        if (!current) return;
+        setGithubRepository(typeof value?.repository === "string" && value.repository ? value.repository : undefined);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [githubRepositoryContext, snapshot.summary?.cwd]);
   const handoffLabels = useMemo(() => handoffStrings(t), [t]);
   const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
@@ -892,15 +966,6 @@ function AcpmuxPane() {
   });
   const showCheckpoint = useRef(checkpoints.show);
   showCheckpoint.current = checkpoints.show;
-  // The pane keeps what it showed until this document first draws what it is: the frames before
-  // the handshake (no hero yet, "Connecting") stay hidden. The second animation frame after the
-  // handshake's render runs once that frame was drawn. The host shows the page anyway after a limit.
-  const paintReported = useRef(false);
-  useEffect(() => {
-    if (!handshaken || paintReported.current) return;
-    paintReported.current = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
-  }, [handshaken]);
   useEffect(() => {
     void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
   }, [checkpoints.supported, snapshot.sessionId]);
@@ -912,7 +977,7 @@ function AcpmuxPane() {
   // Footer actions show only while acpmux is reachable. The client reports failures in the
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
-  const forkable = Boolean(snapshot.canFork) && connected;
+  const forkable = canFork(snapshot);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -981,6 +1046,14 @@ function AcpmuxPane() {
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
+  const closeInspector = useCallback(() => setInspectorOpen(false), []);
+  useLayoutEffect(() => {
+    if (inspectorOpen || !inspectorOpener.current) return;
+    inspectorOpener.current.focus();
+    inspectorOpener.current = undefined;
+  }, [inspectorOpen]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -991,16 +1064,15 @@ function AcpmuxPane() {
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
-  const openDiff = useCallback<OpenDiff>(
-    (rowId, path, opener) =>
-      setDiffView({
-        sessionId: sessionIdRef.current,
-        rowId,
-        path,
-        opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-      }),
-    [],
-  );
+  const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
+    setInspectorOpen(false);
+    setDiffView({
+      sessionId: sessionIdRef.current,
+      rowId,
+      path,
+      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
+    });
+  }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -1095,6 +1167,14 @@ function AcpmuxPane() {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  // The image viewer holds the chat's images from when it opened; another chat closes it.
+  const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
+  const openImage = useCallback((src: string, alt: string) => {
+    const images = chatImages(turnRowsRef.current);
+    const index = images.findIndex((image) => image.src === src);
+    setImageView(index < 0 ? { images: [{ src, alt }], index: 0 } : { images, index });
+  }, []);
+  useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -1244,11 +1324,23 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  // The host covers the pane with its loading state until this document first draws what it is:
+  // the handshake's answer, or the host error when there is none (a failed start must show, not
+  // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
+  // The second animation frame after that render runs once its frame was drawn.
+  const paintReported = useRef(false);
+  const showsWhatItIs = handshaken || hostError !== undefined;
+  useEffect(() => {
+    if (!showsWhatItIs || paintReported.current) return;
+    paintReported.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
+  }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
+    const withCommands = { ...current, commands: mergedCommands(snapshot.commands) };
     return projectDraft && !snapshot.sessionId
-      ? { ...current, summary: { sessionId: "", cwd: projectDraft } }
-      : current;
+      ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
+      : withCommands;
   }, [snapshot, catalog, projectDraft]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
@@ -1449,6 +1541,7 @@ function AcpmuxPane() {
           revealTurn?: unknown;
           chooseFolder?: boolean;
           machineName?: unknown;
+          githubRepository?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -1463,6 +1556,14 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        // Reconnect handshakes for an existing session do not carry its cwd. Keep the current
+        // repository until the snapshot effect observes a new session/origin/cwd; a fresh ready
+        // handshake has no prior context and must clear it when the host has no GitHub origin.
+        if (typeof host.githubRepository === "string" && host.githubRepository) {
+          setGithubRepository(host.githubRepository);
+        } else if (!reconnect) {
+          setGithubRepository(undefined);
+        }
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
@@ -1599,7 +1700,12 @@ function AcpmuxPane() {
               typeof accepted === "function" ? (accepted as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
-          "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
+          "chat.permission": ({ permissionId, optionId, answers }) =>
+            client.permission(
+              String(permissionId),
+              optionId === undefined || optionId === null ? undefined : String(optionId),
+              answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
+            ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
           "chat.permission_group.retry": () => client.permissions.retry(),
@@ -1667,6 +1773,10 @@ function AcpmuxPane() {
               String(query ?? ""),
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
+          "chat.adoptLive": async ({ choice }) => {
+            await client.adoptLive(choice === "fork" ? "fork" : "open");
+            return persistSession(client.adopted);
+          },
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -1685,6 +1795,10 @@ function AcpmuxPane() {
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
+        // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
+        setMessageMenuSource((rowId) =>
+          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined,
+        );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
           turnRunning: () => client.turnRunning(),
@@ -1834,6 +1948,18 @@ function AcpmuxPane() {
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const chat: ChatMenuItem[] = [
+      {
+        key: "inspector",
+        label: t("inspector.title"),
+        icon: "code",
+        onSelect: () => {
+          inspectorOpener.current = Array.from(
+            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
+          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
+          setDiffView(undefined);
+          setInspectorOpen(true);
+        },
+      },
       ...(forkable && lastForkSeq !== undefined
         ? [
             {
@@ -1905,6 +2031,13 @@ function AcpmuxPane() {
         shortcutAction: HEADER_ACTIONS.newWorkspace,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
       },
+      {
+        key: "newWindow",
+        label: t("chatMenu.newWindow"),
+        icon: "app.open.external",
+        shortcutAction: HEADER_ACTIONS.newWindow,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+      },
       "separator",
       {
         key: "close",
@@ -1916,6 +2049,17 @@ function AcpmuxPane() {
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const importFile = useCallback(async (file: File) => {
+    setImportError(undefined);
+    try {
+      const session = parseImportedSession(await file.text(), file.name || "transcript.jsonl");
+      if (!session.messages.length) return;
+      await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
+      await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : undefined);
+    }
+  }, []);
   const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
     if (kind !== "agent") {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
@@ -1960,31 +2104,34 @@ function AcpmuxPane() {
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
-    <ShellActionsContext.Provider value={shellActions}>
-      <TurnActionsContext.Provider value={turnActions}>
-        <TurnCountsContext.Provider value={turnCountsFor}>
-          <SessionRowsContext.Provider value={snapshot.rows}>
-            <VirtualTranscript
-              rows={transcriptRows}
-              sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-              canLoadOlder={snapshot.canLoadOlder}
-              expanded={expanded}
-              registry={registry}
-              // The Quick Composer has no room for the changes view; its file rows stay plain.
-              onOpenDiff={quick ? undefined : openDiff}
-              onToggleActivity={(id) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
-          </SessionRowsContext.Provider>
-        </TurnCountsContext.Provider>
-      </TurnActionsContext.Provider>
-    </ShellActionsContext.Provider>
+    <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+      <ShellActionsContext.Provider value={shellActions}>
+        <TurnActionsContext.Provider value={turnActions}>
+          <TurnCountsContext.Provider value={turnCountsFor}>
+            <SessionRowsContext.Provider value={snapshot.rows}>
+              <VirtualTranscript
+                rows={transcriptRows}
+                sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                githubRepository={githubRepository}
+                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                onOpenDiff={quick ? undefined : openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </SessionRowsContext.Provider>
+          </TurnCountsContext.Provider>
+        </TurnActionsContext.Provider>
+      </ShellActionsContext.Provider>
+    </ImageViewerContext.Provider>
   );
   const asks = (
     <>
@@ -2016,9 +2163,7 @@ function AcpmuxPane() {
               onUndo={trustAsk.undo}
             />
           )}
-          {individualPermission && (
-            <PermissionCard permission={individualPermission} onAnswer={answerPermission(individualPermission)} />
-          )}
+          {individualPermission && <PermissionAsk permission={individualPermission} />}
         </div>
       )}
     </>
@@ -2054,6 +2199,11 @@ function AcpmuxPane() {
   const composer = !reviewing && !handoffLoading && (
     <>
       <DictationNotice dictation={dictation} />
+      {importError && (
+        <p className="acpmux-composer-remote-note" role="alert">
+          {importError}
+        </p>
+      )}
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
@@ -2074,6 +2224,7 @@ function AcpmuxPane() {
       )}
       <Composer
         snapshot={composerSnapshot}
+        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={ComposerChips}
         draft={draft}
         onSend={(text, chips) => {
@@ -2106,6 +2257,12 @@ function AcpmuxPane() {
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}
+        // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+        onConnect={(kind) =>
+          void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
+            () => undefined,
+          )
+        }
         projectChoices={freshChat && !quick ? newTabProjects : undefined}
         onBrowseProject={
           freshChat && !quick
@@ -2161,6 +2318,7 @@ function AcpmuxPane() {
         handle={composerRef}
         blocked={trustAsk.blocked}
         accessory={<DictationButton dictation={dictation} />}
+        onImportFile={importFile}
       />
     </>
   );
@@ -2196,6 +2354,8 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
+              tools={newTab.tools}
+              inputToken={newTab.inputToken}
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,
@@ -2230,10 +2390,14 @@ function AcpmuxPane() {
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
+              inputToken={newTab.inputToken}
+              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : (
             <>
-              <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+              <div
+                className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+              >
                 <header className="acpmux-header">
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
@@ -2266,6 +2430,12 @@ function AcpmuxPane() {
                     {t("link.sessionMissing")}
                   </p>
                 )}
+                {snapshot.liveChat && (
+                  <LiveChatChoice
+                    {...snapshot.liveChat}
+                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
+                )}
                 {!reviewing && snapshot.handoff?.error && (
                   <p className="acpmux-handoff-error" role="alert">
                     {snapshot.handoff.error}
@@ -2289,6 +2459,13 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
                   transcript
+                )}
+                {inspectorOpen && (
+                  <Inspector
+                    snapshot={snapshot}
+                    sessionEvents={() => directClient.current?.sessionEvents() ?? []}
+                    onClose={closeInspector}
+                  />
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel
@@ -2323,6 +2500,14 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {imageView && (
+          <ImageViewer
+            images={imageView.images}
+            index={imageView.index}
+            onIndex={(index) => setImageView((current) => current && { ...current, index })}
+            onClose={() => setImageView(undefined)}
+          />
+        )}
       </section>
     </ShortcutsContext.Provider>
   );

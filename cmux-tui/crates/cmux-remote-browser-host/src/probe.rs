@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use cmux_rd_core::service::caps::INPUT_SERVICE;
 use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{
@@ -279,41 +280,67 @@ fn rb_message<'a>(controls: &'a [serde_json::Value], t: &str) -> Option<&'a serd
     controls.iter().map(|c| &c["body"]).find(|b| b["t"] == t)
 }
 
-fn hello() -> Vec<u8> {
-    let control = Control::Hello {
+/// The probe's hello: service `rb/1`, as the Mac client sends it.
+pub fn hello_control() -> Control {
+    hello_control_with(None)
+}
+
+/// [`hello_control`] carrying the host's per-launch secret as its token.
+pub fn hello_control_with(token: Option<&str>) -> Control {
+    Control::Hello {
         user: "probe".into(),
         install: "probe".into(),
         class: "viewer".into(),
         interactive: true,
         udp_port: None,
         max_datagram: 1332,
-        token: None,
+        token: token.map(|token| cmux_rd_proto::control::SecretHex(token.to_owned())),
         service: SERVICE_REMOTE_BROWSER.into(),
-        caps: vec![],
-    };
+        caps: vec![INPUT_SERVICE.into()],
+    }
+}
+
+/// True when the host's welcome in `controls` grants service input (the
+/// Mac client sends no input otherwise).
+pub fn input_granted(controls: &[serde_json::Value]) -> bool {
+    controls.iter().any(|c| {
+        c["t"] == "welcome"
+            && c["caps"].as_array().is_some_and(|caps| caps.iter().any(|cap| cap == INPUT_SERVICE))
+    })
+}
+
+fn hello(token: Option<&str>) -> Vec<u8> {
+    let control = hello_control_with(token);
     let mut out = Vec::new();
     let json = serde_json::to_vec(&control).unwrap_or_default();
     let _ = encode_stream_frame(STREAM_CONTROL, &json, &mut out);
     out
 }
 
-/// Runs the probe against `addr` and writes its files into `out`.
-pub fn run(addr: SocketAddr, out: &Path, plan: Plan) -> Report {
+/// Runs the probe against `addr` and writes its files into `out`. `token` is
+/// the host's per-launch secret, sent as the hello's session token.
+pub fn run(addr: SocketAddr, out: &Path, plan: Plan, token: Option<&str>) -> Report {
     let mut report = Report::default();
-    if let Err(e) = probe(addr, out, plan, &mut report) {
+    if let Err(e) = probe(addr, out, plan, token, &mut report) {
         report.error = Some(e);
     }
     let _ = std::fs::write(out.join("result.json"), result_json(&report));
     report
 }
 
-fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(), String> {
+fn probe(
+    addr: SocketAddr,
+    out: &Path,
+    plan: Plan,
+    token: Option<&str>,
+    r: &mut Report,
+) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let mut h264 = std::fs::File::create(out.join("stream.h264")).map_err(|e| e.to_string())?;
     let mut sock =
         TcpStream::connect_timeout(&addr, Duration::from_secs(10)).map_err(|e| e.to_string())?;
     sock.set_nodelay(true).map_err(|e| e.to_string())?;
-    sock.write_all(&hello()).map_err(|e| e.to_string())?;
+    sock.write_all(&hello(token)).map_err(|e| e.to_string())?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     let mut reader = sock.try_clone().map_err(|e| e.to_string())?;
     std::thread::spawn(move || {
@@ -393,6 +420,10 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
             },
             Phase::Idle { until, start_frames } if at >= until => {
                 r.idle_frames = Some(r.frames - start_frames);
+                // The Mac client sends no input unless the welcome grants it.
+                if !input_granted(&r.controls) {
+                    return Err(format!("the welcome does not grant {INPUT_SERVICE}"));
+                }
                 Phase::Keys { next: at }
             }
             Phase::Keys { next } if at >= next => {

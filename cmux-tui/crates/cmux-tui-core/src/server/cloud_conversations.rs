@@ -77,6 +77,23 @@ pub(super) struct TargetParams {
     conversation: String,
 }
 
+/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe`: no fields at all, so a
+/// client cannot name a chief (the queue is the lease token's).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct NoParams {
+    // No fields: the queue is the lease token's chief.
+}
+
+/// `cloud-mux-ack`: ids only. No `agent` field: the chief is the lease's
+/// (an unknown field is refused, so a client cannot name another chief).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MuxAckParams {
+    conversation: String,
+    seq: u64,
+}
+
 /// The stable `reason` of a cloud error (the reply's `reason` field).
 pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<CloudError>().and_then(CloudError::reason)
@@ -161,6 +178,24 @@ pub(super) fn unsubscribe(
     Ok(json!({}))
 }
 
+/// `cloud-mux-subscribe`: the lease's own chief's wake queue.
+pub(super) fn mux_subscribe(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    let service = service(mux, client)?;
+    Ok(service.subscribe(client, service.mux_target()?)?)
+}
+
+pub(super) fn mux_unsubscribe(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    let service = service(mux, client)?;
+    if let Ok(target) = service.mux_target() {
+        service.unsubscribe(client, &target);
+    }
+    Ok(json!({}))
+}
+
+pub(super) fn mux_ack(mux: &Mux, client: u64, params: MuxAckParams) -> anyhow::Result<Value> {
+    Ok(service(mux, client)?.mux_ack(&params.conversation, params.seq)?)
+}
+
 /// Whether `cmd` calls the cloud and should leave the request loop.
 pub(super) fn is_network(cmd: &Command) -> bool {
     matches!(
@@ -169,13 +204,15 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationOp(_)
+            | Command::CloudMuxAck(_)
     )
 }
 
 /// The target of a `cloud-*-subscribe` command.
-pub(super) fn subscribe_target(cmd: &Command) -> Option<Target> {
+pub(super) fn subscribe_target(mux: &Mux, cmd: &Command) -> Option<Target> {
     match cmd {
         Command::CloudInboxSubscribe => Some(Target::Inbox),
+        Command::CloudMuxSubscribe(_) => mux.cloud_conversations()?.mux_target().ok(),
         Command::CloudConversationSubscribe(params) => {
             Some(Target::Conversation(params.conversation.clone()))
         }

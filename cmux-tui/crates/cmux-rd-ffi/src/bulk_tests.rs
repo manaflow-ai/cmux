@@ -124,6 +124,24 @@ fn a_small_buffer_keeps_the_chunk_pending() {
 }
 
 #[test]
+fn cancelling_a_pending_chunk_drops_it() {
+    let tx = sender();
+    assert_eq!(queue(&tx, 1, &[9u8; 3_000]), CMUX_RD_OK);
+    let mut small = [0u8; 16];
+    let mut len = 0usize;
+    // SAFETY: live handle; `small` holds 16 bytes.
+    assert_eq!(
+        unsafe { cmux_rd_bulk_sender_pop_frame(tx.0, 0, false, small.as_mut_ptr(), 16, &mut len) },
+        CMUX_RD_ERR_BUFFER
+    );
+    // SAFETY: live handle.
+    assert_eq!(unsafe { cmux_rd_bulk_sender_cancel(tx.0, 1) }, CMUX_RD_OK);
+    assert!(pop(&tx, 1, false).is_none(), "cancelled pending frame escaped");
+    // SAFETY: live handle.
+    assert_eq!(unsafe { cmux_rd_bulk_sender_queued_bytes(tx.0) }, 0);
+}
+
+#[test]
 fn the_queue_is_bounded_and_transfers_are_unique() {
     let tx = sender();
     let big = vec![0u8; CMUX_RD_BULK_MAX_QUEUED];

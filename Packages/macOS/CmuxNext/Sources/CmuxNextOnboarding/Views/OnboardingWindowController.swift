@@ -65,6 +65,13 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         close()
     }
 
+    /// Closes the window through its close button (the same AppKit path a
+    /// click on it takes): the person's "not now". Automation uses this.
+    public func closeWithCloseButton() {
+        guard let window else { return }
+        if let button = window.standardWindowButton(.closeButton) { button.performClick(nil) } else { window.performClose(nil) }
+    }
+
     public func windowWillClose(_ notification: Notification) {
         model.leave(notNow: !closingForRebuild)
         onClose?()

@@ -107,6 +107,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebarSide = DesignSettings.shared.sidebarSide
         sidebar.side = sidebarSide
         sidebar.sidebarView.spacesPosition = DesignSettings.shared.spacesPosition
+        sidebar.sidebarView.spacesVisibility = DesignSettings.shared.spacesVisibility
         sidePins = Self.sidePins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
@@ -244,14 +245,41 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
 
-    /// Replaces the workspace layout view.
+    /// Keeps the outgoing content until an unpainted top page paints.
+    let paintHold = PanePaintHold(owner: "window.paint-hold")
+
+    /// Replaces the workspace layout view. A top page that has not painted
+    /// (a transparent web view) shows once it paints; the outgoing content
+    /// stays until then, as in a pane (no-flicker audit).
     func show(_ view: NSView) {
         guard content !== view else { return }
-        content?.removeFromSuperview()
-        view.frame = contentHost.bounds
-        view.autoresizingMask = [.width, .height]
-        contentHost.addSubview(view)
+        let previous = content
+        // While an earlier swap waits, the view on screen is the one it keeps.
+        let outgoing = paintHold.kept ?? previous
+        let holds = PanePaintHold.holds(view, replacing: outgoing)
         content = view
+        if holds, paintHold.kept != nil {
+            // The page that never showed leaves; the kept view stays for this hold.
+            paintHold.handOff { $0.removeFromSuperview() }
+        } else {
+            // The earlier swap ends now; a view it kept that is shown again
+            // stays (no detach of its panes).
+            paintHold.end()
+            if !holds {
+                for old in [previous, outgoing] where old !== view { old?.removeFromSuperview() }
+            }
+        }
+        if view.superview !== contentHost || view.frame != contentHost.bounds {
+            view.frame = contentHost.bounds
+            view.autoresizingMask = [.width, .height]
+            contentHost.addSubview(view)
+        }
+        if holds, let outgoing {
+            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost) { [weak self] outgoing in
+                guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
+                outgoing.removeFromSuperview()
+            }
+        }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
         onContentChange?()

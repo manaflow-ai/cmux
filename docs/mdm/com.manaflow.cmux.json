@@ -42,7 +42,7 @@
       "type" : "string"
     },
     "agentPane.links.outsideRoots" : {
-      "default" : "confirm",
+      "default" : "open",
       "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
       "enum" : [
         "confirm",
@@ -137,6 +137,12 @@
       "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
+    },
+    "appearance.appTheme" : {
+      "default" : "followTerminal",
+      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "title" : "App Theme",
+      "type" : "string"
     },
     "appearance.backdropArt" : {
       "default" : "none",
@@ -670,6 +676,12 @@
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "computerUse.enabled" : {
+      "default" : false,
+      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "title" : "Computer Use",
       "type" : "boolean"
     },
     "diff.diffIndicators" : {
@@ -1429,6 +1441,12 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cards.tips" : {
+      "default" : true,
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -1438,6 +1456,12 @@
       ],
       "title" : "Command-9",
       "type" : "string"
+    },
+    "sidebar.groupByComputer" : {
+      "default" : false,
+      "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
+      "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
     },
     "sidebar.minimalMode" : {
       "default" : "bottom",
@@ -1510,6 +1534,16 @@
         "bottom"
       ],
       "title" : "Spaces Position",
+      "type" : "string"
+    },
+    "sidebar.spacesVisibility" : {
+      "default" : "hover",
+      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Show Spaces",
       "type" : "string"
     },
     "sidebar.stepping" : {
@@ -1958,6 +1992,12 @@
       "title" : "Tab Bar Position",
       "type" : "string"
     },
+    "tabs.cmdWClosesPinnedTabs" : {
+      "default" : false,
+      "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
+      "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
+    },
     "tabs.newTabKind" : {
       "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
@@ -2104,6 +2144,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.newPlacement" : {
+      "default" : "top",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "enum" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "title" : "New Workspace Position",
       "type" : "string"
     }
   },

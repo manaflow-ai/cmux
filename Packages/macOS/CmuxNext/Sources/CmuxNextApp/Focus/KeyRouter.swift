@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
-
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
@@ -47,7 +46,6 @@ final class KeyRouter: BrowserKeyRouting {
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
     private var resignObserver: (any NSObjectProtocol)?
-
     init(registry: ActionRegistry) {
         self.registry = registry
         // Leaving the app ends a waiting chord (the overlay hides with it).
@@ -57,9 +55,7 @@ final class KeyRouter: BrowserKeyRouting {
             MainActor.assumeIsolated { self?.cancelChord() }
         }
     }
-
     // MARK: Tiers
-
     /// Whether an action of `tier` may take a key from the current focus.
     nonisolated static func allows(_ tier: ActionKeyTier, focus: FocusState) -> Bool {
         switch tier {
@@ -120,10 +116,10 @@ final class KeyRouter: BrowserKeyRouting {
             if facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
             return facts.primaryInputReady ? .primaryInput : .deliver
         }
-        return decide(event, focus: focus, context: keyContext(for: focus, facts: facts))
+        return decide(event, focus: focus, context: keyContext(for: focus, facts: facts), facts: facts)
     }
 
-    private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext) -> Decision {
+    private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext, facts: Facts) -> Decision {
         if let candidate = candidate(for: event, context: context, focus: focus) {
             if case .ghostty = candidate.source {
                 // A terminal runs its own Ghostty keybinds (in copy mode,
@@ -134,7 +130,12 @@ final class KeyRouter: BrowserKeyRouting {
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }
         }
-        return consumesBrowserOnlyChord(event, focus: focus) ? .consume : .deliver
+        guard consumesBrowserOnlyChord(event, focus: focus) else { return .deliver }
+        // On a page with its own history, Cmd-[ / Cmd-] are Go Back / Go Forward (history.md 4.2b).
+        if facts.showsPageHistory, let id = BrowserChordTable.pageHistoryAction(for: event, registry: registry) {
+            return .run(Candidate(id: id, tier: registry.keyTier(for: id), source: .registry(argument: nil)))
+        }
+        return .consume
     }
 
     // MARK: App-wide dispatch
@@ -155,6 +156,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        if newTabInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
         if cancelsMissedModal(event, in: window) { return true }
@@ -208,7 +210,7 @@ final class KeyRouter: BrowserKeyRouting {
             return false
         }
         // 3-5.
-        let decision = decide(event, focus: focus, context: context)
+        let decision = decide(event, focus: focus, context: context, facts: facts)
         trace?("dispatcher: \(decision)")
         switch decision {
         case .run(let candidate):
@@ -268,6 +270,8 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAhead = TypeAheadQueue()
     var typeAheadFocus: FocusState.Resolved?
     var deliveringTypeAhead: String?
+    /// The New Tab action owns this buffer before a cold page has a readiness object.
+    lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
@@ -305,6 +309,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// `window`'s focus settled: a chord armed there in another focus ends.
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
         typeAheadFocusDidSettle(focus.resolved)
+        newTabInputCoordinator.flush(in: window)
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
         whichKey?.hide()
     }

@@ -152,8 +152,10 @@
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
 .acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
+.acpmux-slash-source{flex:none;color:var(--acpmux-composer-dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
 .acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:20px}
+.acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
    as the composer, so it takes every theme the same way. */
@@ -383,6 +385,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-quick-key{display:inline-flex;align-items:center}
 .acpmux-quick-key .acpmux-keycap{margin-right:4px}
 .acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
+.acpmux-live-chat p{margin:0}
+.acpmux-live-chat-command{display:block;margin:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--font-mono);color:var(--agent-muted)}
+.acpmux-live-chat-actions{display:flex;gap:12px}
 .acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:999px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
@@ -392,3 +397,58 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* ui/titleTooltips.ts: the pane's one tooltip, placed inside the window. */
 .ui-title-tooltip{position:fixed;z-index:1000;max-width:min(320px,calc(100vw - 12px));padding:4px 8px;box-sizing:border-box;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,Canvas));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 18%,transparent),0 4px 14px var(--agent-shadow,rgb(0 0 0/.3));color:var(--agent-text);font:12px/16px system-ui,-apple-system,sans-serif;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:pointer}
+/* Agent question card (question/QuestionCard.tsx): the app's gray language, no accent. The card is a quiet tray; the highlighted row is a soft fill, a chosen row a firmer one with a check; Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
+.acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 9%,transparent);--acpmux-question-chosen:color-mix(in srgb,var(--agent-text) 13%,transparent)}
+:root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}
+fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;min-inline-size:0;padding:12px;border:0.5px solid var(--acpmux-question-edge);border-radius:14px;background:var(--acpmux-question-bg);color:var(--agent-text);font:inherit}
+.acpmux-question[aria-busy=true]{opacity:.65}
+.acpmux-question-head{display:flex;flex-direction:column;gap:6px;float:left;width:100%;padding:0}
+.acpmux-question-head+*{clear:both}
+.acpmux-question-meta{display:flex;align-items:center;gap:8px;min-width:0}
+.acpmux-question-chip{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-soft,var(--agent-text));font-size:11px;line-height:16px;font-weight:600;letter-spacing:.02em}
+.acpmux-question-agent{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:11px;line-height:16px}
+.acpmux-question-prompt{font-size:14px;line-height:20px;font-weight:500;overflow-wrap:anywhere}
+.acpmux-question-tabs{display:flex;flex-wrap:wrap;gap:4px}
+.acpmux-question-tab{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 9px;border:0;border-radius:999px;background:transparent;color:var(--agent-muted);font:inherit;font-size:11px;line-height:18px;cursor:default}
+.acpmux-question-tab[data-answered]::before{content:"";display:inline-block;width:5px;height:5px;margin:0 5px 1px 0;border-radius:50%;background:currentColor;vertical-align:middle}
+.acpmux-question-tab:hover{background:var(--acpmux-question-hover)}
+.acpmux-question-tab[aria-current=step]{background:var(--acpmux-question-chosen);color:var(--agent-text)}
+.acpmux-question-body{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.acpmux-question-rows{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.acpmux-question-row{display:flex;align-items:flex-start;gap:8px;width:100%;box-sizing:border-box;padding:7px 8px;border:0;border-radius:9px;background:transparent;color:var(--agent-text);font:inherit;text-align:left;cursor:default;}
+.acpmux-question-row:hover{background:var(--acpmux-question-hover)}
+.acpmux-question-row[data-highlighted]{background:var(--acpmux-question-highlight)}
+.acpmux-question-row[aria-checked=true]{background:var(--acpmux-question-chosen)}
+.acpmux-question-row:focus-visible,.acpmux-question-tab:focus-visible,.acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
+.acpmux-question-row[aria-disabled=true]{pointer-events:none}
+.acpmux-question-row .acpmux-keycap{flex:none;margin:2px 0 0;color:var(--agent-muted)}
+.acpmux-question-row[aria-checked=true] .acpmux-keycap,.acpmux-question-row[data-highlighted] .acpmux-keycap{color:var(--agent-text)}
+.acpmux-question-keyspace{flex:none;width:16px}
+.acpmux-question-text{flex:1;display:flex;flex-direction:column;gap:1px;min-width:0}
+.acpmux-question-label{line-height:20px;overflow-wrap:anywhere}
+.acpmux-question-detail{color:var(--agent-muted);font-size:12px;line-height:17px;overflow-wrap:anywhere}
+.acpmux-question-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-top:2px;color:var(--agent-text)}
+.acpmux-question-mark[data-multi]{box-sizing:border-box;border:1px solid color-mix(in srgb,var(--agent-text) 30%,transparent);border-radius:4px}
+.acpmux-question-row[aria-checked=true] .acpmux-question-mark[data-multi]{border-color:transparent;background:color-mix(in srgb,var(--agent-text) 16%,transparent)}
+.acpmux-question-other{align-items:center;background:var(--acpmux-question-highlight)}
+.acpmux-question-other .acpmux-keycap{margin-top:0}
+.acpmux-question-other input{flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--agent-text)}
+.acpmux-question-other input::placeholder{color:var(--agent-muted)}
+.acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
+.acpmux-question-preview-label{color:var(--agent-muted);font-size:11px;line-height:16px}
+.acpmux-question-preview pre{margin:0;overflow:auto;white-space:pre;font:12px/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);color:var(--agent-text)}
+.acpmux-question-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:12px;cursor:default}
+.acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
+.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;border:0;border-radius:8px;background:var(--agent-text);color:var(--agent-page-bg,var(--acpmux-base));font:inherit;font-size:12px;font-weight:600;cursor:default}
+.acpmux-question-submit .acpmux-keycap{margin:0;min-width:14px;padding:0 3px}
+.acpmux-question-submit:disabled{opacity:.35}
+.acpmux-question-actions button:disabled{cursor:default}
+.acpmux-question-answered{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:7px 10px;border-radius:10px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:12px;line-height:18px}
+.acpmux-question-answered-icon{flex:none;display:inline-flex;align-self:center;color:var(--agent-soft,var(--agent-text))}
+.acpmux-question-answered-lines{display:flex;flex-direction:column;min-width:0;flex:1}
+.acpmux-question-answered-line{overflow-wrap:anywhere}
+.acpmux-question-answered-key{color:var(--agent-muted)}
+.acpmux-question-answered-by{color:var(--agent-muted);font-size:11px}
+.acpmux-question-cancelled{padding:4px 2px;color:var(--agent-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+@media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}

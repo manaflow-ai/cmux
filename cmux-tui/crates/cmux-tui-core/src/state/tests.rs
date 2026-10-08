@@ -98,6 +98,45 @@ pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
         .collect()
 }
 
+/// `workspace.placement.list` as `session/key -> (index, group_id)`.
+pub(super) fn placements_by_id(mux: &Arc<Mux>) -> std::collections::BTreeMap<String, (u64, Value)> {
+    let list = read(mux, "workspace.placement.list", json!({}));
+    list.as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let id = format!(
+                "{}/{}",
+                row["workspace"]["session_id"].as_str().unwrap(),
+                row["workspace"]["workspace_ref"].as_str().unwrap()
+            );
+            (id, (row["index"].as_u64().unwrap(), row["group_id"].clone()))
+        })
+        .collect()
+}
+
+/// The placements a client that rebuilds from `session.events` holds:
+/// `start` with every `workspace_placement` change after `revision` applied.
+pub(super) fn replayed_placements(
+    mux: &Mux,
+    mut start: std::collections::BTreeMap<String, (u64, Value)>,
+    revision: u64,
+) -> std::collections::BTreeMap<String, (u64, Value)> {
+    for change in changes_after(mux, revision) {
+        if change["resource"] != "workspace_placement" {
+            continue;
+        }
+        let id = change["id"].as_str().unwrap().to_string();
+        if change["kind"] == "state_delete" {
+            start.remove(&id);
+        } else {
+            let value = &change["value"];
+            start.insert(id, (value["index"].as_u64().unwrap(), value["group_id"].clone()));
+        }
+    }
+    start
+}
+
 pub(super) fn revision(mux: &Mux) -> u64 {
     mux.with_state(|state| state.resource_revision)
 }
@@ -276,6 +315,53 @@ fn tab_update_stores_zoom_and_rejects_history_on_a_terminal_tab() {
         )),
         "validation.invalid"
     );
+}
+
+/// ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS: a tab carries a user icon (one
+/// emoji or an SF Symbol name, the shared icon wire string) on its record,
+/// listed in the snapshot so every client shows it; null clears it.
+#[test]
+fn tab_update_sets_and_clears_a_user_icon() {
+    let mux = Mux::new_for_test("state-tab-icon", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let tab = tab_id(&mux, tabs[0]);
+    let before = revision(&mux);
+    let set = mutate(&mux, "tab.update", json!({"tab": tab, "icon": "🚀"}), "icon-1");
+    assert_eq!(set["extra"]["icon"], "🚀");
+    assert!(
+        changes_after(&mux, before)
+            .iter()
+            .any(|change| change["id"] == tab && change["value"]["extra"]["icon"] == "🚀")
+    );
+    let symbol = mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": tab, "icon": "hammer.fill", "zoom": 1.25}),
+        "icon-2",
+    );
+    assert_eq!(symbol["extra"]["icon"], "hammer.fill");
+    assert_eq!(symbol["extra"]["zoom"], 1.25);
+    let listed = snapshot(&mux)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == tab)
+        .unwrap()
+        .clone();
+    assert_eq!(listed["extra"]["icon"], "hammer.fill");
+    // Clearing the zoom keeps the icon; clearing the icon removes it.
+    let zoom_cleared = mutate(&mux, "tab.update", json!({"tab": tab, "zoom": null}), "icon-3");
+    assert_eq!(zoom_cleared["extra"]["icon"], "hammer.fill");
+    let cleared = mutate(&mux, "tab.update", json!({"tab": tab, "icon": null}), "icon-4");
+    assert!(cleared["extra"].get("icon").is_none());
+    for (index, bad) in ["two words", "🚀🚀", "Hammer", ""].into_iter().enumerate() {
+        let key = format!("icon-bad-{index}");
+        assert_eq!(
+            error_code(send(&mux, "tab.update", json!({"tab": tab, "icon": bad}), Some(&key))),
+            "validation.invalid",
+            "{bad:?} must be refused"
+        );
+    }
 }
 
 #[test]
@@ -1044,7 +1130,7 @@ fn window_projection_migrates_to_unadopted_records_that_the_app_adopts() {
         "collapsed_groups": {},
     });
     mux.put_frontend_projection(
-        &WorkspaceMutation::new("seed-windows", "cmux-next").unwrap(),
+        &WorkspaceMutation::daemon("seed-windows", "cmux-next").unwrap(),
         "cmux-next",
         "personal",
         "windows",
@@ -1375,7 +1461,7 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
         },
         None,
         None,
-        &WorkspaceMutation::local("state-test"),
+        &WorkspaceMutation::daemon_local("state-test"),
     )
     .unwrap();
     assert!(changes_after(&mux, before).iter().any(|change| {

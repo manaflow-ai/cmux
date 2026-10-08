@@ -50,7 +50,7 @@ import PackageDescription
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
-//   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
+//   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
@@ -101,8 +101,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-51ced0d4ee783fb6bd7bacbe26c6eec801eb73ae/CCmuxAppFFI.xcframework.zip",
-    checksum: "445e54014d50ea0ff602d4c450114fd1baa1afcdd2fb3d1e9eda82c9019fef0e"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-eee4e4fffe22964457034c3fd2a8fb22388dec2b/CCmuxAppFFI.xcframework.zip",
+    checksum: "29b59f4c85596393ab656ac27edb7b55bde9036f3c73450e361bdb1ecd649de1"
 )
 
 let package = Package(
@@ -125,6 +125,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
+        // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
+        .package(path: "../../Shared/CmuxAgentQuestion"),
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -141,7 +143,10 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextMallocZone",
+                "CmuxNextProcessEnvironment",
                 "CmuxNextHome",
+                "CmuxNextAgentQuestion",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -175,6 +180,7 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
+                "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -303,6 +309,27 @@ let package = Package(
             dependencies: ["CmuxNextOnboarding", "CmuxNextBrowserImport", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
+        // The agent question card (plans/cmux-next/agent-questions.md): one
+        // AppKit view and layout for Home rows, agent panes and the UI Gallery.
+        .target(
+            name: "CmuxNextAgentQuestion",
+            dependencies: [
+                "CmuxNextDesign",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentQuestionTests",
+            dependencies: [
+                "CmuxNextAgentQuestion", "CmuxNextDesign",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
         // Home (plans/cmux-next/home.md section 3): the native conversation
@@ -326,6 +353,7 @@ let package = Package(
             name: "CmuxNextHomeTests",
             dependencies: [
                 "CmuxNextHome", "CmuxNextDesign", "CmuxNextIcons",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -435,7 +463,7 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
@@ -520,6 +548,9 @@ let package = Package(
         .target(
             name: "CmuxNextRemoteBrowser",
             dependencies: ["CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -653,6 +684,17 @@ let package = Package(
             name: "CmuxNextWakeups",
             swiftSettings: daemonSwiftSettings
         ),
+        // The freeze gate for this process's environment writes (libghostty
+        // keeps a copy of environ from ghostty_init). No dependencies.
+        .target(
+            name: "CmuxNextProcessEnvironment",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextProcessEnvironmentTests",
+            dependencies: ["CmuxNextProcessEnvironment"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
             dependencies: ["CmuxNextWakeups"],
@@ -724,6 +766,7 @@ let package = Package(
             name: "CmuxNextTerminal",
             dependencies: [
                 "CmuxNextWakeups",
+                "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextCopyMode",
@@ -912,7 +955,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextControl",
-            dependencies: ["CmuxNextWakeups", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -925,9 +968,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender")],
+                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

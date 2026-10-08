@@ -47,7 +47,16 @@ final class SidebarItemRowView: NSView {
     let title = NSTextField(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
-    private var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
+    /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
+    /// now over the row's frame now. Leaving also ends a press.
+    private(set) var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            if !isHovered { isPressed = false }
+            pointerChanged()
+        }
+    }
+    private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// The next fill change came from the pointer, so it fades.
     private var fadesNextFill = false
@@ -66,6 +75,7 @@ final class SidebarItemRowView: NSView {
         [icon, title, badge, avatarView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
     @available(*, unavailable)
@@ -239,11 +249,22 @@ final class SidebarItemRowView: NSView {
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         if let name = info.icon { return NSImage.icon(name, size: side) }
         let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
+    }
+
+    /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
+    static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
+        NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: side * 0.85)])
+            let size = text.size()
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            return true
+        }
     }
 
     /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
@@ -252,7 +273,7 @@ final class SidebarItemRowView: NSView {
     /// read as different sizes. Nil when the glyph draws nothing.
     private func inkSizedGlyph(centeredIn box: NSRect) -> (NSImage, NSRect)? {
         let nominal = SidebarStyle.kindGlyphSize
-        let glyph = "\(info.brand.map { "\($0)" } ?? "")|\(info.icon?.rawValue ?? "")|\(info.symbol)"
+        let glyph = "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(info.icon?.rawValue ?? "")|\(info.symbol)"
         guard let probe = glyphImage(side: nominal), let ink = SidebarGlyphInk.shared.box(of: probe, glyph: glyph),
               max(ink.width, ink.height) > 0 else { return nil }
         let scale = window?.backingScaleFactor ?? 2
@@ -287,14 +308,6 @@ final class SidebarItemRowView: NSView {
 
     // MARK: Pointer
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

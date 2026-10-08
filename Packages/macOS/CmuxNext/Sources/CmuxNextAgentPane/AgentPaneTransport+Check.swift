@@ -35,9 +35,43 @@ extension AgentPaneTransport {
         return batch
     }
 
+    /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
+    /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
+    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, AgentPanePolicyParityTests).
+    nonisolated enum Checked: Sendable {
+        case refuse(AcpmuxPaneMethods.Decision, spend: String?)
+        case frame(Facts, FrameBox)
+    }
+
     /// One frame of a pass (see ``drain()``).
     nonisolated static func analyzeOne(_ text: String, _ snapshot: Snapshot, socket: AcpmuxPaneSocket,
                                        ids: AcpmuxRequestIds) -> Analysis {
+        let facts: Facts
+        let box: FrameBox
+        switch checkOne(text, snapshot) {
+        case .refuse(let decision, let spend): return .refuse(decision, spend: spend)
+        case .frame(let checked, let frame):
+            facts = checked
+            box = frame
+        }
+        let method = facts.method
+        let pageID = facts.pageID
+        guard facts.free else { return .decide(facts, box) }
+        // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
+        var relayID: Int?
+        if let pageID {
+            guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
+            relayID = next
+        }
+        if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
+        let error = sendNow(box, relayID: relayID, socket: socket)
+        if error != nil, let relayID { ids.cancel(relayID) }
+        if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
+        return .sent(error)
+    }
+
+    /// The off-main rules on one frame, in order (see ``Checked``).
+    nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
         let object: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
@@ -52,6 +86,10 @@ extension AgentPaneTransport {
         }
         // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
         if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
+            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        }
+        // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
+        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
             return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
         }
         // A prompt block's own _meta never reaches the harness.
@@ -85,19 +123,7 @@ extension AgentPaneTransport {
         }
         // The LocalApp token goes into the first frame after every rule read the page's own frame.
         if snapshot.isFirst, let token = snapshot.localAppToken { frame = AcpmuxPaneMethods.withLocalAppToken(frame, token) }
-        let box = FrameBox(frame)
-        guard facts.free else { return .decide(facts, box) }
-        // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
-        var relayID: Int?
-        if let pageID {
-            guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
-            relayID = next
-        }
-        if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
-        let error = sendNow(box, relayID: relayID, socket: socket)
-        if error != nil, let relayID { ids.cancel(relayID) }
-        if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
-        return .sent(error)
+        return .frame(facts, FrameBox(frame))
     }
 
     /// The folder rule on the decided frame (the disk is read here, off the main thread). The
@@ -133,7 +159,7 @@ extension AgentPaneTransport {
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
-    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, rootRequested: Bool = false) -> Step {
+    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket) -> Step {
         guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
@@ -142,7 +168,7 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, rootRequested: rootRequested))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method))
         }
         return .refused(error)
     }

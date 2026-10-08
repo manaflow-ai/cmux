@@ -1,5 +1,6 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
+import type { AgentQuestion } from "./question/model";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
@@ -69,6 +70,8 @@ export type AcpmuxActivity = {
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
+    /// Images the call returned (ACP `image` content blocks), as data URLs.
+    images?: string[];
   };
 };
 
@@ -84,6 +87,9 @@ export type AcpmuxPermission = {
   kind?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
+  /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
+  /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
+  question?: AgentQuestion;
 };
 
 /** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry
@@ -188,6 +194,10 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** The outside chat this pane adopts is still open in another process (acpmux refused with
+   * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
+   * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
+  liveChat?: { canFork: boolean; command?: string };
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
@@ -333,6 +343,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
   if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
+  // The render card: its 36px head over the frame before it reports a height, and 6px below.
+  if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -537,7 +549,8 @@ import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
-import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
+import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

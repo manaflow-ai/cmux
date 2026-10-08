@@ -83,7 +83,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
-| Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (newest 50 tabs, screens, workspaces) | shared | `closed.list`, `closed.reopen` |
@@ -105,7 +105,7 @@ Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
 workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
-`tab_group_id`, `zoom`, `back`, `forward`, `owner` (the install id of the app
+`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -162,16 +162,52 @@ then this session's live workspaces without a personal row in session order;
 the default `order: "session"` keeps the session order. To put a workspace
 right after a group at a boundary, a client sends `workspace.place`, then the
 group's `top_index`, in that order. Compatibility: a workspace this session
-creates gets its personal row (last, ungrouped) in the commit that creates
-it, by every creation path, with its `workspace_placement` change in that
-commit's `session.events` batch and no personal journal record of its own,
-so a group place counts it from the start. The commit bumps
+creates gets its personal row in the commit that creates it, by every
+creation path and every client, at the place `workspaces.newPlacement` names
+in the daemon machine's settings file (read by the daemon itself:
+`CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`, else classic
+`cmux.json` before the app's first launch; the managed layer is not read):
+`top` (the default, also for a missing or unknown value) right after the home workspace's row,
+else first, ungrouped, so before every group at that place; `afterCurrent`
+right after the session's active workspace before the commit, in its group
+(`top` when there is none, it has no row, it is the home workspace, or the
+new workspace is pinned to a room other than the group's);
+`bottom` last, ungrouped. Several workspaces of one commit keep their order.
+The home workspace (`workspace.ensure_home`) always takes the top, and a
+reopened workspace is created last and then takes its closed row's place.
+The creation's `session.events` batch carries a `workspace_placement`
+change for each new row and each row it moved, and a `workspace_group`
+change for each group whose `top_index` moved, and no personal journal
+record of its own, so a group place counts it from the start. A caller that
+wants another place sends `workspace.place` after the creation; that later
+write wins. The commit bumps
 `personal_revision` but sends no raw `personal-changed` event, so raw
 `list-personal` readers see the row on their next refetch; a
 workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
 workspaces.
+`workspace_group.delete` (and the raw `delete-personal-group`) keeps every
+workspace open and stores the group as one closed-history item with no member
+(`kind: "workspace"`, `member_count: 0`) and `ClosedItemSnapshot.group`
+naming it. `closed.reopen` of that item (also after a restart) forms the group
+again with its id, name, color, icon, pin, collapse, room and place, and puts back each
+member whose personal row still exists and that is still ungrouped; a group
+that exists again is left as it is. Its result names the session's active
+workspace.
+`workspace-group-icon-v1` gives a personal group an icon:
+`workspace_group.update {icon}` sets it to the shared icon string (one emoji
+or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
+it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
+and the raw `list-personal` groups report it (null: no icon, and clients draw
+their default group glyph). Older daemons omit the field.
+`workspace-group-pin-v1` pins (saves) a personal group:
+`workspace_group.update {pinned: true}` pins it and `false` unpins it;
+`WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
+The daemon never removes a group because it is empty, pinned or not; the pin
+tells clients to keep an empty group as a saved group (closing its
+workspaces leaves it collapsed and empty, and opening it restores them)
+instead of hiding it. Older daemons omit the field (not pinned).
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the

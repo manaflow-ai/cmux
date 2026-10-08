@@ -364,7 +364,7 @@ fn fake_env(
 fn the_settings_file_follows_the_app_override() {
     assert_eq!(
         config::path_from(fake_env(&[("HOME", "/Users/u")])),
-        PathBuf::from("/Users/u/.config/cmux/cmux.json")
+        PathBuf::from("/Users/u/.config/cmux/cmux-next.json")
     );
     assert_eq!(
         config::path_from(fake_env(&[

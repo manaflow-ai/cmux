@@ -3,11 +3,11 @@
 # that CmuxNextAgentPane ships as a module resource: index.html (markup and
 # styles), pane.js (the app) and locales/ (strings and the loader that picks
 # them). The page runs no inline script (CSP script-src 'self'), so markup an
-# agent gets rendered cannot run script. The output is committed; rerun this
-# after changing the TypeScript sources.
+# agent gets rendered cannot run script. The output is build output (gitignored;
+# scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-agent-pane-web.sh          # rebuild the resource
-#   scripts/cmux-next/build-agent-pane-web.sh --check  # fail if it is stale
+#   scripts/cmux-next/build-agent-pane-web.sh --check  # build into a temp dir only (the sources build)
 #   scripts/cmux-next/build-agent-pane-web.sh --out DIR  # build into DIR
 set -eu
 
@@ -66,13 +66,14 @@ bun scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/changes/changes.css" \
   "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/turnChanges/turnChanges.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
-# pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts). The page host sends the same
+# pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
+# (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
@@ -88,13 +89,7 @@ CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src d
 cp "$WORK/app.js" "$WORK/pane.js"
 
 if [ "$MODE" = "--check" ]; then
-  if ! cmp -s "$WORK/index.html" "$OUT/index.html" || ! cmp -s "$WORK/pane.js" "$OUT/pane.js" \
-    || ! cmp -s "$WORK/highlight-worker.js" "$OUT/highlight-worker.js" \
-    || ! diff -rq "$WORK/locales" "$OUT/locales" >/dev/null 2>&1; then
-    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
-    exit 1
-  fi
-  echo "agent pane web bundle is current"
+  echo "agent pane web bundle builds"
   exit 0
 fi
 

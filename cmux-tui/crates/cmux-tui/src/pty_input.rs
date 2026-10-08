@@ -1373,7 +1373,7 @@ fn prune_lane_to_recovery_releases(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, crate::local_actor::TuiMuxOps};
     mod retire_tests;
     use cmux_tui_core::{Mux as TestMux, SurfaceOptions as TestSurfaceOptions};
 

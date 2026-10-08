@@ -25,6 +25,11 @@ final class SidebarRegionView: NSView {
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
     var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
+    /// Whether a window point is over the workspace list (a workspace tile
+    /// dropped there unpins); nil point ends the drag. The sidebar outlines the list.
+    var dropToListProbe: ((NSPoint?) -> Bool)?
+    /// A workspace item was dropped on the list.
+    var onDropToList: ((LayoutItemID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
@@ -85,11 +90,14 @@ final class SidebarRegionView: NSView {
         let shown = displayed(content)
         layoutResult = Self.layout(shown, width: width)
         guard animated else { return apply(shown) }
-        Motion.animate(.move, in: self) {
+        Motion.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
-        }
+        }, completion: { [weak self] in
+            // The rows ended their move under a possibly still pointer (cx-3wu5).
+            PointerHover.refresh(in: self?.window)
+        })
     }
 
     private func displayed(_ content: Content) -> Content {
@@ -129,7 +137,7 @@ final class SidebarRegionView: NSView {
         for section in content.sections where section.arrangement.layout == .inline
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
             for item in section.items where item.showsLabel {
-                let info = content.infos[item.id] ?? .fallback(for: item.ref)
+                let info = content.infos[item.id] ?? .fallback(for: item)
                 widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge)
             }
         }
@@ -170,7 +178,7 @@ final class SidebarRegionView: NSView {
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
-                view.configure(content.infos[id] ?? .fallback(for: item.ref), style: style)
+                view.configure(content.infos[id] ?? .fallback(for: item), style: style)
                 place(view, row.frame)
             }
         }
@@ -186,6 +194,8 @@ final class SidebarRegionView: NSView {
             view.removeFromSuperview()
             headerViews[id] = nil
         }
+        // Rows reflowed under a possibly still pointer (cx-3wu5).
+        PointerHover.refresh(in: window)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         while cardLayers.count > layoutResult.cards.count { cardLayers.removeLast().removeFromSuperlayer() }

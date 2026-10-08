@@ -30,7 +30,7 @@ use url::{Host, Url};
 pub type NameResolver = Arc<dyn Fn(&str, u16) -> Vec<IpAddr> + Send + Sync>;
 
 /// This machine's resolver.
-pub(super) fn system_resolver() -> NameResolver {
+pub fn system_resolver() -> NameResolver {
     Arc::new(|host, port| {
         (host, port)
             .to_socket_addrs()
@@ -67,6 +67,12 @@ impl Gate {
     /// Why this session's `session.configure {proxy}` is refused, if it is.
     pub(super) fn proxy_refusal(&self, params: &Value) -> Option<String> {
         let proxy = params.get("proxy").filter(|proxy| !proxy.is_null())?;
+        if self.grants.isolated.is_some() {
+            return Some(
+                "session.configure: a session on a Cloud machine cannot set a proxy (the host's egress filter is its only exit)"
+                    .into(),
+            );
+        }
         if self.grants.remote {
             return Some(
                 "session.configure: a remote session cannot set a proxy (a session's own exit is for sessions on this machine)"

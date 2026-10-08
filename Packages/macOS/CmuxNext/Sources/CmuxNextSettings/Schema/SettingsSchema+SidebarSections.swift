@@ -60,8 +60,10 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.showChatsDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
+            SidebarSectionsSetting.tipsDescriptor(group: sidebar),
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
+            ChromePlacementSetting.spacesVisibilityDescriptor(group: sidebar),
         ] + SidebarNavigationSetting.descriptors(group: sidebar)
     }
 }
