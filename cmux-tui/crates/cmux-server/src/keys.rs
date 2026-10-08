@@ -19,6 +19,7 @@ const BAKED_SPEC: &str = match option_env!("CMUX_SERVER_RELEASE_KEYS") {
 
 // Checked by the compiler: a malformed build-time spec is a build error.
 const _: () = if let Some(reason) = check(BAKED_SPEC) {
+    // crash-allow: const evaluation only; a malformed build-time key spec is a compile error, never a runtime panic.
     panic!("{}", reason);
 };
 
@@ -32,23 +33,27 @@ pub fn parse(spec: &str) -> Result<Vec<TrustedKey>, &'static str> {
     if spec.trim().is_empty() {
         return Ok(Vec::new());
     }
-    Ok(spec
-        .split(',')
+    const BAD: &str = "CMUX_SERVER_RELEASE_KEYS entry is not <id>:<64 hex>";
+    spec.split(',')
         .map(|entry| {
-            let (id, hex) = entry.trim().split_once(':').expect("checked");
+            let (id, hex) = entry.trim().split_once(':').ok_or(BAD)?;
             let mut public_key = [0u8; 32];
             for (i, pair) in hex.as_bytes().chunks(2).enumerate() {
-                public_key[i] =
-                    (nibble(pair[0]).expect("checked") << 4) | nibble(pair[1]).expect("checked");
+                let (Some(hi), Some(lo)) = (nibble(pair[0]), nibble(pair[1])) else {
+                    return Err(BAD);
+                };
+                public_key[i] = (hi << 4) | lo;
             }
-            TrustedKey { id: id.to_owned(), public_key }
+            Ok(TrustedKey { id: id.to_owned(), public_key })
         })
-        .collect())
+        .collect()
 }
 
 /// The keys baked into this build.
 pub fn baked() -> Vec<TrustedKey> {
-    parse(BAKED_SPEC).expect("CMUX_SERVER_RELEASE_KEYS is checked at compile time")
+    // The compiler already rejected a malformed spec; an error here can
+    // only trust nothing (fail closed).
+    parse(BAKED_SPEC).unwrap_or_default()
 }
 
 const fn nibble(b: u8) -> Option<u8> {
