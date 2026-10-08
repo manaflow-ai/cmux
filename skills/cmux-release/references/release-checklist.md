@@ -24,7 +24,7 @@ The PR Changelog lines are drafts. Edit them for tone and merge related lines, b
     -f source_run_id=<nightly-run-id> \
     -f source_run_attempt=<attempt> \
     -f source_head_sha=<40-character-sha> \
-    -f source_branch=main
+    -f source_branch=<published-branch>
   ```
 
 ## Asset rename
