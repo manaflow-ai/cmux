@@ -285,9 +285,25 @@ impl Hub {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
-        let existing_sid = session.meta().agent_session_id.clone();
+        let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
+        // A Claude conversation that never finished a turn may not exist in
+        // Claude's store: start a fresh one rather than fail on `--resume`.
+        if is_claude
+            && fork_from.is_none()
+            && session.claude_unstored.load(Ordering::SeqCst)
+            && let Some(sid) = existing_sid.take()
+        {
+            tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: the one to resume never finished a turn");
+            self.append(
+                session,
+                "mux",
+                "resume_failed",
+                json!({"error": format!("Claude conversation {sid} never finished a turn, so a fresh one starts")}),
+            );
+            session.meta.lock().unwrap().agent_session_id = None;
+        }
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -463,6 +479,7 @@ impl Hub {
                 };
                 m.agent_session_id = sid.clone();
                 drop(m);
+                session.claude_unstored.store(level == "new", Ordering::SeqCst);
                 self.write_mode_state(
                     session,
                     [ModeWrite::Modes(modes), ModeWrite::ConfigOptions(opts)],

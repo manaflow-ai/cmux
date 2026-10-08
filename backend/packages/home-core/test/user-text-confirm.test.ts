@@ -44,7 +44,7 @@ const host = (revoked: Set<string> = new Set()) => {
   let n = 0
   const outbox: Array<OutboxItem> = []
   const kinds: Record<string, string> = { inst_mac: "mac", inst_ios: "ios", inst_x: "mac" }
-  const env: UserConfirmEnv = { user: USER, installActive: (i) => !revoked.has(i), installKind: (i) => kinds[i], chiefs: ["agent_a", "agent_b"], appIdHash: APP_ID_HASH, email: "owner@example.com" }
+  const env: UserConfirmEnv = { user: USER, installActive: (i) => !revoked.has(i), installKind: (i) => kinds[i], chiefs: ["agent_a", "agent_b"], appIdHash: APP_ID_HASH, emails: ["owner@example.com"] }
   const run = (op: string, params: Record<string, unknown>, p: Principal, origin: "user" | "remote" | "script" = "user", now = NOW) => {
     if (!authorizeUserConfirm(op, p, env)) return { ok: false as const, code: "forbidden" }
     const r = reduceUserConfirm(s, op, params, { principal: p, now, tx: `t${++n}`, newId: (x) => `${x}_${n}_${Math.random().toString(36).slice(2)}`, rows: new MemoryRows(), origin }, env)
@@ -97,7 +97,7 @@ describe("per-user level and lowering with a device proof", () => {
 
   it("collapses presence key notices to one feed item and one email per hour", async () => {
     const { securityNotice } = await import("../src/user/notices.ts")
-    const env = { user: USER, email: "owner@example.com" }
+    const env = { user: USER, emails: ["owner@example.com"] }
     const a = securityNotice(env, "key_added", 1, { install: "i1", at: 7_200_000 })
     const b = securityNotice(env, "key_added", 2, { install: "i2", at: 7_200_000 + 60_000 })
     const mail = (n: typeof a) => n.find((o) => o.kind === "mail.security_notice")!
@@ -107,7 +107,12 @@ describe("per-user level and lowering with a device proof", () => {
     expect(feed(a)).toBe(feed(b))
     const lowered = securityNotice(env, "lowered", 3, { from: "strict", to: "off", install: "i1", at: 7_200_000 })
     expect(mail(lowered).target?.coalesce).toBeUndefined()
-    expect(securityNotice({ user: USER }, "lowered", 4, { from: "strict", to: "off", install: "i1", at: 1 }).some((o) => o.kind === "mail.security_notice")).toBe(false)
+    const both = securityNotice({ user: USER, emails: ["new@example.com", "old@example.com"] }, "lowered", 5, { from: "strict", to: "off", install: "i1", at: 1 })
+    const sent = both.filter((o) => o.kind === "mail.security_notice")
+    // One email per address (never both addresses on one email), each with its own key.
+    expect(sent.map((o) => (o.payload as { to: string }).to)).toEqual(["new@example.com", "old@example.com"])
+    expect(new Set(sent.map((o) => o.entity)).size).toBe(2)
+    expect(securityNotice({ user: USER, emails: [] }, "lowered", 4, { from: "strict", to: "off", install: "i1", at: 1 }).some((o) => o.kind === "mail.security_notice")).toBe(false)
   })
 
   it("refuses: no proof, a stale proof, a replayed nonce, a proof for another op or level, and spends the nonce each time", () => {
