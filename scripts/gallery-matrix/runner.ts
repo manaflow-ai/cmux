@@ -176,7 +176,9 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
-    await page.goto(url, { waitUntil: "networkidle" });
+    // Load, not network idle: a stage that keeps fetching never goes 500 ms without a request
+    // (pages.markdown showcase, run 37833947171). data-gallery-ready below is the readiness signal.
+    await page.goto(url, { waitUntil: "load" });
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
