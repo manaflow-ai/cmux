@@ -55,16 +55,15 @@ pub fn dir_from_env() -> Option<PathBuf> {
 
 /// The folder, when the helper v2 runs now (its `endpoint.json` exists).
 pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
-    // RED STUB (commit 1)
-    let _ = dir;
-    None
+    dir.filter(|d| d.join(ENDPOINT_FILE).is_file())
 }
 
 /// Reads `endpoint.json` in `dir`.
 pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
     let path = dir.join(ENDPOINT_FILE);
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("the Computer Use helper v2 is not running ({} is missing)", path.display()))?;
+    let text = std::fs::read_to_string(&path).with_context(|| {
+        format!("the Computer Use helper v2 is not running ({} is missing)", path.display())
+    })?;
     let value: Value = serde_json::from_str(&text).context("endpoint.json is not JSON")?;
     let socket = value["socket"].as_str().ok_or_else(|| anyhow!("endpoint.json has no socket"))?;
     let secret = value["secret"].as_str().ok_or_else(|| anyhow!("endpoint.json has no secret"))?;
@@ -103,7 +102,12 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
     }
 
     /// `tools/list` or `tools/call`; returns the helper's `result`.
-    pub async fn request(&mut self, method: &str, name: Option<&str>, arguments: Value) -> Result<Value> {
+    pub async fn request(
+        &mut self,
+        method: &str,
+        name: Option<&str>,
+        arguments: Value,
+    ) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         let mut message = json!({ "id": id, "method": method });
@@ -157,12 +161,6 @@ where
     C: Fn() -> F,
     F: std::future::Future<Output = Result<Helper<S>>>,
 {
-    // RED STUB (commit 1): answers nothing.
-    let _ = (&mut output, &connect);
-    if true {
-        drop(input);
-        return Ok(());
-    }
     let mut lines = input.lines();
     let mut helper: Option<Helper<S>> = None;
     while let Some(line) = lines.next_line().await? {
@@ -170,8 +168,11 @@ where
             continue;
         }
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            write_line(&mut output, &json!({"jsonrpc": "2.0", "id": null,
-                "error": {"code": -32700, "message": "parse error"}}))
+            write_line(
+                &mut output,
+                &json!({"jsonrpc": "2.0", "id": null,
+                "error": {"code": -32700, "message": "parse error"}}),
+            )
             .await?;
             continue;
         };
@@ -189,17 +190,25 @@ where
                 .map(tools_list_result),
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
-                let arguments = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
-                Ok(match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await {
-                    Ok(result) => call_result(result),
-                    Err((_, text)) => json!({"content": [{"type": "text", "text": text}], "isError": true}),
-                })
+                let arguments =
+                    message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                Ok(
+                    match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                    {
+                        Ok(result) => call_result(result),
+                        Err((_, text)) => {
+                            json!({"content": [{"type": "text", "text": text}], "isError": true})
+                        }
+                    },
+                )
             }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
         let response = match reply {
             Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            Err((code, text)) => json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": text}}),
+            Err((code, text)) => {
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": text}})
+            }
         };
         write_line(&mut output, &response).await?;
     }

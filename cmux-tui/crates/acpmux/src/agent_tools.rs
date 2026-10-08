@@ -214,8 +214,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
-    // RED STUB (commit 1): the helper v2 is never chosen.
-    if let (Some(dir), Some(acpmux), true) = (&inputs.cua_v2, &inputs.acpmux, false) {
+    if let (Some(dir), Some(acpmux)) = (&inputs.cua_v2, &inputs.acpmux) {
         // The helper v2: this acpmux as the agent's MCP server. Only the
         // folder goes in its env; the bridge reads the socket and secret
         // from endpoint.json there when it connects.
