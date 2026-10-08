@@ -72,6 +72,24 @@ struct DeviceRouteSelectorTests {
         }
     }
 
+    @Test("Automatic Iroh keeps an authorized Tailscale fallback for invalid peer routes")
+    func automaticIrohKeepsLegacyFallback() throws {
+        let invalidIroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: "invalid"), pathHints: []),
+            priority: 0
+        )
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 10)
+        let selector = DeviceRouteSelector(allowsIroh: true)
+
+        #expect(selector.supportedKinds == [.iroh, .tailscale])
+        let selection = try selector.select(from: [invalidIroh, tailscale], instance: studio) {
+            self.grant(for: $0)
+        }
+        #expect(selection.route == tailscale)
+        #expect(selection.evidence == grant(for: tailscale))
+    }
+
     @Test("Automatic connections never fall back to a saved Tailscale bearer route")
     func automaticTransportDoesNotDowngrade() throws {
         let selector = DeviceRouteSelector(allowsIroh: true, allowsLegacyTailscale: false)
