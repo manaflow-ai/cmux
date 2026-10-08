@@ -17,6 +17,9 @@
          location = "group:CmuxAgentCursor">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentQuestion">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
