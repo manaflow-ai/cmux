@@ -123,11 +123,12 @@ runs the same function before each screenshot, with trusted Playwright input.
 },
 ```
 
-`ctx` has `click`, `hover`, `focus`, `type(text, target?)`, `press("Meta+k")`,
-`pointer.down/move/up` (the macOS press-drag-release menus), `waitFor(condition, { capMs })` and
-`find`. A target is `{ role, name }` (name is a string or a RegExp), `{ testId }`, `{ text }` or
-`{ selector }`. `waitFor` checks again on each DOM mutation, animation end, transition end and
-frame. It never waits for a fixed time; its cap only fails a wait that never comes true.
+`ctx` has `click`, `hover`, `focus`, `scroll(target, position)`, `selectText(target)`,
+`type(text, target?)`, `press("Meta+k")`, `pointer.down/move/up` (the macOS press-drag-release
+menus), `waitFor(condition, { capMs })` and `find`. A target is `{ role, name }` (name is a
+string or a RegExp), `{ testId }`, `{ text }` or `{ selector }`. `waitFor` checks again on each
+DOM mutation, animation end, transition end and frame. It never waits for a fixed time; its cap
+only fails a wait that never comes true.
 
 Each action is one step, and the stage measures it:
 
@@ -140,8 +141,8 @@ Each action is one step, and the stage measures it:
   there it only warns ("software-rendered, not a gate"). Real WebKit frame timing comes from the
   native app on a fleet Mac. The anchor and layout-shift checks are strict in both engines.
 
-To loosen a check, the entry writes the value and the reason, and `validateEntries` refuses a
-check without a reason:
+To loosen a check, the entry or the individual variant writes the value and the reason. Variant
+checks override the entry defaults, and `validateEntries` refuses a check without a reason:
 
 ```ts
 checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } },
@@ -150,7 +151,8 @@ checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compi
 The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
 matrix index shows layout shift and long frames cells (pass, warn or fail, with the numbers), plus
 action-to-settled p50 / p95 / max latency and sample count when a case has play steps; click a cell
-for each step's details. A failing play fails the run. The
+for each step's details. Scroll and text-selection steps are measured alongside clicks, keys and
+press-drag gestures. A failing play fails the run. The
 checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
 live line for the person who opens it.
 
