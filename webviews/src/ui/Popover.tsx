@@ -14,11 +14,17 @@ export interface UiAnchorRect {
   bottom: number;
 }
 
-export type UiAnchor = Element | UiAnchorRect | null;
+/** A box read each time the popover is placed, so it follows layout changes (a Floating UI virtual element). */
+export interface UiVirtualAnchor {
+  getBoundingClientRect(): DOMRect;
+  contextElement?: Element;
+}
+
+export type UiAnchor = Element | UiAnchorRect | UiVirtualAnchor | null;
 
 /** The Floating UI virtual element of a rect anchor. */
 export function virtualAnchor(anchor: UiAnchor) {
-  if (!anchor || anchor instanceof Element) return anchor;
+  if (!anchor || anchor instanceof Element || "getBoundingClientRect" in anchor) return anchor;
   const rect = anchor;
   return {
     getBoundingClientRect: () => {
@@ -47,6 +53,8 @@ export interface PopoverProps {
   /** The accessible name of the popover (role dialog). */
   label: string;
   className?: string;
+  /** Which side of the anchor receives the popover. */
+  side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -60,6 +68,7 @@ export function Popover({
   anchor,
   label,
   className,
+  side = "bottom",
   initialFocus,
   finalFocus,
   children,
@@ -71,7 +80,7 @@ export function Popover({
         <BasePopover.Positioner
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
-          side="bottom"
+          side={side}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >

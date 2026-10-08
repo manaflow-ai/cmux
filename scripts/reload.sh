@@ -1152,7 +1152,12 @@ tag_build_cleanup_paths() {
 print_tag_cleanup_commands() {
   local tag="$1" derived="${2:-}"
   local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  # Quit the app through its own quit path (scripts/lib/stop-app-instances.sh): exact
+  # PIDs from LaunchServices and the tag's executable, SIGTERM as a requested quit, never a
+  # pattern kill (no pkill or killall, coordinator rule c).
+  printf '  bash -c %q _ %q %q %q\n' 'source "$1" && cmux_stop_app_instances "$2" "$3"' \
+    "$SCRIPT_DIR/lib/stop-app-instances.sh" "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" \
+    "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
   # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
   # keep running from the deleted bundle: stop the owner through the bundle's own binary
   # before the rm. Never --end-terminals here: a pasted command cannot check that no
@@ -1522,6 +1527,16 @@ if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
   fi
 fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
+
+# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# app) are build output, not committed: they are built from the sources before
+# the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
+# tree skips the build in about a second. The Xcode "Verify web bundles" phase
+# refuses an app build that skipped this.
+if [[ -x "$PWD/scripts/cmux-next/build-web-bundles.sh" ]]; then
+  echo "==> cmux-next: web bundles"
+  "$PWD/scripts/cmux-next/build-web-bundles.sh" || exit 1
+fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"

@@ -10,6 +10,11 @@ public final class OpenInPaletteProvider: PaletteProvider {
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
     }
 
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
+
     public static var section: PaletteSection {
         PaletteSection(id: "openIn", title: PaletteStrings.sectionOpenIn, order: 30)
     }

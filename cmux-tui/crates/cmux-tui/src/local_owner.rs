@@ -6,7 +6,7 @@
 //! later `cmux` reattaches through the same socket instead of racing to
 //! rebuild the mux and adopt the durable terminal hosts. `ensure_owner` is
 //! the single entrypoint shared by the interactive startup path and the
-//! `cmux server ensure` CLI verb.
+//! `cmux daemon ensure` CLI verb (`cmux-tui server ensure`).
 //!
 //! The owner is spawned with no controlling terminal and null stdio; its
 //! diagnostics go to the bounded client log at the session state root.

@@ -85,6 +85,16 @@ class Workflow(unittest.TestCase):
         self.doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.text = WORKFLOW.read_text(encoding="utf-8")
 
+    def test_no_step_truncates_a_pipe_under_pipefail(self):
+        """`git show --stat | head -40` under pipefail exits 141 (SIGPIPE) once a merge lists more
+        than 40 lines, failing every catch-up job after a good merge (run 37584353594)."""
+        for job in self.doc["jobs"].values():
+            for step in job.get("steps", []):
+                script = step.get("run", "")
+                if "pipefail" in script:
+                    with self.subTest(step=step.get("name")):
+                        self.assertNotRegex(script, r"\|\s*head\b")
+
     def test_runs_when_feat_cmux_next_moves(self):
         on = self.doc[True]
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])

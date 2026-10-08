@@ -50,3 +50,7 @@ Tests:
 ```sh
 bun test
 ```
+
+For an isolated worktree run, set `CMUX_GALLERY_FREESTYLE_LEDGER` to an absolute path inside that worktree. Keep the same value for cleanup. The default shared ledger remains unchanged.
+
+Publish an already captured matrix with `scripts/gallery-deploy.sh --matrix g5-pages-1 /path/to/output`. This uses the same publisher as `--publish-run` and launches no browser.

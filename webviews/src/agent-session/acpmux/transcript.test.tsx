@@ -2070,7 +2070,7 @@ describe("acpmux turn diff", () => {
     const root = await renderCard(editRow(["/repo/src/a.ts", "/repo/b.ts"]), opened);
     const document = dom.window.document;
     try {
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 filesView changes");
       const files = [...document.querySelectorAll(".acpmux-edited-file")];
       expect(files.map((file) => file.textContent)).toEqual(["src/a.ts+2-1", "b.ts+2-1"]);
       await act(async () => files[0]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
@@ -2119,7 +2119,7 @@ describe("acpmux turn diff", () => {
         ),
       );
       expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe(
-        "Edited 2 files+7-1Includes changes outside tool calls",
+        "Edited 2 filesView changesIncludes changes outside tool calls",
       );
       expect([...document.querySelectorAll(".acpmux-edited-file")].map((file) => file.textContent)).toEqual([
         "src/a.ts+2-1",
@@ -2131,7 +2131,7 @@ describe("acpmux turn diff", () => {
     }
   });
 
-  test("one edited file is named in the card, and many show the first three", async () => {
+  test("one edited file is named in the card, and many show the first five", async () => {
     const opened: [string, string | undefined][] = [];
     const document = dom.window.document;
     let root = await renderCard(editRow(["/repo/a.ts"]), opened);
@@ -2144,13 +2144,16 @@ describe("acpmux turn diff", () => {
     } finally {
       await act(async () => root.unmount());
     }
-    root = await renderCard(editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts"]), opened);
+    root = await renderCard(
+      editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts", "/r/f.ts", "/r/g.ts"]),
+      opened,
+    );
     try {
-      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(3);
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
       const more = document.querySelector(".acpmux-edited-more")!;
       expect(more.textContent).toBe("Show 2 more files");
       await act(async () => more.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(7);
       expect(document.querySelector(".acpmux-edited-more")?.textContent).toBe("Show fewer files");
     } finally {
       await act(async () => root.unmount());
@@ -2158,8 +2161,8 @@ describe("acpmux turn diff", () => {
   });
 
   test("an ended turn's card never asks the agent to undo its edits", async () => {
-    // The agent could run any command (git checkout) and lose the user's later edits. Undo comes
-    // back only as a host revert that checks each file still holds the turn's bytes.
+    // The agent could run any command (git checkout) and lose the user's later edits. Undo is a
+    // host revert (turn.undo) that checks each file still holds the turn's bytes.
     const { TurnActionsContext } = await import("./conversation/turnActions");
     const asked: string[] = [];
     const review = {
@@ -2184,8 +2187,7 @@ describe("acpmux turn diff", () => {
           ),
         ),
       );
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
-      expect([...document.querySelectorAll("button")].map((button) => button.textContent)).not.toContain("Undo");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 filesView changes");
       for (const button of document.querySelectorAll<HTMLButtonElement>(".acpmux-edited button"))
         await act(async () => button.click());
       expect(asked).toEqual([]);

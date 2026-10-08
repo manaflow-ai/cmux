@@ -13,8 +13,11 @@ struct PageFactory {
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
     func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web,
-              let page = PageWebView(descriptor: .history, routes: pageRoutes(for: .history)) else { return nil }
+        guard PageTunables.history.value == .web else { return nil }
+        let routes = pageRoutes(for: .history)
+        guard let page = services.pageHostPool.claim(.history, routes: routes,
+                                                      window: services.windows.active?.window, focus: false)
+            ?? PageWebView(descriptor: .history, routes: routes) else { return nil }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
@@ -74,8 +77,11 @@ struct PageFactory {
         let cloud = UnavailablePageProvider(code: "cmux.cloud.unsupported")
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .cloud, routes: routes,
-                               documentAttributes: ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue])
+        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
+        let page = services.pageHostPool.claim(.cloud, routes: routes,
+                                               documentAttributes: attributes,
+                                               window: services.windows.active?.window, focus: false)
+            ?? PageWebView(descriptor: .cloud, routes: routes, documentAttributes: attributes)
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
         return page
@@ -101,6 +107,10 @@ struct PageFactory {
         }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.themeColors = { [weak services] in
+            guard let catalog = services?.themes.catalog else { return [] }
+            return catalog.names.compactMap { catalog.colors[$0] }
+        }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
@@ -121,8 +131,12 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let page = PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
-                               dynamicResources: SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices))
+        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices)
+        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
+                                               dynamicResources: dynamicResources,
+                                               window: services.windows.active?.window, focus: false)
+            ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
+                           dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
         return page
     }

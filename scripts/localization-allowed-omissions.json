@@ -4911,5 +4911,22 @@
         ]
       }
     }
+  },
+  "gallery.experimental": {
+    "source": "Experimental",
+    "identityLocales": {
+      "es": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      }
+    }
   }
 }

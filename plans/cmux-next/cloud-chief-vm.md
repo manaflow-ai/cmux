@@ -69,6 +69,16 @@ shutdown) and reports `cloud.vm.status.report {state: idle}`; CloudDO pauses the
 machine through the cmux VM API (pause, else stop) within minutes. The disk (memory, Chief home, acpmux sessions)
 survives a pause; a snapshot schedule covers loss of the machine.
 
+## 4a. Identity after a snapshot restore
+
+A Chief VM may be created or resumed from a memory snapshot, so two VMs can wake
+with the same RNG state and the same identifiers. Before it serves, the boot
+unit reseeds the kernel RNG and regenerates `/etc/machine-id` and the SSH host
+keys; the brain, at start, regenerates its ephemeral state (acpmux session ids,
+the host lock's start nonce, the turn and compactor session names it derives
+from a fresh value) and refuses to start from a Chief home whose install key is
+already in use by another VM (the one-VM record names the VM that owns it).
+
 ## 5. Placement handoff (one history, one writer)
 
 The commit point is `chief.update {brain_place}`; a Chief answers from exactly
@@ -156,9 +166,42 @@ machine, so the Chief keeps Claude Code's tools, its subagents and children
 5. Cost line in the admin view (backend lead).
 6. Staging measurement of the cold wake; then the reply-time promise.
 
-## 9. Decisions needed
+## 9. Decisions
 
-- Model route for VMs (section 6): Cloud route or the user's key.
-- The daily cap per user, and who pays for the VM after the team flag.
-- Whether a user with a server can also have a VM (one placement at a time is
-  the rule above).
+Internal phase (coordinator, 2026-10-07):
+
+- Model route: Chief VMs use the Cloud coderouter route (section 6, first
+  option).
+- Daily cap: $20 per user per day under the manaflow-team flag; an alert at
+  80%, and at 100% no new turns start and the Chief posts a visible notice.
+- Who pays after the flag: Lawrence's open decision.
+- Backend work (one-VM record, MuxDO wake alarm, cloud import op, admin cost
+  line, the flag): routed to hq-ff (Cloud/CloudDO and cmux VM owner).
+
+cmux VM API answers (owner, via hq-ff, 2026-10-07):
+
+- Tenant: the Chief VM belongs to the user's Stack team (the personal team for
+  a solo user) and counts in that team's quota, billing and list. The backend
+  acts through one `cmuxvm_sk` service key (scopes vm:read, vm:write, vm:exec,
+  only VMs labelled `role=chief`), for a team only with an explicit
+  `x-cmux-team-id`, a ServiceMayActFor proof and an audit row (a small slice
+  after S2).
+- Image: a Chief snapshot built by images/cmux-vm with optchat-chief, acpmux,
+  cmux-tui and a boot unit running `optchat-chief host --source cloud`; the VM is
+  created from that snapshot id.
+- Restore identity: after a memory-snapshot restore every clone must reseed its
+  RNG and regenerate machine-id and host keys, and the brain must regenerate
+  its own ephemeral keys and session ids before it serves (section 4a).
+- Price: the provider publishes none; the cost line is VM running seconds from
+  the API's start, pause and stop audit times a configured rate (marked
+  unverified), plus starts; usage endpoints come in S3b.
+- Pause plus the wake alarm is the design; the resume time is unmeasured (the
+  owner measures it).
+- API state: S1 PR 18194 (preview cmux-vm-preview.debussy.workers.dev), S2 PR
+  18199 (create, list, get, start, stop, pause, resume, fork, delete, exec,
+  files; idempotency, quotas, audit), S4 PR 18195 (Rust cmux-vm CLI and the
+  @cmux/vm SDK). The one-VM record and the wake alarm build against
+  workers/cmux-vm/openapi.json on feat-cmux-vm-s2.
+
+Still open: whether a user with a server can also have a VM (one placement at a
+time is the rule above).

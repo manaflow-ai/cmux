@@ -7,12 +7,14 @@
     "bookmarks-v1",
     "browser-host-provider-v1",
     "browser-profiles-v1",
+    "chief-inspect-v1",
     "close-reason-v1",
     "cloud-conversations-v1",
     "conversation-search-v1",
     "conversation-tabs-v1",
     "creation-attempt-keys-v1",
     "creation-receipts-v1",
+    "dock-column-role-v1",
     "dock-columns-v1",
     "edge-docks-v1",
     "end-terminals-keep-layout-v1",
@@ -36,6 +38,7 @@
     "screen-groups-v1",
     "screen-metadata-v1",
     "session-identity-v1",
+    "sidebar-layout-v1",
     "state-resources-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",
@@ -57,6 +60,8 @@
     "terminal-snapshot-images-v1",
     "terminal-snapshot-local-history-v1",
     "workspace-agent-folder-v1",
+    "workspace-group-icon-v1",
+    "workspace-group-pin-v1",
     "workspace-groups-v1",
     "workspace-kind-v1",
     "workspace-metadata-v1",
@@ -73,7 +78,6 @@
   ],
   "unservedByBundledDaemon" : [
     "detached-terminals-v1",
-    "remote-terminal-tabs-v1",
-    "sidebar-layout-v1"
+    "remote-terminal-tabs-v1"
   ]
 }

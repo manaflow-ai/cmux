@@ -145,6 +145,17 @@ body {
   color: var(--g-muted);
   font-size: 12px;
 }
+.gallery-experimental {
+  display: inline-block;
+  margin-inline-start: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--g-line);
+  border-radius: 4px;
+  color: var(--g-muted);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}
 .gallery-controls {
   display: flex;
   flex-wrap: wrap;
@@ -326,3 +337,205 @@ main .gallery-entry-error {
 }
 /* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
 .gallery .variant-pick-option { flex: 0 0 auto; }
+/* The compare view (CompareView.tsx): one cell per experiment arm, same size and scale. */
+.gallery-compare-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--g-line);
+}
+.gallery-compare-description {
+  margin: 0;
+  color: var(--g-muted);
+  max-width: 120ch;
+}
+.gallery-compare-description strong {
+  color: var(--g-text);
+}
+.gallery-compare-bar button {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-compare-bar button:disabled {
+  color: var(--g-muted);
+}
+.gallery-compare-bar .gallery-compare-primary {
+  background: var(--g-current);
+  font-weight: 600;
+}
+.gallery-compare-link {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.gallery-compare-summary {
+  font-size: 11px;
+  color: var(--g-muted);
+  user-select: all;
+}
+.gallery-compare-grid {
+  display: grid;
+  gap: 20px 16px;
+  padding-top: 14px;
+  align-items: stretch;
+}
+.gallery-compare-grid--row {
+  grid-auto-flow: column;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+/* Captions of different lengths: the frames still line up at the bottom of each grid row. */
+.gallery-compare-cell {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gallery-compare-cell figcaption {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.gallery-compare-cell-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.gallery-compare-cell-head button {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-compare-cell-head a {
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-compare-arm {
+  font: 600 13px ui-monospace, monospace;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--g-hover);
+}
+.gallery-compare-cell[data-picked] .gallery-compare-arm,
+.gallery-compare-cell[data-picked] .gallery-compare-pick {
+  background: var(--g-current);
+  outline: 1px solid var(--g-text);
+}
+.gallery-compare-measure {
+  font: 11px ui-monospace, monospace;
+  color: var(--g-muted);
+}
+/* Tunables (Tunables.tsx): one curve editor per tunable, under the controls. */
+.gallery-tunables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+}
+.gallery-tunable {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  padding: 2px 10px 8px;
+  margin: 0;
+}
+.gallery-tunable legend {
+  font-size: 11px;
+  color: var(--g-muted);
+  cursor: help;
+}
+.gallery-tunable-plot {
+  touch-action: none;
+  user-select: none;
+}
+.gallery-tunable-box {
+  fill: var(--g-current);
+}
+.gallery-tunable-diagonal {
+  stroke: var(--g-line);
+  stroke-dasharray: 3 3;
+}
+.gallery-tunable-arm {
+  stroke: var(--g-muted);
+}
+.gallery-tunable-curve {
+  fill: none;
+  stroke: var(--g-text);
+  stroke-width: 2;
+}
+.gallery-tunable-handle {
+  fill: var(--g-panel);
+  stroke: var(--g-text);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.gallery-tunable-handle[data-held] {
+  fill: var(--g-text);
+  cursor: grabbing;
+}
+.gallery-tunable-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 170px;
+}
+.gallery-tunable-side label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-tunable-side select,
+.gallery-tunable-side input {
+  font: inherit;
+  color: var(--g-text);
+}
+.gallery-tunable-css {
+  font-size: 11px;
+  color: var(--g-muted);
+  white-space: nowrap;
+}
+.gallery-tunable-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--g-current);
+}
+.gallery-tunable-track span {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--g-text);
+  animation: gallery-tunable-run 1.4s infinite;
+}
+@keyframes gallery-tunable-run {
+  0% {
+    left: 1px;
+  }
+  65%,
+  100% {
+    left: calc(100% - 9px);
+  }
+}
+.gallery-tunable-side button {
+  align-self: start;
+}

@@ -151,7 +151,13 @@ impl Hub {
     /// `_acpmux/handoff_prepare`: capture the source's context and create
     /// the target (never prompted). The same `handoffKey` returns the same
     /// record.
-    pub async fn handoff_prepare(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {
+    /// `remote`: a remote-origin caller; its new target is a remote-origin
+    /// session (a remote chain, sandboxed when it runs Claude Code).
+    pub async fn handoff_prepare(
+        self: &Arc<Self>,
+        p: &Value,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
         let source_key = required(p, "sessionId")?;
         let harness = required(p, "harness")?;
         let key = required(p, "handoffKey")?;
@@ -263,6 +269,7 @@ impl Hub {
                         harness: Some(profile),
                         cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
+                        remote,
                         ..Default::default()
                     })
                     .await?;
@@ -566,6 +573,7 @@ impl Hub {
             // A Web start is checked against the target in the remote guard,
             // and its turn there is a Web turn (the remote floor).
             control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
+            trust_gate: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

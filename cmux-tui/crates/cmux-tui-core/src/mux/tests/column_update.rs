@@ -81,7 +81,7 @@ fn send(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Result<Val
 }
 
 fn flag(edge: DockEdge, mode: DockMode) -> Option<ColumnDock> {
-    Some(ColumnDock { edge, mode })
+    Some(ColumnDock::new(edge, mode))
 }
 
 #[test]
@@ -425,7 +425,7 @@ fn column_update_survives_a_restart() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-column-update", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-column-update", "test").unwrap(),
                 "session.restore_fixture",
                 &serde_json::json!({"fixture":"nested-columns"}),
                 None,

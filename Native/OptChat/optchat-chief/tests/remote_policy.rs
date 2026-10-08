@@ -381,7 +381,7 @@ fn a_child_spawned_from_an_ask_turn_asks_too() {
         "{question}"
     );
     // The Chief's own `agents allow` cannot answer it; a person does.
-    assert!(cli_may_answer(&ask_child("running")).is_err());
+    assert!(cli_may_answer(&ask_child("running"), &serde_json::json!({})).is_err());
     deliver(&mut h, false, "allow");
     assert!(h.agents.inner.lock().unwrap().responses.contains(&(
         "c1".into(),

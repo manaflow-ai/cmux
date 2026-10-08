@@ -1,9 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample history), not shipped UI.
+import { minutesAgo } from "../../gallery/clock";
 import { historyPageEntry } from "../../gallery/format";
 import type { HistoryEntry } from "./types";
 
-const now = Date.now();
-const ago = (hours: number) => now - hours * 3_600_000;
+const ago = (hours: number) => minutesAgo(hours * 60);
 
 const entries: HistoryEntry[] = [
   {
@@ -112,7 +112,17 @@ export default historyPageEntry({
       query: { menuIndex: 1 },
     },
     "network-error": { note: "The history owner is disconnected.", entries, error: "network" },
-    "permission-error": { note: "A history mutation is refused by the host.", entries, error: "permission" },
+    "permission-error": {
+      note: "A refused remove leaves the timeline intact; this page has no visible error notice yet.",
+      entries,
+      error: "permission",
+      query: { menuIndex: 1 },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.click({ selector: ".page-menu-item.destructive" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+      },
+    },
     "not-found-error": { note: "The history owner reports a missing source.", entries, error: "not-found" },
   },
 });

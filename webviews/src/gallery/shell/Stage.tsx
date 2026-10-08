@@ -114,6 +114,7 @@ export function Stage({
   entry,
   state,
   env,
+  tune,
   label,
   available,
   thumbnail,
@@ -121,11 +122,13 @@ export function Stage({
   entry: GalleryEntry;
   state: string;
   env: GalleryEnv;
+  /** The edited tunables (router.tsx ShellSearch `tune`). */
+  tune?: string;
   label?: string;
   available: { width: number; height: number };
   thumbnail: boolean;
 }) {
-  const query = frameQuery({ entry: entry.id, variant: state }, env);
+  const query = frameQuery({ entry: entry.id, variant: state, tune }, env);
   // Replay mounts the stage again, so its play steps run from the start.
   const [run, setRun] = useState(0);
   const [report, setReport] = useState<PlayReport | undefined>();
@@ -140,7 +143,9 @@ export function Stage({
     return () => removeEventListener("message", receive);
   }, []);
   const note = entry.variants[state]?.note;
-  const windowed = env.frame === "window" && entry.host !== "native";
+  // Component entries have their own natural bounds. Keep the window frame for page entries,
+  // but never make a component preview inherit the 16:9 window's scale.
+  const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
   let frame: { width: number; height: number };
   let scale = 1;
   if (windowed) {
@@ -154,6 +159,7 @@ export function Stage({
       width: widthPx(env.width, entry.widths ?? (entry.host === "native" ? NATIVE_WIDTHS : WIDTHS)),
       height: env.height || stageHeight(entry, state),
     };
+    scale = env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   }
   return (
     <figure className="gallery-stage">

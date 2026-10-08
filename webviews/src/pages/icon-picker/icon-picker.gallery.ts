@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (public-safe icon picker sessions), not shipped UI.
-import { iconPickerPageEntry } from "../../gallery/format";
+import { iconPickerPageEntry, type IconPickerPageVariant } from "../../gallery/format";
 
 const symbols = [
   "star",
@@ -26,6 +26,17 @@ const symbols = [
 
 const session = { id: "gallery-session", tab: "emoji", canClear: true, assets: true, symbols } as const;
 
+const assetPlay =
+  (failed: boolean): IconPickerPageVariant["play"] =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(".icon-asset-url input"));
+    await ctx.type("https://example.org/sample-icon.png", { selector: ".icon-asset-url input" });
+    await ctx.click({ selector: ".icon-asset-url button" });
+    await ctx.waitFor(() =>
+      ctx.document.querySelector(failed ? ".icon-asset-error" : ".icon-asset-url button:disabled"),
+    );
+  };
+
 export default iconPickerPageEntry({
   id: "pages.icon-picker",
   title: "Icon picker",
@@ -37,8 +48,21 @@ export default iconPickerPageEntry({
     "icon-picker/IconPicker.tsx",
     "icon-picker/AssetTab.tsx",
     "icon-picker/VirtualGrid.tsx",
+    "icon-picker/JumpBar.tsx",
   ],
   variants: {
+    "long-content": {
+      session,
+      note: "A long search query in the real search field.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-search"));
+        await ctx.type("face with a very long descriptive search query that exceeds the search field", {
+          selector: ".icon-picker-search",
+        });
+      },
+    },
+    loading: { session: { ...session, tab: "image" }, assetState: "loading", play: assetPlay(false) },
+    error: { session: { ...session, tab: "image" }, assetState: "error", play: assetPlay(true) },
     emoji: { note: "Emoji search with a focused field and selected cell.", session, active: 12 },
     symbols: { note: "The SF Symbols tab with a selected symbol.", session: { ...session, tab: "symbol" }, active: 8 },
     image: { note: "The image asset sheet with paste, file and URL actions.", session: { ...session, tab: "image" } },

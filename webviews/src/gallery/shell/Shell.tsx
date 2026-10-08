@@ -17,20 +17,19 @@ import themes from "virtual:cmux-gallery/themes";
 import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
+import { CompareView } from "./CompareView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
+import { Tunables } from "./Tunables";
+import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
+import { experimentalLabel } from "./strings";
 
 const VIEW_LABELS: Record<View, string> = {
   variant: "Variant",
   variants: "All variants",
   locales: "All locales",
   themes: "Themes",
+  compare: "Compare arms",
 };
-
-/** The sidebar's groups, in this order; an area no entry names yet still shows, at 0. */
-const AREAS = ["Agent pane", "New Tab", "Pages", "Home and Chief", "Settings", "Native"];
-/** Entry files with no loaded entry yet: their area is unknown until they load. */
-const FAILED_AREA = "Failed to load";
-const LOADING_AREA = "Loading";
 
 export const { router } = createGalleryRouter(Layout);
 
@@ -68,9 +67,10 @@ function useAddress(states: readonly EntryState[]): Address & { state: EntryStat
   const location = useRouterState({ router: router as never, select: (state) => state.location });
   return useMemo(() => {
     const [, entryId = "", variantId = ""] = location.pathname.split("/").map(decodeURIComponent);
-    const ready = readyEntries(states);
     const named = states.find((state) => known(state)?.id === entryId);
-    const fallback = ready[0] ? states.find((state) => state.entry === ready[0]) : undefined;
+    const fallback = sidebarGroups(states)
+      .flatMap((group) => group.states)
+      .find((state) => state.status === "ready" && state.entry);
     const state = named ?? fallback;
     const entry = state && known(state);
     const variants = entry ? Object.keys(entry.variants) : [];
@@ -101,20 +101,21 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
   const [active, setActive] = useState(-1);
   const needle = filter.trim().toLowerCase();
   const entries = readyEntries(states);
+  const groups = sidebarGroups(states);
+  const experimental = experimentalLabel(address.search.locale);
   const entryMatches = (entry: GalleryEntry) =>
-    !needle || `${entry.area} ${entry.title} ${entry.id}`.toLowerCase().includes(needle);
+    !needle ||
+    `${entry.area} ${entry.title} ${entry.id} ${entry.experimental ? experimental : ""}`.toLowerCase().includes(needle);
   const variantsOf = (entry: GalleryEntry) =>
     Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle));
   // The filter's arrow keys walk every visible variant in order; Return opens the active one.
-  const flat = entries.flatMap((entry) => variantsOf(entry).map((variant) => ({ entry: entry.id, variant })));
-  const areaOf = (state: EntryState) => known(state)?.area ?? (state.status === "error" ? FAILED_AREA : LOADING_AREA);
-  // A file that never loaded has no area yet: it shows at the top, under its own group.
-  const extra = [...new Set(states.map(areaOf).filter((area) => !AREAS.includes(area)))];
-  const areas = [
-    ...extra.filter((area) => area === FAILED_AREA || area === LOADING_AREA),
-    ...AREAS,
-    ...extra.filter((area) => area !== FAILED_AREA && area !== LOADING_AREA).sort(),
-  ];
+  const flat = groups.flatMap((group) =>
+    group.states.flatMap((state) =>
+      state.status === "ready" && state.entry
+        ? variantsOf(state.entry).map((variant) => ({ entry: state.entry!.id, variant }))
+        : [],
+    ),
+  );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
   const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
   return (
@@ -142,10 +143,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
           }}
         />
       </div>
-      {areas.map((area) => {
-        const all = states
-          .filter((state) => areaOf(state) === area)
-          .sort((a, b) => (known(a)?.title ?? a.path).localeCompare(known(b)?.title ?? b.path));
+      {groups.map(({ area, states: all }) => {
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
         const items = all.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
         if (needle && items.length === 0) return null;
@@ -154,7 +152,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
         return (
           <section key={area} className="gallery-group">
             <h2>
-              {area}{" "}
+              {area === EXPERIMENTAL_AREA ? experimental : area}{" "}
               <span className="gallery-count">
                 {all.length} · {variantCount}
               </span>
@@ -355,10 +353,11 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
       <header className="gallery-header">
         <h1>
           {entry.title} <small>{entry.id}</small> <small>· {variant}</small>
+          {entry.experimental && <span className="gallery-experimental">{experimentalLabel(env.locale)}</span>}
         </h1>
         <fieldset className="gallery-segmented">
           <legend>View</legend>
-          {VIEWS.map((view) => (
+          {VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => (
             <label key={view}>
               <input
                 type="radio"
@@ -371,7 +370,19 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             </label>
           ))}
         </fieldset>
-        <Controls env={env} onChange={(next) => go({ ...address, search: { ...next, view: search.view } }, true)} />
+        <Controls
+          env={env}
+          onChange={(next) =>
+            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
+          }
+        />
+        {entry.tunables && entry.tunables.length > 0 && (
+          <Tunables
+            tunables={entry.tunables}
+            tune={search.tune}
+            onChange={(tune) => go({ ...address, search: { ...search, tune } }, true)}
+          />
+        )}
         <details className="gallery-covers">
           <summary>
             {entry.host} · covers {entry.covers.length}
@@ -380,12 +391,30 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         </details>
       </header>
       <div ref={stagesRef} className={`gallery-stages gallery-stages--${search.view}`}>
-        {entry.pick && search.view === "variants" ? (
+        {entry.experiment && search.view === "compare" ? (
+          <CompareView
+            entry={entry}
+            experiment={entry.experiment}
+            variant={variant}
+            env={env}
+            tune={search.tune}
+            compare={search.compare}
+            room={room}
+            onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
+          />
+        ) : entry.pick && search.view === "variants" ? (
           <GalleryVariantPick
             entry={entry}
             locale={env.locale}
             preview={(name) => (
-              <Stage entry={entry} state={name} env={env} available={{ width: 420, height: room.height }} thumbnail />
+              <Stage
+                entry={entry}
+                state={name}
+                env={env}
+                tune={search.tune}
+                available={{ width: 420, height: room.height }}
+                thumbnail
+              />
             )}
           />
         ) : (
@@ -395,6 +424,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               entry={entry}
               state={stage.variant}
               env={stage.env}
+              tune={search.tune}
               label={stage.label}
               available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
               thumbnail={search.view !== "variant"}

@@ -1,0 +1,25 @@
+{
+  "name": "@cmux/vm",
+  "version": "0.1.0",
+  "description": "TypeScript client for the cmux VM API, generated from its OpenAPI document",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../openapi.json --output src/schema.d.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "check": "bun run generate && bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

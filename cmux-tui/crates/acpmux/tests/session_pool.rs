@@ -505,7 +505,8 @@ async fn a_pool_claim_in_a_mode_that_does_not_ask_refuses_a_web_prompt() {
 /// ACP-REMOTE-GUARD B1, the Claude backend's claim path (`claude_state`):
 /// a pooled Claude session whose profile pins `--permission-mode
 /// bypassPermissions` (the fake reports the pinned mode, as Claude Code
-/// does) is claimed in that mode, and a Web prompt is refused.
+/// does) is claimed in that mode, and a Web prompt is refused (D13 refuses
+/// any Claude session the Mac started).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     use futures::{SinkExt, StreamExt};
@@ -545,8 +546,9 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
             break v;
         }
     };
-    assert_eq!(reply["error"]["data"]["reason"], "remote.mode_not_asking", "{reply}");
-    assert_eq!(reply["error"]["data"]["mode"], "bypassPermissions", "{reply}");
+    // A Claude session the Mac started is never Web-controlled (D13); its
+    // mode does not ask either (above).
+    assert_eq!(reply["error"]["data"]["reason"], "remote.local_claude_session", "{reply}");
 }
 
 /// LAUNCH-NO-TCC-PROMPTS: an agent nobody asked for (a prewarm, a warm) never

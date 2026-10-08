@@ -1,8 +1,10 @@
 //! Property tests for the health reducer (server.md 9.3).
 //!
-//! Generated facts avoid the hysteresis bands (battery 20-21%, disk 5-7% and
-//! 10-12%, quota 78-80%), where the result legitimately depends on the
-//! previous severity; health_cases.rs covers the bands.
+//! Generated facts avoid the hysteresis bands (battery 20-21%; disk free
+//! under 7% and 4 GiB but not under 5% and 2 GiB, or under 12% and 12 GiB
+//! but not under 10% and 10 GiB; quota 78-80%), where the result
+//! legitimately depends on the previous severity; health_cases.rs covers
+//! the bands.
 
 use std::collections::BTreeMap;
 
@@ -27,16 +29,29 @@ fn power() -> impl Strategy<Value = Option<PowerFacts>> {
 }
 
 fn disk() -> impl Strategy<Value = Option<DiskFacts>> {
+    // (total GiB, free GiB): critical, warning and clear on a 100 GiB, a
+    // 1 TiB and a 40 GiB disk, including 4.9% of 1 TiB (clear: the byte
+    // threshold binds) and 15% of 40 GiB (clear: the percent threshold binds).
+    let cases: Vec<(u64, u64)> = vec![
+        (100, 1),
+        (100, 5),
+        (100, 8),
+        (100, 15),
+        (100, 50),
+        (1024, 1),
+        (1024, 5),
+        (1024, 15),
+        (1024, 50),
+        (40, 1),
+        (40, 3),
+        (40, 6),
+    ];
     prop_oneof![
         Just(None),
-        (
-            prop::sample::select(vec![100 * GIB, 1024 * GIB]),
-            prop::sample::select(vec![1u64, 3, 8, 15, 50])
-        )
-            .prop_map(|(total, pct)| Some(DiskFacts {
-                free_bytes: total / 100 * pct,
-                total_bytes: total
-            })),
+        prop::sample::select(cases).prop_map(|(total, free)| Some(DiskFacts {
+            free_bytes: free * GIB,
+            total_bytes: total * GIB
+        })),
     ]
 }
 
