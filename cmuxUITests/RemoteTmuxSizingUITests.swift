@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import Darwin
+import CoreGraphics
 
 /// End-to-end gate for remote-tmux mirror sizing, against a REAL tmux server.
 ///
@@ -87,6 +88,86 @@ final class RemoteTmuxSizingUITests: XCTestCase {
     }
 
     // MARK: scenarios
+
+    /// An external harness owns a throwaway virtual display and removes it
+    /// when requested. This exercises WindowServer's real display-removal
+    /// events, rather than posting a notification or manually resizing.
+    func testDisplayDisconnectRefreshesVisiblePaneGrids() throws {
+        struct DisplayHarness: Decodable {
+            let displayID: UInt32
+            let requestPath: String
+            let recordingPath: String?
+        }
+        let manifestPath = "/tmp/cmux-ui-test-tmux-display-harness.json"
+        guard let data = FileManager.default.contents(atPath: manifestPath) else {
+            throw XCTSkip("Display-disconnect harness is not running")
+        }
+        let harness = try JSONDecoder().decode(DisplayHarness.self, from: data)
+        // A retired virtual-display ID can make CGDisplayIsOnline return -1.
+        // Membership in the online inventory verifies actual removal.
+        func displayIsOnline() -> Bool {
+            var count: UInt32 = 0
+            XCTAssertEqual(CGGetOnlineDisplayList(0, nil, &count), .success)
+            var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+            XCTAssertEqual(CGGetOnlineDisplayList(count, &displays, &count), .success)
+            return displays.prefix(Int(count)).contains(harness.displayID)
+        }
+        XCTAssertTrue(displayIsOnline(), "test display is not online")
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        attachSession()
+        let windowID = try XCTUnwrap(mirrorWindowId)
+        let displays = try XCTUnwrap(socketJSON(method: "window.displays", params: [:])?["displays"] as? [[String: Any]])
+        let target = try XCTUnwrap(displays.first { ($0["display_id"] as? NSNumber)?.uint32Value == harness.displayID })
+        let displayIndex = try XCTUnwrap(target["index"] as? Int)
+        let moved = socketJSON(method: "window.display", params: [
+            "window_id": windowID, "display": "\(displayIndex)",
+        ])
+        XCTAssertEqual(moved?["ok"] as? Bool, true, "could not move onto test display: \(moved ?? [:])")
+        setMirrorWindowSize(CGSize(width: 2400, height: 1000))
+        // Recenter after growing so the whole window is on the test display.
+        XCTAssertEqual(socketJSON(method: "window.display", params: [
+            "window_id": windowID, "display": "\(displayIndex)",
+        ])?["ok"] as? Bool, true)
+        try startRulers(window: 0)
+        try assertSettles(selectedWindow: 0, within: 10, context: "on the virtual display")
+        let before = try XCTUnwrap(pushedCols(window: 0))
+
+        var isRecording = false
+        if let path = harness.recordingPath {
+            let recording = socketJSON(method: "window.record.start", params: [
+                "window": windowID, "format": "gif", "max_seconds": 20,
+                "max_width": 1000, "out": path,
+            ])
+            XCTAssertEqual(recording?["ok"] as? Bool, true, "recording did not start: \(recording ?? [:])")
+            isRecording = recording?["ok"] as? Bool == true
+            _ = socketJSON(method: "window.record.note", params: ["text": "Removing the external display"])
+        }
+        defer {
+            if isRecording {
+                _ = socketJSON(method: "window.record.stop", params: [:])
+            }
+        }
+
+        try Data("disconnect".utf8).write(to: URL(fileURLWithPath: harness.requestPath))
+        let deadline = Date().addingTimeInterval(10)
+        while displayIsOnline(), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertFalse(displayIsOnline(), "test display was not removed")
+        try assertSettles(selectedWindow: 0, within: 10, context: "after display removal")
+        try assertRootContentTracksWindow(context: "after display removal")
+        try assertClaimsWithinWindowCeiling(context: "after display removal")
+        let after = try XCTUnwrap(pushedCols(window: 0))
+        XCTAssertLessThan(after, before, "tmux did not shrink after losing the larger display")
+        try assertWindowContentMatchesTmux(window: 0, context: "after display removal")
+        if isRecording {
+            _ = socketJSON(method: "window.record.note", params: ["text": "Display removed; tmux panes match the new size"])
+        }
+        print("Display disconnect: display \(harness.displayID) removed, tmux \(before) -> \(after) columns")
+    }
 
     /// Attach a session holding a 3-pane split window plus a single-pane
     /// window; the client must settle to one stable, coherent size.

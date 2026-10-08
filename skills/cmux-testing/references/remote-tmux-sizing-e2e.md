@@ -18,6 +18,21 @@ xcodebuild test -project cmux.xcodeproj -scheme cmux -configuration Debug \
 
 Scope to one scenario while iterating with `-only-testing:cmuxUITests/RemoteTmuxSizingUITests/<testName>`. Requires a local `tmux` at `/opt/homebrew/bin/tmux`, `/usr/local/bin/tmux`, or `/usr/bin/tmux` (the exact paths the suite and the `test_exec` allowlist probe); it skips when none exists.
 
+`testDisplayDisconnectRefreshesVisiblePaneGrids` needs an external display
+harness. Build and launch `scripts/create-virtual-display.m` with a 2560x1440
+mode, then write `/tmp/cmux-ui-test-tmux-display-harness.json`:
+
+```json
+{"displayID": 8, "requestPath": "/path/in/test-runner-home/disconnect.request", "recordingPath": "/tmp/tmux-display-disconnect.gif"}
+```
+
+Use the helper's actual display ID and a request path writable by the sandboxed
+test runner. The external controller watches for that file and stops only its
+own display-helper process. The test moves its window onto that display,
+requests removal, and checks that tmux shrinks, pane grids settle, and terminal
+content matches. `recordingPath` is optional. Remove the manifest afterward;
+without it, the disconnect scenario skips while the other scenarios still run.
+
 As a sandboxed agent, `xcodebuild` cannot run under the Bash-tool sandbox (its SwiftPM resolver's `sandbox-exec` dies with `Operation not permitted`). Run it outside the sandbox through the ssh hairpin, exactly like the build:
 
 ```bash
