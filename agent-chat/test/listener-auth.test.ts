@@ -4,7 +4,8 @@
 // a token is mandatory (generated per launch when no launcher gives one),
 // and every route refuses a foreign Host or Origin.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,22 +22,33 @@ async function waitForFile(path: string): Promise<string> {
   throw new Error(`${path} was not written`);
 }
 
-async function startServer(token?: string): Promise<Server> {
-  const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+function serverEnv(dir: string): Record<string, string> {
   // A minimal PATH: the server's startup probes agent CLIs on PATH, and the
   // test must neither start them nor depend on them.
-  const env: Record<string, string> = {
+  return {
     PATH: "/usr/bin:/bin",
     HOME: dir,
     CMUX_AGENT_CHAT_PORT: "0",
     CMUX_AGENT_CHAT_STATE_FILE: join(dir, "state.json"),
     CMUX_AGENT_CHAT_TOKEN_FILE: join(dir, "token"),
   };
-  if (token) env.CMUX_AGENT_CHAT_TOKEN = token;
+}
+
+/// A server; `token` is handed over an inherited descriptor (--token-fd 3),
+/// as a launcher does: never argv or the environment.
+async function startServer(token?: string): Promise<Server> {
+  const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+  const env = serverEnv(dir);
   const log = Bun.file(join(dir, "server.log"));
-  const proc = Bun.spawn([process.execPath, "server.ts"], {
-    cwd: join(import.meta.dir, ".."), env, stdout: log, stderr: log,
+  let fd: number | undefined;
+  if (token) {
+    await writeFile(join(dir, "given"), `${token}\n`, { mode: 0o600 });
+    fd = openSync(join(dir, "given"), "r");
+  }
+  const proc = Bun.spawn([process.execPath, "server.ts", ...(token ? ["--token-fd", "3"] : [])], {
+    cwd: join(import.meta.dir, ".."), env, stdio: ["ignore", log, log, ...(fd === undefined ? [] : [fd])] as any,
   });
+  if (fd !== undefined) closeSync(fd);
   const state = JSON.parse(await waitForFile(env.CMUX_AGENT_CHAT_STATE_FILE).catch(async (error) => {
     throw new Error(`${error}; server log:\n${await log.text().catch(() => "")}`);
   }));
@@ -84,7 +96,8 @@ test("a server started without a token generates one and keeps it owner-only", a
 
 test("path tricks never reach a route without the token", async () => {
   const host = { Host: `127.0.0.1:${generated.port}` };
-  for (const path of [`/${token}/../api/theme`, `//${token}/api/theme`, `/healthz/../api/theme`, `/api/theme?token=${token}`]) {
+  for (const path of [`/${token}/../api/theme`, `//${token}/api/theme`, `/healthz/../api/theme`, `/api/theme?token=${token}`,
+    `/%2F${token}/api/theme`, `/${token}%2Fapi/theme`, `/x/..%2F${token}/api/theme`]) {
     expect({ path, status: await request(generated.port, path, host) }).toEqual({ path, status: 404 });
   }
 });
@@ -144,6 +157,25 @@ test("a foreign Origin is refused on every route, also with the token", async ()
     expect(await request(generated.port, `/${token}/api/theme`, { ...host, Origin: origin })).toBe(200);
   }
 });
+
+test("a token in argv or the environment is refused at start", async () => {
+  const given = "launcher-token-0123456789abcdef0123456789abcdef";
+  const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+  try {
+    for (const [args, extra] of [[["--token", given], {}], [[`--token=${given}`], {}], [[], { CMUX_AGENT_CHAT_TOKEN: given }]] as const) {
+      const proc = Bun.spawn([process.execPath, "server.ts", ...args], {
+        cwd: join(import.meta.dir, ".."), env: { ...serverEnv(dir), ...extra }, stdout: "ignore", stderr: "pipe",
+      });
+      const code = await Promise.race([proc.exited, Bun.sleep(15_000).then(() => "running" as const)]);
+      if (code === "running") proc.kill();
+      expect({ args, code }).not.toEqual({ args, code: "running" });
+      expect(code).not.toBe(0);
+      expect(await stat(join(dir, "state.json")).catch(() => null)).toBeNull();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test("a launcher token is used as given and no token file is written", async () => {
   const given = "launcher-token-0123456789abcdef0123456789abcdef";
