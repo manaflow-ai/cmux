@@ -44,7 +44,7 @@ struct GhosttyDECCKMArrowKeyTests {
             tty.setraw(fd)
             data = bytearray()
             deadline = time.monotonic() + 3.0
-            while time.monotonic() < deadline and len(data) < 12:
+            while time.monotonic() < deadline and len(data) < 18:
                 if select.select([sys.stdin], [], [], 0.05)[0]:
                     data.extend(os.read(fd, 64))
         finally:
