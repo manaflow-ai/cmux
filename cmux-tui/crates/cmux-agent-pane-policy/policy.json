@@ -73,5 +73,12 @@
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
-    "folder", "folders", "root", "roots", "worktree", "worktreePath"]
+    "folder", "folders", "root", "roots", "worktree", "worktreePath"],
+  "question_answers": {
+    "description": "Crate rule, stricter than the Swift host today (the coordinator's security decision 2026-10-07; Swift half filed to the ask-gallery lane): answers only for a pending question (toolCall._meta.acpmux.question), as an object of at most 64 item ids, each a string or a list of strings of at most 4096 UTF-8 bytes. tests/cases/check.json marks the Swift gap (swift_gap).",
+    "method": "_acpmux/permission_respond",
+    "param": "answers",
+    "maximum_items": 64,
+    "maximum_value_bytes": 4096
+  }
 }

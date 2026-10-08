@@ -60,7 +60,13 @@ const status: Status = {
   last_turn: turns[1]!,
   last_error: null,
   trace_on: false,
-  constants: { node_bytes: 2_048, view_bytes: 12_000, marks: [4_000, 8_000], grid: 1_000, placeholder: "…" },
+  constants: {
+    node_bytes: 2_048,
+    view_bytes: 12_000,
+    marks: [4_000, 8_000],
+    grid: 1_000,
+    placeholder: "…",
+  },
 };
 
 const viewText = "L3.0 Release planning and the dock rework\nL2.4 Inspector page over the owner session\n";
@@ -74,7 +80,14 @@ const prompt: TurnPrompt = {
   note: null,
   view: { text: viewText, bytes: viewText.length, marks: [], grid: [], parts: ["L3.0", "L2.4"] },
   messages: [{ id: 1_230, kind: "user", text: "Show me what the Chief remembers about the dock." }],
-  system_parts: [{ label: "Instructions", explain: "The harness's fixed system text.", text: "You are the Chief.", bytes: 18 }],
+  system_parts: [
+    {
+      label: "Instructions",
+      explain: "The harness's fixed system text.",
+      text: "You are the Chief.",
+      bytes: 18,
+    },
+  ],
 };
 
 const replies: Record<string, unknown> = {
@@ -113,7 +126,10 @@ export default componentEntry<Props>({
   load: async () => ChiefInspectorGallery,
   styles: () => import("../../optchat-inspector/styles.css"),
   variants: {
-    prompt: { note: "The next turn's prompt: system parts, view and new messages.", props: { tab: "prompt" } },
+    prompt: {
+      note: "The next turn's prompt: system parts, view and new messages.",
+      props: { tab: "prompt" },
+    },
     timeline: { note: "Two recorded turns with cache hit rates.", props: { tab: "timeline" } },
     unreachable: {
       note: "The paired server's Chief does not answer.",
