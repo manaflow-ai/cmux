@@ -1725,7 +1725,8 @@ extension Workspace {
             )
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
-                !restoresRemoteWorkspaceTerminalSnapshot
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                !shouldAutoResumeNormallyEndedClaude
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
                 if !restoreStartupBlocked,
                    liveSessionOwner == nil,

@@ -357,8 +357,9 @@ extension DockSplitStore {
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let unresolvedBindingLaunch = restoreStartupBlocked || liveSessionOwner != nil ||
-            stablePanelHasLiveProcess
+        let shouldSkipBindingLaunch = shouldAutoResumeNormallyEndedClaude ||
+            restoreStartupBlocked || liveSessionOwner != nil || stablePanelHasLiveProcess
+        let unresolvedBindingLaunch = shouldSkipBindingLaunch
             ? nil
             : approvedResumeBinding.flatMap {
                 policy.surfaceResumeStartupLaunch(
