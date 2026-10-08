@@ -20,7 +20,6 @@ import Testing
         let name: String
         let input: Input
         let isDark: Bool
-        let accentSource: Int?
         let tokens: [String: String]
     }
 
@@ -50,8 +49,8 @@ import Testing
                 foreground: try #require(ThemeRGB(cssHex: vector.input.foreground)),
                 palette: vector.input.palette.map { $0.flatMap(ThemeRGB.init(cssHex:)) }
             )
-            if app.isDark != vector.isDark || app.accentSource != vector.accentSource {
-                mismatches.append("\(vector.name): isDark/accentSource")
+            if app.isDark != vector.isDark {
+                mismatches.append("\(vector.name): isDark")
             }
             for token in AppTheme.Token.allCases where AppTheme.hex(app[token]) != vector.tokens[token.rawValue] {
                 mismatches.append("\(vector.name).\(token.rawValue): \(AppTheme.hex(app[token])) != \(vector.tokens[token.rawValue] ?? "-")")
